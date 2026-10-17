@@ -9,6 +9,8 @@
 # For *.exfat:
 #   - extraction equals PS5PKGTool's exFAT reader (tools/oracle),
 #   - exFAT -> FFPFSC -> exFAT is byte-identical to the original.
+# For *.ffpfsc:
+#   - the SHA-256 of the decoded payload equals PS5PKGTool's verifier.
 #   tools/pkg-oracle/check_samples.sh [passcode]
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -71,5 +73,12 @@ for image in "$repo"/.refs/samples/*.exfat; do
     "$alembic" convert "$w/w.ffpfsc" "$w/back.exfat" >/dev/null 2>&1
     if cmp -s "$image" "$w/back.exfat"; then echo "same  exFAT -> FFPFSC -> exFAT"
     else echo "DIFF  exFAT -> FFPFSC -> exFAT"; fail=1; fi
+done
+for container in "$repo"/.refs/samples/*.ffpfsc; do
+    echo "== $(basename "$container")"
+    ours="$("$alembic" ffpfsc-verify "$container" 2>/dev/null | awk '/payload sha256/ {print $3}')"
+    theirs="$(oracle ffpfsc-verify "$container")"
+    if [[ -n "$ours" && "$ours" == "$theirs" ]]; then echo "same  decoded payload SHA-256"
+    else echo "DIFF  decoded payload SHA-256 ($ours vs $theirs)"; fail=1; fi
 done
 exit $fail

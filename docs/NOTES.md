@@ -413,6 +413,13 @@ an FFPKG (UFS2) and a large FFPFSC.
   ("shuffled NAPS blocks are not supported"), as no reader decodes it.
 - FIH 0xB0 is not SHA3(decoded mount) in package A, despite LibProsperoPKG's
   docs; its meaning is unknown.
+- A 12.9 GB FFPFSC (29.7 GB exFAT payload, 452,736 PFSC blocks): the decoded
+  payload's SHA-256 equals PS5PKGTool's. Ours took 105 s vs 46 s: most of
+  it is our scalar SHA-256 (.NET uses the CPU's SHA instructions). Use
+  hardware SHA/AES where available in the performance pass.
+- The FFPKG sample is a UFS2 image (superblock magic 0x19540119 at
+  0x1055C) of a PS5 app (`param.json`, a homebrew-range title ID), not a
+  PS4 dump.
 
 ## Next step
 
