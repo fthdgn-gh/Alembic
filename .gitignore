@@ -1,0 +1,6 @@
+/build/
+/.refs/
+/compile_commands.json
+/tools/oracle/bin/
+/tools/oracle/obj/
+.DS_Store

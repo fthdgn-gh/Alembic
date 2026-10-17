@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Test oracle: runs PS5PKGTool's own code so Alembic's output can be
+       compared byte for byte. Point PS5PKGToolDir at a PS5PKGTool checkout:
+       dotnet build -p:PS5PKGToolDir=/path/to/PS5PKGTool -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PS5PKGToolDir Condition="'$(PS5PKGToolDir)' == ''">$(MSBuildThisFileDirectory)../../.refs/PS5PKGTool</PS5PKGToolDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(PS5PKGToolDir)/PS5PKGTool.Ffpfsc/PS5PKGTool.Ffpfsc.csproj" />
+  </ItemGroup>
+</Project>

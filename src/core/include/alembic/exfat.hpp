@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Builds an exFAT image from a dump folder as a forward-only byte stream, so
+// it can go straight into a file or into the PFSC encoder without a temporary
+// copy. The layout is deterministic and mirrors MkPFS; it is ported from
+// PS5PKGTool's ExfatImage.cs and must stay byte-identical to it.
+#pragma once
+
+#include "alembic/io.hpp"
+
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <string>
+
+namespace alembic::exfat {
+
+struct BuildOptions {
+    // Power of two from 4 KiB to 32 MiB. Default: 64 KiB when the average file
+    // is at least 1 MiB, otherwise 32 KiB.
+    std::optional<std::uint32_t> cluster_size;
+    // Add ampr_emu.index when the dump has fakelib/libSceAmpr.sprx.
+    bool generate_ampr_index = true;
+};
+
+class ImageBuilder {
+public:
+    // Scans the folder and plans the layout. Nothing is written yet.
+    static Result<ImageBuilder> scan(const std::string& source_directory, const BuildOptions& options = {});
+
+    ImageBuilder(ImageBuilder&&) noexcept;
+    ImageBuilder& operator=(ImageBuilder&&) noexcept;
+    ~ImageBuilder();
+
+    std::uint64_t image_length() const;
+    std::uint32_t cluster_size() const;
+    std::uint32_t file_count() const;
+    std::uint32_t directory_count() const; // includes the root
+
+    // Streams exactly image_length() bytes into `sink`. Source files are read
+    // during this call and must not change in between.
+    Status write(ByteSink& sink, const ProgressFn& progress = {}) const;
+
+private:
+    struct Impl;
+    explicit ImageBuilder(std::unique_ptr<Impl> impl);
+    std::unique_ptr<Impl> impl_;
+};
+
+// Scans `source_directory` and writes the image to a new file at `output_path`.
+Status write_directory_image(const std::string& source_directory, const std::string& output_path,
+                             const BuildOptions& options = {}, const ProgressFn& progress = {});
+
+} // namespace alembic::exfat
