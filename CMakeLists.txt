@@ -10,6 +10,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(ZLIB REQUIRED)
+find_package(Threads REQUIRED)
 
 # The PS5 build forbids exceptions and RTTI, so the host build does too.
 set(ALEMBIC_COMPILE_OPTIONS -fno-exceptions -fno-rtti -Wall -Wextra -Wpedantic)
@@ -37,7 +38,7 @@ target_include_directories(alembic_core
     PRIVATE src/core
 )
 target_compile_options(alembic_core PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
-target_link_libraries(alembic_core PUBLIC ZLIB::ZLIB)
+target_link_libraries(alembic_core PUBLIC ZLIB::ZLIB Threads::Threads)
 
 if(ALEMBIC_BUILD_CLI)
     add_executable(alembic src/cli/main.cpp)

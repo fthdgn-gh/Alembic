@@ -49,7 +49,8 @@ void usage() {
         "        --block-size N      PFS block size (default 65536)\n"
         "        --case-sensitive    clear the PFS case-insensitive flag\n"
         "        --overwrite         replace an existing output file\n"
-        "        plus --level, --min-gain, and for folders the exfat options\n"
+        "        plus --level, --min-gain, --threads N (0 = all cores, the default),\n"
+        "        and for folders the exfat options\n"
         "  ffpfsc-info <in.ffpfsc>\n"
         "        print the PFS and PFSC layout\n"
         "  ffpfsc-extract <in.ffpfsc> <out-image>\n"
@@ -151,6 +152,11 @@ bool parse_scheme(const Args& args, ampr::Scheme& scheme) {
 }
 
 bool parse_compression(const Args& args, pfsc::CompressionOptions& options) {
+    if (auto threads = args.get("--threads")) {
+        auto value = parse_number(threads->c_str());
+        if (!value || *value > 64) return std::fputs("error: bad --threads (0-64, 0 = all cores)\n", stderr), false;
+        options.threads = static_cast<unsigned>(*value);
+    }
     if (auto level = args.get("--level")) {
         auto value = parse_number(level->c_str());
         if (!value || *value > 9) return std::fputs("error: bad --level\n", stderr), false;

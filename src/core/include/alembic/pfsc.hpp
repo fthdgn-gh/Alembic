@@ -32,6 +32,7 @@ inline constexpr std::uint64_t kMaxBlockCount = 16'777'216;
 struct CompressionOptions {
     int level = 9;                // zlib level, 0-9
     int minimum_gain_percent = 5; // keep a compressed block only if it saves this much
+    unsigned threads = 0;         // compression threads; 0 = one per CPU core
 };
 
 struct WriteResult {
@@ -57,6 +58,8 @@ std::uint64_t header_size_for(std::uint64_t source_length);
 
 // Streaming encoder. Push exactly `source_length` bytes through write(), then
 // call finish(). The output is written to `destination` starting at `start`.
+// Blocks are compressed on `options.threads` worker threads and written in
+// order, so the output does not depend on the thread count.
 class Encoder final : public ByteSink {
 public:
     Encoder(File& destination, std::uint64_t start, std::uint64_t source_length,
@@ -70,19 +73,17 @@ public:
     Result<WriteResult> finish();
 
 private:
-    Status flush_block(std::uint32_t valid_bytes);
+    struct Pipeline;
+    Status submit_current(std::uint32_t valid_bytes);
+    Status drain_one();
 
-    struct Zlib;
     File& destination_;
     std::uint64_t start_;
     std::uint64_t source_length_;
     CompressionOptions options_;
     ProgressFn progress_;
-    std::unique_ptr<Zlib> zlib_;
-    std::vector<std::uint8_t> block_;
-    std::vector<std::uint8_t> compressed_;
+    std::unique_ptr<Pipeline> pipeline_;
     std::vector<std::uint64_t> offsets_;
-    std::uint32_t block_fill_ = 0;
     std::uint32_t block_count_ = 0;
     std::uint32_t blocks_done_ = 0;
     std::uint32_t compressed_blocks_ = 0;

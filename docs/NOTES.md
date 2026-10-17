@@ -451,9 +451,21 @@ an option or a different default for images meant for SMP.
   survives FFPKG → FFPFSC → FFPKG byte for byte, and FFPKG → exFAT → folder.
 - The CLI prints live progress only on a terminal.
 
+### 2026-10-17: multi-threaded PFSC compression
+
+- Owner tested an Alembic FFPFSC (from package B) on a PS5 with
+  ShadowMountPlus: **it mounts and runs.**
+- `pfsc::Encoder` now compresses on worker threads (`CompressionOptions::threads`,
+  CLI `--threads N`, default all cores): a ring of 64 KiB block slots, each
+  worker with its own zlib stream, results written strictly in order, so the
+  output is byte-identical for any thread count (checked; PS5PKGTool parity
+  47/47 still).
+- Package B (2.7 GB image) on a 14-core M-series Mac: compression 114 s →
+  11.4 s; FPKG → FFPFSC end to end 121 s → 12.4 s, 40 MB RAM.
+
 ## Next step
 
-Done: FPKG → folder/exFAT/FFPFSC; FFPKG reading. Candidates for the next step, in the
+Done: FPKG → folder/exFAT/FFPFSC; FFPKG reading; multi-threaded compression. Candidates for the next step, in the
 agreed order: a PS5 cross-build of the core (ps5-payload-sdk); LZ4 asset
 packs; multi-threaded PFSC compression (69 s → a few seconds on 8+ cores);
 the FPKG builder; UFS2 writing (SMP's recommended format); PFS `.ffpfs`

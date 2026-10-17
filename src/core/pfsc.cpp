@@ -5,7 +5,11 @@
 #include "alembic/bytes.hpp"
 
 #include <algorithm>
+#include <condition_variable>
 #include <cstring>
+#include <deque>
+#include <mutex>
+#include <thread>
 #include <zlib.h>
 
 namespace alembic::pfsc {
@@ -28,11 +32,102 @@ std::uint64_t header_size_for(std::uint64_t source_length) {
     return kInitialDataOffset + div_round_up(extra, kBlockSize) * kBlockSize;
 }
 
-struct Encoder::Zlib {
+namespace {
+
+// One zlib stream, reused for every block it compresses.
+struct Deflater {
     z_stream stream{};
     bool ready = false;
-    ~Zlib() {
+    ~Deflater() {
         if (ready) deflateEnd(&stream);
+    }
+    bool init(int level) {
+        // Same parameters as .NET ZLibStream: zlib wrapper, 32 KiB window, memLevel 8.
+        ready = deflateInit2(&stream, level, Z_DEFLATED, 15, 8, Z_DEFAULT_STRATEGY) == Z_OK;
+        return ready;
+    }
+    // Returns the compressed length, or 0 on failure.
+    std::uint32_t compress(const std::uint8_t* in, std::uint8_t* out, std::size_t out_capacity) {
+        if (deflateReset(&stream) != Z_OK) return 0;
+        stream.next_in = const_cast<std::uint8_t*>(in);
+        stream.avail_in = kBlockSize;
+        stream.next_out = out;
+        stream.avail_out = static_cast<uInt>(out_capacity);
+        if (deflate(&stream, Z_FINISH) != Z_STREAM_END) return 0;
+        return static_cast<std::uint32_t>(stream.total_out);
+    }
+};
+
+} // namespace
+
+// A ring of block slots. The producer fills a slot and queues it; workers
+// compress queued slots; the producer drains slots in submission order before
+// reusing them, so output order never depends on scheduling.
+struct Encoder::Pipeline {
+    struct Slot {
+        std::vector<std::uint8_t> input;
+        std::vector<std::uint8_t> output;
+        std::uint32_t compressed = 0; // 0 = failed
+        bool busy = false;            // submitted and not yet drained
+        bool done = false;            // compressed, waiting to be drained
+    };
+
+    std::vector<Slot> slots;
+    std::size_t fill_slot = 0;  // slot being filled by the producer
+    std::size_t drain_slot = 0; // oldest submitted slot
+    std::size_t in_flight = 0;
+    std::uint32_t fill = 0;     // bytes in the fill slot
+    int level = 9;
+
+    // Single-threaded mode compresses inline with this stream.
+    Deflater inline_deflater;
+
+    // Worker mode.
+    std::vector<std::thread> workers;
+    std::deque<std::size_t> queue;
+    std::mutex mutex;
+    std::condition_variable work_ready;
+    std::condition_variable slot_done;
+    bool stopping = false;
+    bool worker_init_failed = false;
+
+    ~Pipeline() { stop(); }
+
+    void stop() {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            stopping = true;
+        }
+        work_ready.notify_all();
+        for (std::thread& t : workers) t.join();
+        workers.clear();
+    }
+
+    void run_worker() {
+        Deflater deflater;
+        if (!deflater.init(level)) {
+            std::lock_guard<std::mutex> lock(mutex);
+            worker_init_failed = true;
+        }
+        for (;;) {
+            std::size_t index;
+            {
+                std::unique_lock<std::mutex> lock(mutex);
+                work_ready.wait(lock, [&] { return stopping || !queue.empty(); });
+                if (queue.empty()) return; // stopping
+                index = queue.front();
+                queue.pop_front();
+            }
+            Slot& slot = slots[index];
+            std::uint32_t length =
+                deflater.ready ? deflater.compress(slot.input.data(), slot.output.data(), slot.output.size()) : 0;
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                slot.compressed = length;
+                slot.done = true;
+            }
+            slot_done.notify_all();
+        }
     }
 };
 
@@ -56,14 +151,28 @@ Status Encoder::begin() {
     block_count_ = static_cast<std::uint32_t>(blocks);
     header_size_ = header_size_for(source_length_);
 
-    zlib_ = std::make_unique<Zlib>();
-    // Same parameters as .NET ZLibStream: zlib wrapper, 32 KiB window, memLevel 8.
-    if (deflateInit2(&zlib_->stream, options_.level, Z_DEFLATED, 15, 8, Z_DEFAULT_STRATEGY) != Z_OK)
-        return make_error(Errc::io, "zlib deflateInit2 failed");
-    zlib_->ready = true;
+    unsigned threads = options_.threads;
+    if (threads == 0) threads = std::max(1u, std::thread::hardware_concurrency());
+    threads = std::min(threads, 64u);
 
-    block_.assign(kBlockSize, 0);
-    compressed_.resize(deflateBound(&zlib_->stream, kBlockSize));
+    pipeline_ = std::make_unique<Pipeline>();
+    Pipeline& p = *pipeline_;
+    p.level = options_.level;
+    // Enough slots to keep every worker busy while the producer fills more.
+    std::size_t slot_count = threads == 1 ? 1 : std::size_t(threads) * 4;
+    p.slots.resize(slot_count);
+    std::size_t bound = compressBound(kBlockSize) + 64;
+    for (Pipeline::Slot& slot : p.slots) {
+        slot.input.assign(kBlockSize, 0);
+        slot.output.resize(bound);
+    }
+    if (threads == 1) {
+        if (!p.inline_deflater.init(options_.level)) return make_error(Errc::io, "zlib deflateInit2 failed");
+    } else {
+        p.workers.reserve(threads);
+        for (unsigned i = 0; i < threads; ++i) p.workers.emplace_back([&p] { p.run_worker(); });
+    }
+
     offsets_.assign(static_cast<std::size_t>(block_count_) + 1, 0);
     offsets_[0] = header_size_;
     write_position_ = header_size_;
@@ -77,36 +186,62 @@ Status Encoder::write(Bytes data) {
     if (data.size() > source_length_ - received_)
         return make_error(Errc::invalid_argument, "more PFSC input than the declared length");
     received_ += data.size();
+    Pipeline& p = *pipeline_;
     while (!data.empty()) {
-        std::size_t take = std::min<std::size_t>(data.size(), kBlockSize - block_fill_);
-        std::memcpy(block_.data() + block_fill_, data.data(), take);
-        block_fill_ += static_cast<std::uint32_t>(take);
+        Pipeline::Slot& slot = p.slots[p.fill_slot];
+        std::size_t take = std::min<std::size_t>(data.size(), kBlockSize - p.fill);
+        std::memcpy(slot.input.data() + p.fill, data.data(), take);
+        p.fill += static_cast<std::uint32_t>(take);
         data = data.subspan(take);
-        if (block_fill_ == kBlockSize) ALEMBIC_TRY(flush_block(kBlockSize));
+        if (p.fill == kBlockSize) ALEMBIC_TRY(submit_current(kBlockSize));
     }
     return {};
 }
 
-Status Encoder::flush_block(std::uint32_t valid_bytes) {
-    if (valid_bytes < kBlockSize) std::memset(block_.data() + valid_bytes, 0, kBlockSize - valid_bytes);
-    block_fill_ = 0;
+Status Encoder::submit_current(std::uint32_t valid_bytes) {
+    Pipeline& p = *pipeline_;
+    Pipeline::Slot& slot = p.slots[p.fill_slot];
+    if (valid_bytes < kBlockSize) std::memset(slot.input.data() + valid_bytes, 0, kBlockSize - valid_bytes);
+    p.fill = 0;
+    if (p.workers.empty()) {
+        slot.compressed = p.inline_deflater.compress(slot.input.data(), slot.output.data(), slot.output.size());
+        slot.busy = slot.done = true;
+    } else {
+        {
+            std::lock_guard<std::mutex> lock(p.mutex);
+            slot.busy = true;
+            slot.done = false;
+            p.queue.push_back(p.fill_slot);
+        }
+        p.work_ready.notify_one();
+    }
+    ++p.in_flight;
+    p.fill_slot = (p.fill_slot + 1) % p.slots.size();
+    // The next slot to fill must be free: write out the oldest result first.
+    while (p.slots[p.fill_slot].busy) ALEMBIC_TRY(drain_one());
+    return {};
+}
 
-    z_stream& z = zlib_->stream;
-    if (deflateReset(&z) != Z_OK) return make_error(Errc::io, "zlib deflateReset failed");
-    z.next_in = block_.data();
-    z.avail_in = kBlockSize;
-    z.next_out = compressed_.data();
-    z.avail_out = static_cast<uInt>(compressed_.size());
-    if (deflate(&z, Z_FINISH) != Z_STREAM_END) return make_error(Errc::io, "zlib deflate failed");
-    auto compressed_length = static_cast<std::uint32_t>(z.total_out);
-
+Status Encoder::drain_one() {
+    Pipeline& p = *pipeline_;
+    Pipeline::Slot& slot = p.slots[p.drain_slot];
+    if (!p.workers.empty()) {
+        std::unique_lock<std::mutex> lock(p.mutex);
+        p.slot_done.wait(lock, [&] { return slot.done; });
+        if (p.worker_init_failed) return make_error(Errc::io, "zlib deflateInit2 failed");
+    }
+    if (slot.compressed == 0) return make_error(Errc::io, "zlib deflate failed");
+    std::uint32_t compressed_length = slot.compressed;
     double gain = (static_cast<double>(kBlockSize) - compressed_length) * 100.0 / kBlockSize;
     bool keep = compressed_length < kBlockSize && gain >= options_.minimum_gain_percent;
-    Bytes selected = keep ? Bytes(compressed_.data(), compressed_length) : Bytes(block_.data(), kBlockSize);
+    Bytes selected = keep ? Bytes(slot.output.data(), compressed_length) : Bytes(slot.input.data(), kBlockSize);
     ALEMBIC_TRY(destination_.write_at(start_ + write_position_, selected));
     write_position_ += selected.size();
     if (keep) ++compressed_blocks_;
     offsets_[++blocks_done_] = write_position_;
+    slot.busy = slot.done = false;
+    --p.in_flight;
+    p.drain_slot = (p.drain_slot + 1) % p.slots.size();
 
     std::uint64_t processed = std::min<std::uint64_t>(static_cast<std::uint64_t>(blocks_done_) * kBlockSize, source_length_);
     if (progress_ && (processed - last_progress_ >= kProgressStep || blocks_done_ == block_count_)) {
@@ -121,7 +256,10 @@ Result<WriteResult> Encoder::finish() {
     if (!begun_) return make_error(Errc::invalid_argument, "PFSC encoder used before begin()");
     if (received_ != source_length_)
         return make_error(Errc::invalid_argument, "the PFSC source ended before its declared length");
-    if (block_fill_ > 0) ALEMBIC_TRY(flush_block(block_fill_));
+    Pipeline& p = *pipeline_;
+    if (p.fill > 0) ALEMBIC_TRY(submit_current(p.fill));
+    while (p.in_flight > 0) ALEMBIC_TRY(drain_one());
+    p.stop();
 
     std::uint8_t header[kHeaderRecordSize] = {};
     put_u32(header + 0x00, kMagic);
