@@ -39,8 +39,8 @@ Run the oracle after changing any format code. Reference checkouts live in
 - Copy binaries or key material out of reference repos (for example
   LibProsperoPKG's `right.sprx`, `Keys/Data/*`, `pkg_meta_rsa_key.pem`)
   without first establishing where they come from.
+- Copy code from repos with no license, such as rdmrocha/fpkg-cli.
+- Launch anything on a console without asking the owner first.
 
 Porting from GPL-3.0 source is fine, including SvenGDK/LibProsperoPKG: keep
-its NOTICE attributions (LibOrbisPkg, ooz). Never copy code from repos with
-no license, such as rdmrocha/fpkg-cli.
-- Launch anything on a console without asking the owner first.
+its NOTICE attributions (LibOrbisPkg, ooz).
