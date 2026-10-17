@@ -5,6 +5,7 @@
 //   pfsc-decode <in> <out>            PS5PKGTool's PFSC decoder (padded length)
 //   ffpfsc-dir <dir> <out> <unixtime> PS5PKGTool's FFPFSC builder for a dump folder
 //   ffpfsc-image <in> <out> <unixtime> PS5PKGTool's FFPFSC builder for an image file
+//   exfat-extract <image> <out-dir>   PS5PKGTool's exFAT reader: extract every file
 //   lower                             dump string.ToLowerInvariant() as "from to" hex pairs
 using PS5PKGTool.Ffpfsc;
 
@@ -43,6 +44,9 @@ switch (args.Length > 0 ? args[0] : "")
         Console.WriteLine($"inner={r.InnerFileName}");
         return 0;
     }
+    case "exfat-extract":
+        await ExfatImage.ExtractDirectoryAsync(args[1], args[2]);
+        return 0;
     case "lower":
         for (int cp = 0; cp <= 0x10FFFF; cp++)
         {

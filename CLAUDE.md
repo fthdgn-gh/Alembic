@@ -12,6 +12,7 @@ Build and test:
 cmake -S . -B build && cmake --build build && ./build/alembic_tests
 tools/oracle/compare.sh /path/to/PS5PKGTool   # byte-for-byte check vs PS5PKGTool
 tools/pkg-oracle/compare.sh                   # FPKG reading vs ProsperoPkgTool/LibProsperoPKG
+tools/pkg-oracle/check_samples.sh             # real files in .refs/samples/ (owner-supplied)
 ```
 
 Output must stay byte-identical to PS5PKGTool (the AMPR index with
@@ -33,7 +34,8 @@ LibProsperoPKG-sven, fpkg-cli, PS5-LZ4-Compression.
   `/data` and USB) with a ps5-homebrew-ui app as the front end.
 - **Goal:** conversion between exFAT, FFPFSC and FPKG (folders are a side
   feature). folder/exFAT/FFPFSC conversions are done (`alembic convert`),
-  byte-identical to PS5PKGTool. Next: FPKG reading, then FPKG building.
+  byte-identical to PS5PKGTool. FPKG reading is done (FPKG → anything),
+  checked on real packages. FPKG building is still to do.
 - **Design:** every input is a `tree::Source` and every writer takes one, so
   conversions stream without temporary copies.
 - **Also wanted:** AMPR LZ4 asset packs (`ampr_assets.index` + `.pak`
@@ -50,6 +52,11 @@ LibProsperoPKG-sven, fpkg-cli, PS5-LZ4-Compression.
   LibProsperoPKG's `right.sprx`, `Keys/Data/*`, `pkg_meta_rsa_key.pem`)
   without first establishing where they come from.
 - Launch anything on a console without asking the owner first.
+- Put names of the owner's test files anywhere in the repo: no file names,
+  game titles, title IDs or content IDs from `.refs/samples/` in code,
+  docs, test fixtures, scripts or commit messages. Refer to them generically
+  ("package A", "a 30 GB FFPFSC"). The same goes for anything that would
+  reveal where they came from.
 
 Porting from GPL-3.0 source is fine, including SvenGDK/LibProsperoPKG: keep
 its NOTICE attributions (LibOrbisPkg, ooz).

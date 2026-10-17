@@ -5,6 +5,7 @@
 #include "alembic/exfat.hpp"
 #include "alembic/ffpfsc.hpp"
 #include "alembic/fpkg.hpp"
+#include "alembic/fpkg_inner.hpp"
 #include "alembic/unicode.hpp"
 #include "alembic/io.hpp"
 #include "alembic/pfsc.hpp"
@@ -28,13 +29,14 @@ void usage() {
         "\n"
         "commands:\n"
         "  convert <input> <output> [--to folder|exfat|ffpfsc] [--rebuild] [--overwrite] [options]\n"
-        "        convert between a dump folder, exFAT and FFPFSC; the input format is\n"
+        "        convert a dump folder, exFAT, FFPFSC or debug FPKG (--passcode P) to\n"
+        "        a folder, exFAT or FFPFSC; the input format is\n"
         "        detected, the output format comes from --to or the output extension\n"
         "        (.exfat/.img, .ffpfsc, or a trailing '/' for a folder). Images are\n"
         "        copied unchanged unless --rebuild asks for a fresh exFAT layout.\n"
         "        Takes the ffpfsc and exfat options below.\n"
-        "  ls <input>\n"
-        "        list the files in a folder, exFAT or FFPFSC\n"
+        "  ls <input> [--passcode P]\n"
+        "        list the files in a folder, exFAT, FFPFSC or debug FPKG\n"
         "  exfat <dump-dir> <out.exfat> [--cluster-size N] [--no-ampr] [--ampr-scheme S]\n"
         "        build an exFAT image from a dump folder\n"
         "  ampr-index <dump-dir> <out.index> [--ampr-scheme S]\n"
@@ -56,7 +58,8 @@ void usage() {
         "  fpkg-info <pkg> [--passcode P]\n"
         "        show an FPKG's header, CNT entries, digest checks and outer files\n"
         "  fpkg-dump <pkg> <what> <out> [--passcode P]\n"
-        "        write decrypted data: <what> is inner-image (pfs_image.dat on disk),\n"
+        "        write decrypted data: <what> is mount (the decoded inner PFS image),\n"
+        "        inner-image (pfs_image.dat as stored),\n"
         "        an outer file name (e.g. naps_pkg_layout.dat), or entry:<name|0xID>\n"
         "  pfsc-encode <in> <out> [--level 0-9] [--min-gain PERCENT]\n"
         "        wrap a file in a PFSC block container\n"
@@ -243,6 +246,7 @@ int cmd_convert(const Args& args) {
     convert::Options options;
     if (!parse_ffpfsc_options(args, options.ffpfsc) || !parse_exfat_options(args, options.exfat)) return 2;
     options.rebuild = args.get("--rebuild").has_value();
+    if (auto passcode = args.get("--passcode")) options.passcode = *passcode;
     options.overwrite = args.get("--overwrite").has_value();
     std::optional<convert::Format> to;
     if (auto text = args.get("--to")) {
@@ -275,7 +279,7 @@ void list_tree(const tree::Node& node, const std::string& prefix) {
 
 int cmd_ls(const Args& args) {
     if (args.positional.size() != 1) return usage(), 2;
-    auto input = convert::open(args.positional[0]);
+    auto input = convert::open(args.positional[0], args.get("--passcode").value_or(std::string(32, '0')));
     if (!input.ok()) return fail(input.error());
     list_tree(input->tree->root(), "");
     tree::Totals t = tree::totals(input->tree->root());
@@ -351,7 +355,17 @@ int cmd_fpkg_dump(const Args& args) {
     }
     auto pfs = fpkg::OuterPfs::open(file, *package, passcode);
     if (!pfs.ok()) return fail(pfs.error());
-    auto opened_source = what == "inner-image" ? (*pfs)->open_inner_image() : (*pfs)->open_file(what);
+    Result<std::shared_ptr<const RandomAccess>> opened_source = make_error(Errc::invalid_argument, "");
+    if (what == "mount") {
+        auto opened_package = fpkg::open_package(file, passcode);
+        if (!opened_package.ok()) return fail(opened_package.error());
+        std::printf("layout: %s, %zu blocks, mount %llu bytes\n", opened_package->plan.dialect.c_str(),
+                    opened_package->plan.blocks.size(),
+                    static_cast<unsigned long long>(opened_package->plan.mount_size));
+        opened_source = std::shared_ptr<const RandomAccess>(opened_package->mount);
+    } else {
+        opened_source = what == "inner-image" ? (*pfs)->open_inner_image() : (*pfs)->open_file(what);
+    }
     if (!opened_source.ok()) return fail(opened_source.error());
     auto length = (*opened_source)->size();
     auto out = AtomicOutput::create(args.positional[2]);

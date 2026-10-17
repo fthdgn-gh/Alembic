@@ -26,9 +26,15 @@ def listing(root, skip):
 
 ap = argparse.ArgumentParser()
 ap.add_argument("a"); ap.add_argument("b"); ap.add_argument("--skip", action="append", default=[])
+ap.add_argument("--subset", action="store_true", help="only require every file of A to be in B")
 args = ap.parse_args()
 la, lb = listing(args.a, set(args.skip)), listing(args.b, set(args.skip))
-if la.keys() != lb.keys():
+if args.subset:
+    missing = [k for k in la if k not in lb]
+    if missing:
+        print("missing from B:", missing[:5], file=sys.stderr)
+        sys.exit(1)
+elif la.keys() != lb.keys():
     print("different entries:", sorted(la.keys() ^ lb.keys())[:5], file=sys.stderr)
     sys.exit(1)
 for path, full in la.items():

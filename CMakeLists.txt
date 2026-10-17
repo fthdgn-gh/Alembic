@@ -22,8 +22,10 @@ add_library(alembic_core STATIC
     src/core/exfat_reader.cpp
     src/core/ffpfsc.cpp
     src/core/fpkg.cpp
+    src/core/fpkg_inner.cpp
     src/core/io.cpp
     src/core/json.cpp
+    src/core/kraken.cpp
     src/core/pfsc.cpp
     src/core/sha256.cpp
     src/core/tree.cpp

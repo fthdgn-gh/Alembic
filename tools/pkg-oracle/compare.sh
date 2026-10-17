@@ -57,6 +57,16 @@ for name in ppt-kraken ppt-stored lib; do
     "$alembic" fpkg-dump "$pkg" inner-image "$work/$name.alembic.bin"
     if cmp -s "$work/$name.ppt.bin" "$work/$name.alembic.bin"; then echo "same  $name: decrypted inner image"
     else echo "DIFF  $name: decrypted inner image"; fail=1; fi
+    case $name in
+    ppt-*)  # FPKG -> folder must give back every source file (plus what the builder adds)
+        "$alembic" convert "$pkg" "$work/$name-out/" >/dev/null 2>&1 || true
+        if python3 -I "$here/../oracle/same_tree.py" "$game" "$work/$name-out" --subset; then
+            echo "same  $name: FPKG -> folder gives back the source files"
+        else echo "DIFF  $name: FPKG -> folder"; fail=1; fi ;;
+    lib)    # uses NAPS shuffle, which no reader decodes yet: must be refused, not misread
+        if "$alembic" ls "$pkg" >/dev/null 2>&1; then echo "DIFF  lib: shuffled layout was not refused"; fail=1
+        else echo "ok    lib: shuffled NAPS layout refused as unsupported"; fi ;;
+    esac
     "$alembic" fpkg-dump "$pkg" entry:param.json "$work/$name.param.json"
     if cmp -s "$work/$name.param.json" "$game/sce_sys/param.json"; then echo "same  $name: param.json entry"
     else echo "DIFF  $name: param.json entry"; fail=1; fi

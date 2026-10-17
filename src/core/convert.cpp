@@ -3,6 +3,7 @@
 
 #include "alembic/bytes.hpp"
 #include "alembic/exfat_reader.hpp"
+#include "alembic/fpkg_inner.hpp"
 #include "alembic/unicode.hpp"
 
 #include <cstring>
@@ -86,7 +87,7 @@ Result<Format> detect(const std::string& path) {
     return make_error(Errc::unsupported, "unrecognised input (not a folder, exFAT, FFPFSC or FPKG): " + path);
 }
 
-Result<Input> open(const std::string& path) {
+Result<Input> open(const std::string& path, const std::string& passcode) {
     Input input;
     input.path = path;
     ALEMBIC_ASSIGN(input.format, detect(path));
@@ -112,8 +113,11 @@ Result<Input> open(const std::string& path) {
         ALEMBIC_ASSIGN(input.tree, exfat::open_image(input.image, stem(payload.info.inner_file_name)));
         return input;
     }
-    case Format::fpkg:
-        return make_error(Errc::unsupported, "reading FPKG files is not supported yet");
+    case Format::fpkg: {
+        ALEMBIC_ASSIGN(File file, File::open(path, File::Mode::read));
+        ALEMBIC_ASSIGN(input.tree, fpkg::open_tree(std::make_shared<File>(std::move(file)), stem(path), passcode));
+        return input;
+    }
     }
     return make_error(Errc::unsupported, "unknown format");
 }
@@ -127,7 +131,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     if (to != Format::folder && !options.overwrite && path_exists(output))
         return make_error(Errc::invalid_argument, "the output file already exists: " + output);
 
-    ALEMBIC_ASSIGN(Input input, open(input_path));
+    ALEMBIC_ASSIGN(Input input, open(input_path, options.passcode));
     Report report{input.format, to, "", ""};
     const tree::Source& tree = *input.tree;
 
@@ -160,7 +164,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
             report.detail = r.inner_file_name;
             return report;
         }
-        if (!options.rebuild) {
+        if (input.image && !options.rebuild) {
             std::string inner = input.ffpfsc ? input.ffpfsc->inner_file_name : base_name(input_path);
             ALEMBIC_ASSIGN(ffpfsc::BuildResult r, ffpfsc::create_from_payload(*input.image, inner, output, ff, progress));
             report.method = input.ffpfsc ? "recompressed the exFAT image unchanged" : "compressed the exFAT image unchanged";

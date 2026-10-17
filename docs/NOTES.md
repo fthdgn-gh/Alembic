@@ -382,13 +382,44 @@ reading.
   test package has protected entries); patch (LIH) packages are parsed but
   not decrypted.
 
+### 2026-10-17: FPKG reading works on real packages
+
+The owner keeps test files in `.refs/samples/` (git-ignored; never name them
+in the repo, see CLAUDE.md): three debug FPKGs (A, B, C below), an exFAT dump,
+an FFPKG (UFS2) and a large FFPFSC.
+
+- Layer 2 ported from ProsperoPkgTool: NAPS parser and the four dialects
+  (`compatible-coffset-v1`, `native-span-v1`, `indexed-coffset-v1`,
+  `sparse-fidx-v1`, with the same file-system probe to break ties), the
+  Kraken decoder (`kraken.hpp`; every input-derived index bounds-checked; C#
+  shift semantics preserved), the on-demand inner mount, the inner PFS reader,
+  and `fpkg::open_tree`: the inner `uroot` plus `sce_sys` files restored from
+  CNT entries (protected ones decrypted). FPKG is now a `convert` input.
+- Package A (350 MB, 1.8 GB decoded) uses `sparse-fidx-v1` (Sony's writer,
+  with an unencrypted outer PFS, so most likely built by Drakmor's closed
+  LibProsperoPkg). Packages B (1.4 GB) and C (124 MB) use `native-span-v1`.
+- `tools/pkg-oracle/check_samples.sh` on all of them: every file and the
+  **whole decoded inner image** byte-identical to ProsperoPkgTool; 456 Unity
+  serialized files report their own size correctly (an independent check);
+  FPKG → exFAT → folder round-trips. The exFAT sample (35,260 files) extracts
+  identically to PS5PKGTool's reader and survives exFAT → FFPFSC → exFAT
+  byte for byte.
+- Protected-entry decryption verified: `nptitle.dat` (NPTD), `npbind.dat`
+  (D294A018), `license.dat` (RIF).
+- Speed (Apple Silicon), package A: → folder 1.1 s / 46 MB RAM
+  (ProsperoPkgTool: 2.5 s / 5.3 GB); → exFAT 1 s; → FFPFSC 69 s, all of it
+  single-threaded zlib level 9.
+- LibProsperoPKG's current output uses NAPS shuffle; refused explicitly
+  ("shuffled NAPS blocks are not supported"), as no reader decodes it.
+- FIH 0xB0 is not SHA3(decoded mount) in package A, despite LibProsperoPKG's
+  docs; its meaning is unknown.
+
 ## Next step
 
-**FPKG reading, layer 2**, then FPKG → exFAT/FFPFSC by streaming (an FPKG
-`tree::Source`). Remaining pieces: the Kraken decoder (independent of the
-NAPS dialect question), the NAPS CblockInfo walk, the inner PFS reader, and
-restoring `sce_sys` files from CNT entries. Waiting on real FPKG samples from
-the owner to decide which NAPS dialects matter. References, all in
+Done: FPKG → folder/exFAT/FFPFSC. Candidates for the next step, in the
+agreed order: a PS5 cross-build of the core (ps5-payload-sdk); LZ4 asset
+packs; multi-threaded PFSC compression (69 s → a few seconds on 8+ cores);
+the FPKG builder; UFS2/FFPKG reading (a sample is in `.refs/samples/`). References, all in
 `.refs/`: pearlxcore/ProsperoPkgTool (MIT, managed Kraken encoder/decoder),
 SvenGDK/LibProsperoPKG (GPL, `ProsperoPkgReader`, `ProsperoPackageExtractor`,
 `ProsperoPs5InnerImageReader`, docs). Test data: build debug FPKGs from our

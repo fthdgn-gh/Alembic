@@ -32,8 +32,10 @@ struct Input {
     std::unique_ptr<tree::Source> tree;
     std::shared_ptr<const RandomAccess> image; // exFAT image or FFPFSC payload; null for folders
     std::optional<ffpfsc::Info> ffpfsc;        // FFPFSC inputs only
+    std::string detail;                        // e.g. the FPKG layout dialect
 };
-Result<Input> open(const std::string& path);
+// `passcode` is used for FPKG inputs (default: 32 zeros).
+Result<Input> open(const std::string& path, const std::string& passcode = std::string(32, '0'));
 
 struct Options {
     // Rebuild the exFAT image from the file tree instead of copying the
@@ -41,6 +43,7 @@ struct Options {
     // MkPFS/PS5PKGTool layout (and refresh ampr_emu.index).
     bool rebuild = false;
     bool overwrite = false;
+    std::string passcode = std::string(32, '0'); // FPKG inputs
     exfat::BuildOptions exfat;
     ffpfsc::BuildOptions ffpfsc;
 };
