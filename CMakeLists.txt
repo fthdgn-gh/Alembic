@@ -17,8 +17,11 @@ set(ALEMBIC_COMPILE_OPTIONS -fno-exceptions -fno-rtti -Wall -Wextra -Wpedantic)
 add_library(alembic_core STATIC
     src/core/ampr.cpp
     src/core/exfat_image.cpp
+    src/core/ffpfsc.cpp
     src/core/io.cpp
+    src/core/json.cpp
     src/core/pfsc.cpp
+    src/core/sha256.cpp
     src/core/unicode.cpp
 )
 target_include_directories(alembic_core
@@ -40,7 +43,10 @@ if(ALEMBIC_BUILD_TESTS)
         tests/test_main.cpp
         tests/test_ampr.cpp
         tests/test_exfat.cpp
+        tests/test_ffpfsc.cpp
+        tests/test_json.cpp
         tests/test_pfsc.cpp
+        tests/test_sha256.cpp
         tests/test_unicode.cpp
     )
     target_compile_options(alembic_tests PRIVATE ${ALEMBIC_COMPILE_OPTIONS})

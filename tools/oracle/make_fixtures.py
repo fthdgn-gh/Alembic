@@ -40,6 +40,29 @@ def amprclean(root):
                               "fakelib/libSceAmpr.sprx", "ampr_commands.bin"]):
         write(f"{root}/{name}", 50 + i * 13, 300 + i)
 
+def text(path, content):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(content)
+    os.utime(path, (1700000000, 1700000000))
+
+def dumps(root):
+    """Folders that exercise FFPFSC's game-root search and payload naming."""
+    def game(path, param):
+        text(f"{path}/sce_sys/param.json", param)
+        write(f"{path}/eboot.bin", 70_000, 400)
+    game(f"{root}/named", b'{"contentId": "x", "titleId": "ppsa01234", "n": [1, {"a": null}]}')
+    game(f"{root}/bom", b'\xef\xbb\xbf{"titleId": "PPSA05555"}')
+    game(f"{root}/case", b'{"TitleID": "CUSA00001", "titleId": "bad"}')
+    game(f"{root}/notid", b'{"titleId": "PPSA1234"}')
+    game(f"{root}/trailing", b'{"titleId": "PPSA01234",}')
+    game(f"{root}/numberid", b'{"titleId": 12345, "TITLEID": "ABCD99999"}')
+    game(f"{root}/nonobject", b'["titleId", "PPSA01234"]')
+    game(f"{root}/escaped", b'{"titl\\u0065Id": "PPS\\u004101234"}')
+    game(f"{root}/ Jeu \u00e9t\u00e9: \U0001F600. ", b'{}')
+    game(f"{root}/wrapped/a/b/PPSA07777-app", b'{"titleId": "PPSA07777"}')
+    os.makedirs(f"{root}/wrapped/z_empty", exist_ok=True)
+
 def many(root):
     for i in range(1500):                                  # root dir spans several clusters
         write(f"{root}/files/file_{i:05d}_with_a_longer_name.bin", i % 700, 100 + i)
@@ -59,3 +82,6 @@ if __name__ == "__main__":
     out = sys.argv[1]
     for fn in (small, ampr, amprclean, many, large, empty):
         fn(os.path.join(out, fn.__name__))
+    # Dump folders for FFPFSC go next to the fixtures: "wrapped" must not sit
+    # under a folder that other game roots share.
+    dumps(os.path.join(os.path.dirname(os.path.abspath(out)), "dumps"))

@@ -2,6 +2,7 @@
 // alembic: command-line front end for the core library.
 #include "alembic/ampr.hpp"
 #include "alembic/exfat.hpp"
+#include "alembic/ffpfsc.hpp"
 #include "alembic/io.hpp"
 #include "alembic/pfsc.hpp"
 
@@ -27,6 +28,20 @@ void usage() {
         "        build an exFAT image from a dump folder\n"
         "  ampr-index <dump-dir> <out.index> [--ampr-scheme S]\n"
         "        build ampr_emu.index for a dump folder\n"
+        "  ffpfsc <dump-dir|image> <out.ffpfsc> [options]\n"
+        "        pack a dump folder (streamed, no temporary image) or an image file\n"
+        "        --inner-name NAME   payload name (default <TITLEID>.exfat or the file name)\n"
+        "        --timestamp UNIX    fixed PFS timestamp (default: now)\n"
+        "        --block-size N      PFS block size (default 65536)\n"
+        "        --case-sensitive    clear the PFS case-insensitive flag\n"
+        "        --overwrite         replace an existing output file\n"
+        "        plus --level, --min-gain, and for folders the exfat options\n"
+        "  ffpfsc-info <in.ffpfsc>\n"
+        "        print the PFS and PFSC layout\n"
+        "  ffpfsc-extract <in.ffpfsc> <out-image>\n"
+        "        write the decoded payload (the inner exFAT/UFS2 image)\n"
+        "  ffpfsc-verify <in.ffpfsc> [--original IMAGE]\n"
+        "        decode every block, print the payload SHA-256, compare with IMAGE\n"
         "  pfsc-encode <in> <out> [--level 0-9] [--min-gain PERCENT]\n"
         "        wrap a file in a PFSC block container\n"
         "  pfsc-decode <in> <out> [--length N]\n"
@@ -112,6 +127,30 @@ bool parse_scheme(const Args& args, ampr::Scheme& scheme) {
     return true;
 }
 
+bool parse_compression(const Args& args, pfsc::CompressionOptions& options) {
+    if (auto level = args.get("--level")) {
+        auto value = parse_number(level->c_str());
+        if (!value || *value > 9) return std::fputs("error: bad --level\n", stderr), false;
+        options.level = static_cast<int>(*value);
+    }
+    if (auto gain = args.get("--min-gain")) {
+        auto value = parse_number(gain->c_str());
+        if (!value || *value > 100) return std::fputs("error: bad --min-gain\n", stderr), false;
+        options.minimum_gain_percent = static_cast<int>(*value);
+    }
+    return true;
+}
+
+bool parse_exfat_options(const Args& args, exfat::BuildOptions& options) {
+    if (auto size = args.get("--cluster-size")) {
+        auto value = parse_number(size->c_str());
+        if (!value || *value > UINT32_MAX) return std::fputs("error: bad --cluster-size\n", stderr), false;
+        options.cluster_size = static_cast<std::uint32_t>(*value);
+    }
+    if (args.get("--no-ampr")) options.generate_ampr_index = false;
+    return parse_scheme(args, options.ampr_scheme);
+}
+
 int cmd_ampr_index(const Args& args) {
     if (args.positional.size() != 2) return usage(), 2;
     ampr::Scheme scheme = ampr::Scheme::ampr_emu;
@@ -130,13 +169,7 @@ int cmd_ampr_index(const Args& args) {
 int cmd_exfat(const Args& args) {
     if (args.positional.size() != 2) return usage(), 2;
     exfat::BuildOptions options;
-    if (auto size = args.get("--cluster-size")) {
-        auto value = parse_number(size->c_str());
-        if (!value || *value > UINT32_MAX) return std::fputs("error: bad --cluster-size\n", stderr), 2;
-        options.cluster_size = static_cast<std::uint32_t>(*value);
-    }
-    if (args.get("--no-ampr")) options.generate_ampr_index = false;
-    if (!parse_scheme(args, options.ampr_scheme)) return 2;
+    if (!parse_exfat_options(args, options)) return 2;
     ProgressPrinter printer;
     Status status = exfat::write_directory_image(args.positional[0], args.positional[1], options, printer.callback());
     printer.done();
@@ -144,19 +177,91 @@ int cmd_exfat(const Args& args) {
     return 0;
 }
 
+int cmd_ffpfsc(const Args& args) {
+    if (args.positional.size() != 2) return usage(), 2;
+    ffpfsc::BuildOptions options;
+    exfat::BuildOptions exfat_options;
+    if (!parse_compression(args, options.compression) || !parse_exfat_options(args, exfat_options)) return 2;
+    if (auto name = args.get("--inner-name")) options.inner_file_name = *name;
+    if (auto text = args.get("--timestamp")) {
+        auto value = parse_number(text->c_str());
+        if (!value || *value > INT64_MAX) return std::fputs("error: bad --timestamp\n", stderr), 2;
+        options.build_timestamp = static_cast<std::int64_t>(*value);
+    }
+    if (auto text = args.get("--block-size")) {
+        auto value = parse_number(text->c_str());
+        if (!value || *value > UINT32_MAX) return std::fputs("error: bad --block-size\n", stderr), 2;
+        options.pfs_block_size = static_cast<std::uint32_t>(*value);
+    }
+    if (args.get("--case-sensitive")) options.case_insensitive = false;
+    if (args.get("--overwrite")) options.overwrite_existing = true;
+
+    const std::string& source = args.positional[0];
+    ProgressPrinter printer;
+    auto result = is_directory(source)
+        ? ffpfsc::create_from_directory(source, args.positional[1], options, exfat_options, printer.callback())
+        : ffpfsc::create_from_image(source, args.positional[1], options, printer.callback());
+    printer.done();
+    if (!result.ok()) return fail(result.error());
+    if (!result->game_root.empty()) std::printf("game root:   %s\n", result->game_root.c_str());
+    std::printf("inner name:  %s\n", result->inner_file_name.c_str());
+    std::printf("payload:     %llu bytes -> %llu stored (%u of %u blocks compressed)\n",
+                static_cast<unsigned long long>(result->source_length),
+                static_cast<unsigned long long>(result->pfsc_stored_length), result->compressed_block_count,
+                result->pfsc_block_count);
+    std::printf("container:   %llu bytes\n", static_cast<unsigned long long>(result->container_length));
+    return 0;
+}
+
+int cmd_ffpfsc_info(const Args& args) {
+    if (args.positional.size() != 1) return usage(), 2;
+    auto input = File::open(args.positional[0], File::Mode::read);
+    if (!input.ok()) return fail(input.error());
+    auto info = ffpfsc::inspect(*input);
+    if (!info.ok()) return fail(info.error());
+    std::printf("PFS:             version %u, mode 0x%x, %u-byte blocks, %llu blocks\n", info->pfs_version,
+                info->pfs_mode, info->pfs_block_size, static_cast<unsigned long long>(info->pfs_block_count));
+    std::printf("timestamp:       %lld\n", static_cast<long long>(info->timestamp));
+    std::printf("payload:         %s\n", info->inner_file_name.c_str());
+    std::printf("payload offset:  0x%llx\n", static_cast<unsigned long long>(info->payload_offset));
+    std::printf("logical length:  %llu\n", static_cast<unsigned long long>(info->logical_length));
+    std::printf("stored length:   %llu\n", static_cast<unsigned long long>(info->stored_length));
+    std::uint32_t compressed = 0;
+    for (std::uint32_t i = 0; i < info->pfsc.block_count(); ++i)
+        if (info->pfsc.block_offsets[i + 1] - info->pfsc.block_offsets[i] < pfsc::kBlockSize) ++compressed;
+    std::printf("PFSC blocks:     %u (%u compressed)\n", info->pfsc.block_count(), compressed);
+    return 0;
+}
+
+int cmd_ffpfsc_extract(const Args& args) {
+    if (args.positional.size() != 2) return usage(), 2;
+    ProgressPrinter printer;
+    Status status = ffpfsc::extract_payload(args.positional[0], args.positional[1], printer.callback());
+    printer.done();
+    if (!status.ok()) return fail(status.error());
+    return 0;
+}
+
+int cmd_ffpfsc_verify(const Args& args) {
+    if (args.positional.size() != 1) return usage(), 2;
+    ProgressPrinter printer;
+    auto result = ffpfsc::verify(args.positional[0], args.get("--original"), printer.callback());
+    printer.done();
+    if (!result.ok()) return fail(result.error());
+    std::printf("structure:       ok\nevery block:     decodes\n");
+    std::printf("payload sha256:  %s\n", result->decoded_sha256.c_str());
+    if (result->source_matches) {
+        std::printf("original sha256: %s\n", result->source_sha256->c_str());
+        std::printf("matches:         %s\n", *result->source_matches ? "yes" : "NO");
+        return *result->source_matches ? 0 : 1;
+    }
+    return 0;
+}
+
 int cmd_pfsc_encode(const Args& args) {
     if (args.positional.size() != 2) return usage(), 2;
     pfsc::CompressionOptions options;
-    if (auto level = args.get("--level")) {
-        auto value = parse_number(level->c_str());
-        if (!value || *value > 9) return std::fputs("error: bad --level\n", stderr), 2;
-        options.level = static_cast<int>(*value);
-    }
-    if (auto gain = args.get("--min-gain")) {
-        auto value = parse_number(gain->c_str());
-        if (!value || *value > 100) return std::fputs("error: bad --min-gain\n", stderr), 2;
-        options.minimum_gain_percent = static_cast<int>(*value);
-    }
+    if (!parse_compression(args, options)) return 2;
     auto input = File::open(args.positional[0], File::Mode::read);
     if (!input.ok()) return fail(input.error());
     auto output = AtomicOutput::create(args.positional[1]);
@@ -216,6 +321,10 @@ int main(int argc, char** argv) {
     std::string command = argv[1];
     if (command == "exfat") return cmd_exfat(parse(argc, argv, {"--no-ampr"}));
     if (command == "ampr-index") return cmd_ampr_index(parse(argc, argv, {}));
+    if (command == "ffpfsc") return cmd_ffpfsc(parse(argc, argv, {"--no-ampr", "--case-sensitive", "--overwrite"}));
+    if (command == "ffpfsc-info") return cmd_ffpfsc_info(parse(argc, argv, {}));
+    if (command == "ffpfsc-extract") return cmd_ffpfsc_extract(parse(argc, argv, {}));
+    if (command == "ffpfsc-verify") return cmd_ffpfsc_verify(parse(argc, argv, {}));
     if (command == "pfsc-encode") return cmd_pfsc_encode(parse(argc, argv, {}));
     if (command == "pfsc-decode") return cmd_pfsc_decode(parse(argc, argv, {}));
     if (command == "pfsc-info") return cmd_pfsc_info(parse(argc, argv, {}));

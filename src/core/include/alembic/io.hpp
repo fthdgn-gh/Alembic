@@ -92,7 +92,8 @@ private:
 class AtomicOutput {
 public:
     ~AtomicOutput();
-    static Result<AtomicOutput> create(const std::string& path);
+    // Creates missing parent folders. Fails if `path` exists, unless `overwrite`.
+    static Result<AtomicOutput> create(const std::string& path, bool overwrite = false);
     AtomicOutput(AtomicOutput&& other) noexcept;
     AtomicOutput& operator=(AtomicOutput&&) = delete;
 
@@ -105,9 +106,19 @@ private:
     std::string final_path_;
     std::string temp_path_;
     bool committed_ = false;
+    bool overwrite_ = false;
 };
 
 bool path_exists(const std::string& path);
+bool is_directory(const std::string& path);
+bool is_regular_file(const std::string& path); // follows symlinks
+// mkdir -p for every folder above `path`.
+Status make_parent_directories(const std::string& path);
+// Absolute path with symlinks resolved. For a path that does not exist yet,
+// resolves the nearest existing parent and appends the rest.
+Result<std::string> absolute_path(const std::string& path);
+// "/a/b/c" -> "c"; trailing slashes ignored.
+std::string base_name(const std::string& path);
 std::string os_error_message(int error_number);
 
 } // namespace alembic

@@ -2,6 +2,8 @@
 #include "alembic/io.hpp"
 
 #include <cerrno>
+#include <climits>
+#include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <random>
@@ -116,6 +118,52 @@ bool path_exists(const std::string& path) {
     return ::lstat(path.c_str(), &st) == 0;
 }
 
+bool is_directory(const std::string& path) {
+    struct stat st {};
+    return ::stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+bool is_regular_file(const std::string& path) {
+    struct stat st {};
+    return ::stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
+}
+
+Status make_parent_directories(const std::string& path) {
+    for (std::size_t slash = path.find('/', 1); slash != std::string::npos; slash = path.find('/', slash + 1)) {
+        std::string dir = path.substr(0, slash);
+        if (dir.empty() || is_directory(dir)) continue;
+        if (::mkdir(dir.c_str(), 0755) != 0 && errno != EEXIST) return io_error("cannot create folder", dir);
+    }
+    return {};
+}
+
+std::string base_name(const std::string& path) {
+    std::size_t end = path.find_last_not_of('/');
+    if (end == std::string::npos) return path.empty() ? "" : "/";
+    std::size_t start = path.rfind('/', end);
+    return path.substr(start == std::string::npos ? 0 : start + 1, end - (start == std::string::npos ? 0 : start + 1) + 1);
+}
+
+Result<std::string> absolute_path(const std::string& path) {
+    std::string rest;
+    std::string head = path.empty() ? "." : path;
+    for (;;) {
+        char resolved[PATH_MAX];
+        if (::realpath(head.c_str(), resolved)) {
+            std::string out = resolved;
+            if (!rest.empty()) out += (out == "/" ? "" : "/") + rest;
+            return out;
+        }
+        if (errno != ENOENT) return io_error("cannot resolve", path);
+        while (head.size() > 1 && head.back() == '/') head.pop_back();
+        std::size_t slash = head.rfind('/');
+        std::string leaf = slash == std::string::npos ? head : head.substr(slash + 1);
+        rest = rest.empty() ? leaf : leaf + "/" + rest;
+        if (slash == std::string::npos) head = ".";
+        else head = slash == 0 ? "/" : head.substr(0, slash);
+    }
+}
+
 AtomicOutput::~AtomicOutput() {
     if (!committed_ && !temp_path_.empty()) {
         (void)file_.close();
@@ -127,18 +175,23 @@ AtomicOutput::AtomicOutput(AtomicOutput&& other) noexcept
     : file_(std::move(other.file_)),
       final_path_(std::move(other.final_path_)),
       temp_path_(std::move(other.temp_path_)),
-      committed_(other.committed_) {
+      committed_(other.committed_),
+      overwrite_(other.overwrite_) {
     other.temp_path_.clear();
     other.committed_ = true;
 }
 
-Result<AtomicOutput> AtomicOutput::create(const std::string& path) {
-    if (path_exists(path)) return make_error(Errc::invalid_argument, "the output file already exists: " + path);
+Result<AtomicOutput> AtomicOutput::create(const std::string& path, bool overwrite) {
+    if (!overwrite && path_exists(path))
+        return make_error(Errc::invalid_argument, "the output file already exists: " + path);
+    if (overwrite && is_directory(path)) return make_error(Errc::invalid_argument, "the output is a folder: " + path);
+    ALEMBIC_TRY(make_parent_directories(path));
     std::random_device device;
     static const char hex[] = "0123456789abcdef";
     std::string suffix;
     for (int i = 0; i < 16; ++i) suffix += hex[device() & 15];
     AtomicOutput output;
+    output.overwrite_ = overwrite;
     output.final_path_ = path;
     output.temp_path_ = path + "." + suffix + ".tmp";
     ALEMBIC_ASSIGN(output.file_, File::open(output.temp_path_, File::Mode::create_new));
@@ -148,7 +201,7 @@ Result<AtomicOutput> AtomicOutput::create(const std::string& path) {
 Status AtomicOutput::commit() {
     ALEMBIC_TRY(file_.sync());
     ALEMBIC_TRY(file_.close());
-    if (path_exists(final_path_)) return make_error(Errc::invalid_argument, "the output file already exists: " + final_path_);
+    if (!overwrite_ && path_exists(final_path_)) return make_error(Errc::invalid_argument, "the output file already exists: " + final_path_);
     if (::rename(temp_path_.c_str(), final_path_.c_str()) != 0) return io_error("cannot rename to", final_path_);
     committed_ = true;
     return {};

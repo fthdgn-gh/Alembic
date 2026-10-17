@@ -192,10 +192,43 @@ Findings worth remembering:
 - PS5PKGTool skips symlinks; Alembic also rejects FIFOs, sockets and devices
   instead of treating them as empty files.
 
+### 2026-10-17: FFPFSC (dump folder → FFPFSC works end to end)
+
+- Ported `FfpfscImage` → `ffpfsc.hpp`: create from a dump folder (exFAT
+  streamed straight into the PFSC encoder, no temporary image) or from an
+  image file; inspect; extract the payload image; verify (decode every block,
+  SHA-256, optional compare with the original image).
+- CLI: `alembic ffpfsc <dump|image> <out>` (`--timestamp`, `--inner-name`,
+  `--block-size`, `--case-sensitive`, `--overwrite`, compression and exFAT
+  options), `ffpfsc-info`, `ffpfsc-extract`, `ffpfsc-verify`.
+- New helpers: strict JSON reader (`json.hpp`, enough for param.json),
+  SHA-256 (`sha256.hpp`), `AtomicOutput` overwrite + parent folder creation.
+- Oracle: 15 FFPFSC containers byte-identical to PS5PKGTool with a fixed
+  timestamp, including param.json edge cases and nested game-root search.
+  38 comparisons in total, all identical.
+- 574 MB dump: 3.8 s, 6 MB peak memory; PS5PKGTool 3.9 s, 63 MB. Both are
+  bound by single-threaded zlib. PFSC blocks are independent, so compressing
+  on several threads is an easy win later (output stays identical).
+
+FFPFSC naming rules (PS5PKGTool behaviour we match):
+
+- Payload name is `<TITLEID>.exfat` when a top-level `titleId` key (any ASCII
+  case) holds a string matching `[A-Za-z]{4}[0-9]{5}`; the first such key
+  wins, upper-cased. Otherwise the game folder's name with anything outside
+  printable ASCII or `"*/:<>?\|` replaced by `_` (per UTF-16 unit), trimmed
+  of spaces and dots, plus `.exfat`; `PS5_GAME.exfat` if that is empty.
+- param.json must be strict JSON. **A UTF-8 byte order mark makes it invalid**
+  (as in .NET's `JsonDocument.Parse(bytes)`), so it falls back to the folder
+  name. Checked against the oracle.
+- One deliberate difference: .NET's regex `$` also accepts a trailing `\n`,
+  which would put a newline into the payload name. We treat it as no match.
+- Game root: the folder itself if it has `sce_sys/param.json`, else the one
+  sub-folder (any depth) that has it; more than one is an error.
+
 ## Next step
 
-Port `FfpfscImage.cs` (the PFS wrapper around the PFSC payload): build an
-FFPFSC straight from a dump folder by streaming `exfat::ImageBuilder` into
-`pfsc::Encoder`, then add inspect/extract/verify. Extend the oracle with
-`FfpfscImage` using a fixed `BuildTimestampUnixSeconds` and compare byte for
-byte. After that, `ExfatVolume` (reading exFAT) for extract/verify.
+Read side: port `ExfatVolume.cs` (exFAT reader) and the tree part of
+`FfpfscVolume.cs`, so `alembic` can list and extract files from an FFPFSC or
+exFAT image (FFPFSC → dump folder, exFAT → dump folder). Check against the
+oracle by round trip: dump → FFPFSC → folder must equal the original tree.
+UFS2/FFPKG and nested PFS payloads come after that.

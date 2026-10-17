@@ -21,7 +21,7 @@ python3 -I "$here/make_fixtures.py" "$work/fixtures"
 
 fail=0
 check() { # name, file a, file b
-    if cmp -s "$2" "$3"; then echo "same  $1"; else echo "DIFF  $1"; cmp "$2" "$3" | head -1; fail=1; fi
+    if cmp -s "$2" "$3"; then echo "same  $1"; else echo "DIFF  $1"; cmp "$2" "$3" | head -1 || true; fail=1; fi
 }
 
 for fixture in "$work"/fixtures/*; do
@@ -49,6 +49,21 @@ check "pfsc oracle->alembic decode" "$work/o.by-alembic" "$work/a.by-alembic"
 head -c "$(stat -f%z "$img" 2>/dev/null || stat -c%s "$img")" "$work/a.by-alembic" > "$work/a.trimmed"
 check "pfsc round trip" "$img" "$work/a.trimmed"
 if cmp -s "$work/a.pfsc" "$work/o.pfsc"; then echo "same  pfsc container bytes"; else echo "note  pfsc container bytes differ (zlib builds differ; decode checks above still apply)"; fi
+
+# FFPFSC: same fixed timestamp on both sides, then compare whole containers.
+ts=1700000000
+ffpfsc_case() { # name, source, extra alembic args...
+    local name="$1" src="$2"; shift 2
+    "$alembic" ffpfsc "$src" "$work/ff-$name.alembic" --timestamp $ts --ampr-scheme ps5pkgtool "$@" >/dev/null 2>&1
+    oracle ffpfsc-dir "$src" "$work/ff-$name.oracle" $ts >/dev/null
+    check "ffpfsc $name" "$work/ff-$name.alembic" "$work/ff-$name.oracle"
+}
+for fixture in "$work"/fixtures/small "$work"/fixtures/ampr "$work"/fixtures/many "$work"/fixtures/empty "$work"/dumps/*; do
+    ffpfsc_case "$(basename "$fixture" | tr -c 'A-Za-z0-9_\n-' _)" "$fixture"
+done
+"$alembic" ffpfsc "$work/many-default.oracle.img" "$work/ff-image.alembic" --timestamp $ts >/dev/null 2>&1
+oracle ffpfsc-image "$work/many-default.oracle.img" "$work/ff-image.oracle" $ts >/dev/null
+check "ffpfsc from image" "$work/ff-image.alembic" "$work/ff-image.oracle"
 
 # AMPR index: Alembic's default scheme against the console-side project's builder.
 if [[ -f "$ampr_emu/tools/build_ampr_index.py" ]]; then

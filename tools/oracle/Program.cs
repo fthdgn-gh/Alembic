@@ -3,6 +3,8 @@
 //   exfat <dir> <out> [clusterSize]   PS5PKGTool's exFAT image builder
 //   pfsc-encode <in> <out>            PS5PKGTool's PFSC encoder
 //   pfsc-decode <in> <out>            PS5PKGTool's PFSC decoder (padded length)
+//   ffpfsc-dir <dir> <out> <unixtime> PS5PKGTool's FFPFSC builder for a dump folder
+//   ffpfsc-image <in> <out> <unixtime> PS5PKGTool's FFPFSC builder for an image file
 //   lower                             dump string.ToLowerInvariant() as "from to" hex pairs
 using PS5PKGTool.Ffpfsc;
 
@@ -27,6 +29,20 @@ switch (args.Length > 0 ? args[0] : "")
         await PfscCodec.DecodeAsync(input, output);
         return 0;
     }
+    case "ffpfsc-dir":
+    {
+        var r = await FfpfscImage.CreateFromDirectoryAsync(args[1], args[2],
+            new FfpfscBuildOptions { BuildTimestampUnixSeconds = long.Parse(args[3]) });
+        Console.WriteLine($"inner={r.InnerFileName}");
+        return 0;
+    }
+    case "ffpfsc-image":
+    {
+        var r = await FfpfscImage.CreateFromImageAsync(args[1], args[2],
+            new FfpfscBuildOptions { BuildTimestampUnixSeconds = long.Parse(args[3]) });
+        Console.WriteLine($"inner={r.InnerFileName}");
+        return 0;
+    }
     case "lower":
         for (int cp = 0; cp <= 0x10FFFF; cp++)
         {
@@ -39,6 +55,6 @@ switch (args.Length > 0 ? args[0] : "")
         }
         return 0;
     default:
-        Console.Error.WriteLine("usage: oracle exfat|pfsc-encode|pfsc-decode|lower ...");
+        Console.Error.WriteLine("usage: oracle exfat|pfsc-encode|pfsc-decode|ffpfsc-dir|ffpfsc-image|lower ...");
         return 2;
 }

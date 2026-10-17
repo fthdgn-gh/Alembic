@@ -27,7 +27,8 @@ Run the oracle after changing any format code. Reference checkouts live in
   first, checked byte-for-byte against PS5PKGTool on a PC. A PS5 front end
   built on blackbearreloaded/ps5-homebrew-ui comes after that.
 - **First conversion:** dump folder → FFPFSC (exFAT + PFSC + zlib, no crypto).
-  FPKG reading (crypto, Kraken, package reader) comes next.
+  Done and byte-identical to PS5PKGTool. Next: reading exFAT/FFPFSC back into
+  a folder, then FPKG reading (crypto, Kraken, package reader).
 - **Language rules:** C++20 with no exceptions and no RTTI (the PS5 build
   forbids them), so errors are returned as values.
 - **License:** GPL-3.0-or-later, compatible with every source we port from.
