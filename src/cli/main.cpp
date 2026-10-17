@@ -4,6 +4,8 @@
 #include "alembic/convert.hpp"
 #include "alembic/exfat.hpp"
 #include "alembic/ffpfsc.hpp"
+#include "alembic/fpkg.hpp"
+#include "alembic/unicode.hpp"
 #include "alembic/io.hpp"
 #include "alembic/pfsc.hpp"
 
@@ -51,6 +53,11 @@ void usage() {
         "        write the decoded payload (the inner exFAT/UFS2 image)\n"
         "  ffpfsc-verify <in.ffpfsc> [--original IMAGE]\n"
         "        decode every block, print the payload SHA-256, compare with IMAGE\n"
+        "  fpkg-info <pkg> [--passcode P]\n"
+        "        show an FPKG's header, CNT entries, digest checks and outer files\n"
+        "  fpkg-dump <pkg> <what> <out> [--passcode P]\n"
+        "        write decrypted data: <what> is inner-image (pfs_image.dat on disk),\n"
+        "        an outer file name (e.g. naps_pkg_layout.dat), or entry:<name|0xID>\n"
         "  pfsc-encode <in> <out> [--level 0-9] [--min-gain PERCENT]\n"
         "        wrap a file in a PFSC block container\n"
         "  pfsc-decode <in> <out> [--length N]\n"
@@ -278,6 +285,89 @@ int cmd_ls(const Args& args) {
     return 0;
 }
 
+int cmd_fpkg_info(const Args& args) {
+    if (args.positional.size() != 1) return usage(), 2;
+    auto opened = File::open(args.positional[0], File::Mode::read);
+    if (!opened.ok()) return fail(opened.error());
+    std::shared_ptr<const RandomAccess> file = std::make_shared<File>(std::move(*opened));
+    auto package = fpkg::read_package(*file);
+    if (!package.ok()) return fail(package.error());
+    const fpkg::Package& p = *package;
+    std::printf("kind:            %s\n", fpkg::name(p.kind));
+    std::printf("content id:      %s\n", p.content_id.c_str());
+    std::printf("content type:    0x%x  drm type: 0x%x  flags: 0x%x\n", p.content_type, p.drm_type, p.content_flags);
+    for (const fpkg::Segment& s : p.segments)
+        std::printf("segment %-4s     0x%llx + 0x%llx\n", s.name.c_str(), static_cast<unsigned long long>(s.offset),
+                    static_cast<unsigned long long>(s.size));
+    for (const std::string& w : p.warnings) std::printf("warning:         %s\n", w.c_str());
+    std::printf("CNT entries:\n");
+    for (const fpkg::CntEntry& e : p.entries)
+        std::printf("  0x%08X  0x%08X bytes  %s  %s\n", e.id, e.data_size, e.encrypted() ? "protected" : "plain    ",
+                    e.name.c_str());
+    auto digests = fpkg::check_digests(*file, p);
+    if (digests.ok()) {
+        std::printf("FIH digest:      %s\n", digests->fih_digest_ok ? "ok" : "MISMATCH");
+        std::printf("entry digests:   %s%s%s\n", digests->entry_digests_ok ? "ok" : "MISMATCH",
+                    digests->detail.empty() ? "" : " - ", digests->detail.c_str());
+    }
+    if (p.kind != fpkg::Kind::finalized_debug) return 0;
+    auto pfs = fpkg::OuterPfs::open(file, p, args.get("--passcode").value_or(fpkg::kDefaultPasscode));
+    if (!pfs.ok()) return fail(pfs.error());
+    std::printf("outer PFS:       %u blocks, superblock at %u, %s, ICV %s\n", (*pfs)->block_count(),
+                (*pfs)->superblock_index(), (*pfs)->plain_no_auth() ? "unencrypted" : "AES-XTS",
+                (*pfs)->superblock_icv_ok() ? "ok" : "MISMATCH");
+    for (const fpkg::OuterFileInfo& f : (*pfs)->files())
+        std::printf("  %-24s %s size %llu (logical %llu)\n", f.name.c_str(), f.is_directory ? "dir " : "file",
+                    static_cast<unsigned long long>(f.size), static_cast<unsigned long long>(f.size_compressed));
+    return 0;
+}
+
+int cmd_fpkg_dump(const Args& args) {
+    if (args.positional.size() != 3) return usage(), 2;
+    auto opened = File::open(args.positional[0], File::Mode::read);
+    if (!opened.ok()) return fail(opened.error());
+    std::shared_ptr<const RandomAccess> file = std::make_shared<File>(std::move(*opened));
+    auto package = fpkg::read_package(*file);
+    if (!package.ok()) return fail(package.error());
+    const std::string& what = args.positional[1];
+    std::string passcode = args.get("--passcode").value_or(fpkg::kDefaultPasscode);
+    std::shared_ptr<const RandomAccess> source;
+    if (what.rfind("entry:", 0) == 0) {
+        std::string key = what.substr(6);
+        const fpkg::CntEntry* entry = nullptr;
+        for (const fpkg::CntEntry& e : package->entries) {
+            char id[16];
+            std::snprintf(id, sizeof id, "0x%x", e.id);
+            if (e.name == key || unicode::ascii_iequals(id, key)) entry = &e;
+        }
+        if (!entry) return std::fprintf(stderr, "error: no CNT entry '%s'\n", key.c_str()), 1;
+        auto data = fpkg::read_entry(*file, *package, *entry, passcode);
+        if (!data.ok()) return fail(data.error());
+        auto out = AtomicOutput::create(args.positional[2]);
+        if (!out.ok()) return fail(out.error());
+        Status status = out->file().write_at(0, *data);
+        if (status.ok()) status = out->commit();
+        return status.ok() ? 0 : fail(status.error());
+    }
+    auto pfs = fpkg::OuterPfs::open(file, *package, passcode);
+    if (!pfs.ok()) return fail(pfs.error());
+    auto opened_source = what == "inner-image" ? (*pfs)->open_inner_image() : (*pfs)->open_file(what);
+    if (!opened_source.ok()) return fail(opened_source.error());
+    auto length = (*opened_source)->size();
+    auto out = AtomicOutput::create(args.positional[2]);
+    if (!out.ok()) return fail(out.error());
+    std::vector<std::uint8_t> buffer(1 << 20);
+    for (std::uint64_t done = 0; done < *length;) {
+        auto n = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), *length - done));
+        Status status = (*opened_source)->read_at(done, MutableBytes(buffer.data(), n));
+        if (status.ok()) status = out->file().write_at(done, Bytes(buffer.data(), n));
+        if (!status.ok()) return fail(status.error());
+        done += n;
+    }
+    Status status = out->commit();
+    return status.ok() ? 0 : fail(status.error());
+}
+
 int cmd_ffpfsc_info(const Args& args) {
     if (args.positional.size() != 1) return usage(), 2;
     auto input = File::open(args.positional[0], File::Mode::read);
@@ -393,6 +483,8 @@ int main(int argc, char** argv) {
     if (command == "ffpfsc-info") return cmd_ffpfsc_info(parse(argc, argv, {}));
     if (command == "ffpfsc-extract") return cmd_ffpfsc_extract(parse(argc, argv, {}));
     if (command == "ffpfsc-verify") return cmd_ffpfsc_verify(parse(argc, argv, {}));
+    if (command == "fpkg-info") return cmd_fpkg_info(parse(argc, argv, {}));
+    if (command == "fpkg-dump") return cmd_fpkg_dump(parse(argc, argv, {}));
     if (command == "pfsc-encode") return cmd_pfsc_encode(parse(argc, argv, {}));
     if (command == "pfsc-decode") return cmd_pfsc_decode(parse(argc, argv, {}));
     if (command == "pfsc-info") return cmd_pfsc_info(parse(argc, argv, {}));

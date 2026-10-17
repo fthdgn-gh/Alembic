@@ -11,6 +11,7 @@ Build and test:
 ```sh
 cmake -S . -B build && cmake --build build && ./build/alembic_tests
 tools/oracle/compare.sh /path/to/PS5PKGTool   # byte-for-byte check vs PS5PKGTool
+tools/pkg-oracle/compare.sh                   # FPKG reading vs ProsperoPkgTool/LibProsperoPKG
 ```
 
 Output must stay byte-identical to PS5PKGTool (the AMPR index with

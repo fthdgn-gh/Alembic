@@ -360,12 +360,35 @@ Neither has been checked against packages made by Sony's tools on our side,
 and **we have no real FPKG samples yet.** That is the main risk for FPKG
 reading.
 
+### 2026-10-17: FPKG reading, layer 1 (envelope, keys, outer PFS)
+
+- Own crypto, written from the standards and checked against official test
+  vectors (`crypto.hpp`): AES-128 (table-driven) with XTS and CBC, SHA3-256,
+  HMAC-SHA256. No crypto library dependency, so it carries over to the PS5.
+  AES-NI can be added later for speed (the PS5's Zen 2 has it).
+- `fpkg.hpp`: reads FIH/LIH/CNT packages, CNT entries (names, protected-entry
+  AES-CBC decryption), checks the key-free digests (FIH superblock digest,
+  CNT entry digests), derives keys, decrypts the outer PFS and exposes its
+  files and the `pfs_image.dat` data region as `RandomAccess`.
+- CLI: `alembic fpkg-info <pkg>`, `alembic fpkg-dump <pkg> inner-image|<outer
+  file>|entry:<name> <out>`. A wrong passcode is reported as such.
+- `tools/pkg-oracle/compare.sh`: builds packages with ProsperoPkgTool
+  (stored, Kraken) and LibProsperoPKG, then checks digests + ICV, the
+  decrypted inner image (byte-identical to ProsperoPkgTool `native-decrypt`)
+  and the `param.json` entry. 9/9 pass, **including LibProsperoPKG's
+  package**, so the disagreement between the tools is confined to the NAPS
+  layer above this one.
+- Not done yet: protected-entry decryption is implemented but untested (no
+  test package has protected entries); patch (LIH) packages are parsed but
+  not decrypted.
+
 ## Next step
 
-**FPKG reading**, then FPKG → exFAT/FFPFSC by streaming (an FPKG
-`tree::Source`). Pieces: FIH/CNT parsing, key derivation from content ID +
-passcode, AES-128-XTS outer PFS, inner PFS (data-first image + NAPS layout),
-Kraken decoder, protected CNT entries (AES-128-CBC). References, all in
+**FPKG reading, layer 2**, then FPKG → exFAT/FFPFSC by streaming (an FPKG
+`tree::Source`). Remaining pieces: the Kraken decoder (independent of the
+NAPS dialect question), the NAPS CblockInfo walk, the inner PFS reader, and
+restoring `sce_sys` files from CNT entries. Waiting on real FPKG samples from
+the owner to decide which NAPS dialects matter. References, all in
 `.refs/`: pearlxcore/ProsperoPkgTool (MIT, managed Kraken encoder/decoder),
 SvenGDK/LibProsperoPKG (GPL, `ProsperoPkgReader`, `ProsperoPackageExtractor`,
 `ProsperoPs5InnerImageReader`, docs). Test data: build debug FPKGs from our
