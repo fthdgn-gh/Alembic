@@ -63,7 +63,7 @@ void usage() {
         "        write decrypted data: <what> is mount (the decoded inner PFS image),\n"
         "        inner-image (pfs_image.dat as stored),\n"
         "        an outer file name (e.g. naps_pkg_layout.dat), or entry:<name|0xID>\n"
-        "  pfsc-encode <in> <out> [--level 0-9] [--min-gain PERCENT]\n"
+        "  pfsc-encode <in> <out> [--level 0-9 (default 6)] [--min-gain PERCENT] [--threads N]\n"
         "        wrap a file in a PFSC block container\n"
         "  pfsc-decode <in> <out> [--length N]\n"
         "        unpack a PFSC container (by default to its padded length)\n"

@@ -35,11 +35,12 @@ for fixture in "$work"/fixtures/*; do
     done
 done
 
+# PS5PKGTool compresses at zlib level 9; Alembic defaults to 6, so parity runs pass --level 9.
 # PFSC: compressed bytes depend on the zlib build on each side (they matched on
 # macOS with .NET 10 and system zlib, 2026-10-17). The hard requirement is that
 # each side decodes the other's output to the same bytes.
 img="$work/many-default.oracle.img"
-"$alembic" pfsc-encode "$img" "$work/a.pfsc" >/dev/null 2>&1
+"$alembic" pfsc-encode "$img" "$work/a.pfsc" --level 9 >/dev/null 2>&1
 oracle pfsc-encode "$img" "$work/o.pfsc" >/dev/null
 oracle pfsc-decode "$work/a.pfsc" "$work/a.by-oracle"
 "$alembic" pfsc-decode "$work/o.pfsc" "$work/o.by-alembic" 2>/dev/null
@@ -54,14 +55,14 @@ if cmp -s "$work/a.pfsc" "$work/o.pfsc"; then echo "same  pfsc container bytes";
 ts=1700000000
 ffpfsc_case() { # name, source, extra alembic args...
     local name="$1" src="$2"; shift 2
-    "$alembic" ffpfsc "$src" "$work/ff-$name.alembic" --timestamp $ts --ampr-scheme ps5pkgtool "$@" >/dev/null 2>&1
+    "$alembic" ffpfsc "$src" "$work/ff-$name.alembic" --timestamp $ts --level 9 --ampr-scheme ps5pkgtool "$@" >/dev/null 2>&1
     oracle ffpfsc-dir "$src" "$work/ff-$name.oracle" $ts >/dev/null
     check "ffpfsc $name" "$work/ff-$name.alembic" "$work/ff-$name.oracle"
 }
 for fixture in "$work"/fixtures/small "$work"/fixtures/ampr "$work"/fixtures/many "$work"/fixtures/empty "$work"/dumps/*; do
     ffpfsc_case "$(basename "$fixture" | tr -c 'A-Za-z0-9_\n-' _)" "$fixture"
 done
-"$alembic" ffpfsc "$work/many-default.oracle.img" "$work/ff-image.alembic" --timestamp $ts >/dev/null 2>&1
+"$alembic" ffpfsc "$work/many-default.oracle.img" "$work/ff-image.alembic" --timestamp $ts --level 9 >/dev/null 2>&1
 oracle ffpfsc-image "$work/many-default.oracle.img" "$work/ff-image.oracle" $ts >/dev/null
 check "ffpfsc from image" "$work/ff-image.alembic" "$work/ff-image.oracle"
 

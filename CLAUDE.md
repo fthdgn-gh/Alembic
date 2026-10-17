@@ -3,8 +3,9 @@
 A PS5 homebrew app that converts FPKG (debug PS5 packages) to and from other
 formats: dump folders, exFAT, FFPKG (UFS2) and FFPFSC.
 
-Read [docs/NOTES.md](docs/NOTES.md) first: it holds the research on the
-reference repos, the decisions made so far, progress, and the next step.
+Read [docs/NOTES.md](docs/NOTES.md) first, starting with **"Where we are"** and
+**"Next session"**: current capabilities, how everything is tested, how to
+recreate the git-ignored reference checkouts, and the agreed next steps.
 
 Build and test:
 
@@ -34,10 +35,14 @@ LibProsperoPKG-sven, fpkg-cli, PS5-LZ4-Compression.
   `/data` and USB) with a ps5-homebrew-ui app as the front end.
 - **Goal:** conversion between exFAT, FFPFSC and FPKG (folders are a side
   feature). folder/exFAT/FFPFSC conversions are done (`alembic convert`),
-  byte-identical to PS5PKGTool. FPKG reading is done (FPKG → anything),
-  checked on real packages. FPKG building is still to do.
+  byte-identical to PS5PKGTool. FPKG and FFPKG (UFS2) reading are done,
+  checked on real files. Writing FPKG, UFS2 and PFS is still to do.
 - **Design:** every input is a `tree::Source` and every writer takes one, so
   conversions stream without temporary copies.
+- **Compression:** PFSC uses all cores and zlib level 6 by default (owner
+  decision: 2.4x faster than 9 for ~0.2% more size). Parity scripts pass
+  `--level 9` to match PS5PKGTool.
+- **Status:** an Alembic-made FFPFSC has been run on a PS5 via ShadowMountPlus.
 - **Also wanted:** AMPR LZ4 asset packs (`ampr_assets.index` + `.pak`
   volumes), read by ampr_emu at runtime. See NOTES.md.
 - **Language rules:** C++20 with no exceptions and no RTTI (the PS5 build

@@ -1,7 +1,66 @@
 # Alembic: research notes and plan
 
-Written 2026-10-17 after the first planning session. Update it as decisions
-change.
+Chronological log below; **read "Where we are" and "Next session" first.**
+
+## Where we are (end of session 1, 2026-10-17)
+
+### What works (CLI: `build/alembic`)
+
+| From \ To | folder | exFAT | FFPFSC | FFPKG (UFS2) | FPKG |
+|---|---|---|---|---|---|
+| folder | – | ✓ | ✓ | – | – |
+| exFAT | ✓ | `--rebuild` | ✓ (wrap) | – | – |
+| FFPFSC (exFAT or UFS2 payload) | ✓ | ✓ | ✓ | ✓ (unwrap UFS2) | – |
+| FFPKG (UFS2) | ✓ | ✓ | ✓ (wrap) | – | – |
+| FPKG (debug) | ✓ | ✓ | ✓ | – | – |
+
+- `alembic convert <in> <out>` (format from content / extension / `--to`),
+  `alembic ls <in>`, plus `exfat`, `ffpfsc`, `ffpfsc-info|extract|verify`,
+  `fpkg-info`, `fpkg-dump`, `ampr-index`, `pfsc-encode|decode|info`.
+- **Hardware-tested:** an FFPFSC made by `alembic convert pkg out.ffpfsc` from
+  sample package B mounted and ran on a PS5 with ShadowMountPlus.
+- Output written by Alembic (exFAT, FFPFSC, AMPR index with
+  `--ampr-scheme ps5pkgtool`, PFSC at `--level 9`) is **byte-identical to
+  PS5PKGTool**; the default AMPR scheme matches drakmor's ampr_emu builder.
+- Performance (14-core M-series): FPKG → FFPFSC 12.4 s for a 2.7 GB image
+  (compression on all cores, default zlib level 6), FPKG → exFAT 5 s,
+  FFPFSC → exFAT 3 s, memory ~40 MB.
+
+### How it is checked
+
+```sh
+cmake -S . -B build && cmake --build build && ./build/alembic_tests   # 36 unit tests
+tools/oracle/compare.sh             # 47 byte-for-byte checks vs PS5PKGTool + ampr_emu builder
+tools/pkg-oracle/compare.sh         # FPKG reading vs packages built by ProsperoPkgTool/LibProsperoPKG
+tools/pkg-oracle/check_samples.sh   # owner's real files in .refs/samples/ (~5 min)
+```
+
+### Environment (all git-ignored, recreate if missing)
+
+- `.refs/` holds reference checkouts:
+  `git clone` https://github.com/pearlxcore/PS5PKGTool,
+  https://github.com/pearlxcore/ProsperoPkgTool,
+  https://github.com/SvenGDK/LibProsperoPKG (as `LibProsperoPKG-sven`),
+  https://github.com/drakmor/ampr_emu, https://github.com/drakmor/ShadowMountPlus,
+  https://github.com/theghostonline/PS5-LZ4-Compression,
+  https://github.com/rdmrocha/fpkg-cli (no license: read only).
+- `tools/pkg-oracle/patch_libprosperopkg.py` patches LibProsperoPKG with a
+  managed SHA3 (macOS .NET has none); `compare.sh` runs it automatically.
+- `.refs/samples/`: the owner's real test files (three debug FPKGs A/B/C,
+  an exFAT dump, an FFPKG, a 13 GB FFPFSC, and our FFPFSC of package B).
+  **Never name them anywhere in the repo** (CLAUDE.md rule; history was
+  scrubbed once already).
+- Tools: Apple clang 21, CMake, .NET 10 SDK, Python 3. No Docker.
+
+### Known limitations
+
+- Writing FPKG, UFS2 (.ffpkg) and PFS (.ffpfs) is not implemented.
+- PFS (.ffpfs) images are not read either, standalone or as FFPFSC payload.
+- FPKG: retail and patch (LIH) packages are not opened; NAPS "shuffle"
+  layouts (current LibProsperoPKG output) are refused.
+- Reading (inflate, Kraken, SHA-256, AES) is single-threaded and uses no
+  CPU crypto instructions.
+- No PS5 build yet; the core uses only POSIX + std::thread, no exceptions/RTTI.
 
 ## Reference repositories
 
@@ -195,16 +254,16 @@ writer: dump → LZ4-packed tree → exFAT/FFPFSC/FPKG. Unpacking is a
 `tree::Source` that serves packed files from the volumes, so a packed image
 converts back to a loose one without a temporary copy.
 
-## Plan
+## Plan (status as of session 1)
 
-1. **Core library + host CLI** in portable C++20, errors as values.
-2. **Dump → FFPFSC** first: exFAT writer, AMPR index, PFSC codec, FFPFSC
+1. ✓ **Core library + host CLI** in portable C++20, errors as values.
+2. ✓ **Dump → FFPFSC** first: exFAT writer, AMPR index, PFSC codec, FFPFSC
    wrapper. Test byte-for-byte against PS5PKGTool/MkPFS with a fixed
    timestamp.
-3. **FPKG reading**: crypto (AES-XTS/CBC, SHA-256, SHA3, HMAC from mbedTLS or
+3. ✓ **FPKG reading** (debug packages): crypto (AES-XTS/CBC, SHA-256, SHA3, HMAC from mbedTLS or
    small standalone code), Kraken decoder, package reader, then
    FPKG → exFAT/FFPKG/FFPFSC by streaming.
-4. **FFPKG (UFS2)** read and write.
+4. **FFPKG (UFS2)**: ✓ read; write to do (ShadowMountPlus's recommended format).
 5. **Dump/image → FPKG** builder (Kraken encoder; offer "Stored" because
    encoding on the PS5 CPU will be slow).
 6. **PS5 front end.** The end goal is a PS5 homebrew; the CLI is the test
@@ -214,8 +273,8 @@ converts back to a loose one without a temporary copy.
    ps5-payload-sdk cross-build early to catch problems.
 7. **LZ4 asset packs** (AMPRPAK4/AMPRDAT3): pack, verify, unpack, as a tree
    transformation usable with every output format.
-8. **Multi-threaded PFSC compression** (blocks are independent; output stays
-   identical). Matters most on the PS5 CPU.
+8. ✓ **Multi-threaded PFSC compression** (output identical for any thread count).
+9. **PFS images (.ffpfs)**, standalone and as FFPFSC payload: read and write.
 
 ## Progress
 
@@ -463,16 +522,30 @@ an option or a different default for images meant for SMP.
 - Package B (2.7 GB image) on a 14-core M-series Mac: compression 114 s →
   11.4 s; FPKG → FFPFSC end to end 121 s → 12.4 s, 40 MB RAM.
 
-## Next step
+## Next session
 
-Done: FPKG → folder/exFAT/FFPFSC; FFPKG reading; multi-threaded compression. Candidates for the next step, in the
-agreed order: a PS5 cross-build of the core (ps5-payload-sdk); LZ4 asset
-packs; multi-threaded PFSC compression (69 s → a few seconds on 8+ cores);
-the FPKG builder; UFS2 writing (SMP's recommended format); PFS `.ffpfs`
-reading and writing (also as an FFPFSC payload). References, all in
-`.refs/`: pearlxcore/ProsperoPkgTool (MIT, managed Kraken encoder/decoder),
-SvenGDK/LibProsperoPKG (GPL, `ProsperoPkgReader`, `ProsperoPackageExtractor`,
-`ProsperoPs5InnerImageReader`, docs). Test data: build debug FPKGs from our
-fixtures with LibProsperoPKG on .NET (deterministic option), then check that
-FPKG → folder gives back the fixture, and compare against its extractor.
-After that: the FPKG builder.
+Agreed order (owner, end of session 1). Each item: port, test against the
+references and the samples, commit.
+
+1. **Faster reading** (matters most on the PS5's slower cores):
+   - parallel read-ahead decoding: PFSC blocks in `pfsc::Reader`/`decode`
+     and Kraken blocks in `fpkg::InnerMount` (decode upcoming blocks on worker
+     threads; same ring idea as `pfsc::Encoder`);
+   - hardware SHA-256 (ARMv8 SHA2 / x86 SHA-NI) and AES (ARMv8 AES / AES-NI)
+     with the current code as fallback; verify of a 30 GB FFPFSC took 105 s,
+     mostly SHA-256.
+2. **PS5 cross-build of the core** with ps5-payload-sdk (`prospero.mk`,
+   clang-18); check std::thread, file I/O and zlib there; then a minimal
+   payload that runs a conversion. Ask the owner before running anything on
+   the console.
+3. **LZ4 asset packs** (AMPRPAK4/AMPRDAT3): port drakmor's `ampr_pack.py`
+   (GPL), verify with `ampr_pack.py verify/inspect`. Not PS5-LZ4-Compression's
+   C port (its `pfs_*` code descends from an unlicensed project).
+4. **FPKG builder** (dump/image → debug FPKG): Kraken encoder or "stored";
+   ProsperoPkgTool and LibProsperoPKG builders as references; must install on
+   a console (owner tests).
+5. **UFS2 writer** (.ffpkg), then **PFS images** (.ffpfs).
+
+Smaller ideas noted along the way: a 64 KiB exFAT cluster option for
+ShadowMountPlus; an app-side downloader for third-party binaries
+(`libSceAmpr.sprx`) pinned by SHA-256, never bundled.
