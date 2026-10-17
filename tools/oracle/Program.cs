@@ -7,6 +7,7 @@
 //   ffpfsc-image <in> <out> <unixtime> PS5PKGTool's FFPFSC builder for an image file
 //   exfat-extract <image> <out-dir>   PS5PKGTool's exFAT reader: extract every file
 //   ffpfsc-verify <in>                PS5PKGTool's FFPFSC verifier: SHA-256 of the decoded payload
+//   ufs2-extract <image> <out-dir>    PS5PKGTool's UFS2 reader: extract every file
 //   lower                             dump string.ToLowerInvariant() as "from to" hex pairs
 using PS5PKGTool.Ffpfsc;
 
@@ -54,6 +55,9 @@ switch (args.Length > 0 ? args[0] : "")
         Console.WriteLine(r.DecodedSha256!.ToLowerInvariant());
         return 0;
     }
+    case "ufs2-extract":
+        await UFS2Tool.Ufs2Operations.ExtractAsync(args[1], args[2]);
+        return 0;
     case "lower":
         for (int cp = 0; cp <= 0x10FFFF; cp++)
         {

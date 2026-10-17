@@ -14,13 +14,13 @@
 
 namespace alembic::convert {
 
-enum class Format { folder, exfat, ffpfsc, fpkg };
+enum class Format { folder, exfat, ffpfsc, fpkg, ffpkg };
 
 const char* name(Format format);
-// "folder", "exfat", "ffpfsc", "fpkg" (ASCII case ignored).
+// "folder", "exfat", "ffpfsc", "fpkg", "ffpkg" (ASCII case ignored).
 std::optional<Format> parse_format(const std::string& text);
 // From the output path: ".exfat"/".img" → exFAT, ".ffpfsc" → FFPFSC,
-// ".pkg" → FPKG, a trailing '/' or an existing folder → folder.
+// ".pkg" → FPKG, ".ffpkg" → FFPKG (UFS2), a trailing '/' or an existing folder → folder.
 std::optional<Format> guess_output_format(const std::string& path);
 // From the input's contents (or that it is a folder).
 Result<Format> detect(const std::string& path);
@@ -30,8 +30,9 @@ struct Input {
     Format format;
     std::string path;
     std::unique_ptr<tree::Source> tree;
-    std::shared_ptr<const RandomAccess> image; // exFAT image or FFPFSC payload; null for folders
+    std::shared_ptr<const RandomAccess> image; // exFAT/UFS2 image or FFPFSC payload; null for folders and FPKG
     std::optional<ffpfsc::Info> ffpfsc;        // FFPFSC inputs only
+    bool image_is_ufs2 = false;                // the image is UFS2 rather than exFAT
     std::string detail;                        // e.g. the FPKG layout dialect
 };
 // `passcode` is used for FPKG inputs (default: 32 zeros).

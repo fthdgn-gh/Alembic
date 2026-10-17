@@ -4,6 +4,7 @@
 #include "alembic/bytes.hpp"
 #include "alembic/exfat_reader.hpp"
 #include "alembic/fpkg_inner.hpp"
+#include "alembic/ufs2.hpp"
 #include "alembic/unicode.hpp"
 
 #include <cstring>
@@ -52,6 +53,7 @@ const char* name(Format format) {
     case Format::exfat: return "exFAT";
     case Format::ffpfsc: return "FFPFSC";
     case Format::fpkg: return "FPKG";
+    case Format::ffpkg: return "FFPKG (UFS2)";
     }
     return "?";
 }
@@ -61,6 +63,7 @@ std::optional<Format> parse_format(const std::string& text) {
     if (unicode::ascii_iequals(text, "exfat")) return Format::exfat;
     if (unicode::ascii_iequals(text, "ffpfsc")) return Format::ffpfsc;
     if (unicode::ascii_iequals(text, "fpkg") || unicode::ascii_iequals(text, "pkg")) return Format::fpkg;
+    if (unicode::ascii_iequals(text, "ffpkg") || unicode::ascii_iequals(text, "ufs2")) return Format::ffpkg;
     return std::nullopt;
 }
 
@@ -68,6 +71,7 @@ std::optional<Format> guess_output_format(const std::string& path) {
     if (!path.empty() && path.back() == '/') return Format::folder;
     if (ends_with_icase(path, ".exfat") || ends_with_icase(path, ".img")) return Format::exfat;
     if (ends_with_icase(path, ".ffpfsc")) return Format::ffpfsc;
+    if (ends_with_icase(path, ".ffpkg")) return Format::ffpkg;
     if (ends_with_icase(path, ".pkg")) return Format::fpkg;
     if (is_directory(path)) return Format::folder;
     return std::nullopt;
@@ -84,7 +88,8 @@ Result<Format> detect(const std::string& path) {
         return Format::fpkg;
     if (size >= 0x10 && get_u64(head) == 2 && get_u64(head + 8) == kPfsMagic) return Format::ffpfsc;
     if (exfat::looks_like_exfat(file)) return Format::exfat;
-    return make_error(Errc::unsupported, "unrecognised input (not a folder, exFAT, FFPFSC or FPKG): " + path);
+    if (ufs2::looks_like_ufs2(file)) return Format::ffpkg;
+    return make_error(Errc::unsupported, "unrecognised input (not a folder, exFAT, UFS2, FFPFSC or FPKG): " + path);
 }
 
 Result<Input> open(const std::string& path, const std::string& passcode) {
@@ -107,10 +112,22 @@ Result<Input> open(const std::string& path, const std::string& passcode) {
         ALEMBIC_ASSIGN(ffpfsc::Payload payload, ffpfsc::open_payload(std::make_shared<File>(std::move(file))));
         input.ffpfsc = payload.info;
         input.image = payload.image;
-        if (!exfat::looks_like_exfat(*input.image))
+        if (exfat::looks_like_exfat(*input.image)) {
+            ALEMBIC_ASSIGN(input.tree, exfat::open_image(input.image, stem(payload.info.inner_file_name)));
+        } else if (ufs2::looks_like_ufs2(*input.image)) {
+            input.image_is_ufs2 = true;
+            ALEMBIC_ASSIGN(input.tree, ufs2::open_image(input.image, stem(payload.info.inner_file_name)));
+        } else {
             return make_error(Errc::unsupported, "the FFPFSC payload '" + payload.info.inner_file_name +
-                                                     "' is not exFAT (UFS2 and nested PFS are not supported yet)");
-        ALEMBIC_ASSIGN(input.tree, exfat::open_image(input.image, stem(payload.info.inner_file_name)));
+                                                     "' is neither exFAT nor UFS2 (nested PFS is not supported yet)");
+        }
+        return input;
+    }
+    case Format::ffpkg: {
+        ALEMBIC_ASSIGN(File file, File::open(path, File::Mode::read));
+        input.image = std::make_shared<File>(std::move(file));
+        input.image_is_ufs2 = true;
+        ALEMBIC_ASSIGN(input.tree, ufs2::open_image(input.image, stem(path)));
         return input;
     }
     case Format::fpkg: {
@@ -128,6 +145,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     ALEMBIC_ASSIGN(std::string out_full, absolute_path(output));
     if (in_full == out_full) return make_error(Errc::invalid_argument, "the output must differ from the input");
     if (to == Format::fpkg) return make_error(Errc::unsupported, "writing FPKG files is not supported yet");
+
     if (to != Format::folder && !options.overwrite && path_exists(output))
         return make_error(Errc::invalid_argument, "the output file already exists: " + output);
 
@@ -145,7 +163,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     case Format::exfat: {
         if (input.format == Format::exfat && !options.rebuild)
             return unsupported(input.format, to, "pass --rebuild to re-lay out the image");
-        if (input.image && !options.rebuild) {
+        if (input.image && !input.image_is_ufs2 && !options.rebuild) {
             ALEMBIC_TRY(copy_image(*input.image, output, options.overwrite, progress));
             report.method = "unwrapped the exFAT image unchanged";
             return report;
@@ -167,7 +185,8 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         if (input.image && !options.rebuild) {
             std::string inner = input.ffpfsc ? input.ffpfsc->inner_file_name : base_name(input_path);
             ALEMBIC_ASSIGN(ffpfsc::BuildResult r, ffpfsc::create_from_payload(*input.image, inner, output, ff, progress));
-            report.method = input.ffpfsc ? "recompressed the exFAT image unchanged" : "compressed the exFAT image unchanged";
+            const char* kind = input.image_is_ufs2 ? "UFS2" : "exFAT";
+            report.method = std::string(input.ffpfsc ? "recompressed the " : "compressed the ") + kind + " image unchanged";
             report.detail = r.inner_file_name;
             return report;
         }
@@ -176,6 +195,15 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         report.method = "built a new exFAT image from the file tree and compressed it";
         report.detail = r.inner_file_name;
         return report;
+    }
+    case Format::ffpkg: {
+        // Only unwrapping is possible until there is a UFS2 writer.
+        if (input.image && input.image_is_ufs2 && input.ffpfsc && !options.rebuild) {
+            ALEMBIC_TRY(copy_image(*input.image, output, options.overwrite, progress));
+            report.method = "unwrapped the UFS2 image unchanged";
+            return report;
+        }
+        return make_error(Errc::unsupported, "writing FFPKG (UFS2) images is not supported yet");
     }
     case Format::fpkg: break;
     }

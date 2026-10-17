@@ -90,6 +90,12 @@ Status convert_tree(const tree::Node& source, Node& parent) {
         children.push_back(std::move(node));
     }
     sort_children(children);
+    // exFAT ignores case; a case-sensitive source (UFS2, Linux) can hold names it cannot.
+    for (std::size_t i = 1; i < children.size(); ++i)
+        if (children[i].sort_key == children[i - 1].sort_key)
+            return make_error(Errc::unsupported, "exFAT cannot hold both '" + children[i - 1].relative_path +
+                                                     "' and '" + children[i].relative_path +
+                                                     "': names differ only by case");
     for (Node& child : children) {
         ALEMBIC_TRY(validate_name(child.name16, child.relative_path));
         if (child.is_directory) ALEMBIC_TRY(convert_tree(*child.source, child));

@@ -9,6 +9,9 @@
 # For *.exfat:
 #   - extraction equals PS5PKGTool's exFAT reader (tools/oracle),
 #   - exFAT -> FFPFSC -> exFAT is byte-identical to the original.
+# For *.ffpkg (UFS2):
+#   - extraction equals PS5PKGTool's UFS2 reader,
+#   - FFPKG -> FFPFSC -> FFPKG is byte-identical; FFPKG -> exFAT -> folder keeps every file.
 # For *.ffpfsc:
 #   - the SHA-256 of the decoded payload equals PS5PKGTool's verifier.
 #   tools/pkg-oracle/check_samples.sh [passcode]
@@ -73,6 +76,23 @@ for image in "$repo"/.refs/samples/*.exfat; do
     "$alembic" convert "$w/w.ffpfsc" "$w/back.exfat" >/dev/null 2>&1
     if cmp -s "$image" "$w/back.exfat"; then echo "same  exFAT -> FFPFSC -> exFAT"
     else echo "DIFF  exFAT -> FFPFSC -> exFAT"; fail=1; fi
+done
+for image in "$repo"/.refs/samples/*.ffpkg; do
+    w="$work/x"; rm -rf "$w"; mkdir -p "$w"
+    echo "== $(basename "$image")"
+    "$alembic" convert "$image" "$w/alembic/" >/dev/null 2>&1
+    oracle ufs2-extract "$image" "$w/ps5pkgtool"
+    if python3 -I "$here/../oracle/same_tree.py" "$w/ps5pkgtool" "$w/alembic"; then echo "same  extraction vs PS5PKGTool"
+    else echo "DIFF  extraction vs PS5PKGTool"; fail=1; fi
+    "$alembic" convert "$image" "$w/w.ffpfsc" --level 1 >/dev/null 2>&1
+    "$alembic" convert "$w/w.ffpfsc" "$w/back.ffpkg" >/dev/null 2>&1
+    if cmp -s "$image" "$w/back.ffpkg"; then echo "same  FFPKG -> FFPFSC -> FFPKG"
+    else echo "DIFF  FFPKG -> FFPFSC -> FFPKG"; fail=1; fi
+    "$alembic" convert "$image" "$w/x.exfat" >/dev/null 2>&1
+    "$alembic" convert "$w/x.exfat" "$w/from-exfat/" >/dev/null 2>&1
+    if python3 -I "$here/../oracle/same_tree.py" "$w/alembic" "$w/from-exfat" --skip ampr_emu.index; then
+        echo "same  FFPKG -> exFAT -> folder"
+    else echo "DIFF  FFPKG -> exFAT -> folder"; fail=1; fi
 done
 for container in "$repo"/.refs/samples/*.ffpfsc; do
     echo "== $(basename "$container")"

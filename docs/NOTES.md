@@ -421,12 +421,43 @@ an FFPKG (UFS2) and a large FFPFSC.
   0x1055C) of a PS5 app (`param.json`, a homebrew-range title ID), not a
   PS4 dump.
 
+### drakmor/ShadowMountPlus (GPL-3.0): the formats the console loader mounts
+
+| Extension | File system | SMP status | Alembic |
+|---|---|---|---|
+| `.ffpkg` | UFS2 | **recommended** default | read ✓ (write: to do) |
+| `.exfat` | exFAT | for titles needing external-drive behaviour; use 64 KiB clusters | read + write ✓ |
+| `.ffpfs` | PFS (uncompressed, MkPFS `--version PS5 --inode-bits 32`) | experimental | **missing** |
+| `.ffpfsc` | PFSC container with a nested image (exFAT, or PFS `.ffpfs` / `pfs_image.dat`) | experimental; console decompression only ~150-250 MB/s | exFAT and UFS2 payloads ✓; PFS payload **missing** |
+
+Images must hold the game at their root (`/sce_sys/param.json`), no extra
+folder. SMP picks the format by file extension.
+
+Our exFAT default cluster size follows PS5PKGTool/MkPFS (32 KiB unless the
+average file is >= 1 MiB); SMP recommends 64 KiB for performance. Consider
+an option or a different default for images meant for SMP.
+
+### 2026-10-17: UFS2 (.ffpkg) reading
+
+- `ufs2.hpp`: UFS2 reader written from FreeBSD's layout, with UFS2Tool's
+  (BSD-2) offsets and checks. Regular files and folders; symlinks and device
+  nodes skipped; real modification times; direct + single/double/triple
+  indirect blocks; holes read as zeros. UFS1 refused.
+- FFPKG is a `convert` input; FFPFSC payloads may be UFS2; an FFPFSC with a
+  UFS2 payload unwraps to `.ffpkg` unchanged. Writing UFS2 is still to do.
+- The exFAT writer now refuses names that differ only by case (UFS2 is
+  case-sensitive, exFAT is not) instead of writing a broken image.
+- Sample check: the FFPKG extracts identically to PS5PKGTool's UFS2 reader,
+  survives FFPKG → FFPFSC → FFPKG byte for byte, and FFPKG → exFAT → folder.
+- The CLI prints live progress only on a terminal.
+
 ## Next step
 
-Done: FPKG → folder/exFAT/FFPFSC. Candidates for the next step, in the
+Done: FPKG → folder/exFAT/FFPFSC; FFPKG reading. Candidates for the next step, in the
 agreed order: a PS5 cross-build of the core (ps5-payload-sdk); LZ4 asset
 packs; multi-threaded PFSC compression (69 s → a few seconds on 8+ cores);
-the FPKG builder; UFS2/FFPKG reading (a sample is in `.refs/samples/`). References, all in
+the FPKG builder; UFS2 writing (SMP's recommended format); PFS `.ffpfs`
+reading and writing (also as an FFPFSC payload). References, all in
 `.refs/`: pearlxcore/ProsperoPkgTool (MIT, managed Kraken encoder/decoder),
 SvenGDK/LibProsperoPKG (GPL, `ProsperoPkgReader`, `ProsperoPackageExtractor`,
 `ProsperoPs5InnerImageReader`, docs). Test data: build debug FPKGs from our

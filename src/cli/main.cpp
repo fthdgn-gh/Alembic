@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstdio>
+#include <unistd.h>
 #include <cstdlib>
 #include <cstring>
 #include <optional>
@@ -29,14 +30,14 @@ void usage() {
         "\n"
         "commands:\n"
         "  convert <input> <output> [--to folder|exfat|ffpfsc] [--rebuild] [--overwrite] [options]\n"
-        "        convert a dump folder, exFAT, FFPFSC or debug FPKG (--passcode P) to\n"
-        "        a folder, exFAT or FFPFSC; the input format is\n"
+        "        convert a dump folder, exFAT, FFPKG (UFS2), FFPFSC or debug FPKG\n"
+        "        (--passcode P) to a folder, exFAT or FFPFSC; the input format is\n"
         "        detected, the output format comes from --to or the output extension\n"
         "        (.exfat/.img, .ffpfsc, or a trailing '/' for a folder). Images are\n"
         "        copied unchanged unless --rebuild asks for a fresh exFAT layout.\n"
         "        Takes the ffpfsc and exfat options below.\n"
         "  ls <input> [--passcode P]\n"
-        "        list the files in a folder, exFAT, FFPFSC or debug FPKG\n"
+        "        list the files in a folder, exFAT, FFPKG, FFPFSC or debug FPKG\n"
         "  exfat <dump-dir> <out.exfat> [--cluster-size N] [--no-ampr] [--ampr-scheme S]\n"
         "        build an exFAT image from a dump folder\n"
         "  ampr-index <dump-dir> <out.index> [--ampr-scheme S]\n"
@@ -77,6 +78,8 @@ void usage() {
 class ProgressPrinter {
 public:
     ProgressFn callback() {
+        // Live percentages only on a terminal; logs and pipes stay clean.
+        if (!::isatty(STDERR_FILENO)) return {};
         return [this](const ProgressEvent& event) {
             int percent = event.total == 0 ? 100 : static_cast<int>(event.done * 100 / event.total);
             if (percent != last_percent_ || event.stage != stage_) {
