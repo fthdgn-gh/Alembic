@@ -61,6 +61,76 @@ change.
     as a front end;
   - check on the target firmware and loader which mounts a title can see.
 
+### SvenGDK/LibProsperoPKG (GPL-3.0): full FPKG pipeline in source
+
+Inspected 2026-10-17. **Correction to the notes above:** LibProsperoPkg is
+not binaries-only. SvenGDK/LibProsperoPKG is about 33k lines of C# under
+GPL-3.0-or-later (compatible with ours), with no native imports and no Oodle
+or `libScePubTools` references. drakmor/LibProsperoPKG is only a fork of it,
+3 commits behind and 0 ahead (fork at `be79990`, 2026-07-17; upstream at
+`748eabf`, 2026-09-12). The "Drakmor 0.6.x" binary releases that fpkg-cli
+targets seem to be a separate, closed lineage. We could not find their source.
+
+- Covers: inner PFS builder/reader, AES-XTS outer PFS, CNT writer/reader, FIH
+  debug image, RSA-3072 metadata signing, SHA3 digest chain, NAPS layout,
+  PlayGo (chunk.dat, hash-table, ficm, CRC-32C), keystone (chained
+  HMAC-SHA256), fake-SELF generation, param.json model, UCP archives, DDS
+  (BC7) encoding, package extractor and validator, disc-backup reassembly.
+- Kraken encoder and decoder in managed code. The decoder is derived from
+  powzix/ooz (GPL-3.0, C++), which we could port directly.
+- Inner-image Kraken keeps a block only if `comp <= uncomp * 15 >> 4`
+  (6.25 % saving). Do not confuse this with PS5PKGTool's zlib PFSC rule (5 %).
+- `docs/implementation-status.md` and `docs/ps5-pkg-format.md` are the best
+  written spec we have for FPKG building and the digest chain.
+- **Do not copy:** `PlayGo/Data/right.sprx` (a SELF binary of unclear
+  origin), `Keys/Data/*.bin` and `pkg_meta_rsa_key.pem` (key material; check
+  where they come from before using any of it).
+- Parts are derived from maxton/LibOrbisPkg (GPL-3.0): PFS model, CNT
+  writer, crypto utilities.
+
+### rdmrocha/fpkg-cli (no license)
+
+- **No license file, so we may not copy its code.** We can only learn facts
+  from its docs. It is a .NET CLI that drives a LibProsperoPkg DLL and binary-
+  patches it with dnlib (container sources, Oodle, Windows-parity fixes).
+- Same streaming idea as Alembic: it builds FPKGs straight from `.ffpfsc` /
+  `.exfat` without extracting (`FpkgVirtualSource/`: a small exFAT reader).
+- Facts from `NOTES.md` worth keeping for the FPKG builder:
+  - Before building from a retail dump, set aside `sce_sys/license.dat`,
+    `license.info`, `playgo-chunk.dat`, `playgo-hash-table.dat`,
+    `playgo-ficm.dat`, `origin-param.json`, `target-param.json`. Otherwise
+    stale PlayGo maps win over regenerated ones and the retail licence
+    suppresses the debug one.
+  - Matching the official Windows tools: language fillers each get their own
+    stored copy, start on 64 KiB boundaries and go last in the image; licence
+    and NP entries are stored unencrypted; no invented `about/right.sprx`;
+    directories are walked case-insensitively.
+  - PlayGo rules from the official binaries: scenario type `0x21`, first
+    chunk ref is chunk 0, every scenario lists every chunk,
+    `1 <= initial_chunk_count <= len`, limits 1000 chunks / 65535 mchunks /
+    5 scenarios, language id N is bit `1 << (63 - N)`, and a language mask of
+    all ones means "languages not supported". All files in chunk 0 with every
+    chunk initial is the known-good layout.
+  - Some dumps have corrupt `sce_sys/pic*.png`; fpkg-cli validates the PNG
+    chunk chain and CRCs and rebuilds from the matching `.dds`.
+  - "PFS v3" without shuffle analysis is byte-identical to v2; the shuffle
+    variant produced images a console would not load.
+  - LibProsperoPkg drops root `ampr_emu.index`, `fakelib/libSceAmpr.sprx` and
+    `fakelib/libScePlayGo.sprx` from FPKG builds.
+
+### drakmor/ampr_emu (GPL-3.0): the reader of ampr_emu.index
+
+- Confirms the short FNV offset `1469598103934665603` is intended: the
+  console-side reader uses it too.
+- **PS5PKGTool bug, which our port reproduces:** the reader
+  (`src/ampr_emu_index.cpp`, `compact_index_hash_key`) hashes the **UTF-8
+  bytes** with **ASCII-only** lowercasing. PS5PKGTool hashes **Unicode code
+  points** after full .NET lowercasing. They agree for ASCII paths only. On
+  load the reader recomputes every slot's hash and marks the **whole index
+  invalid** on any mismatch, so one non-ASCII file name breaks the index.
+  Checked: `/app0/Data/été.dat` hashes differently in the two schemes.
+  The reader also sorts and compares paths with ASCII-only folding.
+
 ## Plan
 
 1. **Core library + host CLI** in portable C++20, errors as values.
