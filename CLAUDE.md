@@ -17,7 +17,7 @@ Output must stay byte-identical to PS5PKGTool (the AMPR index with
 `--ampr-scheme ps5pkgtool`) and to ampr_emu's index builder (default scheme).
 Run the oracle after changing any format code. Reference checkouts live in
 `.refs/` (git-ignored): PS5PKGTool, ProsperoPkgTool, ampr_emu,
-LibProsperoPKG-sven, fpkg-cli.
+LibProsperoPKG-sven, fpkg-cli, PS5-LZ4-Compression.
 
 ## Decisions so far
 
@@ -27,11 +27,16 @@ LibProsperoPKG-sven, fpkg-cli.
 - **Architecture:** a portable C++20 core library and a PC command-line tool
   first, checked byte-for-byte against PS5PKGTool on a PC. A PS5 front end
   built on blackbearreloaded/ps5-homebrew-ui comes after that.
+- **End goal: a PS5 homebrew.** The CLI is the test bed. Like
+  PS5-LZ4-Compression, the engine will run as a payload ELF (which can reach
+  `/data` and USB) with a ps5-homebrew-ui app as the front end.
 - **Goal:** conversion between exFAT, FFPFSC and FPKG (folders are a side
   feature). folder/exFAT/FFPFSC conversions are done (`alembic convert`),
   byte-identical to PS5PKGTool. Next: FPKG reading, then FPKG building.
 - **Design:** every input is a `tree::Source` and every writer takes one, so
   conversions stream without temporary copies.
+- **Also wanted:** AMPR LZ4 asset packs (`ampr_assets.index` + `.pak`
+  volumes), read by ampr_emu at runtime. See NOTES.md.
 - **Language rules:** C++20 with no exceptions and no RTTI (the PS5 build
   forbids them), so errors are returned as values.
 - **License:** GPL-3.0-or-later, compatible with every source we port from.

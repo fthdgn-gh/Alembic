@@ -142,6 +142,55 @@ targets seem to be a separate, closed lineage. We could not find their source.
 - Not yet looked at: how ampr_emu behaves when the index is rejected (it may
   rebuild its own at runtime, since it knows `ampr_emu.index.tmp`).
 
+### theghostonline/PS5-LZ4-Compression (GPL-3.0): a working PS5 tool
+
+Inspected 2026-10-17. The closest existing thing to what Alembic wants to be
+on the console, and proof that the approach works on firmware 13.60.
+
+- **Architecture:** a payload ELF (`lz4-compression.elf`, built with
+  ps5-payload-sdk v0.43 `prospero.mk`, clang-18, C) does all the work and
+  serves an HTTP API + web page on port 5920. A native app (title
+  `PPSA99420`, built with half144/ps5-react: QuickJS + embedded React) is the
+  front end and starts the payload through Payload Manager. Settings and logs
+  in `/data/LZ4Compression`. **This answers our storage-access open problem:
+  the conversion runs in a payload, which can read `/data` and USB; the app
+  is only a UI.** ShadowMountPlus is used to mount images; Alembic reads
+  image files directly, so it does not need mounts for conversion.
+- On the console it does: FFPFSC compression (zlib level 7, multi-threaded
+  block pipeline, up to 16 workers), FFPFSC → folder/exFAT, exFAT/PFS images
+  ("choose PFS or exFAT output"), validate and repair of PFSC blocks,
+  `ampr_emu.index` building, copy/move between internal and USB, rest-mode
+  handling (renews the power timer during destructive phases), job history.
+  Tested: 67 GB title → 19.5 GB FFPFSC on a PS5.
+- **"LZ4 images" = AMPR seekable LZ4 asset packs**, not LZ4 inside PFSC.
+  Game files are moved into `ampr_assets-NNN.pak` volumes (AMPRDAT3) with a
+  manifest `ampr_assets.index` (AMPRPAK4) plus `.crc` (AMPRCRC1, offline
+  verify only) and optional `.runtime` (AMPRCFG1) sidecars. The pack-capable
+  ampr_emu runtime (`fakelib/libSceAmpr.sprx`, "PackedStdio" build 0.4.2.1)
+  serves reads from the packs at runtime. Independent raw-LZ4 or RAW blocks,
+  16 KiB to 1 MiB per file, LZ4 level 1-12 (1-4 fast, 5-12 HC, default 9).
+  Executables, PRX/SPRX, `sce_sys`, `sce_module`, `fakelib`, saves, configs
+  and already-compressed media stay loose. Packing needs `ampr_emu.index`
+  (every file keeps its fileId) and a TOML profile (automatic scan or
+  per-game, e.g. `profiles/*.toml`).
+- References for the pack format: drakmor/ampr_emu `tools/ampr_pack.py` and
+  `ampr_pack_format.py` (Python, ~3.6k lines) and `docs/ASSET_PACKS.md`;
+  PS5-LZ4-Compression `src/ampr_pack*.c` (C port, ~6.4k lines, stated to be
+  byte-identical to `ampr_pack.py` at HC 9/12 except the build ID). Both GPL.
+  `ampr_pack.py verify/inspect/unpack` can be our oracle.
+- Third party: LZ4 1.10.0 (BSD-2), zlib 1.3.1, miniz tinfl. Its PS5 Game
+  Compressor ancestry has **no license** (juma-sayeh/PS5-Game-Compressor), so
+  check which parts of `src/pfs_*.c` are original before porting any of it.
+- The pinned runtime `third_party/ampr_emu/libSceAmpr.sprx` is a GPL binary
+  built from drakmor/ampr_emu (SHA-256 `69e6c4d5…116d1a`). Shipping it needs
+  the matching source offer; prefer fetching the official ampr_emu release.
+
+How LZ4 packs fit Alembic: packing is a tree → tree transformation (some
+files replaced by pack volumes + manifest), so it composes with every
+writer: dump → LZ4-packed tree → exFAT/FFPFSC/FPKG. Unpacking is a
+`tree::Source` that serves packed files from the volumes, so a packed image
+converts back to a loose one without a temporary copy.
+
 ## Plan
 
 1. **Core library + host CLI** in portable C++20, errors as values.
@@ -154,8 +203,15 @@ targets seem to be a separate, closed lineage. We could not find their source.
 4. **FFPKG (UFS2)** read and write.
 5. **Dump/image → FPKG** builder (Kraken encoder; offer "Stored" because
    encoding on the PS5 CPU will be slow).
-6. **PS5 front end** on ps5-homebrew-ui: conversion on a worker thread with
-   progress and cancel, after solving storage access.
+6. **PS5 front end.** The end goal is a PS5 homebrew; the CLI is the test
+   bed. Following PS5-LZ4-Compression: the engine runs as a payload ELF
+   (full `/data` and USB access) and a ps5-homebrew-ui app is the front end.
+   Keep the core portable (POSIX only, no exceptions/RTTI) and add a
+   ps5-payload-sdk cross-build early to catch problems.
+7. **LZ4 asset packs** (AMPRPAK4/AMPRDAT3): pack, verify, unpack, as a tree
+   transformation usable with every output format.
+8. **Multi-threaded PFSC compression** (blocks are independent; output stays
+   identical). Matters most on the PS5 CPU.
 
 ## Progress
 
