@@ -48,8 +48,15 @@ LibProsperoPKG-sven, fpkg-cli, PS5-LZ4-Compression.
 - Copy binaries or key material out of reference repos (for example
   LibProsperoPKG's `right.sprx`, `Keys/Data/*`, `pkg_meta_rsa_key.pem`)
   without first establishing where they come from.
-- Copy code from repos with no license, such as rdmrocha/fpkg-cli.
 - Launch anything on a console without asking the owner first.
 
 Porting from GPL-3.0 source is fine, including SvenGDK/LibProsperoPKG: keep
 its NOTICE attributions (LibOrbisPkg, ooz).
+
+**Owner decision (2026-10-17):** repos with no license file (rdmrocha/fpkg-cli,
+juma-sayeh/PS5-Game-Compressor, ...) are treated as GPL-3.0. Credit their
+authors in the code and in a third-party notices file when porting from them.
+
+**No bundled binaries.** Third-party binaries the console needs (for example
+ampr_emu's `libSceAmpr.sprx`) are fetched by a downloader in the app from the
+official release, pinned by SHA-256, never committed to this repo.

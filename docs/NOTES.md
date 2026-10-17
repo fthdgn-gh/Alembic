@@ -182,8 +182,11 @@ on the console, and proof that the approach works on firmware 13.60.
   Compressor ancestry has **no license** (juma-sayeh/PS5-Game-Compressor), so
   check which parts of `src/pfs_*.c` are original before porting any of it.
 - The pinned runtime `third_party/ampr_emu/libSceAmpr.sprx` is a GPL binary
-  built from drakmor/ampr_emu (SHA-256 `69e6c4d5…116d1a`). Shipping it needs
-  the matching source offer; prefer fetching the official ampr_emu release.
+  built from drakmor/ampr_emu (SHA-256 `69e6c4d5…116d1a`). Decision: Alembic
+  bundles no binaries; the app downloads them from the official release and
+  checks a pinned SHA-256.
+- Owner decision: unlicensed upstreams (PS5 Game Compressor, fpkg-cli) are
+  treated as GPL-3.0, with credit to their authors.
 
 How LZ4 packs fit Alembic: packing is a tree → tree transformation (some
 files replaced by pack volumes + manifest), so it composes with every
