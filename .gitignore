@@ -4,3 +4,5 @@
 /tools/oracle/bin/
 /tools/oracle/obj/
 .DS_Store
+/tools/pkg-oracle/bin/
+/tools/pkg-oracle/obj/

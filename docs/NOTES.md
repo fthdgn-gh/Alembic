@@ -315,6 +315,50 @@ Notes:
   `ampr_emu.index` records it. PS5PKGTool images behave the same.
 - FFPFSC payloads that are not exFAT (UFS2, nested PFS) are refused for now.
 
+### 2026-10-17: FPKG reading, first findings
+
+Read so far: ProsperoPkgTool `ProsperoPackageReader`, `OuterPfsReader`,
+`ProsperoKeys`, `AesXts`, `ProsperoPs5InnerImageReader`.
+
+- Package: `\x7FFIH` (finalized; signed byte 0x00 debug / 0x80 retail,
+  format version 3, PFS at 0x10000, CNT offset at 0x58), `\x7FLIH` (patch,
+  wraps an FIH) or bare `\x7FCNT`. CNT header and 0x20-byte entry records are
+  **big-endian**; entry 0x200 holds entry names. After the CNT comes the SI
+  segment (a ZIP).
+- Keys (debug): `ComputeKeys(cid, passcode, i) = SHA3(SHA3(BE32(i)) ||
+  SHA3(cid padded to 48) || passcode)`; EKPFS = index 1. XTS keys:
+  `inner = HMAC-SHA256(EKPFS, seed)`, `k = HMAC-SHA256(inner, LE32(1) ||
+  seed)`, tweak = k[0:16], data = k[16:32]. Seed: superblock + 0x370.
+  Default passcode: 32 ASCII '0'.
+- Outer PFS: 64 KiB blocks, AES-128-XTS per block; sector = block index for
+  `pfs_image.dat` data, `0x800000000000 | index` for metadata and the NAPS
+  file; the superblock (found by magic 20130315 at +8) is plaintext. Seed
+  `PPRPLAIN-NOAUTH!` = unencrypted outer PFS. S32 inodes (0x2C8 bytes), 12
+  direct + 5 indirect block signatures (32-byte hash + index).
+- Inner image: `pfs_image.dat` is a raw stream of stored or header-stripped
+  Kraken blocks (up to 256 KiB, as two 128 KiB sub-chunks); geometry only in
+  `naps_pkg_layout.dat` (9-byte bit-packed CblockInfo records, RUN/STD
+  entries, dedup aliases, zero holes). The reconstructed mount is a PFS image
+  holding the file tree. `sce_sys/param.json` and media live in **CNT
+  entries**, not in the inner image; the builder adds `sce_sys/keystone`,
+  `pfs-version.dat` and `about/right.sprx` to the inner image.
+
+**Interoperability test** (`tools/pkg-oracle/`: a LibProsperoPKG harness;
+`patch_libprosperopkg.py` adds a managed SHA3-256, because .NET on macOS
+has none):
+
+| package built by | ProsperoPkgTool reads it | LibProsperoPKG reads it |
+|---|---|---|
+| ProsperoPkgTool, Kraken | yes, byte-exact | no |
+| ProsperoPkgTool, stored | yes, byte-exact | no |
+| LibProsperoPKG (Kraken) | no ("no supported NAPS interpretation") | no (its own message: Kraken layouts "not yet fully supported") |
+
+ProsperoPkgTool's reader is the most complete: it recognises several NAPS
+"dialects" (a Sony debug fixture, LibProsperoPkg 1.2.0 binary output, its own).
+Neither has been checked against packages made by Sony's tools on our side,
+and **we have no real FPKG samples yet.** That is the main risk for FPKG
+reading.
+
 ## Next step
 
 **FPKG reading**, then FPKG → exFAT/FFPFSC by streaming (an FPKG
