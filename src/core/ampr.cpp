@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Ported from PS5PKGTool PS5PKGTool.Ffpfsc/AmprIndex.cs (GPL-3.0).
+// Ported from PS5PKGTool PS5PKGTool.Ffpfsc/AmprIndex.cs (GPL-3.0). The
+// ampr_emu scheme follows drakmor/ampr_emu (GPL-3.0): the reader in
+// src/ampr_emu_index.cpp and the reference builder tools/build_ampr_index.py.
 #include "alembic/ampr.hpp"
 
 #include "alembic/bytes.hpp"
@@ -16,11 +18,13 @@ namespace {
 constexpr std::size_t kHeaderSize = 48;
 constexpr std::size_t kRecordSize = 24;
 constexpr std::size_t kSlotSize = 16;
-// Not the standard FNV-1a offset basis (14695981039346656037): PS5PKGTool's
-// constant is missing its last digit. Kept as-is so indexes match its output
-// and whatever reads them on the console.
+// Not the standard FNV-1a offset basis (14695981039346656037): a digit is
+// missing. ampr_emu's reader uses this value, so the index must too.
 constexpr std::uint64_t kFnvOffset = 1469598103934665603ull;
 constexpr std::uint64_t kFnvPrime = 1099511628211ull;
+// Limits enforced by the ampr_emu reader (SCE_KERNEL_PATH_MAX / NAME_MAX).
+constexpr std::size_t kMaxPathBytes = 1023;
+constexpr std::size_t kMaxNameBytes = 255;
 
 Error invalid(const std::string& message) {
     return make_error(Errc::invalid_data, message);
@@ -33,8 +37,8 @@ std::string replace_backslashes(std::string path) {
 
 Result<std::string> normalize_relative_path(const std::string& path) {
     std::string normalized = replace_backslashes(path);
-    normalized.erase(0, normalized.find_first_not_of('/') == std::string::npos ? normalized.size()
-                                                                               : normalized.find_first_not_of('/'));
+    std::size_t first = normalized.find_first_not_of('/');
+    normalized.erase(0, first == std::string::npos ? normalized.size() : first);
     bool bad = normalized.empty();
     std::size_t begin = 0;
     while (!bad && begin <= normalized.size()) {
@@ -48,53 +52,100 @@ Result<std::string> normalize_relative_path(const std::string& path) {
     return normalized;
 }
 
-// Lower-cased UTF-16 key, as .NET's path.Replace('\\', '/').ToLowerInvariant().
-Result<std::u16string> key(const std::string& path) {
-    ALEMBIC_ASSIGN(std::u16string utf16, unicode::utf8_to_utf16(replace_backslashes(path)));
-    return unicode::to_lower_invariant(utf16);
+// The folded path. For ampr_emu it is the UTF-8 bytes with only A-Z lowered
+// (compared as unsigned bytes, which std::string does). For ps5pkgtool it is
+// the .NET ToLowerInvariant() UTF-16 string, compared by code unit.
+struct Key {
+    std::string bytes;
+    std::u16string utf16;
+    bool operator<(const Key& other) const { return bytes < other.bytes || (bytes == other.bytes && utf16 < other.utf16); }
+};
+
+Result<Key> make_key(const std::string& path, Scheme scheme) {
+    Key key;
+    std::string slashed = replace_backslashes(path);
+    if (scheme == Scheme::ampr_emu) {
+        key.bytes = slashed;
+        for (char& c : key.bytes)
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    } else {
+        ALEMBIC_ASSIGN(std::u16string utf16, unicode::utf8_to_utf16(slashed));
+        key.utf16 = unicode::to_lower_invariant(utf16);
+    }
+    return key;
 }
 
-std::uint64_t hash_key(const std::u16string& key) {
+std::uint64_t hash_key(const Key& key, Scheme scheme) {
     std::uint64_t hash = kFnvOffset;
-    for (std::size_t i = 0; i < key.size(); ++i) {
-        char32_t cp = key[i];
-        if (cp >= 0xD800 && cp <= 0xDBFF && i + 1 < key.size() && key[i + 1] >= 0xDC00 && key[i + 1] <= 0xDFFF) {
-            cp = 0x10000 + ((cp - 0xD800) << 10) + (key[i + 1] - 0xDC00);
-            ++i;
+    if (scheme == Scheme::ampr_emu) {
+        for (char c : key.bytes) {
+            hash ^= static_cast<unsigned char>(c);
+            hash *= kFnvPrime;
         }
-        hash ^= static_cast<std::uint32_t>(cp);
-        hash *= kFnvPrime;
+    } else {
+        const std::u16string& s = key.utf16;
+        for (std::size_t i = 0; i < s.size(); ++i) {
+            char32_t cp = s[i];
+            if (cp >= 0xD800 && cp <= 0xDBFF && i + 1 < s.size() && s[i + 1] >= 0xDC00 && s[i + 1] <= 0xDFFF) {
+                cp = 0x10000 + ((cp - 0xD800) << 10) + (s[i + 1] - 0xDC00);
+                ++i;
+            }
+            hash ^= static_cast<std::uint32_t>(cp);
+            hash *= kFnvPrime;
+        }
     }
     return hash == 0 ? 1 : hash;
 }
 
+// Files the ampr_emu reference builder never indexes (root level only).
+bool ampr_emu_excluded(const std::string& relative) {
+    for (const char* name : {"ampr_emu.index.bak", "ampr_commands.bin", "apr_emu.log"})
+        if (unicode::ascii_iequals(relative, name)) return true;
+    return false;
+}
+
+Status check_ampr_emu_limits(const std::string& path) {
+    if (path.find_first_of("\t\n\r") != std::string::npos)
+        return invalid("ampr_emu cannot index a path containing tabs or line breaks: " + path);
+    if (path.size() > kMaxPathBytes) return invalid("the path is too long for ampr_emu (1023 bytes max): " + path);
+    std::size_t begin = 0;
+    while (begin <= path.size()) {
+        std::size_t end = path.find('/', begin);
+        if (end == std::string::npos) end = path.size();
+        if (end - begin > kMaxNameBytes) return invalid("a name is too long for ampr_emu (255 bytes max): " + path);
+        begin = end + 1;
+    }
+    return {};
+}
+
 struct Row {
     std::string path; // "/app0/<relative>"
-    std::u16string key;
+    Key key;
     std::uint64_t size;
     std::int64_t mtime;
 };
 
 } // namespace
 
-Result<std::uint64_t> hash_path(const std::string& utf8_path) {
-    ALEMBIC_ASSIGN(std::u16string k, key(utf8_path));
-    return hash_key(k);
+Result<std::uint64_t> hash_path(const std::string& utf8_path, Scheme scheme) {
+    ALEMBIC_ASSIGN(Key key, make_key(utf8_path, scheme));
+    return hash_key(key, scheme);
 }
 
-Result<std::vector<std::uint8_t>> build(const std::vector<FileRecord>& files) {
+Result<std::vector<std::uint8_t>> build(const std::vector<FileRecord>& files, Scheme scheme) {
     std::vector<Row> rows;
-    std::set<std::u16string> seen;
+    std::set<Key> seen;
     for (const FileRecord& file : files) {
         ALEMBIC_ASSIGN(std::string relative, normalize_relative_path(file.relative_path));
         if (unicode::ascii_iequals(relative, "ampr_emu.index") || unicode::ascii_iequals(relative, "ampr_emu.index.tmp"))
             continue;
+        if (scheme == Scheme::ampr_emu && ampr_emu_excluded(relative)) continue;
         std::string path = "/app0/" + relative;
-        ALEMBIC_ASSIGN(std::u16string k, key(path));
-        if (!seen.insert(k).second) continue;
-        rows.push_back(Row{std::move(path), std::move(k), file.size, file.unix_modified_time});
+        if (scheme == Scheme::ampr_emu) ALEMBIC_TRY(check_ampr_emu_limits(path));
+        ALEMBIC_ASSIGN(Key key, make_key(path, scheme));
+        if (!seen.insert(key).second) continue;
+        rows.push_back(Row{std::move(path), std::move(key), file.size, file.unix_modified_time});
     }
-    // .NET StringComparer.Ordinal compares UTF-16 code units, as u16string does.
     std::stable_sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.key < b.key; });
     if (rows.empty()) return std::vector<std::uint8_t>{};
 
@@ -136,16 +187,23 @@ Result<std::vector<std::uint8_t>> build(const std::vector<FileRecord>& files) {
 
     std::uint64_t mask = slot_count - 1;
     for (std::size_t i = 0; i < rows.size(); ++i) {
-        std::uint64_t hash = hash_key(rows[i].key);
+        std::uint64_t hash = hash_key(rows[i].key, scheme);
         std::uint64_t position = hash & mask;
+        bool duplicate = false;
         for (;;) {
             std::uint8_t* slot = p + hash_offset + position * kSlotSize;
             if (get_u32(slot + 8) == 0) {
                 put_u64(slot, hash);
                 put_u32(slot + 8, static_cast<std::uint32_t>(i + 1));
+                // ampr_emu flags every slot of a duplicate-hash group;
+                // PS5PKGTool flags only the earlier ones.
+                if (duplicate && scheme == Scheme::ampr_emu) put_u32(slot + 12, 1);
                 break;
             }
-            if (get_u64(slot) == hash) put_u32(slot + 12, 1);
+            if (get_u64(slot) == hash) {
+                put_u32(slot + 12, 1);
+                duplicate = true;
+            }
             position = (position + 1) & mask;
         }
     }

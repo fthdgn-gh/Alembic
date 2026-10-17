@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Builds fixtures, runs Alembic and PS5PKGTool on each and compares the output.
-#   tools/oracle/compare.sh [path/to/PS5PKGTool]
+# With an ampr_emu checkout, also compares Alembic's default AMPR index against
+# ampr_emu's own builder (tools/build_ampr_index.py).
+#   tools/oracle/compare.sh [path/to/PS5PKGTool] [path/to/ampr_emu]
 # Needs: a configured build in ./build, dotnet 10, python3.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 ps5pkgtool="${1:-$repo/.refs/PS5PKGTool}"
+ampr_emu="${2:-$repo/.refs/ampr_emu}"
 alembic="$repo/build/alembic"
 work="$(mktemp -d "${TMPDIR:-/tmp}/alembic-oracle-XXXXXX")"
 trap 'rm -rf "$work"' EXIT
@@ -26,7 +29,7 @@ for fixture in "$work"/fixtures/*; do
     for cluster in default 4096 131072; do
         extra=(); [[ $cluster != default ]] && extra=(--cluster-size "$cluster")
         oextra=(); [[ $cluster != default ]] && oextra=("$cluster")
-        "$alembic" exfat "$fixture" "$work/$name-$cluster.alembic.img" ${extra[@]+"${extra[@]}"} 2>/dev/null
+        "$alembic" exfat "$fixture" "$work/$name-$cluster.alembic.img" --ampr-scheme ps5pkgtool ${extra[@]+"${extra[@]}"} 2>/dev/null
         oracle exfat "$fixture" "$work/$name-$cluster.oracle.img" ${oextra[@]+"${oextra[@]}"}
         check "exfat $name cluster=$cluster" "$work/$name-$cluster.alembic.img" "$work/$name-$cluster.oracle.img"
     done
@@ -46,5 +49,21 @@ check "pfsc oracle->alembic decode" "$work/o.by-alembic" "$work/a.by-alembic"
 head -c "$(stat -f%z "$img" 2>/dev/null || stat -c%s "$img")" "$work/a.by-alembic" > "$work/a.trimmed"
 check "pfsc round trip" "$img" "$work/a.trimmed"
 if cmp -s "$work/a.pfsc" "$work/o.pfsc"; then echo "same  pfsc container bytes"; else echo "note  pfsc container bytes differ (zlib builds differ; decode checks above still apply)"; fi
+
+# AMPR index: Alembic's default scheme against the console-side project's builder.
+if [[ -f "$ampr_emu/tools/build_ampr_index.py" ]]; then
+    fixture="$work/fixtures/amprclean"
+    "$alembic" ampr-index "$fixture" "$work/alembic.index"
+    python3 -I "$ampr_emu/tools/build_ampr_index.py" "$fixture" -o "$work/ampr_emu.index" >/dev/null 2>&1
+    check "ampr index vs ampr_emu builder" "$work/alembic.index" "$work/ampr_emu.index"
+    "$alembic" ampr-index "$fixture" "$work/ps5pkgtool.index" --ampr-scheme ps5pkgtool
+    if cmp -s "$work/ps5pkgtool.index" "$work/ampr_emu.index"; then
+        echo "note  ps5pkgtool scheme unexpectedly matches ampr_emu on non-ASCII names"
+    else
+        echo "ok    ps5pkgtool scheme differs from ampr_emu on non-ASCII names, as expected"
+    fi
+else
+    echo "skip  ampr index vs ampr_emu builder (no ampr_emu checkout at $ampr_emu)"
+fi
 
 exit $fail

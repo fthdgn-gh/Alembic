@@ -13,8 +13,10 @@ cmake -S . -B build && cmake --build build && ./build/alembic_tests
 tools/oracle/compare.sh /path/to/PS5PKGTool   # byte-for-byte check vs PS5PKGTool
 ```
 
-Output must stay byte-identical to PS5PKGTool; run the oracle after changing
-any format code.
+Output must stay byte-identical to PS5PKGTool (the AMPR index with
+`--ampr-scheme ps5pkgtool`) and to ampr_emu's index builder (default scheme).
+Run the oracle after changing any format code. Reference checkouts live in
+`.refs/` (git-ignored): PS5PKGTool, ampr_emu, LibProsperoPKG-sven, fpkg-cli.
 
 ## Decisions so far
 
@@ -32,6 +34,13 @@ any format code.
 
 ## Never
 
-- Ship or depend on Oodle (`oo2core_*.dll`), LibProsperoPkg or
-  `libScePubTools.dll`.
+- Ship or depend on Oodle (`oo2core_*.dll`), `libScePubTools.dll`, or the
+  closed binary LibProsperoPkg releases (the "Drakmor 0.6.x" line).
+- Copy binaries or key material out of reference repos (for example
+  LibProsperoPKG's `right.sprx`, `Keys/Data/*`, `pkg_meta_rsa_key.pem`)
+  without first establishing where they come from.
+
+Porting from GPL-3.0 source is fine, including SvenGDK/LibProsperoPKG: keep
+its NOTICE attributions (LibOrbisPkg, ooz). Never copy code from repos with
+no license, such as rdmrocha/fpkg-cli.
 - Launch anything on a console without asking the owner first.

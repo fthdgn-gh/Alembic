@@ -2,15 +2,18 @@
 // Builds an exFAT image from a dump folder as a forward-only byte stream, so
 // it can go straight into a file or into the PFSC encoder without a temporary
 // copy. The layout is deterministic and mirrors MkPFS; it is ported from
-// PS5PKGTool's ExfatImage.cs and must stay byte-identical to it.
+// PS5PKGTool's ExfatImage.cs and must stay byte-identical to it (with
+// ampr::Scheme::ps5pkgtool; see ampr.hpp).
 #pragma once
 
+#include "alembic/ampr.hpp"
 #include "alembic/io.hpp"
 
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace alembic::exfat {
 
@@ -20,6 +23,9 @@ struct BuildOptions {
     std::optional<std::uint32_t> cluster_size;
     // Add ampr_emu.index when the dump has fakelib/libSceAmpr.sprx.
     bool generate_ampr_index = true;
+    // Hashing rules for that index. ampr_emu is what the console reads;
+    // ps5pkgtool reproduces PS5PKGTool byte for byte (differs for non-ASCII names).
+    ampr::Scheme ampr_scheme = ampr::Scheme::ampr_emu;
 };
 
 class ImageBuilder {
@@ -49,5 +55,10 @@ private:
 // Scans `source_directory` and writes the image to a new file at `output_path`.
 Status write_directory_image(const std::string& source_directory, const std::string& output_path,
                              const BuildOptions& options = {}, const ProgressFn& progress = {});
+
+// Builds ampr_emu.index for a dump folder with the same scan rules as the
+// image builder, whether or not the dump has fakelib/libSceAmpr.sprx.
+Result<std::vector<std::uint8_t>> build_ampr_index(const std::string& source_directory,
+                                                   ampr::Scheme scheme = ampr::Scheme::ampr_emu);
 
 } // namespace alembic::exfat

@@ -31,6 +31,15 @@ def ampr(root):
     write(f"{root}/fakelib/libSceAmpr.sprx", 5000, 40)
     write(f"{root}/ampr_emu.index", 64, 41)               # stale, replaced
 
+def amprclean(root):
+    # For ampr_emu's own builder, which indexes every file it finds, so no
+    # ignored names here. Non-ASCII names are the case that matters.
+    for i, name in enumerate(["eboot.bin", "sce_sys/param.json", "Data/B.dat", "Data/a.dat",
+                              "Data/_x.dat", "Data/\u00e4.dat", "Data/\u00c9cole.dat",
+                              "Data/\u65e5\u672c.dat", "Data/\U0001F600.dat", "Data/" + "x" * 200,
+                              "fakelib/libSceAmpr.sprx", "ampr_commands.bin"]):
+        write(f"{root}/{name}", 50 + i * 13, 300 + i)
+
 def many(root):
     for i in range(1500):                                  # root dir spans several clusters
         write(f"{root}/files/file_{i:05d}_with_a_longer_name.bin", i % 700, 100 + i)
@@ -48,5 +57,5 @@ def empty(root):
 
 if __name__ == "__main__":
     out = sys.argv[1]
-    for fn in (small, ampr, many, large, empty):
+    for fn in (small, ampr, amprclean, many, large, empty):
         fn(os.path.join(out, fn.__name__))

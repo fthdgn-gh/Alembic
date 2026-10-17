@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // alembic: command-line front end for the core library.
+#include "alembic/ampr.hpp"
 #include "alembic/exfat.hpp"
 #include "alembic/io.hpp"
 #include "alembic/pfsc.hpp"
 
+#include <algorithm>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -20,14 +23,20 @@ void usage() {
         "usage: alembic <command> [options]\n"
         "\n"
         "commands:\n"
-        "  exfat <dump-dir> <out.exfat> [--cluster-size N] [--no-ampr]\n"
+        "  exfat <dump-dir> <out.exfat> [--cluster-size N] [--no-ampr] [--ampr-scheme S]\n"
         "        build an exFAT image from a dump folder\n"
+        "  ampr-index <dump-dir> <out.index> [--ampr-scheme S]\n"
+        "        build ampr_emu.index for a dump folder\n"
         "  pfsc-encode <in> <out> [--level 0-9] [--min-gain PERCENT]\n"
         "        wrap a file in a PFSC block container\n"
         "  pfsc-decode <in> <out> [--length N]\n"
         "        unpack a PFSC container (by default to its padded length)\n"
         "  pfsc-info <in>\n"
-        "        print PFSC header details\n",
+        "        print PFSC header details\n"
+        "\n"
+        "--ampr-scheme ampr-emu    hash names the way ampr_emu reads them (default)\n"
+        "--ampr-scheme ps5pkgtool  match PS5PKGTool byte for byte; its index is\n"
+        "                          rejected by ampr_emu when a name is not ASCII\n",
         stderr);
 }
 
@@ -94,6 +103,30 @@ Args parse(int argc, char** argv, const std::vector<std::string>& flags) {
     return args;
 }
 
+bool parse_scheme(const Args& args, ampr::Scheme& scheme) {
+    auto text = args.get("--ampr-scheme");
+    if (!text) return true;
+    if (*text == "ampr-emu") scheme = ampr::Scheme::ampr_emu;
+    else if (*text == "ps5pkgtool") scheme = ampr::Scheme::ps5pkgtool;
+    else return std::fputs("error: --ampr-scheme must be ampr-emu or ps5pkgtool\n", stderr), false;
+    return true;
+}
+
+int cmd_ampr_index(const Args& args) {
+    if (args.positional.size() != 2) return usage(), 2;
+    ampr::Scheme scheme = ampr::Scheme::ampr_emu;
+    if (!parse_scheme(args, scheme)) return 2;
+    auto index = exfat::build_ampr_index(args.positional[0], scheme);
+    if (!index.ok()) return fail(index.error());
+    if (index->empty()) return std::fputs("error: the folder has no files to index\n", stderr), 1;
+    auto output = AtomicOutput::create(args.positional[1]);
+    if (!output.ok()) return fail(output.error());
+    Status status = output->file().write_at(0, *index);
+    if (status.ok()) status = output->commit();
+    if (!status.ok()) return fail(status.error());
+    return 0;
+}
+
 int cmd_exfat(const Args& args) {
     if (args.positional.size() != 2) return usage(), 2;
     exfat::BuildOptions options;
@@ -103,6 +136,7 @@ int cmd_exfat(const Args& args) {
         options.cluster_size = static_cast<std::uint32_t>(*value);
     }
     if (args.get("--no-ampr")) options.generate_ampr_index = false;
+    if (!parse_scheme(args, options.ampr_scheme)) return 2;
     ProgressPrinter printer;
     Status status = exfat::write_directory_image(args.positional[0], args.positional[1], options, printer.callback());
     printer.done();
@@ -181,6 +215,7 @@ int main(int argc, char** argv) {
     if (argc < 2) return usage(), 2;
     std::string command = argv[1];
     if (command == "exfat") return cmd_exfat(parse(argc, argv, {"--no-ampr"}));
+    if (command == "ampr-index") return cmd_ampr_index(parse(argc, argv, {}));
     if (command == "pfsc-encode") return cmd_pfsc_encode(parse(argc, argv, {}));
     if (command == "pfsc-decode") return cmd_pfsc_decode(parse(argc, argv, {}));
     if (command == "pfsc-info") return cmd_pfsc_info(parse(argc, argv, {}));

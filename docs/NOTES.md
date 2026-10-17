@@ -130,6 +130,17 @@ targets seem to be a separate, closed lineage. We could not find their source.
   invalid** on any mismatch, so one non-ASCII file name breaks the index.
   Checked: `/app0/Data/été.dat` hashes differently in the two schemes.
   The reader also sorts and compares paths with ASCII-only folding.
+- **Resolved 2026-10-17:** Alembic now defaults to ampr_emu's rules
+  (`ampr::Scheme::ampr_emu`), following `tools/build_ampr_index.py`: fold
+  UTF-8 bytes (A-Z only), sort by folded bytes, skip root `ampr_commands.bin`,
+  `apr_emu.log` and `ampr_emu.index.bak`, flag every slot in a duplicate-hash
+  group, and refuse paths with tabs or line breaks, paths over 1023 bytes or
+  names over 255 bytes (the reader would reject the whole index).
+  `--ampr-scheme ps5pkgtool` keeps PS5PKGTool parity for tests.
+  `compare.sh` checks both: byte-identical to ampr_emu's builder on a
+  fixture with non-ASCII names, and to PS5PKGTool with the compat scheme.
+- Not yet looked at: how ampr_emu behaves when the index is rejected (it may
+  rebuild its own at runtime, since it knows `ampr_emu.index.tmp`).
 
 ## Plan
 
@@ -161,7 +172,8 @@ targets seem to be a separate, closed lineage. We could not find their source.
   `AmprIndex` → `ampr.hpp`. The exFAT writer pushes bytes into a `ByteSink`,
   and `pfsc::Encoder` is a `ByteSink`, so dump → exFAT → PFSC can stream with
   no temporary image.
-- CLI: `alembic exfat`, `pfsc-encode`, `pfsc-decode`, `pfsc-info`.
+- CLI: `alembic exfat`, `ampr-index`, `pfsc-encode`, `pfsc-decode`,
+  `pfsc-info`.
 - **Oracle check passes byte for byte.** `tools/oracle/` is a .NET app that
   calls PS5PKGTool's own code; `tools/oracle/compare.sh [PS5PKGTool dir]`
   (default `.refs/PS5PKGTool`, git-ignored) builds 5 fixture folders and

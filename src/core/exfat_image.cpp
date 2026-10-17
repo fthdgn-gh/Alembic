@@ -136,7 +136,21 @@ Status scan_directory(const std::string& directory_path, Node& parent) {
     return {};
 }
 
-Status add_virtual_ampr_index(Node& root) {
+bool is_stale_index(const Node& n) {
+    return !n.is_directory &&
+           (unicode::ascii_iequals(n.name, "ampr_emu.index") || unicode::ascii_iequals(n.name, "ampr_emu.index.tmp"));
+}
+
+Result<std::vector<std::uint8_t>> index_for_tree(Node& root, ampr::Scheme scheme) {
+    std::vector<Node*> nodes;
+    walk(root, nodes);
+    std::vector<ampr::FileRecord> records;
+    for (const Node* n : nodes)
+        if (!n->is_directory) records.push_back({n->relative_path, n->size, n->mtime});
+    return ampr::build(records, scheme);
+}
+
+Status add_virtual_ampr_index(Node& root, ampr::Scheme scheme) {
     std::vector<Node*> nodes;
     walk(root, nodes);
     bool has_marker = std::any_of(nodes.begin(), nodes.end(), [](const Node* n) {
@@ -144,16 +158,8 @@ Status add_virtual_ampr_index(Node& root) {
     });
     if (!has_marker) return {};
 
-    std::erase_if(root.children, [](const Node& n) {
-        return !n.is_directory &&
-               (unicode::ascii_iequals(n.name, "ampr_emu.index") || unicode::ascii_iequals(n.name, "ampr_emu.index.tmp"));
-    });
-    nodes.clear();
-    walk(root, nodes);
-    std::vector<ampr::FileRecord> records;
-    for (const Node* n : nodes)
-        if (!n->is_directory) records.push_back({n->relative_path, n->size, n->mtime});
-    ALEMBIC_ASSIGN(std::vector<std::uint8_t> index, ampr::build(records));
+    std::erase_if(root.children, is_stale_index);
+    ALEMBIC_ASSIGN(std::vector<std::uint8_t> index, index_for_tree(root, scheme));
     if (index.empty()) return {};
 
     Node node;
@@ -562,7 +568,7 @@ Result<ImageBuilder> ImageBuilder::scan(const std::string& source_directory, con
     while (root_path.size() > 1 && root_path.back() == '/') root_path.pop_back();
     impl->root.full_path = root_path;
     ALEMBIC_TRY(scan_directory(root_path, impl->root));
-    if (options.generate_ampr_index) ALEMBIC_TRY(add_virtual_ampr_index(impl->root));
+    if (options.generate_ampr_index) ALEMBIC_TRY(add_virtual_ampr_index(impl->root, options.ampr_scheme));
     walk(impl->root, impl->nodes);
 
     std::uint64_t total = 0;
@@ -588,6 +594,19 @@ Status ImageBuilder::write(ByteSink& sink, const ProgressFn& progress) const {
     if (out.written() != impl_->image_length)
         return make_error(Errc::invalid_data, "the exFAT writer did not produce its planned length");
     return {};
+}
+
+Result<std::vector<std::uint8_t>> build_ampr_index(const std::string& source_directory, ampr::Scheme scheme) {
+    struct stat st {};
+    if (::stat(source_directory.c_str(), &st) != 0 || !S_ISDIR(st.st_mode))
+        return make_error(Errc::invalid_argument, "not a folder: " + source_directory);
+    Node root;
+    root.is_directory = true;
+    std::string root_path = source_directory;
+    while (root_path.size() > 1 && root_path.back() == '/') root_path.pop_back();
+    ALEMBIC_TRY(scan_directory(root_path, root));
+    std::erase_if(root.children, is_stale_index);
+    return index_for_tree(root, scheme);
 }
 
 Status write_directory_image(const std::string& source_directory, const std::string& output_path,
