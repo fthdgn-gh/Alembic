@@ -6,6 +6,7 @@
 #include "alembic/ffpfsc.hpp"
 #include "alembic/fpkg.hpp"
 #include "alembic/fpkg_inner.hpp"
+#include "alembic/lz4pack.hpp"
 #include "alembic/unicode.hpp"
 #include "alembic/io.hpp"
 #include "alembic/pfsc.hpp"
@@ -16,6 +17,7 @@
 #include <unistd.h>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <optional>
 #include <string>
 #include <vector>
@@ -35,9 +37,28 @@ void usage() {
         "        detected, the output format comes from --to or the output extension\n"
         "        (.exfat/.img, .ffpfsc, or a trailing '/' for a folder). Images are\n"
         "        copied unchanged unless --rebuild asks for a fresh exFAT layout.\n"
-        "        Takes the ffpfsc and exfat options below.\n"
+        "        Takes the ffpfsc and exfat options below, and:\n"
+        "        --lz4                 pack game files into AMPR LZ4 asset packs on the way\n"
+        "                              (folder, exFAT or FFPFSC output; read on the console\n"
+        "                              by ampr_emu's PackedStdio runtime)\n"
+        "        --lz4-runtime FILE    that runtime (libSceAmpr.sprx), placed in fakelib/\n"
+        "        --lz4-level N         1-4 LZ4 fast, 5-12 LZ4 HC (default 9)\n"
+        "        --lz4-block-size N    16384..1048576 (default 65536)\n"
+        "        --lz4-timestamp UNIX  time stamp of the files the packer adds (default now)\n"
+        "        --lz4-config-out DIR  also write the pack configuration (pack.toml) and the\n"
+        "                              forced-loose list (excludes.txt) for ampr_pack.py\n"
+        "        --lz4-unpack          turn LZ4-packed files back into ordinary files\n"
         "  ls <input> [--passcode P]\n"
         "        list the files in a folder, exFAT, FFPKG, FFPFSC or debug FPKG\n"
+        "  cat <input> <path> [<out>] [--passcode P]\n"
+        "        write one file of any input to <out> (default: standard output)\n"
+        "  lz4-info <input>\n"
+        "        summarise the LZ4 pack set of a folder or image\n"
+        "  same <a> <b> [--passcode P]\n"
+        "        compare the files of two inputs byte for byte (LZ4-packed inputs are\n"
+        "        unpacked first; ampr_emu.index is ignored)\n"
+        "  lz4-verify <input>\n"
+        "        decode every LZ4 pack chunk and check it against the CRC sidecar\n"
         "  exfat <dump-dir> <out.exfat> [--cluster-size N] [--no-ampr] [--ampr-scheme S]\n"
         "        build an exFAT image from a dump folder\n"
         "  ampr-index <dump-dir> <out.index> [--ampr-scheme S]\n"
@@ -70,16 +91,35 @@ void usage() {
         "  pfsc-info <in>\n"
         "        print PFSC header details\n"
         "\n"
+        "--progress                print progress as log lines when not on a terminal\n"
         "--ampr-scheme ampr-emu    hash names the way ampr_emu reads them (default)\n"
         "--ampr-scheme ps5pkgtool  match PS5PKGTool byte for byte; its index is\n"
         "                          rejected by ampr_emu when a name is not ASCII\n",
         stderr);
 }
 
+// Set by --progress: one line per percent, for logs.
+bool g_progress_lines = false;
+
 class ProgressPrinter {
 public:
     ProgressFn callback() {
-        // Live percentages only on a terminal; logs and pipes stay clean.
+        // Live percentages only on a terminal; logs and pipes stay clean
+        // unless --progress asks for lines.
+        if (g_progress_lines && !::isatty(STDERR_FILENO)) {
+            return [this](const ProgressEvent& event) {
+                int percent = event.total == 0 ? 100 : static_cast<int>(event.done * 100 / event.total);
+                if (percent != last_percent_ || event.stage != stage_) {
+                    last_percent_ = percent;
+                    stage_ = std::string(event.stage);
+                    std::time_t now = std::time(nullptr);
+                    char when[16];
+                    std::strftime(when, sizeof when, "%H:%M:%S", std::localtime(&now));
+                    std::fprintf(stderr, "%s %s: %d%%\n", when, stage_.c_str(), percent);
+                }
+                return true;
+            };
+        }
         if (!::isatty(STDERR_FILENO)) return {};
         return [this](const ProgressEvent& event) {
             int percent = event.total == 0 ? 100 : static_cast<int>(event.done * 100 / event.total);
@@ -94,7 +134,7 @@ public:
         };
     }
     void done() {
-        if (last_percent_ >= 0) std::fputc('\n', stderr);
+        if (last_percent_ >= 0 && ::isatty(STDERR_FILENO)) std::fputc('\n', stderr);
     }
 
 private:
@@ -257,6 +297,40 @@ int cmd_convert(const Args& args) {
     options.rebuild = args.get("--rebuild").has_value();
     if (auto passcode = args.get("--passcode")) options.passcode = *passcode;
     options.overwrite = args.get("--overwrite").has_value();
+    options.lz4_unpack = args.get("--lz4-unpack").has_value();
+    std::optional<std::string> config_out = args.get("--lz4-config-out");
+    if (args.get("--lz4")) {
+        int level = 9;
+        std::uint32_t shift = 16;
+        if (auto text = args.get("--lz4-level")) {
+            auto value = parse_number(text->c_str());
+            if (!value || *value < 1 || *value > 12) return std::fputs("error: --lz4-level must be 1-12\n", stderr), 2;
+            level = static_cast<int>(*value);
+        }
+        if (auto text = args.get("--lz4-block-size")) {
+            auto value = parse_number(text->c_str());
+            if (!value || *value < 16384 || *value > 1048576 || (*value & (*value - 1)))
+                return std::fputs("error: --lz4-block-size must be a power of two from 16384 to 1048576\n", stderr), 2;
+            shift = 0;
+            while ((1ull << shift) < *value) ++shift;
+        }
+        lz4pack::PackOptions pack;
+        auto input = convert::open(args.positional[0], options.passcode);
+        if (!input.ok()) return fail(input.error());
+        pack.config = lz4pack::automatic_profile(input->tree->root(), level, shift);
+        pack.config.workers = options.ffpfsc.compression.threads;
+        if (auto runtime = args.get("--lz4-runtime")) {
+            auto file = File::open(*runtime, File::Mode::read);
+            if (!file.ok()) return fail(file.error());
+            pack.runtime_module = std::make_shared<File>(std::move(*file));
+        }
+        if (auto text = args.get("--lz4-timestamp")) {
+            auto value = parse_number(text->c_str());
+            if (!value || *value > INT64_MAX) return std::fputs("error: bad --lz4-timestamp\n", stderr), 2;
+            pack.timestamp = static_cast<std::int64_t>(*value);
+        }
+        options.lz4 = std::move(pack);
+    }
     std::optional<convert::Format> to;
     if (auto text = args.get("--to")) {
         to = convert::parse_format(*text);
@@ -271,6 +345,33 @@ int cmd_convert(const Args& args) {
     if (!report.ok()) return fail(report.error());
     std::printf("%s -> %s: %s\n", convert::name(report->from), convert::name(report->to), report->method.c_str());
     if (!report->detail.empty()) std::printf("inner name: %s\n", report->detail.c_str());
+    if (report->lz4) {
+        const lz4pack::PackStats& st = *report->lz4;
+        auto gib = [](std::uint64_t v) { return static_cast<double>(v) / (1024.0 * 1024.0 * 1024.0); };
+        // GiB with two decimals hides small trees; fall back to MiB.
+        bool small = st.logical_bytes + st.loose_bytes < (1ull << 30);
+        auto unit = [&](std::uint64_t v) { return small ? static_cast<double>(v) / (1024.0 * 1024.0) : gib(v); };
+        const char* u = small ? "MiB" : "GiB";
+        std::printf("LZ4 packs:  %llu of %llu files packed (%llu left loose by sampling), %u volumes\n",
+                    static_cast<unsigned long long>(st.files_packed), static_cast<unsigned long long>(st.files_total),
+                    static_cast<unsigned long long>(st.files_auto_loose), st.volumes);
+        std::printf("            %.2f %s packed -> %.2f %s in volumes (%llu LZ4, %llu raw, %llu shared chunks)\n",
+                    unit(st.logical_bytes), u, unit(st.volume_bytes), u, static_cast<unsigned long long>(st.chunks_lz4),
+                    static_cast<unsigned long long>(st.chunks_raw), static_cast<unsigned long long>(st.chunks_shared));
+        std::printf("            %.2f %s stays loose\n", unit(st.loose_bytes), u);
+        for (const std::string& w : st.warnings) std::printf("  %s\n", w.c_str());
+        if (config_out) {
+            std::string toml = report->lz4_config_toml, excludes;
+            for (const std::string& p : report->lz4_forced_loose) excludes += p + "\n";
+            for (auto [name, text] : {std::pair<const char*, std::string*>{"pack.toml", &toml}, {"excludes.txt", &excludes}}) {
+                auto out = AtomicOutput::create(*config_out + "/" + name, true);
+                Status status = out.ok() ? out->file().write_at(0, Bytes(reinterpret_cast<const std::uint8_t*>(text->data()), text->size()))
+                                         : Status(out.error());
+                if (status.ok()) status = out->commit();
+                if (!status.ok()) return fail(status.error());
+            }
+        }
+    }
     return 0;
 }
 
@@ -295,6 +396,175 @@ int cmd_ls(const Args& args) {
     std::printf("%s: %llu files, %llu folders, %llu bytes\n", convert::name(input->format),
                 static_cast<unsigned long long>(t.files), static_cast<unsigned long long>(t.directories),
                 static_cast<unsigned long long>(t.bytes));
+    return 0;
+}
+
+// Copies `length` bytes of `source` to `sink` in 1 MiB pieces.
+Status copy_all(const RandomAccess& source, std::uint64_t length, ByteSink& sink) {
+    std::vector<std::uint8_t> buffer(1 << 20);
+    for (std::uint64_t done = 0; done < length;) {
+        auto n = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), length - done));
+        ALEMBIC_TRY(source.read_at(done, MutableBytes(buffer.data(), n)));
+        ALEMBIC_TRY(sink.write(Bytes(buffer.data(), n)));
+        done += n;
+    }
+    return {};
+}
+
+class StdoutSink final : public ByteSink {
+public:
+    Status write(Bytes data) override {
+        if (std::fwrite(data.data(), 1, data.size(), stdout) != data.size())
+            return make_error(Errc::io, "cannot write to standard output");
+        return {};
+    }
+};
+
+int cmd_cat(const Args& args) {
+    if (args.positional.size() != 2 && args.positional.size() != 3) return usage(), 2;
+    auto input = convert::open(args.positional[0], args.get("--passcode").value_or(std::string(32, '0')));
+    if (!input.ok()) return fail(input.error());
+    const tree::Node* node = tree::find(input->tree->root(), args.positional[1]);
+    if (!node || node->is_directory)
+        return std::fprintf(stderr, "error: no file '%s'\n", args.positional[1].c_str()), 1;
+    auto file = input->tree->open(*node);
+    if (!file.ok()) return fail(file.error());
+    if (args.positional.size() == 2) {
+        StdoutSink sink;
+        Status status = copy_all(**file, node->size, sink);
+        std::fflush(stdout);
+        return status.ok() ? 0 : fail(status.error());
+    }
+    auto out = AtomicOutput::create(args.positional[2]);
+    if (!out.ok()) return fail(out.error());
+    FileSink sink(out->file(), 0);
+    Status status = copy_all(**file, node->size, sink);
+    if (status.ok()) status = out->commit();
+    return status.ok() ? 0 : fail(status.error());
+}
+
+int cmd_lz4_verify(const Args& args) {
+    if (args.positional.size() != 1) return usage(), 2;
+    auto input = convert::open(args.positional[0], args.get("--passcode").value_or(std::string(32, '0')));
+    if (!input.ok()) return fail(input.error());
+    ProgressPrinter printer;
+    auto result = lz4pack::verify(*input->tree, printer.callback());
+    printer.done();
+    if (!result.ok()) return fail(result.error());
+    std::printf("files:           %llu packed files verified\n", static_cast<unsigned long long>(result->files));
+    std::printf("chunks:          %llu unique, %llu stored bytes -> %llu bytes\n",
+                static_cast<unsigned long long>(result->physical_chunks),
+                static_cast<unsigned long long>(result->stored_bytes), static_cast<unsigned long long>(result->raw_bytes));
+    return 0;
+}
+
+int cmd_same(const Args& args) {
+    if (args.positional.size() != 2) return usage(), 2;
+    std::string passcode = args.get("--passcode").value_or(std::string(32, '0'));
+    convert::Input inputs[2];
+    std::unique_ptr<tree::Source> unpacked[2];
+    const tree::Source* trees[2];
+    for (int i = 0; i < 2; ++i) {
+        auto input = convert::open(args.positional[i], passcode);
+        if (!input.ok()) return fail(input.error());
+        inputs[i] = std::move(*input);
+        trees[i] = inputs[i].tree.get();
+        if (lz4pack::is_packed(trees[i]->root())) {
+            auto u = lz4pack::unpack(*trees[i]);
+            if (!u.ok()) return fail(u.error());
+            unpacked[i] = std::move(*u);
+            trees[i] = unpacked[i].get();
+        }
+    }
+    std::vector<std::pair<std::string, const tree::Node*>> files[2];
+    for (int i = 0; i < 2; ++i) {
+        std::vector<std::pair<std::string, const tree::Node*>> stack{{"", &trees[i]->root()}};
+        while (!stack.empty()) {
+            auto [prefix, node] = stack.back();
+            stack.pop_back();
+            for (const tree::Node& c : node->children) {
+                std::string path = prefix.empty() ? c.name : prefix + "/" + c.name;
+                if (c.is_directory) stack.push_back({path, &c});
+                else if (path != "ampr_emu.index") files[i].push_back({path, &c});
+            }
+        }
+        std::sort(files[i].begin(), files[i].end());
+    }
+    std::uint64_t total = 0, done = 0;
+    for (auto& f : files[0]) total += f.second->size;
+    int differences = 0;
+    std::size_t j = 0;
+    std::vector<std::uint8_t> a(4 << 20), b(4 << 20);
+    ProgressPrinter printer;
+    ProgressFn progress = printer.callback();
+    for (auto& [path, node] : files[0]) {
+        while (j < files[1].size() && files[1][j].first < path) {
+            std::printf("only in b: %s\n", files[1][j++].first.c_str());
+            ++differences;
+        }
+        if (j >= files[1].size() || files[1][j].first != path) {
+            std::printf("only in a: %s\n", path.c_str());
+            ++differences;
+            done += node->size;
+            continue;
+        }
+        const tree::Node* other = files[1][j++].second;
+        if (other->size != node->size) {
+            std::printf("size differs: %s\n", path.c_str());
+            ++differences;
+            done += node->size;
+            continue;
+        }
+        auto fa = trees[0]->open(*node);
+        auto fb = trees[1]->open(*other);
+        if (!fa.ok()) return fail(fa.error());
+        if (!fb.ok()) return fail(fb.error());
+        for (std::uint64_t at = 0; at < node->size;) {
+            auto n = static_cast<std::size_t>(std::min<std::uint64_t>(a.size(), node->size - at));
+            Status s1 = (*fa)->read_at(at, MutableBytes(a.data(), n));
+            if (!s1.ok()) return fail(s1.error());
+            Status s2 = (*fb)->read_at(at, MutableBytes(b.data(), n));
+            if (!s2.ok()) return fail(s2.error());
+            if (std::memcmp(a.data(), b.data(), n) != 0) {
+                std::printf("content differs: %s\n", path.c_str());
+                ++differences;
+                break;
+            }
+            at += n;
+            done += n;
+            if (progress) progress({"Comparing", done, total});
+        }
+    }
+    for (; j < files[1].size(); ++j, ++differences) std::printf("only in b: %s\n", files[1][j].first.c_str());
+    printer.done();
+    std::printf("%zu files compared, %d differences\n", files[0].size(), differences);
+    return differences == 0 ? 0 : 1;
+}
+
+int cmd_lz4_info(const Args& args) {
+    if (args.positional.size() != 1) return usage(), 2;
+    auto input = convert::open(args.positional[0], args.get("--passcode").value_or(std::string(32, '0')));
+    if (!input.ok()) return fail(input.error());
+    const tree::Node* node = tree::find(input->tree->root(), lz4pack::kIndexName);
+    if (!node) return std::fputs("error: no ampr_assets.index in this input\n", stderr), 1;
+    auto file = input->tree->open(*node);
+    if (!file.ok()) return fail(file.error());
+    std::vector<std::uint8_t> data(static_cast<std::size_t>(node->size));
+    Status status = (*file)->read_at(0, data);
+    if (!status.ok()) return fail(status.error());
+    auto m = lz4pack::parse_manifest(data);
+    if (!m.ok()) return fail(m.error());
+    std::uint64_t packed = 0, logical = 0;
+    for (const auto& f : m->files)
+        if (f.flags & lz4pack::kFilePacked) ++packed, logical += f.logical_size;
+    std::printf("build id:        ");
+    for (std::uint8_t b : m->build_id) std::printf("%02x", b);
+    std::printf("\nfiles:           %zu (%llu packed, %llu bytes)\nchunks:          %zu\n", m->files.size(),
+                static_cast<unsigned long long>(packed), static_cast<unsigned long long>(logical), m->chunks.size());
+    for (std::size_t i = 0; i < m->packs.size(); ++i)
+        std::printf("  %-48s %14llu bytes, %u-byte pages%s\n", m->pack_name(i).c_str(),
+                    static_cast<unsigned long long>(m->packs[i].file_size), m->packs[i].io_page_size,
+                    (m->packs[i].flags & lz4pack::kPackStriped) ? ", striped" : "");
     return 0;
 }
 
@@ -497,9 +767,22 @@ int cmd_pfsc_info(const Args& args) {
 int main(int argc, char** argv) {
     if (argc < 2) return usage(), 2;
     std::string command = argv[1];
+    // --progress may appear anywhere; strip it before the command parses.
+    int kept = 1;
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--progress") == 0) g_progress_lines = true;
+        else argv[kept++] = argv[i];
+    }
+    argc = kept;
+    if (argc < 2) return usage(), 2;
     if (command == "convert")
-        return cmd_convert(parse(argc, argv, {"--no-ampr", "--case-sensitive", "--overwrite", "--rebuild"}));
+        return cmd_convert(
+            parse(argc, argv, {"--no-ampr", "--case-sensitive", "--overwrite", "--rebuild", "--lz4", "--lz4-unpack"}));
+    if (command == "lz4-verify") return cmd_lz4_verify(parse(argc, argv, {}));
+    if (command == "lz4-info") return cmd_lz4_info(parse(argc, argv, {}));
+    if (command == "same") return cmd_same(parse(argc, argv, {}));
     if (command == "ls") return cmd_ls(parse(argc, argv, {}));
+    if (command == "cat") return cmd_cat(parse(argc, argv, {}));
     if (command == "exfat") return cmd_exfat(parse(argc, argv, {"--no-ampr"}));
     if (command == "ampr-index") return cmd_ampr_index(parse(argc, argv, {}));
     if (command == "ffpfsc") return cmd_ffpfsc(parse(argc, argv, {"--no-ampr", "--case-sensitive", "--overwrite"}));

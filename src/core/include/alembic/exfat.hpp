@@ -22,7 +22,8 @@ struct BuildOptions {
     // Power of two from 4 KiB to 32 MiB. Default: 64 KiB when the average file
     // is at least 1 MiB, otherwise 32 KiB.
     std::optional<std::uint32_t> cluster_size;
-    // Add ampr_emu.index when the dump has fakelib/libSceAmpr.sprx.
+    // Add ampr_emu.index when the dump has fakelib/libSceAmpr.sprx (an
+    // LZ4-packed tree keeps the index it has).
     bool generate_ampr_index = true;
     // Hashing rules for that index. ampr_emu is what the console reads;
     // ps5pkgtool reproduces PS5PKGTool byte for byte (differs for non-ASCII names).

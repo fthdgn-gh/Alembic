@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (end of session 1, 2026-10-17)
+## Where we are (session 2, 2026-10-18)
 
 ### What works (CLI: `build/alembic`)
 
@@ -22,6 +22,10 @@ Chronological log below; **read "Where we are" and "Next session" first.**
 - Output written by Alembic (exFAT, FFPFSC, AMPR index with
   `--ampr-scheme ps5pkgtool`, PFSC at `--level 9`) is **byte-identical to
   PS5PKGTool**; the default AMPR scheme matches drakmor's ampr_emu builder.
+- **LZ4 asset packs:** `convert --lz4` (to folder, exFAT or FFPFSC) packs
+  game files for ampr_emu's PackedStdio runtime, byte-identical to
+  `ampr_pack.py`; `--lz4-unpack`, `lz4-info`, `lz4-verify`, `same`. A 149 GiB
+  game became a 114.7 GiB exFAT in 9.6 min (see the 2026-10-18 entry).
 - Performance (14-core M-series): FPKG → FFPFSC 12.4 s for a 2.7 GB image
   (compression on all cores, default zlib level 6), FPKG → exFAT 5 s,
   FFPFSC → exFAT 3 s, memory ~40 MB.
@@ -29,10 +33,11 @@ Chronological log below; **read "Where we are" and "Next session" first.**
 ### How it is checked
 
 ```sh
-cmake -S . -B build && cmake --build build && ./build/alembic_tests   # 36 unit tests
+cmake -S . -B build && cmake --build build && ./build/alembic_tests   # 41 unit tests
 tools/oracle/compare.sh             # 47 byte-for-byte checks vs PS5PKGTool + ampr_emu builder
 tools/pkg-oracle/compare.sh         # FPKG reading vs packages built by ProsperoPkgTool/LibProsperoPKG
 tools/pkg-oracle/check_samples.sh   # owner's real files in .refs/samples/ (~5 min)
+tools/lz4-oracle/compare.sh         # LZ4 packs vs ampr_pack.py (needs .refs/venv, Homebrew lz4)
 ```
 
 ### Environment (all git-ignored, recreate if missing)
@@ -44,6 +49,10 @@ tools/pkg-oracle/check_samples.sh   # owner's real files in .refs/samples/ (~5 m
   https://github.com/drakmor/ampr_emu, https://github.com/drakmor/ShadowMountPlus,
   https://github.com/theghostonline/PS5-LZ4-Compression,
   https://github.com/rdmrocha/fpkg-cli (no license: read only).
+- `.refs/venv`: `python3 -m venv .refs/venv` (no packages; the LZ4 oracle uses
+  Homebrew's liblz4 1.10.0). `.refs/runtime/ampr_emu-0.4.2.1/`: the PackedStdio
+  `libSceAmpr.sprx` from the official release (SHA-256 in the 2026-10-18 entry).
+  `.refs/out/`: conversion outputs.
 - `tools/pkg-oracle/patch_libprosperopkg.py` patches LibProsperoPKG with a
   managed SHA3 (macOS .NET has none); `compare.sh` runs it automatically.
 - `.refs/samples/`: the owner's real test files (three debug FPKGs A/B/C,
@@ -55,6 +64,9 @@ tools/pkg-oracle/check_samples.sh   # owner's real files in .refs/samples/ (~5 m
 ### Known limitations
 
 - Writing FPKG, UFS2 (.ffpkg) and PFS (.ffpfs) is not implemented.
+- LZ4 packs: no TOML profile input yet (only the automatic profile); pass 1
+  keeps ~200 bytes per chunk in RAM (456 MB for 2.2M chunks), which may need
+  trimming for the PS5 payload; never tested on a console.
 - PFS (.ffpfs) images are not read either, standalone or as FFPFSC payload.
 - FPKG: retail and patch (LIH) packages are not opened; NAPS "shuffle"
   layouts (current LibProsperoPKG output) are refused.
@@ -271,7 +283,7 @@ converts back to a loose one without a temporary copy.
    (full `/data` and USB access) and a ps5-homebrew-ui app is the front end.
    Keep the core portable (POSIX only, no exceptions/RTTI) and add a
    ps5-payload-sdk cross-build early to catch problems.
-7. **LZ4 asset packs** (AMPRPAK4/AMPRDAT3): pack, verify, unpack, as a tree
+7. ✓ **LZ4 asset packs** (AMPRPAK4/AMPRDAT3): pack, verify, unpack, as a tree
    transformation usable with every output format.
 8. ✓ **Multi-threaded PFSC compression** (output identical for any thread count).
 9. **PFS images (.ffpfs)**, standalone and as FFPFSC payload: read and write.
@@ -522,6 +534,73 @@ an option or a different default for images meant for SMP.
 - Package B (2.7 GB image) on a 14-core M-series Mac: compression 114 s →
   11.4 s; FPKG → FFPFSC end to end 121 s → 12.4 s, 40 MB RAM.
 
+### 2026-10-18: LZ4 asset packs (AMPRPAK4 / AMPRDAT3)
+
+- `lz4pack.hpp` + `src/core/lz4pack_{format,build,read}.cpp`: port of
+  drakmor/ampr_emu's `tools/ampr_pack.py` / `ampr_pack_format.py` (format,
+  rules, auto-loose sampling, lane assignment, page-safe placement, lane/group
+  de-duplication, striping, volume rollover, build ID, CRC and runtime
+  sidecars) and of PS5-LZ4-Compression's automatic profile (its
+  `src/ampr_pack_profile.c`: safety list, hot audio rules, four balanced lanes
+  of up to 16 GiB, runtime cache budget, keep-on-disk list). LZ4 1.10.0 is
+  vendored from the official tag in `third_party/lz4/` (with its xxHash).
+- **CLI:** `alembic convert <in> <out> --lz4 --lz4-runtime libSceAmpr.sprx`
+  (folder, exFAT or FFPFSC output; `--lz4-level` 1-12, default 9 like
+  PS5-LZ4-Compression; `--lz4-block-size`; `--lz4-config-out DIR` writes the
+  `pack.toml` + `excludes.txt` that make `ampr_pack.py` produce the same set);
+  `--lz4-unpack` turns a packed tree back into loose files; `lz4-info`,
+  `lz4-verify`. `--progress` prints progress lines for logs. `alembic cat
+  <in> <path> [out]` pulls one file out of any input.
+- **Streaming, two passes, no temporary copy:** pass 1 compresses every block
+  to fix sizes, offsets and the build ID (keeps ~80 bytes per chunk); pass 2
+  compresses again while the writer reads each volume (read-ahead on all
+  cores) and checks every block against pass 1. Source reads stay on one
+  thread (the FPKG/UFS2 readers cache and are not thread-safe).
+- **Output tree:** the original tree minus the packed files, plus
+  `ampr_emu.index` (built from the original tree plus the runtime, so file IDs
+  match the pack records), `ampr_assets.index` + `.crc` + `.runtime`, the
+  volumes and `fakelib/libSceAmpr.sprx`. The exFAT writer now keeps the
+  `ampr_emu.index` of a tree that has `ampr_assets.index` (rebuilding it would
+  renumber the files and break the packs). Folders emptied by packing stay.
+- **Checked:** `tools/lz4-oracle/compare.sh` (synthetic game, three
+  level/block-size settings, `--big` adds auto-loose files): manifest, `.crc`,
+  `.runtime` and every `.pak` byte-identical to `ampr_pack.py pack`, build ID
+  included; `ampr_pack.py verify` accepts Alembic's output; packed exFAT and
+  FFPFSC extract to the same files as the folder output and `--lz4-unpack`
+  restores the original tree. Oracle setup: `python3 -m venv .refs/venv`;
+  the Python `lz4` wheel bundles LZ4 1.9.4, so the script instead lets
+  `ampr_pack_format.py` load Homebrew's liblz4 1.10.0 through ctypes
+  (`DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib`, no `lz4` module installed).
+- **Runtime binary:** ampr_emu 0.4.2.1's `libSceAmpr.sprx` (PackedStdio
+  build) from the official release
+  (`gh release download 0.4.2.1 -R drakmor/ampr_emu -p libSceAmpr.sprx`),
+  SHA-256 `69e6c4d5e4f5fb83c9e01815db5861c4c75734acbf4595cafa50d4c218116d1a`,
+  the same file PS5-LZ4-Compression and Lazy_AMPR pin. Kept in
+  `.refs/runtime/ampr_emu-0.4.2.1/` (git-ignored), never committed.
+- The packer refuses a tree without `fakelib/libSceAmpr.sprx` unless
+  `--lz4-runtime` is given: without the PackedStdio runtime the game cannot
+  read its packed files.
+- Fidelity notes: like `ampr_pack.py`, duplicate blocks are shared only
+  within one lane by default; PS5-LZ4-Compression's video rule
+  (`**/movies/**`) does not match a top-level `movies/` folder (ported as is).
+
+- **Package D** (owner sample, an 87 GB debug FPKG of a 149 GiB game, almost
+  all in 74 large archive files): `alembic convert D.pkg D.exfat --lz4
+  --lz4-runtime .refs/runtime/ampr_emu-0.4.2.1/libSceAmpr.sprx` took 9.6 min
+  on the 14-core Mac (pass 1 4.7 min, pass 2 + exFAT 4.9 min), 456 MB peak
+  RAM. 227 of 284 files packed, 22 left loose by sampling (per-language
+  archives, 0-4% LZ4 gain); 136.5 GiB packed into 102.4 GiB of volumes
+  (8 volumes, 4 lanes, 16 GiB max), 12.2 GiB loose; exFAT image 114.7 GiB
+  (149 GiB unpacked). `lz4-verify`: every chunk decodes and matches its CRC
+  (116 s). `alembic same D.pkg D.exfat`: all 283 files identical after
+  unpacking (the only extra file is the runtime). **Not run on a console
+  yet**: whether this engine reads its archives through paths ampr_emu
+  intercepts (not mmap) is only known on hardware. The profile also packs a
+  1 MiB `playgo-languages/*.bin`, as PS5-LZ4-Compression would; first suspect
+  if PlayGo complains.
+- `alembic same <a> <b>` compares two inputs file by file (unpacking LZ4 on
+  either side).
+
 ## Next session
 
 Agreed order (owner, end of session 1). Each item: port, test against the
@@ -538,9 +617,9 @@ references and the samples, commit.
    clang-18); check std::thread, file I/O and zlib there; then a minimal
    payload that runs a conversion. Ask the owner before running anything on
    the console.
-3. **LZ4 asset packs** (AMPRPAK4/AMPRDAT3): port drakmor's `ampr_pack.py`
-   (GPL), verify with `ampr_pack.py verify/inspect`. Not PS5-LZ4-Compression's
-   C port (its `pfs_*` code descends from an unlicensed project).
+3. ✓ **LZ4 asset packs** done (2026-10-18). Left: owner's console test of
+   package D's LZ4 exFAT; TOML profiles (PS5-LZ4-Compression's per-game
+   profiles are GPL); smaller pass-1 memory for the PS5.
 4. **FPKG builder** (dump/image → debug FPKG): Kraken encoder or "stored";
    ProsperoPkgTool and LibProsperoPKG builders as references; must install on
    a console (owner tests).

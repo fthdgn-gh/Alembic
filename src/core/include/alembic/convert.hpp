@@ -6,6 +6,7 @@
 #include "alembic/exfat.hpp"
 #include "alembic/ffpfsc.hpp"
 #include "alembic/io.hpp"
+#include "alembic/lz4pack.hpp"
 #include "alembic/tree.hpp"
 
 #include <memory>
@@ -47,6 +48,11 @@ struct Options {
     std::string passcode = std::string(32, '0'); // FPKG inputs
     exfat::BuildOptions exfat;
     ffpfsc::BuildOptions ffpfsc;
+    // Pack the tree into LZ4 asset packs on the way (folder, exFAT and FFPFSC
+    // outputs; images are rebuilt).
+    std::optional<lz4pack::PackOptions> lz4;
+    // Serve LZ4-packed files as ordinary files again (drops the packs).
+    bool lz4_unpack = false;
 };
 
 struct Report {
@@ -54,6 +60,9 @@ struct Report {
     Format to;
     std::string method; // what was done, for the user
     std::string detail; // e.g. FFPFSC inner name
+    std::optional<lz4pack::PackStats> lz4; // set when packing
+    std::string lz4_config_toml;            // the pack configuration, as ampr_pack.py TOML
+    std::vector<std::string> lz4_forced_loose;
 };
 
 Result<Report> run(const std::string& input, const std::string& output, Format to, const Options& options = {},

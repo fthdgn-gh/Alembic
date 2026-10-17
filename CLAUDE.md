@@ -14,6 +14,7 @@ cmake -S . -B build && cmake --build build && ./build/alembic_tests
 tools/oracle/compare.sh /path/to/PS5PKGTool   # byte-for-byte check vs PS5PKGTool
 tools/pkg-oracle/compare.sh                   # FPKG reading vs ProsperoPkgTool/LibProsperoPKG
 tools/pkg-oracle/check_samples.sh             # real files in .refs/samples/ (owner-supplied)
+tools/lz4-oracle/compare.sh                   # LZ4 packs vs ampr_emu's ampr_pack.py (needs .refs/venv)
 ```
 
 Output must stay byte-identical to PS5PKGTool (the AMPR index with
@@ -43,8 +44,11 @@ LibProsperoPKG-sven, fpkg-cli, PS5-LZ4-Compression.
   decision: 2.4x faster than 9 for ~0.2% more size). Parity scripts pass
   `--level 9` to match PS5PKGTool.
 - **Status:** an Alembic-made FFPFSC has been run on a PS5 via ShadowMountPlus.
-- **Also wanted:** AMPR LZ4 asset packs (`ampr_assets.index` + `.pak`
-  volumes), read by ampr_emu at runtime. See NOTES.md.
+- **LZ4 asset packs** (`ampr_assets.index` + `.pak` volumes, read by
+  ampr_emu's PackedStdio runtime): `alembic convert ... --lz4`, ported from
+  drakmor's `ampr_pack.py`, byte-identical to it (build ID included). The
+  runtime `libSceAmpr.sprx` is never committed: the CLI takes it with
+  `--lz4-runtime` (official ampr_emu release, SHA-256 pinned in NOTES.md).
 - **Language rules:** C++20 with no exceptions and no RTTI (the PS5 build
   forbids them), so errors are returned as values.
 - **License:** GPL-3.0-or-later, compatible with every source we port from.

@@ -150,39 +150,62 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         return make_error(Errc::invalid_argument, "the output file already exists: " + output);
 
     ALEMBIC_ASSIGN(Input input, open(input_path, options.passcode));
-    Report report{input.format, to, "", ""};
-    const tree::Source& tree = *input.tree;
+    Report report{input.format, to, "", "", std::nullopt, "", {}};
+    const tree::Source* tree_ptr = input.tree.get();
+    std::unique_ptr<lz4pack::PackedTree> packed;
+    std::unique_ptr<tree::Source> unpacked;
+    if (options.lz4 && options.lz4_unpack)
+        return make_error(Errc::invalid_argument, "choose either LZ4 packing or unpacking");
+    if (options.lz4_unpack) {
+        if (!lz4pack::is_packed(tree_ptr->root()))
+            return make_error(Errc::invalid_argument, "the input has no LZ4 packs (no ampr_assets.index)");
+        ALEMBIC_ASSIGN(unpacked, lz4pack::unpack(*tree_ptr));
+        tree_ptr = unpacked.get();
+    } else if (options.lz4) {
+        if (to != Format::folder && to != Format::exfat && to != Format::ffpfsc)
+            return make_error(Errc::unsupported, "LZ4 packs can be written to a folder, exFAT or FFPFSC");
+        ALEMBIC_ASSIGN(packed, lz4pack::pack(*tree_ptr, *options.lz4, progress));
+        report.lz4 = packed->stats();
+        report.lz4_config_toml = lz4pack::to_toml(packed->config());
+        report.lz4_forced_loose = packed->forced_loose_patterns();
+        tree_ptr = packed.get();
+    }
+    const tree::Source& tree = *tree_ptr;
+    // A transformed tree no longer matches the input image byte for byte.
+    bool transformed = tree_ptr != input.tree.get();
+    bool rebuild = options.rebuild || transformed;
+    const char* prefix = packed ? "LZ4-packed and " : unpacked ? "LZ4-unpacked and " : "";
 
     switch (to) {
     case Format::folder: {
-        if (input.format == Format::folder) return unsupported(input.format, to, "copy the folder instead");
+        if (input.format == Format::folder && !transformed) return unsupported(input.format, to, "copy the folder instead");
         ALEMBIC_TRY(tree::extract(tree, tree.root(), output, options.overwrite, progress));
-        report.method = "extracted the file tree";
+        report.method = std::string(prefix) + "extracted the file tree";
         return report;
     }
     case Format::exfat: {
-        if (input.format == Format::exfat && !options.rebuild)
+        if (input.format == Format::exfat && !rebuild)
             return unsupported(input.format, to, "pass --rebuild to re-lay out the image");
-        if (input.image && !input.image_is_ufs2 && !options.rebuild) {
+        if (input.image && !input.image_is_ufs2 && !rebuild) {
             ALEMBIC_TRY(copy_image(*input.image, output, options.overwrite, progress));
             report.method = "unwrapped the exFAT image unchanged";
             return report;
         }
         ALEMBIC_TRY(exfat::write_image(tree, tree.root(), output, options.exfat, options.overwrite, progress));
-        report.method = "built a new exFAT image from the file tree";
+        report.method = std::string(prefix) + "built a new exFAT image from the file tree";
         return report;
     }
     case Format::ffpfsc: {
         ffpfsc::BuildOptions ff = options.ffpfsc;
         ff.overwrite_existing = options.overwrite;
-        if (input.format == Format::folder) {
+        if (input.format == Format::folder && !transformed) {
             ALEMBIC_ASSIGN(ffpfsc::BuildResult r,
                            ffpfsc::create_from_directory(input_path, output, ff, options.exfat, progress));
             report.method = "built a new exFAT image from the folder and compressed it";
             report.detail = r.inner_file_name;
             return report;
         }
-        if (input.image && !options.rebuild) {
+        if (input.image && !rebuild) {
             std::string inner = input.ffpfsc ? input.ffpfsc->inner_file_name : base_name(input_path);
             ALEMBIC_ASSIGN(ffpfsc::BuildResult r, ffpfsc::create_from_payload(*input.image, inner, output, ff, progress));
             const char* kind = input.image_is_ufs2 ? "UFS2" : "exFAT";
@@ -192,13 +215,13 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         }
         ALEMBIC_ASSIGN(ffpfsc::BuildResult r,
                        ffpfsc::create_from_tree(tree, tree.root(), output, ff, options.exfat, progress));
-        report.method = "built a new exFAT image from the file tree and compressed it";
+        report.method = std::string(prefix) + "built a new exFAT image from the file tree and compressed it";
         report.detail = r.inner_file_name;
         return report;
     }
     case Format::ffpkg: {
         // Only unwrapping is possible until there is a UFS2 writer.
-        if (input.image && input.image_is_ufs2 && input.ffpfsc && !options.rebuild) {
+        if (input.image && input.image_is_ufs2 && input.ffpfsc && !rebuild) {
             ALEMBIC_TRY(copy_image(*input.image, output, options.overwrite, progress));
             report.method = "unwrapped the UFS2 image unchanged";
             return report;

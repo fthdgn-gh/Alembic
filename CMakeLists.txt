@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Alembic VERSION 0.1.0 LANGUAGES CXX)
+project(Alembic VERSION 0.1.0 LANGUAGES C CXX)
 
 option(ALEMBIC_BUILD_CLI "Build the alembic command-line tool" ON)
 option(ALEMBIC_BUILD_TESTS "Build the unit tests" ON)
@@ -15,6 +15,11 @@ find_package(Threads REQUIRED)
 # The PS5 build forbids exceptions and RTTI, so the host build does too.
 set(ALEMBIC_COMPILE_OPTIONS -fno-exceptions -fno-rtti -Wall -Wextra -Wpedantic)
 
+# LZ4 1.10.0 (BSD-2-Clause), the version ampr_emu's runtime pins.
+add_library(alembic_lz4 STATIC third_party/lz4/lz4.c third_party/lz4/lz4hc.c third_party/lz4/xxhash.c)
+target_include_directories(alembic_lz4 PUBLIC third_party/lz4)
+target_compile_options(alembic_lz4 PRIVATE -O3)
+
 add_library(alembic_core STATIC
     src/core/ampr.cpp
     src/core/convert.cpp
@@ -27,6 +32,9 @@ add_library(alembic_core STATIC
     src/core/io.cpp
     src/core/json.cpp
     src/core/kraken.cpp
+    src/core/lz4pack_build.cpp
+    src/core/lz4pack_format.cpp
+    src/core/lz4pack_read.cpp
     src/core/pfsc.cpp
     src/core/sha256.cpp
     src/core/tree.cpp
@@ -38,7 +46,7 @@ target_include_directories(alembic_core
     PRIVATE src/core
 )
 target_compile_options(alembic_core PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
-target_link_libraries(alembic_core PUBLIC ZLIB::ZLIB Threads::Threads)
+target_link_libraries(alembic_core PUBLIC ZLIB::ZLIB Threads::Threads PRIVATE alembic_lz4)
 
 if(ALEMBIC_BUILD_CLI)
     add_executable(alembic src/cli/main.cpp)
@@ -56,6 +64,7 @@ if(ALEMBIC_BUILD_TESTS)
         tests/test_exfat.cpp
         tests/test_ffpfsc.cpp
         tests/test_json.cpp
+        tests/test_lz4pack.cpp
         tests/test_pfsc.cpp
         tests/test_sha256.cpp
         tests/test_unicode.cpp

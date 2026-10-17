@@ -125,6 +125,12 @@ Status add_virtual_ampr_index(Node& root, ampr::Scheme scheme) {
         return !n->is_directory && unicode::ascii_iequals(n->relative_path, "fakelib/libSceAmpr.sprx");
     });
     if (!has_marker) return {};
+    // An LZ4-packed tree must keep the index it was packed against: every
+    // pack record is tied to a file ID of that index.
+    bool packed = std::any_of(root.children.begin(), root.children.end(), [](const Node& n) {
+        return !n.is_directory && unicode::ascii_iequals(n.name, "ampr_assets.index");
+    });
+    if (packed) return {};
 
     std::erase_if(root.children, is_stale_index);
     ALEMBIC_ASSIGN(std::vector<std::uint8_t> index, index_for_tree(root, scheme));
