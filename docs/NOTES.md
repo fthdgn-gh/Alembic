@@ -185,8 +185,9 @@ on the console, and proof that the approach works on firmware 13.60.
   built from drakmor/ampr_emu (SHA-256 `69e6c4d5…116d1a`). Decision: Alembic
   bundles no binaries; the app downloads them from the official release and
   checks a pinned SHA-256.
-- Owner decision: unlicensed upstreams (PS5 Game Compressor, fpkg-cli) are
-  treated as GPL-3.0, with credit to their authors.
+- Owner decision: no code from unlicensed upstreams (PS5 Game Compressor,
+  fpkg-cli, and PS5-LZ4-Compression's `src/pfs_*` which descends from PS5
+  Game Compressor). LZ4 packs get ported from drakmor's GPL `ampr_pack.py`.
 
 How LZ4 packs fit Alembic: packing is a tree → tree transformation (some
 files replaced by pack volumes + manifest), so it composes with every

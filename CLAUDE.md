@@ -53,9 +53,12 @@ LibProsperoPKG-sven, fpkg-cli, PS5-LZ4-Compression.
 Porting from GPL-3.0 source is fine, including SvenGDK/LibProsperoPKG: keep
 its NOTICE attributions (LibOrbisPkg, ooz).
 
-**Owner decision (2026-10-17):** repos with no license file (rdmrocha/fpkg-cli,
-juma-sayeh/PS5-Game-Compressor, ...) are treated as GPL-3.0. Credit their
-authors in the code and in a third-party notices file when porting from them.
+**Repos with no license file** (rdmrocha/fpkg-cli,
+juma-sayeh/PS5-Game-Compressor, and the `src/pfs_*` code of
+PS5-LZ4-Compression that descends from it): no license means all rights
+reserved, so **never copy or port their code**. Facts learned from their docs
+(format details, console behaviour) are fine. Port from GPL/MIT sources only,
+and list every source in THIRD_PARTY_NOTICES.md.
 
 **No bundled binaries.** Third-party binaries the console needs (for example
 ampr_emu's `libSceAmpr.sprx`) are fetched by a downloader in the app from the
