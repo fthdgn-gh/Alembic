@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -32,7 +33,31 @@ struct ProgressEvent {
 };
 using ProgressFn = std::function<bool(const ProgressEvent&)>;
 
-class File {
+// Something that can be read at any offset: a file, part of a file, or a
+// payload decoded on demand.
+class RandomAccess {
+public:
+    virtual ~RandomAccess() = default;
+    virtual Result<std::uint64_t> size() const = 0;
+    // Reads exactly `out.size()` bytes at `offset`, or fails.
+    virtual Status read_at(std::uint64_t offset, MutableBytes out) const = 0;
+};
+
+// A window [offset, offset + length) of another RandomAccess.
+class Slice final : public RandomAccess {
+public:
+    Slice(std::shared_ptr<const RandomAccess> base, std::uint64_t offset, std::uint64_t length)
+        : base_(std::move(base)), offset_(offset), length_(length) {}
+    Result<std::uint64_t> size() const override { return length_; }
+    Status read_at(std::uint64_t offset, MutableBytes out) const override;
+
+private:
+    std::shared_ptr<const RandomAccess> base_;
+    std::uint64_t offset_;
+    std::uint64_t length_;
+};
+
+class File final : public RandomAccess {
 public:
     enum class Mode { read, create_new, read_write };
 
@@ -48,9 +73,8 @@ public:
     bool is_open() const { return fd_ >= 0; }
     const std::string& path() const { return path_; }
 
-    Result<std::uint64_t> size() const;
-    // Reads exactly `out.size()` bytes at `offset`, or fails.
-    Status read_at(std::uint64_t offset, MutableBytes out) const;
+    Result<std::uint64_t> size() const override;
+    Status read_at(std::uint64_t offset, MutableBytes out) const override;
     // Writes all of `data` at `offset`.
     Status write_at(std::uint64_t offset, Bytes data);
     Status truncate(std::uint64_t length);

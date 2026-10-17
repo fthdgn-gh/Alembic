@@ -16,7 +16,8 @@ tools/oracle/compare.sh /path/to/PS5PKGTool   # byte-for-byte check vs PS5PKGToo
 Output must stay byte-identical to PS5PKGTool (the AMPR index with
 `--ampr-scheme ps5pkgtool`) and to ampr_emu's index builder (default scheme).
 Run the oracle after changing any format code. Reference checkouts live in
-`.refs/` (git-ignored): PS5PKGTool, ampr_emu, LibProsperoPKG-sven, fpkg-cli.
+`.refs/` (git-ignored): PS5PKGTool, ProsperoPkgTool, ampr_emu,
+LibProsperoPKG-sven, fpkg-cli.
 
 ## Decisions so far
 
@@ -26,9 +27,11 @@ Run the oracle after changing any format code. Reference checkouts live in
 - **Architecture:** a portable C++20 core library and a PC command-line tool
   first, checked byte-for-byte against PS5PKGTool on a PC. A PS5 front end
   built on blackbearreloaded/ps5-homebrew-ui comes after that.
-- **First conversion:** dump folder → FFPFSC (exFAT + PFSC + zlib, no crypto).
-  Done and byte-identical to PS5PKGTool. Next: reading exFAT/FFPFSC back into
-  a folder, then FPKG reading (crypto, Kraken, package reader).
+- **Goal:** conversion between exFAT, FFPFSC and FPKG (folders are a side
+  feature). folder/exFAT/FFPFSC conversions are done (`alembic convert`),
+  byte-identical to PS5PKGTool. Next: FPKG reading, then FPKG building.
+- **Design:** every input is a `tree::Source` and every writer takes one, so
+  conversions stream without temporary copies.
 - **Language rules:** C++20 with no exceptions and no RTTI (the PS5 build
   forbids them), so errors are returned as values.
 - **License:** GPL-3.0-or-later, compatible with every source we port from.

@@ -8,6 +8,7 @@
 
 #include "alembic/ampr.hpp"
 #include "alembic/io.hpp"
+#include "alembic/tree.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -30,7 +31,11 @@ struct BuildOptions {
 
 class ImageBuilder {
 public:
-    // Scans the folder and plans the layout. Nothing is written yet.
+    // Plans an image of `root` (a folder node of `source`). Nothing is read or
+    // written yet. `source` must outlive the builder.
+    static Result<ImageBuilder> from_source(const tree::Source& source, const tree::Node& root,
+                                            const BuildOptions& options = {});
+    // Same, for a folder on disk.
     static Result<ImageBuilder> scan(const std::string& source_directory, const BuildOptions& options = {});
 
     ImageBuilder(ImageBuilder&&) noexcept;
@@ -56,8 +61,14 @@ private:
 Status write_directory_image(const std::string& source_directory, const std::string& output_path,
                              const BuildOptions& options = {}, const ProgressFn& progress = {});
 
-// Builds ampr_emu.index for a dump folder with the same scan rules as the
-// image builder, whether or not the dump has fakelib/libSceAmpr.sprx.
+// Writes an image of `root` to a new file.
+Status write_image(const tree::Source& source, const tree::Node& root, const std::string& output_path,
+                   const BuildOptions& options = {}, bool overwrite = false, const ProgressFn& progress = {});
+
+// Builds ampr_emu.index for a tree with the same rules as the image builder,
+// whether or not it has fakelib/libSceAmpr.sprx.
+Result<std::vector<std::uint8_t>> build_ampr_index(const tree::Source& source, const tree::Node& root,
+                                                   ampr::Scheme scheme = ampr::Scheme::ampr_emu);
 Result<std::vector<std::uint8_t>> build_ampr_index(const std::string& source_directory,
                                                    ampr::Scheme scheme = ampr::Scheme::ampr_emu);
 

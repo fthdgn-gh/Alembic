@@ -77,25 +77,41 @@ TEST_CASE(ffpfsc_refuses_output_inside_dump) {
     CHECK(!ffpfsc::create_from_directory(dump, dump + "/out.ffpfsc").ok());
 }
 
+namespace {
+std::string image_name(const std::string& folder) {
+    auto source = tree::open_folder(folder);
+    if (!source.ok()) return "error: " + source.error().message;
+    return ffpfsc::resolve_dump_image_name(**source, (*source)->root(), (*source)->label());
+}
+} // namespace
+
 TEST_CASE(ffpfsc_dump_image_names) {
     std::string tmp = test::make_temp_dir();
-    CHECK(ffpfsc::resolve_dump_image_name(make_dump(tmp, "a", R"({"TITLEID": "abcd12345"})")) == "ABCD12345.exfat");
-    CHECK(ffpfsc::resolve_dump_image_name(make_dump(tmp, "b", R"({"titleId": "PPSA1234"})")) == "b.exfat");
-    CHECK(ffpfsc::resolve_dump_image_name(make_dump(tmp, "c", R"({"titleId": "PPSA01234",})")) == "c.exfat");
-    CHECK(ffpfsc::resolve_dump_image_name(make_dump(tmp, " .J\xC3\xA9u:x. ", "{}")) == "J_u_x.exfat");
-    CHECK(ffpfsc::resolve_dump_image_name(make_dump(tmp, "...", "{}")) == "PS5_GAME.exfat");
+    CHECK(image_name(make_dump(tmp, "a", R"({"TITLEID": "abcd12345"})")) == "ABCD12345.exfat");
+    CHECK(image_name(make_dump(tmp, "b", R"({"titleId": "PPSA1234"})")) == "b.exfat");
+    CHECK(image_name(make_dump(tmp, "c", R"({"titleId": "PPSA01234",})")) == "c.exfat");
+    CHECK(image_name(make_dump(tmp, " .J\xC3\xA9u:x. ", "{}")) == "J_u_x.exfat");
+    CHECK(image_name(make_dump(tmp, "...", "{}")) == "PS5_GAME.exfat");
 }
 
 TEST_CASE(ffpfsc_game_root_search) {
     std::string tmp = test::make_temp_dir();
     test::make_dir(tmp + "/wrap");
     test::make_dir(tmp + "/wrap/inner");
-    std::string dump = make_dump(tmp + "/wrap/inner", "PPSA01234-app", "{}");
-    auto root = ffpfsc::resolve_game_root(tmp + "/wrap");
-    REQUIRE_OK(root);
-    CHECK(*root == dump);
+    make_dump(tmp + "/wrap/inner", "PPSA01234-app", "{}");
+    {
+        auto source = tree::open_folder(tmp + "/wrap");
+        REQUIRE_OK(source);
+        std::string relative;
+        auto root = ffpfsc::resolve_game_root((*source)->root(), &relative);
+        REQUIRE_OK(root);
+        CHECK(relative == "inner/PPSA01234-app");
+        CHECK((*root)->name == "PPSA01234-app");
+    }
     make_dump(tmp + "/wrap", "second", "{}");
-    CHECK(!ffpfsc::resolve_game_root(tmp + "/wrap").ok()); // two candidates
+    auto source = tree::open_folder(tmp + "/wrap");
+    REQUIRE_OK(source);
+    CHECK(!ffpfsc::resolve_game_root((*source)->root()).ok()); // two candidates
 }
 
 TEST_CASE(ffpfsc_inspect_rejects_corruption) {

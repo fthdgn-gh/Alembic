@@ -16,6 +16,7 @@
 #include "alembic/exfat.hpp"
 #include "alembic/io.hpp"
 #include "alembic/pfsc.hpp"
+#include "alembic/tree.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -38,7 +39,7 @@ struct BuildOptions {
 struct BuildResult {
     std::string output_path;
     std::string inner_file_name;
-    std::string game_root; // folder builds only: where sce_sys/param.json was found
+    std::string game_root; // tree builds: where sce_sys/param.json was found ("." = top)
     std::uint64_t source_length = 0;
     std::uint64_t pfsc_stored_length = 0;
     std::uint64_t container_length = 0;
@@ -68,19 +69,37 @@ struct VerifyResult {
     std::optional<bool> source_matches;
 };
 
-// Packs a dump folder: the exFAT image is streamed straight into the PFSC
-// encoder, so no temporary image is written. If the folder has no
-// sce_sys/param.json, the single sub-folder that has one is used.
+// Packs a file tree: the exFAT image is streamed straight into the PFSC
+// encoder, so no temporary image is written. If `search_root` has no
+// sce_sys/param.json, the one sub-folder (any depth) that has it is packed.
+Result<BuildResult> create_from_tree(const tree::Source& source, const tree::Node& search_root,
+                                     const std::string& output_path, const BuildOptions& options = {},
+                                     const exfat::BuildOptions& exfat_options = {}, const ProgressFn& progress = {});
+
+// Same, for a folder on disk. Refuses an output inside the folder.
 Result<BuildResult> create_from_directory(const std::string& source_directory, const std::string& output_path,
                                           const BuildOptions& options = {},
                                           const exfat::BuildOptions& exfat_options = {},
                                           const ProgressFn& progress = {});
 
-// Wraps an existing image file (exFAT, UFS2, ...).
+// Wraps an image as-is (exFAT, UFS2, ...). `inner_name` is used unless
+// options.inner_file_name is set.
+Result<BuildResult> create_from_payload(const RandomAccess& image, const std::string& inner_name,
+                                        const std::string& output_path, const BuildOptions& options = {},
+                                        const ProgressFn& progress = {});
+
+// Wraps an image file; the inner name defaults to the file name.
 Result<BuildResult> create_from_image(const std::string& source_path, const std::string& output_path,
                                       const BuildOptions& options = {}, const ProgressFn& progress = {});
 
-Result<Info> inspect(const File& source);
+// Random access to the decoded payload of an FFPFSC.
+struct Payload {
+    Info info;
+    std::shared_ptr<const RandomAccess> image;
+};
+Result<Payload> open_payload(std::shared_ptr<const RandomAccess> container);
+
+Result<Info> inspect(const RandomAccess& source);
 
 // Writes the decoded payload (the inner image) to a new file.
 Status extract_payload(const std::string& ffpfsc_path, const std::string& output_path,
@@ -90,9 +109,11 @@ Status extract_payload(const std::string& ffpfsc_path, const std::string& output
 Result<VerifyResult> verify(const std::string& ffpfsc_path, const std::optional<std::string>& original = std::nullopt,
                             const ProgressFn& progress = {});
 
-// The game root PS5PKGTool would pick for `source_directory`.
-Result<std::string> resolve_game_root(const std::string& source_directory);
-// "<TITLEID>.exfat" from param.json, else the sanitized folder name + ".exfat".
-std::string resolve_dump_image_name(const std::string& game_root);
+// The game root PS5PKGTool would pick inside `search_root`; `relative_path`
+// receives its path ("" for the root itself).
+Result<const tree::Node*> resolve_game_root(const tree::Node& search_root, std::string* relative_path = nullptr);
+// "<TITLEID>.exfat" from sce_sys/param.json, else `folder_name` sanitized + ".exfat".
+std::string resolve_dump_image_name(const tree::Source& source, const tree::Node& game_root,
+                                    const std::string& folder_name);
 
 } // namespace alembic::ffpfsc

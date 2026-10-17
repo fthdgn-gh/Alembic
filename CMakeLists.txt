@@ -16,12 +16,15 @@ set(ALEMBIC_COMPILE_OPTIONS -fno-exceptions -fno-rtti -Wall -Wextra -Wpedantic)
 
 add_library(alembic_core STATIC
     src/core/ampr.cpp
+    src/core/convert.cpp
     src/core/exfat_image.cpp
+    src/core/exfat_reader.cpp
     src/core/ffpfsc.cpp
     src/core/io.cpp
     src/core/json.cpp
     src/core/pfsc.cpp
     src/core/sha256.cpp
+    src/core/tree.cpp
     src/core/unicode.cpp
 )
 target_include_directories(alembic_core
@@ -42,6 +45,7 @@ if(ALEMBIC_BUILD_TESTS)
     add_executable(alembic_tests
         tests/test_main.cpp
         tests/test_ampr.cpp
+        tests/test_convert.cpp
         tests/test_exfat.cpp
         tests/test_ffpfsc.cpp
         tests/test_json.cpp

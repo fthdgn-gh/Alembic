@@ -10,13 +10,11 @@
 
 #include "alembic/ampr.hpp"
 #include "alembic/bytes.hpp"
+#include "alembic/tree.hpp"
 #include "alembic/unicode.hpp"
 
 #include <algorithm>
-#include <cerrno>
 #include <cstring>
-#include <dirent.h>
-#include <sys/stat.h>
 #include <vector>
 
 namespace alembic::exfat {
@@ -36,18 +34,12 @@ constexpr std::uint8_t kUpcaseTable[] = {
 #include "data/exfat_upcase_table.inc"
 };
 
-constexpr std::string_view kIgnoredNames[] = {
-    ".ds_store", ".spotlight-v100", ".trashes", ".fseventsd", ".temporaryitems",
-    ".documentrevisions-v100", ".apdisk", "__macosx", ".volumeicon.icns",
-    "thumbs.db", "ehthumbs.db", "desktop.ini", "$recycle.bin", "system volume information",
-};
-
 struct Node {
     std::string name;          // UTF-8, as on disk
     std::u16string name16;     // UTF-16, as stored in exFAT
     std::u16string sort_key;   // lower-cased name16
     std::string relative_path; // UTF-8, '/' separated
-    std::string full_path;     // empty for virtual files
+    const tree::Node* source = nullptr; // null for the root and virtual files
     bool is_directory = false;
     bool is_virtual = false;
     std::uint64_t size = 0;
@@ -68,13 +60,6 @@ void walk(Node& node, std::vector<Node*>& out) {
     for (Node& child : node.children) walk(child, out);
 }
 
-bool is_ignored(std::string_view name) {
-    if (name.size() >= 2 && name[0] == '.' && name[1] == '_') return true;
-    for (std::string_view ignored : kIgnoredNames)
-        if (unicode::ascii_iequals(name, ignored)) return true;
-    return false;
-}
-
 Status validate_name(const std::u16string& name, const std::string& utf8) {
     bool bad = name.empty() || name.size() > 255 || name == u"." || name == u"..";
     for (char16_t c : name)
@@ -83,54 +68,31 @@ Status validate_name(const std::u16string& name, const std::string& utf8) {
     return {};
 }
 
-Status scan_directory(const std::string& directory_path, Node& parent) {
-    DIR* dir = ::opendir(directory_path.c_str());
-    if (!dir) return make_error(Errc::io, "cannot open folder '" + directory_path + "': " + os_error_message(errno));
+// Copies a source tree into the writer's own nodes: drops OS junk files,
+// checks names fit exFAT, and sorts children the way PS5PKGTool does
+// (.NET ToLowerInvariant, then UTF-16 ordinal; stable over source order).
+Status convert_tree(const tree::Node& source, Node& parent) {
     std::vector<Node> children;
-    Status status;
-    for (;;) {
-        errno = 0;
-        dirent* entry = ::readdir(dir);
-        if (!entry) {
-            if (errno != 0) status = make_error(Errc::io, "cannot read folder '" + directory_path + "'");
-            break;
-        }
-        std::string name = entry->d_name;
-        if (name == "." || name == ".." || is_ignored(name)) continue;
-        std::string full_path = directory_path + "/" + name;
-        struct stat st {};
-        if (::lstat(full_path.c_str(), &st) != 0) {
-            status = make_error(Errc::io, "cannot stat '" + full_path + "': " + os_error_message(errno));
-            break;
-        }
-        if (S_ISLNK(st.st_mode)) continue; // PS5PKGTool skips reparse points
-        if (!S_ISDIR(st.st_mode) && !S_ISREG(st.st_mode)) {
-            status = make_error(Errc::unsupported, "not a regular file or folder: " + full_path);
-            break;
-        }
-        auto name16 = unicode::utf8_to_utf16(name);
-        if (!name16.ok()) {
-            status = make_error(Errc::invalid_data, "the file name is not valid UTF-8: " + full_path);
-            break;
-        }
+    for (const tree::Node& child : source.children) {
+        if (tree::is_os_junk(child.name)) continue;
+        auto name16 = unicode::utf8_to_utf16(child.name);
+        if (!name16.ok())
+            return make_error(Errc::invalid_data, "the file name is not valid UTF-8: " + parent.relative_path + "/" + child.name);
         Node node;
-        node.name = name;
+        node.name = child.name;
         node.name16 = std::move(name16.value());
         node.sort_key = unicode::to_lower_invariant(node.name16);
-        node.relative_path = parent.relative_path.empty() ? name : parent.relative_path + "/" + name;
-        node.full_path = full_path;
-        node.is_directory = S_ISDIR(st.st_mode);
-        node.size = node.is_directory ? 0 : static_cast<std::uint64_t>(st.st_size);
-        node.mtime = static_cast<std::int64_t>(st.st_mtime);
+        node.relative_path = parent.relative_path.empty() ? child.name : parent.relative_path + "/" + child.name;
+        node.source = &child;
+        node.is_directory = child.is_directory;
+        node.size = child.is_directory ? 0 : child.size;
+        node.mtime = child.mtime;
         children.push_back(std::move(node));
     }
-    ::closedir(dir);
-    if (!status.ok()) return status;
-
     sort_children(children);
     for (Node& child : children) {
-        ALEMBIC_TRY(validate_name(child.name16, child.full_path));
-        if (child.is_directory) ALEMBIC_TRY(scan_directory(child.full_path, child));
+        ALEMBIC_TRY(validate_name(child.name16, child.relative_path));
+        if (child.is_directory) ALEMBIC_TRY(convert_tree(*child.source, child));
     }
     parent.children = std::move(children);
     return {};
@@ -302,6 +264,8 @@ private:
 } // namespace
 
 struct ImageBuilder::Impl {
+    std::unique_ptr<tree::Source> owned_source; // set by scan()
+    const tree::Source* source = nullptr;
     Node root;
     std::vector<Node*> nodes; // pre-order walk, root first
     std::vector<std::uint16_t> upcase_map;
@@ -504,22 +468,22 @@ Status ImageBuilder::Impl::emit_file(BufferedSink& out, const Node& node) const 
     if (node.is_virtual) {
         ALEMBIC_TRY(out.write(node.virtual_content));
     } else {
-        ALEMBIC_ASSIGN(File input, File::open(node.full_path, File::Mode::read));
+        ALEMBIC_ASSIGN(std::shared_ptr<const RandomAccess> input, source->open(*node.source));
         std::vector<std::uint8_t> buffer(kChunkSize);
         for (std::uint64_t done = 0; done < node.size;) {
             std::size_t n = static_cast<std::size_t>(std::min<std::uint64_t>(kChunkSize, node.size - done));
-            Status read = input.read_at(done, MutableBytes(buffer.data(), n));
+            Status read = input->read_at(done, MutableBytes(buffer.data(), n));
             if (!read.ok()) {
                 if (read.error().code == Errc::invalid_data)
-                    return make_error(Errc::io, "the source file shrank during conversion: " + node.full_path);
+                    return make_error(Errc::io, "the source file shrank during conversion: " + node.relative_path);
                 return read;
             }
             ALEMBIC_TRY(out.write(Bytes(buffer.data(), n)));
             done += n;
         }
-        ALEMBIC_ASSIGN(std::uint64_t size_now, input.size());
+        ALEMBIC_ASSIGN(std::uint64_t size_now, input->size());
         if (size_now != node.size)
-            return make_error(Errc::io, "the source file changed size during conversion: " + node.full_path);
+            return make_error(Errc::io, "the source file changed size during conversion: " + node.relative_path);
     }
     return out.zeros(static_cast<std::uint64_t>(node.cluster_count) * cluster_size - node.size);
 }
@@ -552,22 +516,19 @@ std::uint32_t ImageBuilder::cluster_size() const { return impl_->cluster_size; }
 std::uint32_t ImageBuilder::file_count() const { return impl_->files; }
 std::uint32_t ImageBuilder::directory_count() const { return impl_->directories; }
 
-Result<ImageBuilder> ImageBuilder::scan(const std::string& source_directory, const BuildOptions& options) {
+Result<ImageBuilder> ImageBuilder::from_source(const tree::Source& source, const tree::Node& root,
+                                               const BuildOptions& options) {
     if (options.cluster_size) {
         std::uint32_t size = *options.cluster_size;
         if (size < 0x1000 || size > 0x2000000 || (size & (size - 1)) != 0)
             return make_error(Errc::invalid_argument, "the exFAT cluster size must be a power of two from 4 KiB to 32 MiB");
     }
-    struct stat st {};
-    if (::stat(source_directory.c_str(), &st) != 0 || !S_ISDIR(st.st_mode))
-        return make_error(Errc::invalid_argument, "not a folder: " + source_directory);
+    if (!root.is_directory) return make_error(Errc::invalid_argument, "the exFAT root must be a folder");
 
     auto impl = std::make_unique<Impl>();
+    impl->source = &source;
     impl->root.is_directory = true;
-    std::string root_path = source_directory;
-    while (root_path.size() > 1 && root_path.back() == '/') root_path.pop_back();
-    impl->root.full_path = root_path;
-    ALEMBIC_TRY(scan_directory(root_path, impl->root));
+    ALEMBIC_TRY(convert_tree(root, impl->root));
     if (options.generate_ampr_index) ALEMBIC_TRY(add_virtual_ampr_index(impl->root, options.ampr_scheme));
     walk(impl->root, impl->nodes);
 
@@ -588,6 +549,14 @@ Result<ImageBuilder> ImageBuilder::scan(const std::string& source_directory, con
     return ImageBuilder(std::move(impl));
 }
 
+Result<ImageBuilder> ImageBuilder::scan(const std::string& source_directory, const BuildOptions& options) {
+    ALEMBIC_ASSIGN(std::unique_ptr<tree::Source> folder, tree::open_folder(source_directory));
+    const tree::Source& source = *folder;
+    ALEMBIC_ASSIGN(ImageBuilder builder, from_source(source, source.root(), options));
+    builder.impl_->owned_source = std::move(folder);
+    return builder;
+}
+
 Status ImageBuilder::write(ByteSink& sink, const ProgressFn& progress) const {
     BufferedSink out(sink, impl_->image_length, progress);
     ALEMBIC_TRY(impl_->emit(out));
@@ -596,17 +565,26 @@ Status ImageBuilder::write(ByteSink& sink, const ProgressFn& progress) const {
     return {};
 }
 
+Result<std::vector<std::uint8_t>> build_ampr_index(const tree::Source&, const tree::Node& root, ampr::Scheme scheme) {
+    Node converted;
+    converted.is_directory = true;
+    ALEMBIC_TRY(convert_tree(root, converted));
+    std::erase_if(converted.children, is_stale_index);
+    return index_for_tree(converted, scheme);
+}
+
 Result<std::vector<std::uint8_t>> build_ampr_index(const std::string& source_directory, ampr::Scheme scheme) {
-    struct stat st {};
-    if (::stat(source_directory.c_str(), &st) != 0 || !S_ISDIR(st.st_mode))
-        return make_error(Errc::invalid_argument, "not a folder: " + source_directory);
-    Node root;
-    root.is_directory = true;
-    std::string root_path = source_directory;
-    while (root_path.size() > 1 && root_path.back() == '/') root_path.pop_back();
-    ALEMBIC_TRY(scan_directory(root_path, root));
-    std::erase_if(root.children, is_stale_index);
-    return index_for_tree(root, scheme);
+    ALEMBIC_ASSIGN(std::unique_ptr<tree::Source> folder, tree::open_folder(source_directory));
+    return build_ampr_index(*folder, folder->root(), scheme);
+}
+
+Status write_image(const tree::Source& source, const tree::Node& root, const std::string& output_path,
+                   const BuildOptions& options, bool overwrite, const ProgressFn& progress) {
+    ALEMBIC_ASSIGN(ImageBuilder builder, ImageBuilder::from_source(source, root, options));
+    ALEMBIC_ASSIGN(AtomicOutput output, AtomicOutput::create(output_path, overwrite));
+    FileSink sink(output.file(), 0);
+    ALEMBIC_TRY(builder.write(sink, progress));
+    return output.commit();
 }
 
 Status write_directory_image(const std::string& source_directory, const std::string& output_path,

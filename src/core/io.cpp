@@ -107,6 +107,12 @@ Status File::close() {
     return {};
 }
 
+Status Slice::read_at(std::uint64_t offset, MutableBytes out) const {
+    if (offset > length_ || out.size() > length_ - offset)
+        return make_error(Errc::invalid_data, "read past the end of a slice");
+    return base_->read_at(offset_ + offset, out);
+}
+
 Status FileSink::write(Bytes data) {
     ALEMBIC_TRY(file_.write_at(position_, data));
     position_ += data.size();

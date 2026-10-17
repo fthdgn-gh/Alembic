@@ -225,10 +225,46 @@ FFPFSC naming rules (PS5PKGTool behaviour we match):
 - Game root: the folder itself if it has `sce_sys/param.json`, else the one
   sub-folder (any depth) that has it; more than one is an error.
 
+### 2026-10-17: conversions between folder, exFAT and FFPFSC
+
+Priority set by the owner: **conversion between exFAT, FFPFSC and FPKG**
+matters most; dump folders are a dated format, kept as a side feature.
+
+- `RandomAccess` (io.hpp): anything readable at an offset. `File`, `Slice`,
+  and `pfsc::Reader` (decodes 64 KiB blocks on demand, 16-block LRU cache).
+- `tree::Source` (tree.hpp): a file tree plus `open(file)`. Implemented for
+  folders (`tree::open_folder`) and exFAT images (`exfat::open_image`, port
+  of `ExfatVolume.cs`, files stored as cluster runs). An FFPFSC is
+  `ffpfsc::open_payload` + `exfat::open_image`. FPKG will be one more Source.
+- The exFAT writer and FFPFSC builder take any tree
+  (`ImageBuilder::from_source`, `ffpfsc::create_from_tree`); game-root search
+  and payload naming run on the tree. Folder builds go through the same path
+  and are still byte-identical to PS5PKGTool.
+- `alembic convert <in> <out> [--to F] [--rebuild]` detects the input and
+  picks the cheapest path: images are copied/wrapped unchanged unless
+  `--rebuild` asks for a fresh deterministic layout. `alembic ls <in>`.
+- Oracle: 47 comparisons, all identical. New: PS5PKGTool's FFPFSC files
+  extract back to the original trees, and `--rebuild` of PS5PKGTool's exFAT
+  images reproduces them byte for byte.
+- 574 MB dump: FFPFSC → folder 0.2 s, FFPFSC → exFAT 0.3 s, compressing
+  ~4 s (zlib), all under 7 MB of memory.
+
+Notes:
+
+- Rebuilt images write exFAT's fixed 2024-01-01 timestamps, so files
+  extracted from our images carry that time, and a rebuilt
+  `ampr_emu.index` records it. PS5PKGTool images behave the same.
+- FFPFSC payloads that are not exFAT (UFS2, nested PFS) are refused for now.
+
 ## Next step
 
-Read side: port `ExfatVolume.cs` (exFAT reader) and the tree part of
-`FfpfscVolume.cs`, so `alembic` can list and extract files from an FFPFSC or
-exFAT image (FFPFSC → dump folder, exFAT → dump folder). Check against the
-oracle by round trip: dump → FFPFSC → folder must equal the original tree.
-UFS2/FFPKG and nested PFS payloads come after that.
+**FPKG reading**, then FPKG → exFAT/FFPFSC by streaming (an FPKG
+`tree::Source`). Pieces: FIH/CNT parsing, key derivation from content ID +
+passcode, AES-128-XTS outer PFS, inner PFS (data-first image + NAPS layout),
+Kraken decoder, protected CNT entries (AES-128-CBC). References, all in
+`.refs/`: pearlxcore/ProsperoPkgTool (MIT, managed Kraken encoder/decoder),
+SvenGDK/LibProsperoPKG (GPL, `ProsperoPkgReader`, `ProsperoPackageExtractor`,
+`ProsperoPs5InnerImageReader`, docs). Test data: build debug FPKGs from our
+fixtures with LibProsperoPKG on .NET (deterministic option), then check that
+FPKG → folder gives back the fixture, and compare against its extractor.
+After that: the FPKG builder.

@@ -5,14 +5,13 @@
 #include "alembic/bytes.hpp"
 #include "alembic/json.hpp"
 #include "alembic/sha256.hpp"
+#include "alembic/tree.hpp"
 #include "alembic/unicode.hpp"
 
 #include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <ctime>
-#include <dirent.h>
-#include <sys/stat.h>
 #include <vector>
 
 namespace alembic::ffpfsc {
@@ -163,7 +162,7 @@ Status validate_range(const Inode& inode, std::uint64_t total_blocks, std::uint3
     return {};
 }
 
-Result<std::vector<Dirent>> read_directory(const File& source, const Inode& inode, std::uint32_t block_size) {
+Result<std::vector<Dirent>> read_directory(const RandomAccess& source, const Inode& inode, std::uint32_t block_size) {
     std::uint64_t length = std::min<std::uint64_t>(inode.size, static_cast<std::uint64_t>(inode.blocks) * block_size);
     if (length > 64u * 1024 * 1024) return invalid("a PFS directory is too large");
     std::vector<std::uint8_t> data(static_cast<std::size_t>(length));
@@ -286,29 +285,6 @@ Result<BuildResult> create_core(std::uint64_t source_length, PayloadWriter write
     return result;
 }
 
-Result<std::vector<std::string>> sub_directories(const std::string& path) {
-    DIR* dir = ::opendir(path.c_str());
-    if (!dir) return make_error(Errc::io, "unable to inspect the dump folder '" + path + "': " + os_error_message(errno));
-    std::vector<std::string> names;
-    while (dirent* entry = ::readdir(dir)) {
-        std::string name = entry->d_name;
-        if (name == "." || name == "..") continue;
-        struct stat st {};
-        if (::lstat((path + "/" + name).c_str(), &st) == 0 && S_ISDIR(st.st_mode)) names.push_back(name);
-    }
-    ::closedir(dir);
-    return names;
-}
-
-Result<std::string> read_small_file(const std::string& path) {
-    ALEMBIC_ASSIGN(File file, File::open(path, File::Mode::read));
-    ALEMBIC_ASSIGN(std::uint64_t size, file.size());
-    if (size > 16u * 1024 * 1024) return make_error(Errc::too_large, "file too large: " + path);
-    std::string data(static_cast<std::size_t>(size), '\0');
-    ALEMBIC_TRY(file.read_at(0, MutableBytes(reinterpret_cast<std::uint8_t*>(data.data()), data.size())));
-    return data;
-}
-
 bool is_title_id(const std::string& value) {
     // ^[A-Za-z]{4}[0-9]{5}$. .NET's '$' would also accept one trailing '\n',
     // which then ends up inside the inner file name; we do not copy that.
@@ -320,16 +296,16 @@ bool is_title_id(const std::string& value) {
     return true;
 }
 
-struct DirectoryPayload {
+struct BuilderPayload {
     const exfat::ImageBuilder* builder;
 };
 
-Status write_directory_payload(void* context, ByteSink& sink, const ProgressFn&) {
-    return static_cast<DirectoryPayload*>(context)->builder->write(sink);
+Status write_builder_payload(void* context, ByteSink& sink, const ProgressFn&) {
+    return static_cast<BuilderPayload*>(context)->builder->write(sink);
 }
 
 struct ImagePayload {
-    const File* source;
+    const RandomAccess* source;
     std::uint64_t length;
 };
 
@@ -345,50 +321,84 @@ Status write_image_payload(void* context, ByteSink& sink, const ProgressFn&) {
     return {};
 }
 
+Result<std::string> read_small(const tree::Source& source, const tree::Node& file) {
+    if (file.size > 16u * 1024 * 1024) return make_error(Errc::too_large, "param.json is too large");
+    ALEMBIC_ASSIGN(std::shared_ptr<const RandomAccess> in, source.open(file));
+    std::string data(static_cast<std::size_t>(file.size), '\0');
+    ALEMBIC_TRY(in->read_at(0, MutableBytes(reinterpret_cast<std::uint8_t*>(data.data()), data.size())));
+    return data;
+}
+
+const tree::Node* param_json(const tree::Node& directory) {
+    const tree::Node* sce_sys = tree::find_child_icase(directory, "sce_sys");
+    if (!sce_sys || !sce_sys->is_directory) return nullptr;
+    // PS5PKGTool checks File.Exists, which ignores case on the usual macOS
+    // and Windows file systems.
+    const tree::Node* param = tree::find_child_icase(*sce_sys, "param.json");
+    return param && !param->is_directory ? param : nullptr;
+}
+
+std::string lower_ascii(std::string s) {
+    for (char& c : s) c = static_cast<char>(c >= 'A' && c <= 'Z' ? c + 32 : c);
+    return s;
+}
+
 } // namespace
 
-Result<std::string> resolve_game_root(const std::string& source_directory) {
-    if (is_regular_file(source_directory + "/sce_sys/param.json")) return source_directory;
-    std::vector<std::string> candidates;
-    std::vector<std::string> pending{source_directory};
+Result<const tree::Node*> resolve_game_root(const tree::Node& search_root, std::string* relative_path) {
+    if (param_json(search_root)) return &search_root;
+    struct Pending {
+        const tree::Node* node;
+        std::string path;
+    };
+    std::vector<const tree::Node*> found;
+    std::vector<std::string> found_paths;
+    std::vector<Pending> pending{{&search_root, ""}};
     while (!pending.empty()) {
-        std::string current = pending.back();
+        Pending current = pending.back();
         pending.pop_back();
-        ALEMBIC_ASSIGN(std::vector<std::string> children, sub_directories(current));
+        std::vector<const tree::Node*> children;
+        for (const tree::Node& child : current.node->children)
+            if (child.is_directory) children.push_back(&child);
         // PS5PKGTool pushes children in descending order, so they are visited ascending.
-        std::sort(children.begin(), children.end(), [](const std::string& a, const std::string& b) {
-            std::string la = a, lb = b;
-            for (char& c : la) c = static_cast<char>(c >= 'A' && c <= 'Z' ? c + 32 : c);
-            for (char& c : lb) c = static_cast<char>(c >= 'A' && c <= 'Z' ? c + 32 : c);
-            return la > lb;
+        std::stable_sort(children.begin(), children.end(), [](const tree::Node* a, const tree::Node* b) {
+            return lower_ascii(a->name) > lower_ascii(b->name);
         });
-        for (const std::string& child : children) {
-            std::string child_path = current + "/" + child;
-            if (unicode::ascii_iequals(child, "sce_sys") && is_regular_file(child_path + "/param.json")) {
-                if (std::find(candidates.begin(), candidates.end(), current) == candidates.end())
-                    candidates.push_back(current);
-                if (candidates.size() > 1) {
+        for (const tree::Node* child : children) {
+            std::string child_path = current.path.empty() ? child->name : current.path + "/" + child->name;
+            if (unicode::ascii_iequals(child->name, "sce_sys") && param_json(*current.node)) {
+                if (std::find(found.begin(), found.end(), current.node) == found.end()) {
+                    found.push_back(current.node);
+                    found_paths.push_back(current.path);
+                }
+                if (found.size() > 1) {
                     std::string list;
-                    for (const std::string& c : candidates) list += "\n  " + c;
+                    for (const std::string& p : found_paths) list += "\n  " + (p.empty() ? "." : p);
                     return make_error(Errc::invalid_argument,
                                       "several PS5 game roots were found; pick one game folder directly:" + list);
                 }
                 continue;
             }
-            pending.push_back(child_path);
+            pending.push_back({child, child_path});
         }
     }
-    return candidates.size() == 1 ? candidates[0] : source_directory;
+    if (found.size() == 1) {
+        if (relative_path) *relative_path = found_paths[0];
+        return found[0];
+    }
+    if (relative_path) relative_path->clear();
+    return &search_root;
 }
 
-std::string resolve_dump_image_name(const std::string& game_root) {
-    auto text = read_small_file(game_root + "/sce_sys/param.json");
-    if (text.ok()) {
-        auto properties = json::top_level_properties(*text);
-        if (properties.ok()) {
-            for (const json::Property& p : *properties) {
-                if (!unicode::ascii_iequals(p.name, "titleId") || !p.value) continue;
-                if (is_title_id(*p.value)) {
+std::string resolve_dump_image_name(const tree::Source& source, const tree::Node& game_root,
+                                    const std::string& folder_name) {
+    if (const tree::Node* param = param_json(game_root)) {
+        auto text = read_small(source, *param);
+        if (text.ok()) {
+            auto properties = json::top_level_properties(*text);
+            if (properties.ok()) {
+                for (const json::Property& p : *properties) {
+                    if (!unicode::ascii_iequals(p.name, "titleId") || !p.value || !is_title_id(*p.value)) continue;
                     std::string id = *p.value;
                     for (char& c : id) c = static_cast<char>(c >= 'a' && c <= 'z' ? c - 32 : c);
                     return id + ".exfat";
@@ -400,7 +410,7 @@ std::string resolve_dump_image_name(const std::string& game_root) {
     // The folder name with anything outside printable ASCII (and the
     // characters exFAT forbids) replaced by '_', per UTF-16 code unit.
     std::string name;
-    auto utf16 = unicode::utf8_to_utf16(base_name(game_root));
+    auto utf16 = unicode::utf8_to_utf16(folder_name);
     std::u16string units = utf16.ok() ? *utf16 : u"";
     for (char16_t c : units) {
         bool keep = c >= u' ' && c <= u'~' && std::u16string_view(u"\"*/:<>?\\|").find(c) == std::u16string_view::npos;
@@ -410,6 +420,50 @@ std::string resolve_dump_image_name(const std::string& game_root) {
     std::size_t last = name.find_last_not_of(" .");
     name = first == std::string::npos ? "" : name.substr(first, last - first + 1);
     return (name.empty() ? "PS5_GAME" : name) + ".exfat";
+}
+
+Result<BuildResult> create_from_tree(const tree::Source& source, const tree::Node& search_root,
+                                     const std::string& output_path, const BuildOptions& options,
+                                     const exfat::BuildOptions& exfat_options, const ProgressFn& progress) {
+    ALEMBIC_TRY(validate_options(options));
+    if (!options.overwrite_existing && path_exists(output_path))
+        return make_error(Errc::invalid_argument, "the output file already exists: " + output_path);
+    std::string relative;
+    ALEMBIC_ASSIGN(const tree::Node* game_root, resolve_game_root(search_root, &relative));
+    std::string folder_name = game_root == &search_root ? (search_root.name.empty() ? source.label() : search_root.name)
+                                                        : game_root->name;
+    std::string inner_name = options.inner_file_name.value_or(resolve_dump_image_name(source, *game_root, folder_name));
+    ALEMBIC_TRY(ensure_plain_name(inner_name));
+
+    ALEMBIC_ASSIGN(exfat::ImageBuilder builder, exfat::ImageBuilder::from_source(source, *game_root, exfat_options));
+    BuilderPayload payload{&builder};
+    ALEMBIC_ASSIGN(BuildResult result, create_core(builder.image_length(), write_builder_payload, &payload,
+                                                   output_path, inner_name, options, "Packing dump", progress));
+    result.game_root = relative.empty() ? "." : relative;
+    return result;
+}
+
+Result<BuildResult> create_from_payload(const RandomAccess& image, const std::string& inner_name,
+                                        const std::string& output_path, const BuildOptions& options,
+                                        const ProgressFn& progress) {
+    ALEMBIC_TRY(validate_options(options));
+    if (!options.overwrite_existing && path_exists(output_path))
+        return make_error(Errc::invalid_argument, "the output file already exists: " + output_path);
+    std::string name = options.inner_file_name.value_or(inner_name);
+    ALEMBIC_TRY(ensure_plain_name(name));
+    ALEMBIC_ASSIGN(std::uint64_t length, image.size());
+    ImagePayload payload{&image, length};
+    return create_core(length, write_image_payload, &payload, output_path, name, options, "Compressing", progress);
+}
+
+Result<Payload> open_payload(std::shared_ptr<const RandomAccess> container) {
+    Payload payload;
+    ALEMBIC_ASSIGN(payload.info, inspect(*container));
+    ALEMBIC_ASSIGN(std::shared_ptr<pfsc::Reader> reader,
+                   pfsc::Reader::open(std::move(container), payload.info.payload_offset, payload.info.stored_length,
+                                      payload.info.logical_length));
+    payload.image = std::move(reader);
+    return payload;
 }
 
 Result<BuildResult> create_from_directory(const std::string& source_directory, const std::string& output_path,
@@ -423,40 +477,22 @@ Result<BuildResult> create_from_directory(const std::string& source_directory, c
     ALEMBIC_ASSIGN(std::string output_full, absolute_path(output_path));
     if (output_full == source_full || output_full.rfind(source_full + "/", 0) == 0)
         return make_error(Errc::invalid_argument, "save the FFPFSC image outside the source dump folder");
-
-    ALEMBIC_ASSIGN(std::string game_root, resolve_game_root(source_full));
-    std::string inner_name = options.inner_file_name.value_or(resolve_dump_image_name(game_root));
-    ALEMBIC_TRY(ensure_plain_name(inner_name));
-
-    ALEMBIC_ASSIGN(exfat::ImageBuilder builder, exfat::ImageBuilder::scan(game_root, exfat_options));
-    DirectoryPayload payload{&builder};
-    ALEMBIC_ASSIGN(BuildResult result, create_core(builder.image_length(), write_directory_payload, &payload,
-                                                   output_path, inner_name, options, "Packing dump", progress));
-    result.game_root = game_root;
-    return result;
+    ALEMBIC_ASSIGN(std::unique_ptr<tree::Source> folder, tree::open_folder(source_full));
+    return create_from_tree(*folder, folder->root(), output_path, options, exfat_options, progress);
 }
 
 Result<BuildResult> create_from_image(const std::string& source_path, const std::string& output_path,
                                       const BuildOptions& options, const ProgressFn& progress) {
-    ALEMBIC_TRY(validate_options(options));
     if (!is_regular_file(source_path)) return make_error(Errc::invalid_argument, "not a file: " + source_path);
     ALEMBIC_ASSIGN(std::string source_full, absolute_path(source_path));
     ALEMBIC_ASSIGN(std::string output_full, absolute_path(output_path));
     if (source_full == output_full)
         return make_error(Errc::invalid_argument, "the output path must differ from the source image");
-    if (!options.overwrite_existing && path_exists(output_path))
-        return make_error(Errc::invalid_argument, "the output file already exists: " + output_path);
-    std::string inner_name = options.inner_file_name.value_or(base_name(source_path));
-    ALEMBIC_TRY(ensure_plain_name(inner_name));
-
     ALEMBIC_ASSIGN(File source, File::open(source_path, File::Mode::read));
-    ALEMBIC_ASSIGN(std::uint64_t length, source.size());
-    ImagePayload payload{&source, length};
-    return create_core(length, write_image_payload, &payload, output_path, inner_name, options, "Compressing",
-                       progress);
+    return create_from_payload(source, base_name(source_path), output_path, options, progress);
 }
 
-Result<Info> inspect(const File& source) {
+Result<Info> inspect(const RandomAccess& source) {
     ALEMBIC_ASSIGN(std::uint64_t file_size, source.size());
     if (file_size < 0x1000) return invalid("the PFS image is too small");
     std::uint8_t h[0x50];

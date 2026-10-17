@@ -66,6 +66,11 @@ std::vector<std::uint8_t> read_file(const std::string& path) {
 } // namespace test
 
 int main(int argc, char** argv) {
+    bool verbose = argc > 1 && std::strcmp(argv[1], "-v") == 0;
+    if (verbose) {
+        --argc;
+        ++argv;
+    }
     const char* filter = argc > 1 ? argv[1] : nullptr;
     int run = 0;
     for (const test::Case& c : test::registry()) {
@@ -73,7 +78,8 @@ int main(int argc, char** argv) {
         int before = test::failures();
         c.fn();
         ++run;
-        std::fprintf(stderr, "%s %s\n", test::failures() == before ? "ok  " : "FAIL", c.name);
+        if (verbose || test::failures() != before)
+            std::fprintf(stderr, "%s %s\n", test::failures() == before ? "ok  " : "FAIL", c.name);
     }
     std::fprintf(stderr, "%d tests, %d failed checks\n", run, test::failures());
     return test::failures() == 0 ? 0 : 1;

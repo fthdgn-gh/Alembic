@@ -65,6 +65,26 @@ done
 oracle ffpfsc-image "$work/many-default.oracle.img" "$work/ff-image.oracle" $ts >/dev/null
 check "ffpfsc from image" "$work/ff-image.alembic" "$work/ff-image.oracle"
 
+# Reading PS5PKGTool's output back.
+# FFPFSC -> folder must give back the original files.
+for fixture in small ampr many large empty; do
+    src="$work/fixtures/$fixture"
+    oracle ffpfsc-dir "$src" "$work/rt-$fixture.ffpfsc" $ts >/dev/null
+    "$alembic" convert "$work/rt-$fixture.ffpfsc" "$work/rt-$fixture/" >/dev/null 2>&1 || true
+    if python3 -I "$here/same_tree.py" "$src" "$work/rt-$fixture" --skip ampr_emu.index; then
+        echo "same  ffpfsc -> folder $fixture"
+    else
+        echo "DIFF  ffpfsc -> folder $fixture"; fail=1
+    fi
+done
+# exFAT --rebuild must reproduce PS5PKGTool's image exactly (fixtures without an
+# AMPR index: rebuilt files carry exFAT's fixed timestamps, which the index records).
+for fixture in small many large empty; do
+    img="$work/$fixture-default.oracle.img"
+    "$alembic" convert "$img" "$work/rb-$fixture.exfat" --rebuild --ampr-scheme ps5pkgtool >/dev/null 2>&1
+    check "exfat --rebuild $fixture" "$work/rb-$fixture.exfat" "$img"
+done
+
 # AMPR index: Alembic's default scheme against the console-side project's builder.
 if [[ -f "$ampr_emu/tools/build_ampr_index.py" ]]; then
     fixture="$work/fixtures/amprclean"

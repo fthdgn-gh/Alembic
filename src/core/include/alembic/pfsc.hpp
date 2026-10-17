@@ -98,17 +98,46 @@ Result<WriteResult> encode_file(const File& source, File& destination, std::uint
                                 CompressionOptions options = {}, const ProgressFn& progress = {});
 
 // Reads and validates the header and offset table.
-Result<Info> inspect(const File& source, std::uint64_t base_offset = 0,
+Result<Info> inspect(const RandomAccess& source, std::uint64_t base_offset = 0,
                      std::optional<std::uint64_t> stored_length = std::nullopt);
 
 // Decodes block `index` into `out`, which must hold kBlockSize bytes.
-Status read_block(const File& source, const Info& info, std::uint32_t index, std::uint64_t base_offset,
+Status read_block(const RandomAccess& source, const Info& info, std::uint32_t index, std::uint64_t base_offset,
                   MutableBytes out);
 
 // Decodes the payload into `destination`. `content_length` trims the padded
 // final block; by default the full padded length is written.
-Status decode(const File& source, ByteSink& destination, std::optional<std::uint64_t> content_length = std::nullopt,
+Status decode(const RandomAccess& source, ByteSink& destination, std::optional<std::uint64_t> content_length = std::nullopt,
               std::uint64_t base_offset = 0, std::optional<std::uint64_t> stored_length = std::nullopt,
               const ProgressFn& progress = {});
+
+// Random access to a PFSC payload, decoding 64 KiB blocks on demand with a
+// small LRU cache. Not thread-safe.
+class Reader final : public RandomAccess {
+public:
+    // `content_length` trims the padded final block (default: padded length).
+    static Result<std::shared_ptr<Reader>> open(std::shared_ptr<const RandomAccess> source, std::uint64_t base_offset = 0,
+                                                std::optional<std::uint64_t> stored_length = std::nullopt,
+                                                std::optional<std::uint64_t> content_length = std::nullopt);
+    Result<std::uint64_t> size() const override { return length_; }
+    Status read_at(std::uint64_t offset, MutableBytes out) const override;
+    const Info& info() const { return info_; }
+
+private:
+    struct CachedBlock {
+        std::uint32_t index;
+        std::uint64_t last_used;
+        std::vector<std::uint8_t> data;
+    };
+    Reader() = default;
+    Result<const std::uint8_t*> block(std::uint32_t index) const;
+
+    std::shared_ptr<const RandomAccess> source_;
+    std::uint64_t base_offset_ = 0;
+    std::uint64_t length_ = 0;
+    Info info_;
+    mutable std::vector<CachedBlock> cache_;
+    mutable std::uint64_t clock_ = 0;
+};
 
 } // namespace alembic::pfsc

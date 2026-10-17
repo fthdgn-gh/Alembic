@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // alembic: command-line front end for the core library.
 #include "alembic/ampr.hpp"
+#include "alembic/convert.hpp"
 #include "alembic/exfat.hpp"
 #include "alembic/ffpfsc.hpp"
 #include "alembic/io.hpp"
@@ -24,6 +25,14 @@ void usage() {
         "usage: alembic <command> [options]\n"
         "\n"
         "commands:\n"
+        "  convert <input> <output> [--to folder|exfat|ffpfsc] [--rebuild] [--overwrite] [options]\n"
+        "        convert between a dump folder, exFAT and FFPFSC; the input format is\n"
+        "        detected, the output format comes from --to or the output extension\n"
+        "        (.exfat/.img, .ffpfsc, or a trailing '/' for a folder). Images are\n"
+        "        copied unchanged unless --rebuild asks for a fresh exFAT layout.\n"
+        "        Takes the ffpfsc and exfat options below.\n"
+        "  ls <input>\n"
+        "        list the files in a folder, exFAT or FFPFSC\n"
         "  exfat <dump-dir> <out.exfat> [--cluster-size N] [--no-ampr] [--ampr-scheme S]\n"
         "        build an exFAT image from a dump folder\n"
         "  ampr-index <dump-dir> <out.index> [--ampr-scheme S]\n"
@@ -61,6 +70,7 @@ public:
         return [this](const ProgressEvent& event) {
             int percent = event.total == 0 ? 100 : static_cast<int>(event.done * 100 / event.total);
             if (percent != last_percent_ || event.stage != stage_) {
+                if (last_percent_ >= 0 && event.stage != stage_) std::fputc('\n', stderr);
                 last_percent_ = percent;
                 stage_ = std::string(event.stage);
                 std::fprintf(stderr, "\r%s: %3d%%", stage_.c_str(), percent);
@@ -166,6 +176,8 @@ int cmd_ampr_index(const Args& args) {
     return 0;
 }
 
+bool parse_ffpfsc_options(const Args& args, ffpfsc::BuildOptions& options);
+
 int cmd_exfat(const Args& args) {
     if (args.positional.size() != 2) return usage(), 2;
     exfat::BuildOptions options;
@@ -181,19 +193,7 @@ int cmd_ffpfsc(const Args& args) {
     if (args.positional.size() != 2) return usage(), 2;
     ffpfsc::BuildOptions options;
     exfat::BuildOptions exfat_options;
-    if (!parse_compression(args, options.compression) || !parse_exfat_options(args, exfat_options)) return 2;
-    if (auto name = args.get("--inner-name")) options.inner_file_name = *name;
-    if (auto text = args.get("--timestamp")) {
-        auto value = parse_number(text->c_str());
-        if (!value || *value > INT64_MAX) return std::fputs("error: bad --timestamp\n", stderr), 2;
-        options.build_timestamp = static_cast<std::int64_t>(*value);
-    }
-    if (auto text = args.get("--block-size")) {
-        auto value = parse_number(text->c_str());
-        if (!value || *value > UINT32_MAX) return std::fputs("error: bad --block-size\n", stderr), 2;
-        options.pfs_block_size = static_cast<std::uint32_t>(*value);
-    }
-    if (args.get("--case-sensitive")) options.case_insensitive = false;
+    if (!parse_ffpfsc_options(args, options) || !parse_exfat_options(args, exfat_options)) return 2;
     if (args.get("--overwrite")) options.overwrite_existing = true;
 
     const std::string& source = args.positional[0];
@@ -203,13 +203,78 @@ int cmd_ffpfsc(const Args& args) {
         : ffpfsc::create_from_image(source, args.positional[1], options, printer.callback());
     printer.done();
     if (!result.ok()) return fail(result.error());
-    if (!result->game_root.empty()) std::printf("game root:   %s\n", result->game_root.c_str());
+    if (!result->game_root.empty() && result->game_root != ".")
+        std::printf("game root:   %s\n", result->game_root.c_str());
     std::printf("inner name:  %s\n", result->inner_file_name.c_str());
     std::printf("payload:     %llu bytes -> %llu stored (%u of %u blocks compressed)\n",
                 static_cast<unsigned long long>(result->source_length),
                 static_cast<unsigned long long>(result->pfsc_stored_length), result->compressed_block_count,
                 result->pfsc_block_count);
     std::printf("container:   %llu bytes\n", static_cast<unsigned long long>(result->container_length));
+    return 0;
+}
+
+bool parse_ffpfsc_options(const Args& args, ffpfsc::BuildOptions& options) {
+    if (!parse_compression(args, options.compression)) return false;
+    if (auto name = args.get("--inner-name")) options.inner_file_name = *name;
+    if (auto text = args.get("--timestamp")) {
+        auto value = parse_number(text->c_str());
+        if (!value || *value > INT64_MAX) return std::fputs("error: bad --timestamp\n", stderr), false;
+        options.build_timestamp = static_cast<std::int64_t>(*value);
+    }
+    if (auto text = args.get("--block-size")) {
+        auto value = parse_number(text->c_str());
+        if (!value || *value > UINT32_MAX) return std::fputs("error: bad --block-size\n", stderr), false;
+        options.pfs_block_size = static_cast<std::uint32_t>(*value);
+    }
+    if (args.get("--case-sensitive")) options.case_insensitive = false;
+    return true;
+}
+
+int cmd_convert(const Args& args) {
+    if (args.positional.size() != 2) return usage(), 2;
+    convert::Options options;
+    if (!parse_ffpfsc_options(args, options.ffpfsc) || !parse_exfat_options(args, options.exfat)) return 2;
+    options.rebuild = args.get("--rebuild").has_value();
+    options.overwrite = args.get("--overwrite").has_value();
+    std::optional<convert::Format> to;
+    if (auto text = args.get("--to")) {
+        to = convert::parse_format(*text);
+        if (!to) return std::fputs("error: --to must be folder, exfat or ffpfsc\n", stderr), 2;
+    } else {
+        to = convert::guess_output_format(args.positional[1]);
+        if (!to) return std::fputs("error: cannot tell the output format from its name; pass --to\n", stderr), 2;
+    }
+    ProgressPrinter printer;
+    auto report = convert::run(args.positional[0], args.positional[1], *to, options, printer.callback());
+    printer.done();
+    if (!report.ok()) return fail(report.error());
+    std::printf("%s -> %s: %s\n", convert::name(report->from), convert::name(report->to), report->method.c_str());
+    if (!report->detail.empty()) std::printf("inner name: %s\n", report->detail.c_str());
+    return 0;
+}
+
+void list_tree(const tree::Node& node, const std::string& prefix) {
+    for (const tree::Node& child : node.children) {
+        std::string path = prefix.empty() ? child.name : prefix + "/" + child.name;
+        if (child.is_directory) {
+            std::printf("%14s  %s/\n", "", path.c_str());
+            list_tree(child, path);
+        } else {
+            std::printf("%14llu  %s\n", static_cast<unsigned long long>(child.size), path.c_str());
+        }
+    }
+}
+
+int cmd_ls(const Args& args) {
+    if (args.positional.size() != 1) return usage(), 2;
+    auto input = convert::open(args.positional[0]);
+    if (!input.ok()) return fail(input.error());
+    list_tree(input->tree->root(), "");
+    tree::Totals t = tree::totals(input->tree->root());
+    std::printf("%s: %llu files, %llu folders, %llu bytes\n", convert::name(input->format),
+                static_cast<unsigned long long>(t.files), static_cast<unsigned long long>(t.directories),
+                static_cast<unsigned long long>(t.bytes));
     return 0;
 }
 
@@ -319,6 +384,9 @@ int cmd_pfsc_info(const Args& args) {
 int main(int argc, char** argv) {
     if (argc < 2) return usage(), 2;
     std::string command = argv[1];
+    if (command == "convert")
+        return cmd_convert(parse(argc, argv, {"--no-ampr", "--case-sensitive", "--overwrite", "--rebuild"}));
+    if (command == "ls") return cmd_ls(parse(argc, argv, {}));
     if (command == "exfat") return cmd_exfat(parse(argc, argv, {"--no-ampr"}));
     if (command == "ampr-index") return cmd_ampr_index(parse(argc, argv, {}));
     if (command == "ffpfsc") return cmd_ffpfsc(parse(argc, argv, {"--no-ampr", "--case-sensitive", "--overwrite"}));

@@ -163,7 +163,7 @@ Result<WriteResult> encode_file(const File& source, File& destination, std::uint
     return encoder.finish();
 }
 
-Result<Info> inspect(const File& source, std::uint64_t base_offset, std::optional<std::uint64_t> stored_length) {
+Result<Info> inspect(const RandomAccess& source, std::uint64_t base_offset, std::optional<std::uint64_t> stored_length) {
     ALEMBIC_ASSIGN(std::uint64_t file_size, source.size());
     if (base_offset > file_size) return make_error(Errc::invalid_argument, "PFSC base offset is outside the file");
     std::uint64_t available = stored_length.value_or(file_size - base_offset);
@@ -210,7 +210,7 @@ Result<Info> inspect(const File& source, std::uint64_t base_offset, std::optiona
     return info;
 }
 
-Status read_block(const File& source, const Info& info, std::uint32_t index, std::uint64_t base_offset,
+Status read_block(const RandomAccess& source, const Info& info, std::uint32_t index, std::uint64_t base_offset,
                   MutableBytes out) {
     if (index >= info.block_count()) return make_error(Errc::invalid_argument, "PFSC block index out of range");
     if (out.size() < kBlockSize) return make_error(Errc::invalid_argument, "PFSC block buffer too small");
@@ -236,7 +236,7 @@ Status read_block(const File& source, const Info& info, std::uint32_t index, std
     return {};
 }
 
-Status decode(const File& source, ByteSink& destination, std::optional<std::uint64_t> content_length,
+Status decode(const RandomAccess& source, ByteSink& destination, std::optional<std::uint64_t> content_length,
               std::uint64_t base_offset, std::optional<std::uint64_t> stored_length, const ProgressFn& progress) {
     ALEMBIC_ASSIGN(Info info, inspect(source, base_offset, stored_length));
     std::uint64_t output_length = content_length.value_or(info.padded_logical_length);
@@ -257,6 +257,59 @@ Status decode(const File& source, ByteSink& destination, std::optional<std::uint
         }
     }
     if (written != output_length) return invalid("PFSC output length does not match the requested length");
+    return {};
+}
+
+Result<std::shared_ptr<Reader>> Reader::open(std::shared_ptr<const RandomAccess> source, std::uint64_t base_offset,
+                                             std::optional<std::uint64_t> stored_length,
+                                             std::optional<std::uint64_t> content_length) {
+    ALEMBIC_ASSIGN(Info info, inspect(*source, base_offset, stored_length));
+    std::uint64_t length = content_length.value_or(info.padded_logical_length);
+    if (length > info.padded_logical_length)
+        return make_error(Errc::invalid_data, "the declared length exceeds the PFSC payload");
+    std::shared_ptr<Reader> reader(new Reader());
+    reader->source_ = std::move(source);
+    reader->base_offset_ = base_offset;
+    reader->length_ = length;
+    reader->info_ = std::move(info);
+    return reader;
+}
+
+Result<const std::uint8_t*> Reader::block(std::uint32_t index) const {
+    constexpr std::size_t kCapacity = 16;
+    for (CachedBlock& cached : cache_) {
+        if (cached.index != index) continue;
+        cached.last_used = ++clock_;
+        return static_cast<const std::uint8_t*>(cached.data.data());
+    }
+    CachedBlock* slot;
+    if (cache_.size() < kCapacity) {
+        cache_.push_back({index, 0, std::vector<std::uint8_t>(kBlockSize)});
+        slot = &cache_.back();
+    } else {
+        slot = &*std::min_element(cache_.begin(), cache_.end(),
+                                  [](const CachedBlock& a, const CachedBlock& b) { return a.last_used < b.last_used; });
+    }
+    slot->index = UINT32_MAX; // invalid until the decode succeeds
+    ALEMBIC_TRY(read_block(*source_, info_, index, base_offset_, slot->data));
+    slot->index = index;
+    slot->last_used = ++clock_;
+    return static_cast<const std::uint8_t*>(slot->data.data());
+}
+
+Status Reader::read_at(std::uint64_t offset, MutableBytes out) const {
+    if (offset > length_ || out.size() > length_ - offset)
+        return make_error(Errc::invalid_data, "read past the end of the PFSC payload");
+    std::size_t done = 0;
+    while (done < out.size()) {
+        std::uint64_t position = offset + done;
+        auto index = static_cast<std::uint32_t>(position / kBlockSize);
+        auto within = static_cast<std::size_t>(position % kBlockSize);
+        std::size_t n = std::min<std::size_t>(out.size() - done, kBlockSize - within);
+        ALEMBIC_ASSIGN(const std::uint8_t* data, block(index));
+        std::memcpy(out.data() + done, data + within, n);
+        done += n;
+    }
     return {};
 }
 
