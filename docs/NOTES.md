@@ -1146,10 +1146,14 @@ is about the USB drive's own format (shown on connect), not about the image.
 ## Next session
 
 **Open (owner, 2026-10-19), in this order:**
-1. PKG -> FFPFSC fails on the console, for a small package and for the
-   ~90 GB one (both run on ELF builds from before checkpoints). Get the
-   exact error text from the Queue card (and engine.log in the state
-   folder), reproduce on the PC with the same package if possible.
+1. Games converted PKG -> FFPFSC do not start. The conversion finishes and
+   ShadowMount+ finds and installs the image, but launching it errors out
+   (a small package and the ~90 GB one). An earlier Alembic FFPFSC made
+   from a dump folder did run. Get the console's error code (CE-...) and
+   ShadowMount+'s log. Suspects: what an FPKG source adds or changes
+   compared with a dump: the CNT entries Alembic exposes as files
+   (licence, PlayGo, param.json), sce_sys contents, the kept ampr_emu.index.
+   Compare `alembic ls` of the FFPFSC with a working dump of the same game.
 2. Holding Back is "not working properly" yet; ask what exactly (leaves
    only after release, steps back first, never triggers, or false
    triggers) and the Controller test's timing of the repeated Escapes.
