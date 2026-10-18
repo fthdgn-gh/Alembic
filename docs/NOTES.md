@@ -1148,7 +1148,8 @@ is about the USB drive's own format (shown on connect), not about the image.
 **Open (owner, 2026-10-19), in this order:**
 1. Games converted PKG -> FFPFSC do not start. The conversion finishes and
    ShadowMount+ finds and installs the image, but launching it errors out
-   (a small package and the ~90 GB one). An earlier Alembic FFPFSC made
+   (a small package and the ~90 GB one; CE-108264-1 for one, CE-108255-1
+   for the other: the game process crashing). An earlier Alembic FFPFSC made
    from a dump folder did run. Get the console's error code (CE-...) and
    ShadowMount+'s log. Suspects: what an FPKG source adds or changes
    compared with a dump: the CNT entries Alembic exposes as files
