@@ -1067,10 +1067,16 @@ async function openConvert(entry) {
   const rt = state.info ? state.info.lz4_runtime : null;
   // Left column: the choices.
   const fmts = h("div", { class: "opts" });
+  // The source's own format is no conversion, except when packing into LZ4
+  // (an exFAT game into an LZ4-packed exFAT, say).
+  const sameFormat = entry.game ? "folder" : entry.kind;
+  let lz4On = false;
+  const offered = () => FORMATS.filter((f) => f.value !== sameFormat || lz4On);
   function renderFormats() {
+    if (!offered().some((f) => f.value === cv.to)) cv.to = offered()[0].value;
     keepFocus(fmts, () => {
       fmts.textContent = "";
-      for (const f of FORMATS) fmts.append(h("button", { class: "opt" + (cv.to === f.value ? " sel" : ""), "data-key": f.value, "data-autofocus": cv.to === f.value ? true : null,
+      for (const f of offered()) fmts.append(h("button", { class: "opt" + (cv.to === f.value ? " sel" : ""), "data-key": f.value, "data-autofocus": cv.to === f.value ? true : null,
         onclick: () => { cv.to = f.value; renderFormats(); sync(); } }, h("b", { text: f.label }), h("span", { text: f.hint })));
     });
   }
@@ -1111,6 +1117,7 @@ async function openConvert(entry) {
       lz4_profile: profile.getValue(), lz4_level: lz4level.getValue(), delete_source: del.isOn(), verify: verify.isOn(), overwrite: over.isOn() };
   }
   function sync() {
+    if (lz4.isOn() !== lz4On) { lz4On = lz4.isOn(); renderFormats(); }
     level.hidden = cv.to !== "ffpfsc";
     lz4Opts.hidden = !lz4.isOn(); delOpts.hidden = !del.isOn();
     destVal.textContent = destLabel(cv.dest);
