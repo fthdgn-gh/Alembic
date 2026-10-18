@@ -60,7 +60,8 @@ void usage() {
         "  lz4-verify <input>\n"
         "        decode every LZ4 pack chunk and check it against the CRC sidecar\n"
         "  exfat <dump-dir> <out.exfat> [--cluster-size N] [--no-ampr] [--ampr-scheme S]\n"
-        "        build an exFAT image from a dump folder\n"
+        "        build an exFAT image from a dump folder (clusters: 64 KiB by default;\n"
+        "        --cluster-size ps5pkgtool picks 32 or 64 KiB like PS5PKGTool)\n"
         "  ampr-index <dump-dir> <out.index> [--ampr-scheme S]\n"
         "        build ampr_emu.index for a dump folder\n"
         "  ffpfsc <dump-dir|image> <out.ffpfsc> [options]\n"
@@ -211,7 +212,9 @@ bool parse_compression(const Args& args, pfsc::CompressionOptions& options) {
 }
 
 bool parse_exfat_options(const Args& args, exfat::BuildOptions& options) {
-    if (auto size = args.get("--cluster-size")) {
+    if (auto size = args.get("--cluster-size"); size && *size == "ps5pkgtool") {
+        options.ps5pkgtool_cluster_rule = true;
+    } else if (size) {
         auto value = parse_number(size->c_str());
         if (!value || *value > UINT32_MAX) return std::fputs("error: bad --cluster-size\n", stderr), false;
         options.cluster_size = static_cast<std::uint32_t>(*value);

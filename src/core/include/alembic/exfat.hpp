@@ -19,9 +19,12 @@
 namespace alembic::exfat {
 
 struct BuildOptions {
-    // Power of two from 4 KiB to 32 MiB. Default: 64 KiB when the average file
-    // is at least 1 MiB, otherwise 32 KiB.
+    // Power of two from 4 KiB to 32 MiB. Default: 64 KiB, which
+    // ShadowMountPlus's exFAT fast path needs.
     std::optional<std::uint32_t> cluster_size;
+    // Without cluster_size, pick the size the way PS5PKGTool/MkPFS do instead:
+    // 64 KiB when the average file is at least 1 MiB, otherwise 32 KiB.
+    bool ps5pkgtool_cluster_rule = false;
     // Add ampr_emu.index when the dump has fakelib/libSceAmpr.sprx (an
     // LZ4-packed tree keeps the index it has).
     bool generate_ampr_index = true;

@@ -554,7 +554,8 @@ Result<ImageBuilder> ImageBuilder::from_source(const tree::Source& source, const
         }
     }
     std::uint64_t average = impl->files == 0 ? 0 : total / impl->files;
-    impl->cluster_size = options.cluster_size.value_or(average >= 1024 * 1024 ? 0x10000 : 0x8000);
+    std::uint32_t automatic = options.ps5pkgtool_cluster_rule && average < 1024 * 1024 ? 0x8000 : 0x10000;
+    impl->cluster_size = options.cluster_size.value_or(automatic);
     ALEMBIC_ASSIGN(impl->upcase_map, build_upcase_map());
     impl->upcase_checksum = table_checksum(kUpcaseTable, sizeof kUpcaseTable);
     ALEMBIC_TRY(impl->plan());

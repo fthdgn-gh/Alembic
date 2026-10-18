@@ -27,7 +27,7 @@ check() { # name, file a, file b
 for fixture in "$work"/fixtures/*; do
     name="$(basename "$fixture")"
     for cluster in default 4096 131072; do
-        extra=(); [[ $cluster != default ]] && extra=(--cluster-size "$cluster")
+        extra=(--cluster-size ps5pkgtool); [[ $cluster != default ]] && extra=(--cluster-size "$cluster")
         oextra=(); [[ $cluster != default ]] && oextra=("$cluster")
         "$alembic" exfat "$fixture" "$work/$name-$cluster.alembic.img" --ampr-scheme ps5pkgtool ${extra[@]+"${extra[@]}"} 2>/dev/null
         oracle exfat "$fixture" "$work/$name-$cluster.oracle.img" ${oextra[@]+"${oextra[@]}"}
@@ -55,7 +55,7 @@ if cmp -s "$work/a.pfsc" "$work/o.pfsc"; then echo "same  pfsc container bytes";
 ts=1700000000
 ffpfsc_case() { # name, source, extra alembic args...
     local name="$1" src="$2"; shift 2
-    "$alembic" ffpfsc "$src" "$work/ff-$name.alembic" --timestamp $ts --level 9 --ampr-scheme ps5pkgtool "$@" >/dev/null 2>&1
+    "$alembic" ffpfsc "$src" "$work/ff-$name.alembic" --timestamp $ts --level 9 --ampr-scheme ps5pkgtool --cluster-size ps5pkgtool "$@" >/dev/null 2>&1
     oracle ffpfsc-dir "$src" "$work/ff-$name.oracle" $ts >/dev/null
     check "ffpfsc $name" "$work/ff-$name.alembic" "$work/ff-$name.oracle"
 }
@@ -82,7 +82,7 @@ done
 # AMPR index: rebuilt files carry exFAT's fixed timestamps, which the index records).
 for fixture in small many large empty; do
     img="$work/$fixture-default.oracle.img"
-    "$alembic" convert "$img" "$work/rb-$fixture.exfat" --rebuild --ampr-scheme ps5pkgtool >/dev/null 2>&1
+    "$alembic" convert "$img" "$work/rb-$fixture.exfat" --rebuild --ampr-scheme ps5pkgtool --cluster-size ps5pkgtool >/dev/null 2>&1
     check "exfat --rebuild $fixture" "$work/rb-$fixture.exfat" "$img"
 done
 

@@ -101,7 +101,7 @@ TEST_CASE(exfat_image_reads_back) {
     std::string root = build_tree();
     auto builder = exfat::ImageBuilder::scan(root);
     REQUIRE_OK(builder);
-    CHECK_EQ(builder->cluster_size(), 0x8000u);
+    CHECK_EQ(builder->cluster_size(), 0x10000u);
     CHECK_EQ(builder->file_count(), 5u);
     CHECK_EQ(builder->directory_count(), 4u);
 

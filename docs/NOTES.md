@@ -504,9 +504,11 @@ an FFPKG (UFS2) and a large FFPFSC.
 Images must hold the game at their root (`/sce_sys/param.json`), no extra
 folder. SMP picks the format by file extension.
 
-Our exFAT default cluster size follows PS5PKGTool/MkPFS (32 KiB unless the
-average file is >= 1 MiB); SMP recommends 64 KiB for performance. Consider
-an option or a different default for images meant for SMP.
+Alembic's exFAT images use 64 KiB clusters by default (since 2026-10-18), which
+SMP's exFAT fast path (LVD/BFS) needs. `--cluster-size ps5pkgtool` keeps
+PS5PKGTool/MkPFS's rule (32 KiB unless the average file is >= 1 MiB); the
+parity scripts pass it. SMP's "use a cluster size of no more than 64 KB" toast
+is about the USB drive's own format (shown on connect), not about the image.
 
 ### 2026-10-17: UFS2 (.ffpkg) reading
 
@@ -625,6 +627,5 @@ references and the samples, commit.
    a console (owner tests).
 5. **UFS2 writer** (.ffpkg), then **PFS images** (.ffpfs).
 
-Smaller ideas noted along the way: a 64 KiB exFAT cluster option for
-ShadowMountPlus; an app-side downloader for third-party binaries
+Smaller ideas noted along the way: an app-side downloader for third-party binaries
 (`libSceAmpr.sprx`) pinned by SHA-256, never bundled.
