@@ -18,10 +18,12 @@ tools/lz4-oracle/compare.sh                   # LZ4 packs vs ampr_emu's ampr_pac
 ```
 
 Output must stay byte-identical to PS5PKGTool (the AMPR index with
-`--ampr-scheme ps5pkgtool`) and to ampr_emu's index builder (default scheme).
+`--ampr-scheme ps5pkgtool`), to ampr_emu's index builder (default scheme) and,
+for `.ffpfs`, to MkPFS `pack folder --raw --no-compress`.
 Run the oracle after changing any format code. Reference checkouts live in
 `.refs/` (git-ignored): PS5PKGTool, ProsperoPkgTool, ampr_emu,
-LibProsperoPKG-sven, fpkg-cli, PS5-LZ4-Compression.
+LibProsperoPKG-sven, fpkg-cli, PS5-LZ4-Compression, MkPFS (with its Python
+environment in `.refs/mkpfs-venv`).
 
 ## Decisions so far
 
@@ -37,7 +39,8 @@ LibProsperoPKG-sven, fpkg-cli, PS5-LZ4-Compression.
 - **Goal:** conversion between exFAT, FFPFSC and FPKG (folders are a side
   feature). folder/exFAT/FFPFSC conversions are done (`alembic convert`),
   byte-identical to PS5PKGTool. FPKG and FFPKG (UFS2) reading are done,
-  checked on real files. Writing FPKG, UFS2 and PFS is still to do.
+  checked on real files. FFPKG (UFS2) writing is byte-identical to PS5PKGTool
+  and FFPFS (PFS) writing to MkPFS; writing FPKG is still to do.
 - **Design:** every input is a `tree::Source` and every writer takes one, so
   conversions stream without temporary copies.
 - **Compression:** PFSC uses all cores and zlib level 6 by default (owner

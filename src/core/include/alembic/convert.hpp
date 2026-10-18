@@ -16,13 +16,13 @@
 
 namespace alembic::convert {
 
-enum class Format { folder, exfat, ffpfsc, fpkg, ffpkg };
+enum class Format { folder, exfat, ffpfsc, fpkg, ffpkg, ffpfs };
 
 const char* name(Format format);
-// "folder", "exfat", "ffpfsc", "fpkg", "ffpkg" (ASCII case ignored).
+// "folder", "exfat", "ffpfsc", "fpkg", "ffpkg", "ffpfs" (ASCII case ignored).
 std::optional<Format> parse_format(const std::string& text);
 // From the output path: ".exfat"/".img" → exFAT, ".ffpfsc" → FFPFSC,
-// ".pkg" → FPKG, ".ffpkg" → FFPKG (UFS2), a trailing '/' or an existing folder → folder.
+// ".pkg" → FPKG, ".ffpkg" → FFPKG (UFS2), ".ffpfs" → PFS, a trailing '/' or an existing folder → folder.
 std::optional<Format> guess_output_format(const std::string& path);
 // From the input's contents (or that it is a folder).
 Result<Format> detect(const std::string& path);
@@ -32,9 +32,10 @@ struct Input {
     Format format;
     std::string path;
     std::unique_ptr<tree::Source> tree;
-    std::shared_ptr<const RandomAccess> image; // exFAT/UFS2 image or FFPFSC payload; null for folders and FPKG
+    std::shared_ptr<const RandomAccess> image; // exFAT/UFS2/PFS image or FFPFSC payload; null for folders and FPKG
     std::optional<ffpfsc::Info> ffpfsc;        // FFPFSC inputs only
     bool image_is_ufs2 = false;                // the image is UFS2 rather than exFAT
+    bool image_is_pfs = false;                 // the image is PFS rather than exFAT
     std::string detail;                        // e.g. the FPKG layout dialect
 };
 // `passcode` is used for FPKG inputs (default: 32 zeros).
@@ -51,6 +52,8 @@ struct Options {
     ffpfsc::BuildOptions ffpfsc;
     // FFPKG output. An empty volume name becomes the title ID (else the output name).
     ufs2::BuildOptions ufs2;
+    // .ffpfs output takes its block size, time stamp and case mode from
+    // `ffpfsc` (pfs_block_size, build_timestamp, case_insensitive).
     // Pack the tree into LZ4 asset packs on the way (folder, exFAT and FFPFSC
     // outputs; images are rebuilt).
     std::optional<lz4pack::PackOptions> lz4;

@@ -12,7 +12,7 @@ ps5pkgtool="${1:-$repo/.refs/PS5PKGTool}"
 ampr_emu="${2:-$repo/.refs/ampr_emu}"
 alembic="$repo/build/alembic"
 work="$(mktemp -d "${TMPDIR:-/tmp}/alembic-oracle-XXXXXX")"
-trap 'rm -rf "$work"' EXIT
+[[ -n ${KEEP:-} ]] && echo "work folder kept: $work" || trap 'rm -rf "$work"' EXIT
 
 # PS5PKGTool's UFS2 writer, patched for a fixed clock, process ID and folder order.
 python3 -I "$here/patch_ufs2.py" "$ps5pkgtool" "$work/ufs2-patched"
@@ -109,6 +109,50 @@ mkdir -p "$work/ufs2-tail" && head -c $((39 * 409600 + 12345)) /dev/zero > "$wor
     --ufs2-pid $ALEMBIC_UFS2_PID --volume-name T >/dev/null 2>&1
 oracle ffpkg "$work/ufs2-tail" "$work/tail.oracle.ffpkg" T >/dev/null
 check "ffpkg small last cylinder group" "$work/tail.alembic.ffpkg" "$work/tail.oracle.ffpkg"
+
+# FFPFS (PFS) against MkPFS `pack folder --raw --no-compress`, clock pinned
+# (mkpfs_raw.py). PFS names are ASCII only, so ASCII-only copies are used; the
+# ufs2-src copies above already are. MkPFS crashes on a param.json that is not
+# an object, so "nonobject" is skipped.
+mkpfs_py="${MKPFS_PYTHON:-$repo/.refs/mkpfs-venv/bin/python}"
+if [[ -x "$mkpfs_py" ]] && "$mkpfs_py" -I -c 'import mkpfs' 2>/dev/null; then
+    pfs_case() { # name, source, block size, extra flags for both...
+        local name="$1" src="$2" bs="$3"; shift 3
+        "$mkpfs_py" -I "$here/mkpfs_raw.py" "$src" "$work/pfs-$name.mkpfs" $ts "$bs" "$@" >/dev/null 2>&1
+        "$alembic" convert "$src" "$work/pfs-$name.alembic" --to ffpfs --timestamp $ts --block-size "$bs" --no-ampr "$@" >/dev/null 2>&1
+        check "ffpfs $name" "$work/pfs-$name.alembic" "$work/pfs-$name.mkpfs"
+    }
+    for fixture in "$work"/ufs2-src/*; do
+        name="$(basename "$fixture")"
+        [[ $name == nonobject ]] && continue
+        pfs_case "$name" "$fixture" 65536
+    done
+    for bs in 4096 32768 131072; do pfs_case "many bs=$bs" "$work/ufs2-src/many" $bs; done
+    pfs_case "many case-sensitive" "$work/ufs2-src/many" 16384 --case-sensitive
+    # Two paths with one flat-path-table hash ("0_" and "1@") need a collision_resolver.
+    mkdir -p "$work/pfs-collide/sub" && for p in 0_ 1@ sub/0_ sub/1@; do echo "$p" > "$work/pfs-collide/$p"; done
+    : > "$work/pfs-collide/empty.bin"
+    pfs_case "path-hash collision" "$work/pfs-collide" 65536
+    # With the AMPR index: MkPFS writes it into the source, so give it a copy (times kept).
+    for fixture in ampr amprclean; do
+        cp -Rp "$work/ufs2-src/$fixture" "$work/pfs-mk-$fixture"
+        "$mkpfs_py" -I -c 'import sys,time; t=float(sys.argv[3]); time.time=lambda: t; from mkpfs import cli; sys.argv=["mkpfs","pack","folder","--raw","--no-compress","--no-adjust-output-file-extension",sys.argv[1],sys.argv[2]]; sys.exit(cli.main() or 0)' \
+            "$work/pfs-mk-$fixture" "$work/pfs-ampr-$fixture.mkpfs" $ts > "$work/pfs-mk-$fixture.log" 2>&1
+        "$alembic" convert "$work/ufs2-src/$fixture" "$work/pfs-ampr-$fixture.alembic" --to ffpfs --timestamp $ts --ampr-scheme ps5pkgtool >/dev/null 2>&1
+        check "ffpfs $fixture with AMPR index" "$work/pfs-ampr-$fixture.alembic" "$work/pfs-ampr-$fixture.mkpfs"
+    done
+    # Reading MkPFS output: a raw PFS with PFSC-compressed files, and an FFPFSC
+    # whose payload is a PFS image (MkPFS's two-pass layout).
+    "$mkpfs_py" -I -c 'import sys,time; time.time=lambda: 1700000000.0; from mkpfs import cli; sys.argv=["mkpfs","pack","folder","--raw","--no-ampr-index","--no-adjust-output-file-extension","--min-compress-size","0",sys.argv[1],sys.argv[2]]; sys.exit(cli.main() or 0)' \
+        "$work/ufs2-src/large" "$work/pfs-compressed.mkpfs" >/dev/null 2>&1
+    "$alembic" convert "$work/pfs-compressed.mkpfs" "$work/pfs-compressed-out/" >/dev/null 2>&1 || true
+    if python3 -I "$here/same_tree.py" "$work/ufs2-src/large" "$work/pfs-compressed-out"; then echo "same  mkpfs compressed ffpfs -> folder"; else echo "DIFF  mkpfs compressed ffpfs -> folder"; fail=1; fi
+    "$mkpfs_py" -I -m mkpfs pack file "$work/pfs-many bs=4096.mkpfs" "$work/pfs-two-pass.ffpfsc" >/dev/null 2>&1
+    "$alembic" convert "$work/pfs-two-pass.ffpfsc" "$work/pfs-unwrapped.ffpfs" >/dev/null 2>&1 || true
+    check "ffpfsc(PFS payload) -> ffpfs unwrap" "$work/pfs-unwrapped.ffpfs" "$work/pfs-many bs=4096.mkpfs"
+else
+    echo "skip  ffpfs vs MkPFS (no MkPFS environment; python3 -m venv .refs/mkpfs-venv && .refs/mkpfs-venv/bin/pip install ./.refs/MkPFS)"
+fi
 
 # AMPR index: Alembic's default scheme against the console-side project's builder.
 if [[ -f "$ampr_emu/tools/build_ampr_index.py" ]]; then

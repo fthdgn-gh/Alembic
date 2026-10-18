@@ -4,6 +4,7 @@
 #include "alembic/bytes.hpp"
 #include "alembic/exfat_reader.hpp"
 #include "alembic/fpkg_inner.hpp"
+#include "alembic/pfs.hpp"
 #include "alembic/ufs2.hpp"
 #include "alembic/unicode.hpp"
 
@@ -54,6 +55,7 @@ const char* name(Format format) {
     case Format::ffpfsc: return "FFPFSC";
     case Format::fpkg: return "FPKG";
     case Format::ffpkg: return "FFPKG (UFS2)";
+    case Format::ffpfs: return "FFPFS (PFS)";
     }
     return "?";
 }
@@ -64,6 +66,7 @@ std::optional<Format> parse_format(const std::string& text) {
     if (unicode::ascii_iequals(text, "ffpfsc")) return Format::ffpfsc;
     if (unicode::ascii_iequals(text, "fpkg") || unicode::ascii_iequals(text, "pkg")) return Format::fpkg;
     if (unicode::ascii_iequals(text, "ffpkg") || unicode::ascii_iequals(text, "ufs2")) return Format::ffpkg;
+    if (unicode::ascii_iequals(text, "ffpfs") || unicode::ascii_iequals(text, "pfs")) return Format::ffpfs;
     return std::nullopt;
 }
 
@@ -72,6 +75,7 @@ std::optional<Format> guess_output_format(const std::string& path) {
     if (ends_with_icase(path, ".exfat") || ends_with_icase(path, ".img")) return Format::exfat;
     if (ends_with_icase(path, ".ffpfsc")) return Format::ffpfsc;
     if (ends_with_icase(path, ".ffpkg")) return Format::ffpkg;
+    if (ends_with_icase(path, ".ffpfs")) return Format::ffpfs;
     if (ends_with_icase(path, ".pkg")) return Format::fpkg;
     if (is_directory(path)) return Format::folder;
     return std::nullopt;
@@ -86,10 +90,12 @@ Result<Format> detect(const std::string& path) {
     ALEMBIC_TRY(file.read_at(0, MutableBytes(head, static_cast<std::size_t>(std::min<std::uint64_t>(size, sizeof head)))));
     if (size >= 4 && (std::memcmp(head, "\x7F" "CNT", 4) == 0 || std::memcmp(head, "\x7F" "FIH", 4) == 0))
         return Format::fpkg;
-    if (size >= 0x10 && get_u64(head) == 2 && get_u64(head + 8) == kPfsMagic) return Format::ffpfsc;
+    // Both are PFS: an FFPFSC holds one compressed image, an .ffpfs the game.
+    if (size >= 0x10 && get_u64(head) == 2 && get_u64(head + 8) == kPfsMagic)
+        return ffpfsc::inspect(file).ok() ? Format::ffpfsc : Format::ffpfs;
     if (exfat::looks_like_exfat(file)) return Format::exfat;
     if (ufs2::looks_like_ufs2(file)) return Format::ffpkg;
-    return make_error(Errc::unsupported, "unrecognised input (not a folder, exFAT, UFS2, FFPFSC or FPKG): " + path);
+    return make_error(Errc::unsupported, "unrecognised input (not a folder, exFAT, UFS2, PFS, FFPFSC or FPKG): " + path);
 }
 
 Result<Input> open(const std::string& path, const std::string& passcode) {
@@ -117,9 +123,12 @@ Result<Input> open(const std::string& path, const std::string& passcode) {
         } else if (ufs2::looks_like_ufs2(*input.image)) {
             input.image_is_ufs2 = true;
             ALEMBIC_ASSIGN(input.tree, ufs2::open_image(input.image, stem(payload.info.inner_file_name)));
+        } else if (pfs::looks_like_pfs(*input.image)) {
+            input.image_is_pfs = true;
+            ALEMBIC_ASSIGN(input.tree, pfs::open_image(input.image, stem(payload.info.inner_file_name)));
         } else {
             return make_error(Errc::unsupported, "the FFPFSC payload '" + payload.info.inner_file_name +
-                                                     "' is neither exFAT nor UFS2 (nested PFS is not supported yet)");
+                                                     "' is not an exFAT, UFS2 or PFS image");
         }
         return input;
     }
@@ -128,6 +137,13 @@ Result<Input> open(const std::string& path, const std::string& passcode) {
         input.image = std::make_shared<File>(std::move(file));
         input.image_is_ufs2 = true;
         ALEMBIC_ASSIGN(input.tree, ufs2::open_image(input.image, stem(path)));
+        return input;
+    }
+    case Format::ffpfs: {
+        ALEMBIC_ASSIGN(File file, File::open(path, File::Mode::read));
+        input.image = std::make_shared<File>(std::move(file));
+        input.image_is_pfs = true;
+        ALEMBIC_ASSIGN(input.tree, pfs::open_image(input.image, stem(path)));
         return input;
     }
     case Format::fpkg: {
@@ -162,8 +178,8 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         ALEMBIC_ASSIGN(unpacked, lz4pack::unpack(*tree_ptr));
         tree_ptr = unpacked.get();
     } else if (options.lz4) {
-        if (to != Format::folder && to != Format::exfat && to != Format::ffpfsc && to != Format::ffpkg)
-            return make_error(Errc::unsupported, "LZ4 packs can be written to a folder, exFAT, FFPKG or FFPFSC");
+        if (to == Format::fpkg)
+            return make_error(Errc::unsupported, "LZ4 packs can be written to a folder, exFAT, FFPKG, FFPFS or FFPFSC");
         ALEMBIC_ASSIGN(packed, lz4pack::pack(*tree_ptr, *options.lz4, progress));
         report.lz4 = packed->stats();
         report.lz4_config_toml = lz4pack::to_toml(packed->config());
@@ -186,7 +202,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     case Format::exfat: {
         if (input.format == Format::exfat && !rebuild)
             return unsupported(input.format, to, "pass --rebuild to re-lay out the image");
-        if (input.image && !input.image_is_ufs2 && !rebuild) {
+        if (input.image && !input.image_is_ufs2 && !input.image_is_pfs && !rebuild) {
             ALEMBIC_TRY(copy_image(*input.image, output, options.overwrite, progress));
             report.method = "unwrapped the exFAT image unchanged";
             return report;
@@ -208,7 +224,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         if (input.image && !rebuild) {
             std::string inner = input.ffpfsc ? input.ffpfsc->inner_file_name : base_name(input_path);
             ALEMBIC_ASSIGN(ffpfsc::BuildResult r, ffpfsc::create_from_payload(*input.image, inner, output, ff, progress));
-            const char* kind = input.image_is_ufs2 ? "UFS2" : "exFAT";
+            const char* kind = input.image_is_ufs2 ? "UFS2" : input.image_is_pfs ? "PFS" : "exFAT";
             report.method = std::string(input.ffpfsc ? "recompressed the " : "compressed the ") + kind + " image unchanged";
             report.detail = r.inner_file_name;
             return report;
@@ -238,6 +254,23 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         }
         ALEMBIC_TRY(ufs2::write_image(tree, tree.root(), output, u, options.overwrite, progress));
         report.method = std::string(prefix) + "built a new UFS2 image from the file tree";
+        return report;
+    }
+    case Format::ffpfs: {
+        if (input.image && input.image_is_pfs && !rebuild) {
+            if (!input.ffpfsc) return unsupported(input.format, to, "pass --rebuild to re-lay out the image");
+            ALEMBIC_TRY(copy_image(*input.image, output, options.overwrite, progress));
+            report.method = "unwrapped the PFS image unchanged";
+            return report;
+        }
+        pfs::BuildOptions p;
+        p.block_size = options.ffpfsc.pfs_block_size;
+        p.case_insensitive = options.ffpfsc.case_insensitive;
+        p.timestamp = options.ffpfsc.build_timestamp;
+        p.generate_ampr_index = options.exfat.generate_ampr_index;
+        p.ampr_scheme = options.exfat.ampr_scheme;
+        ALEMBIC_TRY(pfs::write_image(tree, tree.root(), output, p, options.overwrite, progress));
+        report.method = std::string(prefix) + "built a new PFS image from the file tree";
         return report;
     }
     case Format::fpkg: break;

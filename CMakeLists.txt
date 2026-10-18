@@ -82,6 +82,7 @@ add_library(alembic_core STATIC
     src/core/tree.cpp
     src/core/ufs2.cpp
     src/core/ufs2_image.cpp
+    src/core/pfs_image.cpp
     src/core/unicode.cpp
 )
 target_include_directories(alembic_core
@@ -160,6 +161,7 @@ if(ALEMBIC_BUILD_TESTS)
         tests/test_ffpfsc.cpp
         tests/test_json.cpp
         tests/test_lz4pack.cpp
+        tests/test_pfs.cpp
         tests/test_pfsc.cpp
         tests/test_sha256.cpp
         tests/test_toml.cpp
