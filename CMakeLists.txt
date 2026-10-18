@@ -126,6 +126,7 @@ if(ALEMBIC_BUILD_ENGINE)
     add_library(alembic_engine_lib STATIC
         src/engine/deps.cpp
         src/engine/fs_ops.cpp
+        src/engine/game_meta.cpp
         src/engine/http.cpp
         src/engine/jobs.cpp
         src/engine/json_value.cpp

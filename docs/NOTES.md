@@ -767,6 +767,16 @@ is about the USB drive's own format (shown on connect), not about the image.
   `POST /api/jobs` refuses such a job (409 with `needs`). The Convert dialog
   says what will be downloaded, asks on "Add to queue", downloads, then
   queues; declining keeps the dialog and its settings.
+- **Game icons and titles in the file list:** `/api/meta` and `/api/icon`
+  (`game_meta.cpp`) read `sce_sys/param.json` (title: en-US, else the
+  default language; title ID; contentVersion) and `sce_sys/icon0.png` from
+  any input (FPKG, exFAT, FFPFSC, FFPKG, game folder), at most two inputs
+  open at a time, cached in memory and in `<state>/cache/meta/<hash>.json|png`
+  (hash of path, size, mtime). Listings flag game folders (`game: true`).
+  The page loads them for rows on screen (IntersectionObserver), two at a
+  time. On the Mac every sample type gives title, version and icon; first
+  read 0.02-0.3 s, cached 0.02 s. The icon cache is never pruned (about
+  0.1-0.8 MB per game).
 
 ## Next session
 

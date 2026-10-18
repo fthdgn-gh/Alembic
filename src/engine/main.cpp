@@ -19,6 +19,8 @@
 //   POST /api/jobs/clear              remove every finished job
 //   GET  /api/deps                    third-party files Alembic can download, and their state
 //   POST /api/deps/ID/install | /remove
+//   GET  /api/meta?path=P             title, title ID, version of a package, image or game folder
+//   GET  /api/icon?path=P             its sce_sys/icon0.png
 //   GET  /api/locations               suggested destinations (mounted drives only)
 //   GET  /api/fs/space                free and total bytes of each root
 //   POST /api/fs/mkdir   {path}       new folder
@@ -27,6 +29,7 @@
 //   POST /api/quit                    stop the engine (cancels a running job)
 #include "deps.hpp"
 #include "fs_ops.hpp"
+#include "game_meta.hpp"
 #include "http.hpp"
 #include "jobs.hpp"
 #include "json_value.hpp"
@@ -229,6 +232,7 @@ private:
         }
         if (r.path == "/api/fs/space" && r.method == "GET") return fs_space();
         if (r.path == "/api/locations" && r.method == "GET") return locations();
+        if ((r.path == "/api/meta" || r.path == "/api/icon") && r.method == "GET") return game_meta(r);
         if (r.path == "/api/deps" && r.method == "GET") {
             JsonValue list = JsonValue::array();
             for (const Dependency& d : dependencies()) list.push(dependency_json(d, config_.state_dir));
@@ -298,6 +302,7 @@ private:
             bool dir;
             std::uint64_t size;
             std::int64_t mtime;
+            bool game = false;
         };
         std::vector<Item> items;
         while (dirent* d = ::readdir(dir)) {
@@ -305,8 +310,12 @@ private:
             if (name == "." || name == "..") continue;
             struct stat st{};
             if (::stat((path + "/" + name).c_str(), &st) != 0) continue;
-            items.push_back({name, S_ISDIR(st.st_mode), static_cast<std::uint64_t>(st.st_size),
-                             static_cast<std::int64_t>(st.st_mtime)});
+            Item item{name, S_ISDIR(st.st_mode), static_cast<std::uint64_t>(st.st_size),
+                      static_cast<std::int64_t>(st.st_mtime)};
+            // A game folder: sce_sys/param.json inside.
+            struct stat ps{};
+            item.game = item.dir && ::stat((path + "/" + name + "/sce_sys/param.json").c_str(), &ps) == 0;
+            items.push_back(std::move(item));
         }
         ::closedir(dir);
         std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) {
@@ -318,6 +327,7 @@ private:
             e.set("name", i.name);
             e.set("path", path + "/" + i.name);
             e.set("kind", kind_of(i.name, i.dir));
+            if (i.game) e.set("game", true);
             if (!i.dir) e.set("size", i.size);
             e.set("mtime", i.mtime);
             entries.push(std::move(e));
@@ -389,6 +399,30 @@ private:
             return error(502, s.error().message);
         }
         return json(200, dependency_json(*dep, config_.state_dir));
+    }
+
+    HttpResponse game_meta(const HttpRequest& r) {
+        auto it = r.query.find("path");
+        std::string path = it == r.query.end() ? "" : strip_slashes(it->second);
+        if (!path_allowed(path, config_.available_roots())) return error(403, "outside the allowed folders");
+        if (r.path == "/api/icon") {
+            auto png = meta_.icon(path);
+            if (!png.ok()) return error(404, png.error().message);
+            HttpResponse resp;
+            resp.content_type = "image/png";
+            resp.body.assign(reinterpret_cast<const char*>(png->data()), png->size());
+            resp.headers["Cache-Control"] = "max-age=86400"; // the page adds the file's mtime to the URL
+            return resp;
+        }
+        auto m = meta_.meta(path);
+        if (!m.ok()) return error(404, m.error().message);
+        JsonValue v = JsonValue::object();
+        v.set("title", m->title);
+        v.set("title_id", m->title_id);
+        v.set("content_id", m->content_id);
+        v.set("version", m->version);
+        v.set("icon", m->has_icon);
+        return json(200, v);
     }
 
     HttpResponse locations() {
@@ -541,6 +575,7 @@ private:
     }
 
     EngineConfig config_;
+    GameMetaCache meta_{config_.state_dir};
     JobQueue queue_;
     HttpServer server_;
     std::mutex deps_mutex_;

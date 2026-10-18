@@ -1,0 +1,225 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include "game_meta.hpp"
+#include "json_value.hpp"
+
+#include "alembic/convert.hpp"
+#include "alembic/io.hpp"
+
+#include <condition_variable>
+#include <cstdio>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <sys/stat.h>
+
+namespace alembic::engine {
+
+namespace {
+
+constexpr std::size_t kMaxIcon = 4u * 1024 * 1024;
+constexpr std::size_t kMaxParam = 1u * 1024 * 1024;
+
+// At most two inputs are opened at once: a page full of large packages must
+// not starve a running conversion.
+std::mutex g_slots_mutex;
+std::condition_variable g_slots_cv;
+int g_slots = 2;
+
+struct Slot {
+    Slot() {
+        std::unique_lock<std::mutex> lock(g_slots_mutex);
+        g_slots_cv.wait(lock, [] { return g_slots > 0; });
+        --g_slots;
+    }
+    ~Slot() {
+        {
+            std::lock_guard<std::mutex> lock(g_slots_mutex);
+            ++g_slots;
+        }
+        g_slots_cv.notify_one();
+    }
+};
+
+// One lock per key, so two requests for the same file read it once.
+std::mutex g_memory_mutex;
+std::map<std::string, GameMeta> g_memory;
+std::map<std::string, std::shared_ptr<std::mutex>> g_key_locks;
+
+std::uint64_t fnv1a64(const std::string& s) {
+    std::uint64_t h = 0xcbf29ce484222325ull;
+    for (unsigned char c : s) {
+        h ^= c;
+        h *= 0x100000001b3ull;
+    }
+    return h;
+}
+
+Result<std::vector<std::uint8_t>> read_node(const tree::Source& source, const tree::Node& node, std::size_t max) {
+    if (node.size > max) return make_error(Errc::too_large, "too large");
+    ALEMBIC_ASSIGN(auto file, source.open(node));
+    std::vector<std::uint8_t> data(static_cast<std::size_t>(node.size));
+    ALEMBIC_TRY(file->read_at(0, data));
+    return data;
+}
+
+const tree::Node* sce_sys_file(const tree::Node& root, const char* name) {
+    const tree::Node* sys = tree::find_child_icase(root, "sce_sys");
+    if (!sys || !sys->is_directory) return nullptr;
+    const tree::Node* f = tree::find_child_icase(*sys, name);
+    return f && !f->is_directory ? f : nullptr;
+}
+
+Result<std::vector<std::uint8_t>> read_file(const std::string& path) {
+    ALEMBIC_ASSIGN(File file, File::open(path, File::Mode::read));
+    ALEMBIC_ASSIGN(std::uint64_t size, file.size());
+    if (size > kMaxIcon) return make_error(Errc::too_large, "too large");
+    std::vector<std::uint8_t> data(static_cast<std::size_t>(size));
+    ALEMBIC_TRY(file.read_at(0, data));
+    return data;
+}
+
+Status write_file(const std::string& path, Bytes data) {
+    ALEMBIC_TRY(make_parent_directories(path));
+    ALEMBIC_ASSIGN(AtomicOutput out, AtomicOutput::create(path, true));
+    ALEMBIC_TRY(out.file().write_at(0, data));
+    return out.commit();
+}
+
+JsonValue to_json(const GameMeta& m) {
+    JsonValue v = JsonValue::object();
+    v.set("title", m.title);
+    v.set("title_id", m.title_id);
+    v.set("content_id", m.content_id);
+    v.set("version", m.version);
+    v.set("icon", m.has_icon);
+    return v;
+}
+
+GameMeta from_json(const JsonValue& v) {
+    GameMeta m;
+    m.title = v["title"].str();
+    m.title_id = v["title_id"].str();
+    m.content_id = v["content_id"].str();
+    m.version = v["version"].str();
+    m.has_icon = v["icon"].boolean();
+    return m;
+}
+
+GameMeta parse_param(const std::string& text) {
+    GameMeta m;
+    auto json = parse_json(text);
+    if (!json.ok()) return m;
+    m.title_id = (*json)["titleId"].str();
+    m.content_id = (*json)["contentId"].str();
+    m.version = (*json)["contentVersion"].str();
+    const JsonValue& lp = (*json)["localizedParameters"];
+    std::string lang = lp["defaultLanguage"].str();
+    for (const std::string& l : {std::string("en-US"), std::string("en-GB"), lang}) {
+        std::string t = lp[l]["titleName"].str();
+        if (!t.empty()) {
+            m.title = t;
+            break;
+        }
+    }
+    if (m.title.empty())
+        for (const auto& [k, v] : lp.fields())
+            if (!v["titleName"].str().empty()) {
+                m.title = v["titleName"].str();
+                break;
+            }
+    return m;
+}
+
+} // namespace
+
+GameMetaCache::GameMetaCache(std::string state_dir) : dir_(std::move(state_dir) + "/cache/meta") {}
+
+Result<std::string> GameMetaCache::key_for(const std::string& path) const {
+    struct stat st{};
+    if (::stat(path.c_str(), &st) != 0) return make_error(Errc::invalid_argument, "no such file or folder: " + path);
+    char buf[32];
+    std::snprintf(buf, sizeof buf, "%016llx",
+                  static_cast<unsigned long long>(fnv1a64(path + "|" + std::to_string(st.st_size) + "|" +
+                                                          std::to_string(static_cast<long long>(st.st_mtime)))));
+    return std::string(buf);
+}
+
+Status GameMetaCache::load(const std::string& path, const std::string& key) {
+    std::shared_ptr<std::mutex> key_lock;
+    {
+        std::lock_guard<std::mutex> lock(g_memory_mutex);
+        if (g_memory.count(key)) return {};
+        auto& l = g_key_locks[key];
+        if (!l) l = std::make_shared<std::mutex>();
+        key_lock = l;
+    }
+    std::lock_guard<std::mutex> once(*key_lock);
+    {
+        std::lock_guard<std::mutex> lock(g_memory_mutex);
+        if (g_memory.count(key)) return {};
+    }
+    // On disk from an earlier run?
+    std::string json_path = dir_ + "/" + key + ".json";
+    if (auto data = read_file(json_path); data.ok()) {
+        auto v = parse_json(std::string(data->begin(), data->end()));
+        if (v.ok()) {
+            std::lock_guard<std::mutex> lock(g_memory_mutex);
+            g_memory[key] = from_json(*v);
+            return {};
+        }
+    }
+    GameMeta meta;
+    std::vector<std::uint8_t> icon;
+    {
+        Slot slot;
+        ALEMBIC_ASSIGN(convert::Input input, convert::open(path));
+        const tree::Node& root = input.tree->root();
+        if (const tree::Node* p = sce_sys_file(root, "param.json")) {
+            ALEMBIC_ASSIGN(auto data, read_node(*input.tree, *p, kMaxParam));
+            meta = parse_param(std::string(data.begin(), data.end()));
+        }
+        if (const tree::Node* i = sce_sys_file(root, "icon0.png")) {
+            auto data = read_node(*input.tree, *i, kMaxIcon);
+            if (data.ok() && data->size() > 8) {
+                icon = std::move(*data);
+                meta.has_icon = true;
+            }
+        }
+    }
+    if (meta.has_icon) {
+        Status s = write_file(dir_ + "/" + key + ".png", icon);
+        if (!s.ok()) std::fprintf(stderr, "icon cache: %s\n", s.error().message.c_str());
+    }
+    std::string text = to_json(meta).dump();
+    (void)write_file(json_path, Bytes(reinterpret_cast<const std::uint8_t*>(text.data()), text.size()));
+    std::lock_guard<std::mutex> lock(g_memory_mutex);
+    if (g_memory.size() > 2048) g_memory.clear();
+    g_memory[key] = meta;
+    return {};
+}
+
+Result<GameMeta> GameMetaCache::meta(const std::string& path) {
+    ALEMBIC_ASSIGN(std::string key, key_for(path));
+    ALEMBIC_TRY(load(path, key));
+    std::lock_guard<std::mutex> lock(g_memory_mutex);
+    return g_memory[key];
+}
+
+Result<std::vector<std::uint8_t>> GameMetaCache::icon(const std::string& path) {
+    ALEMBIC_ASSIGN(GameMeta m, meta(path));
+    if (!m.has_icon) return make_error(Errc::invalid_argument, "no icon");
+    ALEMBIC_ASSIGN(std::string key, key_for(path));
+    std::string cached = dir_ + "/" + key + ".png";
+    if (auto png = read_file(cached); png.ok()) return png;
+    // The cache file could not be written (or was removed): read the icon
+    // from the input again and try to cache it once more.
+    Slot slot;
+    ALEMBIC_ASSIGN(convert::Input input, convert::open(path));
+    const tree::Node* i = sce_sys_file(input.tree->root(), "icon0.png");
+    if (!i) return make_error(Errc::invalid_argument, "no icon");
+    ALEMBIC_ASSIGN(auto data, read_node(*input.tree, *i, kMaxIcon));
+    (void)write_file(cached, data);
+    return data;
+}
+
+} // namespace alembic::engine

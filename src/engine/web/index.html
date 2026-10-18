@@ -60,16 +60,28 @@ main { max-width: 1280px; margin: 0 auto; padding: 16px 20px 40px; }
 .crumbs button:hover { background: var(--panel2); }
 .crumbs span { color: #4a5264; }
 .list { min-height: 120px; }
-.row { display: grid; grid-template-columns: 34px minmax(0, 1fr) 110px 150px auto; gap: 10px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line); }
+.row { display: grid; grid-template-columns: 44px minmax(0, 1fr) 110px 150px auto; gap: 10px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line); }
 .row:first-child { border-top: 0; }
 .row:hover { background: rgba(255,255,255,.02); }
 .row .name { cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .name:hover { color: var(--accent); }
 .row .size, .row .date { color: var(--muted); font-size: 13px; text-align: right; }
 .row .acts { display: flex; gap: 4px; justify-content: flex-end; }
-@media (max-width: 760px) { .row { grid-template-columns: 30px minmax(0, 1fr) auto; } .row .size, .row .date { display: none; } .row .sub { display: block; } }
+@media (max-width: 760px) { .row { grid-template-columns: 44px minmax(0, 1fr) auto; } .row .size, .row .date { display: none; } .row .sub { display: block; } }
 .row .sub { display: none; color: var(--muted); font-size: 12px; }
-.ico { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; font-size: 11px; font-weight: 700; letter-spacing: .02em; }
+.ico { width: 40px; height: 40px; border-radius: 9px; display: grid; place-items: center; font-size: 9px; font-weight: 700; letter-spacing: .02em; overflow: hidden; }
+.ico { position: relative; }
+.ico img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ico.has-img { background: #10131a; }
+/* The format, as a pill before the game's title. */
+.fmt { display: inline-block; font-size: 10px; line-height: 1; font-weight: 700; letter-spacing: .04em; padding: 3px 6px;
+  border-radius: 999px; margin-right: 7px; vertical-align: 1px; background: #2a2f3d; color: #c5ccdd; }
+.fmt.fpkg { background: rgba(108,140,255,.16); color: var(--accent); }
+.fmt.ffpfsc { background: rgba(63,182,122,.15); color: var(--ok); }
+.fmt.exfat { background: rgba(224,174,53,.15); color: var(--warn); }
+.fmt.ffpkg { background: rgba(143,108,255,.16); color: var(--accent2); }
+.gtitle { font-size: 13px; color: #b9c3ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gtitle .muted { color: var(--muted); }
 .ico.folder { background: #2a2f3d; color: #c5ccdd; }
 .ico.fpkg { background: rgba(108,140,255,.16); color: var(--accent); }
 .ico.ffpfsc { background: rgba(63,182,122,.15); color: var(--ok); }
@@ -136,7 +148,7 @@ dialog.poly[open] { display: block; }
 .facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; font-size: 13px; background: #11141b; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
 .facts div:nth-child(odd) { color: var(--muted); }
 .picker { border: 1px solid var(--line); border-radius: 10px; max-height: 300px; overflow: auto; }
-.picker .row { grid-template-columns: 30px minmax(0, 1fr); padding: 6px 10px; cursor: pointer; }
+.picker .row { grid-template-columns: 44px minmax(0, 1fr); padding: 6px 10px; cursor: pointer; }
 .quick { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 .quick button { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid #313849; background: #12161e; cursor: pointer; }
 .quick button:hover, .quick button.on { border-color: var(--accent); color: var(--accent); }
@@ -291,7 +303,8 @@ const store = {
   set(k, v) { try { localStorage.setItem("alembic." + k, JSON.stringify(v)); } catch {} },
 };
 const CONVERTIBLE = ["fpkg", "exfat", "ffpfsc", "ffpkg"];
-const KIND_LABEL = { fpkg: "PKG", exfat: "EXF", ffpfsc: "FSC", ffpkg: "UFS", ffpfs: "PFS", folder: "DIR", file: "" };
+const KIND_LABEL = { fpkg: "PKG", exfat: "EXFAT", ffpfsc: "FFPFSC", ffpkg: "FFPKG", ffpfs: "FFPFS", folder: "DIR", file: "" };
+const KIND_TITLE = { fpkg: "Package (FPKG)", exfat: "exFAT image", ffpfsc: "FFPFSC image (compressed)", ffpkg: "FFPKG image (UFS2)", ffpfs: "PFS image", folder: "Folder", file: "File" };
 
 /* ---------- helpers ---------- */
 async function api(method, path, body) {
@@ -460,23 +473,69 @@ function menuButton(items) {
   wrap.append(btn);
   return wrap;
 }
+/* Game icons and titles: fetched for rows on screen, two at a time. */
+const meta = { cache: new Map(), queue: [], active: 0, observer: null };
+function metaKey(e) { return e.path + "|" + (e.mtime || 0) + "|" + (e.size || 0); }
+function applyMeta(e, m, ico, line) {
+  if (!m) return;
+  if (m.icon && !ico.querySelector("img")) {
+    // Not lazy: the row is already on screen, and a lazy image that isn't in
+    // the page yet never loads. Swapped in once it has loaded.
+    const img = new Image();
+    img.alt = "";
+    img.onload = () => { ico.textContent = ""; ico.classList.add("has-img"); ico.append(img); };
+    img.src = `/api/icon?path=${encodeURIComponent(e.path)}&v=${e.mtime || 0}`;
+  }
+  const bits = [m.version ? "v" + m.version.replace(/^0+(?=\d)/, "") : "", m.title_id].filter(Boolean).join(" · ");
+  line.textContent = "";
+  line.append(h("span", { class: "fmt " + (e.game ? "folder" : e.kind), text: e.game ? "FOLDER" : KIND_LABEL[e.kind] || "" }));
+  if (m.title) line.append(m.title);
+  if (bits) line.append(h("span", { class: "muted", text: (m.title ? "  ·  " : "") + bits }));
+  line.title = [m.title, m.content_id].filter(Boolean).join("\n");
+}
+function pumpMeta() {
+  while (meta.active < 2 && meta.queue.length) {
+    const job = meta.queue.shift();
+    if (!job.ico.isConnected) continue;
+    meta.active++;
+    api("GET", "/api/meta?path=" + encodeURIComponent(job.e.path))
+      .then((m) => { meta.cache.set(metaKey(job.e), m); applyMeta(job.e, m, job.ico, job.line); })
+      .catch(() => meta.cache.set(metaKey(job.e), null))
+      .finally(() => { meta.active--; pumpMeta(); });
+  }
+}
+function wantMeta(e, ico, line) {
+  const k = metaKey(e);
+  if (meta.cache.has(k)) { applyMeta(e, meta.cache.get(k), ico, line); return; }
+  const go = () => { meta.queue.push({ e, ico, line }); pumpMeta(); };
+  if (!("IntersectionObserver" in window)) { go(); return; }
+  const io = new IntersectionObserver((entries) => {
+    if (entries.some((x) => x.isIntersecting)) { io.disconnect(); go(); }
+  }, { rootMargin: "200px" });
+  io.observe(ico);
+}
+
 function renderList() {
   const box = $("#list"), data = state.listing; box.textContent = "";
   if (!data.entries.length) { box.append(h("div", { class: "empty", text: "This folder is empty." })); return; }
   const top = data.path === "/";
   for (const e of data.entries) {
-    const isDir = e.kind === "folder", conv = CONVERTIBLE.includes(e.kind);
-    const open = () => isDir ? browse(e.path) : conv ? openConvert(e) : null;
+    const isDir = e.kind === "folder", conv = CONVERTIBLE.includes(e.kind) || !!e.game;
+    const open = () => isDir ? browse(e.path) : conv ? openConvert(e) : null; // game folders open like folders
     const items = [];
     if (!top) {
       if (conv || isDir) items.push(["Convert…", () => openConvert(e)]);
       if (e.kind === "fpkg") items.push(["Install", () => installPkg(e)]);
       items.push(["Rename…", () => renameEntry(e)], ["Copy to…", () => openDest(e, "copy")], ["Move to…", () => openDest(e, "move")], ["Delete…", () => deleteEntry(e), "danger"]);
     }
+    const ico = h("div", { class: "ico " + e.kind, text: e.game ? "GAME" : KIND_LABEL[e.kind] ?? "", title: e.game ? "Game folder" : KIND_TITLE[e.kind] || "" });
+    const line = h("div", { class: "gtitle" });
+    if (conv && !top) wantMeta(e, ico, line);
     box.append(h("div", { class: "row" },
-      h("div", { class: "ico " + e.kind, text: KIND_LABEL[e.kind] ?? "" }),
+      ico,
       h("div", { style: "min-width:0" },
         h("div", { class: "name", title: e.name, onclick: open, text: e.name }),
+        line,
         h("div", { class: "sub", text: [isDir ? "" : bytes(e.size), date(e.mtime)].filter(Boolean).join(" · ") })),
       h("div", { class: "size", text: isDir ? "" : bytes(e.size) }),
       h("div", { class: "date", text: date(e.mtime) }),
