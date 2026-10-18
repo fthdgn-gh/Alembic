@@ -73,7 +73,7 @@ tools/lz4-oracle/compare.sh         # LZ4 packs vs ampr_pack.py (needs .refs/ven
 
 ### Known limitations
 
-- Writing FPKG is not implemented (UFS2 and PFS writing are done).
+- Writing FPKG: stored packages only, CLI `fpkg-build` (not yet in `convert`/engine); no Kraken, fake-signing, DDS generation or keystone generation.
 - LZ4 packs: no TOML profile input yet (only the automatic profile); pass 1
   keeps ~200 bytes per chunk in RAM (456 MB for 2.2M chunks), which may need
   trimming for the PS5 payload; never tested on a console.
@@ -993,6 +993,45 @@ is about the USB drive's own format (shown on connect), not about the image.
 - MkPFS bug seen: it crashes when param.json is not a JSON object.
 - Next: the FPKG writer (ProsperoPkgTool's builder, which PS5PKGTool wraps);
   its inner image is PFS, so this writer is the starting point.
+
+### 2026-10-18: FPKG writer (stored), and a full round trip
+
+- `alembic fpkg-build <input> <out.pkg> --keys DIR [--seed HEX32]
+  [--package-passcode P]`: builds a debug FPKG from any input (folder, FPKG,
+  exFAT, FFPFSC, FFPKG, FFPFS). Ported from ProsperoPkgTool 0.3 (MIT,
+  `f2c91cd`), layer by layer, each checked against `img_create --compression
+  stored --seed S --no_right_sprx` (byte-reproducible from its CLI):
+  inner image (`fpkg_inner_build.cpp`), NAPS (`fpkg_naps_build.cpp`),
+  outer PFS (`fpkg_outer_build.cpp`: streamed, data blocks hashed and
+  AES-XTS encrypted on the way), RSA key wraps (`fpkg_keys.cpp`: Montgomery
+  RSA-3072 e=65537, MT19937 deterministic PKCS#1 padding), PlayGo
+  (`fpkg_playgo_build.cpp`), CNT (`fpkg_cnt_build.cpp`), and the FIH header,
+  SI zip (naps_meta_18 XTS-encrypted with fixed keys, meta300 x4,
+  playgo-chunk.dat/.crc) and orchestration (`fpkg_package_build.cpp`).
+  The package is written in place: outer PFS streamed at 0x10000, then CNT,
+  header, and one read-back pass for the SI's whole-image SHA3 and CRC32Cs.
+- Byte-identical to ProsperoPkgTool: the test game (3.6 MB) and real
+  package C (124 MB; DDS media, protected entries, trophies, its own PlayGo
+  files): 1.6 s vs 5.8 s. ProsperoPkgTool crashes on macOS above 1 GiB
+  (its file-backed SI path uses IncrementalHash SHA3, which macOS .NET lacks);
+  a patch to a copy, like patch_libprosperopkg.py, is next.
+- Not ported yet (refused with a clear message): Kraken compression, fake-
+  signing raw ELF modules, generating DDS from PNG, generating a keystone.
+  right.sprx is never injected (as `--no_right_sprx`). Keys come from the
+  engine's fpkg_keys component files, checked by SHA-256.
+- **Round trip** (`tools/pkg-oracle/roundtrip.sh <pkg>`): package -> P1
+  (fixed seed) -> FFPFSC -> exFAT -> FFPKG -> FFPFS -> P2. The first run
+  showed P2 != P1: the exFAT/FFPFS writers rebuilt the game's
+  ampr_emu.index (the unpacked package also holds its licence and PlayGo
+  files from CNT entries, so the new index listed more files). Every other
+  byte matched. **Owner decision: keep a game's own index by default**;
+  generate one only when missing; `--ampr-index rebuild` restores the
+  PS5PKGTool/MkPFS behaviour (the parity scripts pass it). Now packages A,
+  B and C all give P2 == P1 byte for byte, with every file identical at each
+  step. (`playgo-chunk.dat` legitimately differs from the original package:
+  each build regenerates it for its own layout.)
+- Speed to improve: 2.6 GB package in ~30 s (single-threaded SHA3/AES-XTS
+  plus the read-back).
 
 ## Next session
 

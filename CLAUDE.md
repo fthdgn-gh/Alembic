@@ -40,9 +40,13 @@ environment in `.refs/mkpfs-venv`).
   feature). folder/exFAT/FFPFSC conversions are done (`alembic convert`),
   byte-identical to PS5PKGTool. FPKG and FFPKG (UFS2) reading are done,
   checked on real files. FFPKG (UFS2) writing is byte-identical to PS5PKGTool
-  and FFPFS (PFS) writing to MkPFS; writing FPKG is still to do.
+  and FFPFS (PFS) writing to MkPFS; FPKG writing (stored) is byte-identical to
+  ProsperoPkgTool `img_create --seed S --no_right_sprx`.
 - **Design:** every input is a `tree::Source` and every writer takes one, so
   conversions stream without temporary copies.
+- **AMPR index:** a game's own `ampr_emu.index` is kept by default (byte-exact
+  round trips); one is generated only when missing; `--ampr-index rebuild`
+  matches PS5PKGTool/MkPFS, and the parity scripts pass it.
 - **Compression:** PFSC uses all cores and zlib level 6 by default (owner
   decision: 2.4x faster than 9 for ~0.2% more size). Parity scripts pass
   `--level 9` to match PS5PKGTool.

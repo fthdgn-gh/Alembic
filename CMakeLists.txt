@@ -83,6 +83,14 @@ add_library(alembic_core STATIC
     src/core/ufs2.cpp
     src/core/ufs2_image.cpp
     src/core/pfs_image.cpp
+    src/core/fpkg_inner_build.cpp
+    src/core/fpkg_media.cpp
+    src/core/fpkg_naps_build.cpp
+    src/core/fpkg_outer_build.cpp
+    src/core/fpkg_keys.cpp
+    src/core/fpkg_playgo_build.cpp
+    src/core/fpkg_cnt_build.cpp
+    src/core/fpkg_package_build.cpp
     src/core/unicode.cpp
 )
 target_include_directories(alembic_core

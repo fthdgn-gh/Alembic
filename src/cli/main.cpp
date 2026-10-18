@@ -2,6 +2,8 @@
 // alembic: command-line front end for the core library.
 #include "alembic/ampr.hpp"
 #include "alembic/convert.hpp"
+#include "alembic/fpkg_build.hpp"
+#include "alembic/json.hpp"
 #include "alembic/exfat.hpp"
 #include "alembic/ffpfsc.hpp"
 #include "alembic/fpkg.hpp"
@@ -14,6 +16,8 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstdio>
+#include <cstring>
+#include <functional>
 #include <unistd.h>
 #include <cstdlib>
 #include <cstring>
@@ -68,7 +72,7 @@ void usage() {
         "        unpacked first; ampr_emu.index is ignored)\n"
         "  lz4-verify <input>\n"
         "        decode every LZ4 pack chunk and check it against the CRC sidecar\n"
-        "  exfat <dump-dir> <out.exfat> [--cluster-size N] [--no-ampr] [--ampr-scheme S]\n"
+        "  exfat <dump-dir> <out.exfat> [--cluster-size N] [--no-ampr] [--ampr-index keep|rebuild] [--ampr-scheme S]\n"
         "        build an exFAT image from a dump folder (clusters: 64 KiB by default;\n"
         "        --cluster-size ps5pkgtool picks 32 or 64 KiB like PS5PKGTool)\n"
         "  ampr-index <dump-dir> <out.index> [--ampr-scheme S]\n"
@@ -229,6 +233,10 @@ bool parse_exfat_options(const Args& args, exfat::BuildOptions& options) {
         options.cluster_size = static_cast<std::uint32_t>(*value);
     }
     if (args.get("--no-ampr")) options.generate_ampr_index = false;
+    if (auto mode = args.get("--ampr-index")) {
+        if (*mode == "rebuild") options.rebuild_ampr_index = true;
+        else if (*mode != "keep") return std::fputs("error: --ampr-index takes keep or rebuild\n", stderr), false;
+    }
     return parse_scheme(args, options.ampr_scheme);
 }
 
@@ -426,6 +434,34 @@ int cmd_ls(const Args& args) {
     std::printf("%s: %llu files, %llu folders, %llu bytes\n", convert::name(input->format),
                 static_cast<unsigned long long>(t.files), static_cast<unsigned long long>(t.directories),
                 static_cast<unsigned long long>(t.bytes));
+    return 0;
+}
+
+// Builds a debug FPKG from a game folder or image.
+int cmd_fpkg_build(const Args& args) {
+    if (args.positional.size() != 2) return usage(), 2;
+    auto input = convert::open(args.positional[0], args.get("--passcode").value_or(std::string(32, '0')));
+    if (!input.ok()) return fail(input.error());
+    fpkg::build::PackageOptions o;
+    o.keys_folder = args.get("--keys").value_or("");
+    if (o.keys_folder.empty()) return std::fputs("error: pass --keys DIR (passcode.bin, mount_image.bin)\n", stderr), 2;
+    if (auto p = args.get("--package-passcode")) o.passcode = *p;
+    if (auto hex = args.get("--seed")) {
+        if (hex->size() != 32) return std::fputs("error: --seed takes 32 hex digits\n", stderr), 2;
+        std::array<std::uint8_t, 16> seed{};
+        for (int i = 0; i < 16; ++i) {
+            auto v = parse_number(("0x" + hex->substr(i * 2, 2)).c_str());
+            if (!v) return std::fputs("error: bad --seed\n", stderr), 2;
+            seed[i] = static_cast<std::uint8_t>(*v);
+        }
+        o.seed = seed;
+    }
+    o.overwrite = args.get("--overwrite").has_value();
+    auto r = fpkg::build::write_package(*input->tree, input->tree->root(), args.positional[1], o);
+    if (!r.ok()) return fail(r.error());
+    for (const std::string& w : r->warnings) std::fprintf(stderr, "warning: %s\n", w.c_str());
+    std::printf("%s: %llu bytes, %zu inner files (content ID %s)\n", args.positional[1].c_str(),
+                static_cast<unsigned long long>(r->package_length), r->inner_files, r->content_id.c_str());
     return 0;
 }
 
@@ -744,6 +780,7 @@ int main(int argc, char** argv) {
     if (command == "lz4-info") return cmd_lz4_info(parse(argc, argv, {}));
     if (command == "same") return cmd_same(parse(argc, argv, {}));
     if (command == "ls") return cmd_ls(parse(argc, argv, {}));
+    if (command == "fpkg-build") return cmd_fpkg_build(parse(argc, argv, {"--overwrite"}));
     if (command == "cat") return cmd_cat(parse(argc, argv, {}));
     if (command == "exfat") return cmd_exfat(parse(argc, argv, {"--no-ampr"}));
     if (command == "ampr-index") return cmd_ampr_index(parse(argc, argv, {}));

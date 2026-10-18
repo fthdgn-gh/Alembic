@@ -118,7 +118,7 @@ Result<std::vector<std::uint8_t>> index_for_tree(Node& root, ampr::Scheme scheme
     return ampr::build(records, scheme);
 }
 
-Status add_virtual_ampr_index(Node& root, ampr::Scheme scheme) {
+Status add_virtual_ampr_index(Node& root, ampr::Scheme scheme, bool rebuild) {
     std::vector<Node*> nodes;
     walk(root, nodes);
     bool has_marker = std::any_of(nodes.begin(), nodes.end(), [](const Node* n) {
@@ -131,6 +131,11 @@ Status add_virtual_ampr_index(Node& root, ampr::Scheme scheme) {
         return !n.is_directory && unicode::ascii_iequals(n.name, "ampr_assets.index");
     });
     if (packed) return {};
+    // The game's own index is kept unless a rebuild is asked for.
+    bool has_index = std::any_of(root.children.begin(), root.children.end(), [](const Node& n) {
+        return !n.is_directory && unicode::ascii_iequals(n.name, "ampr_emu.index");
+    });
+    if (has_index && !rebuild) return {};
 
     std::erase_if(root.children, is_stale_index);
     ALEMBIC_ASSIGN(std::vector<std::uint8_t> index, index_for_tree(root, scheme));
@@ -541,7 +546,7 @@ Result<ImageBuilder> ImageBuilder::from_source(const tree::Source& source, const
     impl->source = &source;
     impl->root.is_directory = true;
     ALEMBIC_TRY(convert_tree(root, impl->root));
-    if (options.generate_ampr_index) ALEMBIC_TRY(add_virtual_ampr_index(impl->root, options.ampr_scheme));
+    if (options.generate_ampr_index) ALEMBIC_TRY(add_virtual_ampr_index(impl->root, options.ampr_scheme, options.rebuild_ampr_index));
     walk(impl->root, impl->nodes);
 
     std::uint64_t total = 0;

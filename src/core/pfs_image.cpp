@@ -203,7 +203,7 @@ Result<ImageBuilder> ImageBuilder::from_source(const tree::Source& source, const
         auto has = [&](const char* rel) {
             return std::any_of(m->files.begin(), m->files.end(), [&](const Impl::File& f) { return unicode::ascii_iequals(f.rel, rel); });
         };
-        if (has("fakelib/libSceAmpr.sprx") && !has("ampr_assets.index")) {
+        if (has("fakelib/libSceAmpr.sprx") && !has("ampr_assets.index") && (options.rebuild_ampr_index || !has("ampr_emu.index"))) {
             std::erase_if(m->files, [](const Impl::File& f) {
                 return unicode::ascii_iequals(f.rel, "ampr_emu.index") || unicode::ascii_iequals(f.rel, "ampr_emu.index.tmp");
             });

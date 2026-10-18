@@ -42,6 +42,7 @@ struct BuildOptions {
     // fakelib/libSceAmpr.sprx and is not LZ4-packed, as MkPFS does by default
     // and as the exFAT writer does (see exfat.hpp).
     bool generate_ampr_index = true;
+    bool rebuild_ampr_index = false; // replace an existing index (see exfat.hpp)
     ampr::Scheme ampr_scheme = ampr::Scheme::ampr_emu;
 };
 

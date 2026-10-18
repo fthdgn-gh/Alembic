@@ -5,6 +5,7 @@
 #include "test.hpp"
 
 #include <cstring>
+#include <cstdio>
 #include <map>
 
 using namespace alembic;
@@ -137,26 +138,39 @@ TEST_CASE(exfat_adds_ampr_index_when_marker_present) {
     std::string root = build_tree();
     test::make_dir(root + "/fakelib");
     test::write_file(root + "/fakelib/libSceAmpr.sprx", pattern(4096, 7));
-    test::write_file(root + "/ampr_emu.index", pattern(16, 8)); // stale copy, replaced
+    test::write_file(root + "/ampr_emu.index", pattern(16, 8)); // the game's own (here: stale) index
 
-    auto builder = exfat::ImageBuilder::scan(root);
-    REQUIRE_OK(builder);
-    VectorSink sink;
-    REQUIRE_OK(builder->write(sink));
-    Reader reader(sink.bytes);
-    std::map<std::string, std::vector<std::uint8_t>> files;
-    int checksum_errors = 0;
-    reader.list(get_u32(sink.bytes.data() + 0x60), reader.cluster_size, "", files, checksum_errors);
+    auto image_files = [&](const exfat::BuildOptions& options) {
+        std::map<std::string, std::vector<std::uint8_t>> files;
+        auto builder = exfat::ImageBuilder::scan(root, options);
+        if (!builder.ok()) return files;
+        VectorSink sink;
+        if (!builder->write(sink).ok()) return files;
+        Reader reader(sink.bytes);
+        int checksum_errors = 0;
+        reader.list(get_u32(sink.bytes.data() + 0x60), reader.cluster_size, "", files, checksum_errors);
+        return files;
+    };
+    // Default: the game's own index is kept as it is.
+    CHECK(image_files({})["ampr_emu.index"] == pattern(16, 8));
+    // --ampr-index rebuild: replaced by a fresh one.
+    exfat::BuildOptions rebuild;
+    rebuild.rebuild_ampr_index = true;
+    auto files = image_files(rebuild);
     CHECK(files.count("ampr_emu.index") == 1);
     const auto& index = files["ampr_emu.index"];
     CHECK(index.size() > 48 && std::memcmp(index.data(), "AMPRIDX3", 8) == 0);
     CHECK_EQ(get_u64(index.data() + 16), std::uint64_t(6)); // every real file, not the index
+    // No index yet: one is generated.
+    std::remove((root + "/ampr_emu.index").c_str());
+    auto generated = image_files({});
+    CHECK(generated["ampr_emu.index"] == files["ampr_emu.index"]);
 
     exfat::BuildOptions no_ampr;
     no_ampr.generate_ampr_index = false;
     auto plain = exfat::ImageBuilder::scan(root, no_ampr);
     REQUIRE_OK(plain);
-    CHECK_EQ(plain->file_count(), 7u); // includes the stale ampr_emu.index as a normal file
+    CHECK_EQ(plain->file_count(), 6u); // no index generated
 }
 
 TEST_CASE(exfat_rejects_bad_cluster_size) {

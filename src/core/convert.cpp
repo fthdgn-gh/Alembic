@@ -268,6 +268,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         p.case_insensitive = options.ffpfsc.case_insensitive;
         p.timestamp = options.ffpfsc.build_timestamp;
         p.generate_ampr_index = options.exfat.generate_ampr_index;
+        p.rebuild_ampr_index = options.exfat.rebuild_ampr_index;
         p.ampr_scheme = options.exfat.ampr_scheme;
         ALEMBIC_TRY(pfs::write_image(tree, tree.root(), output, p, options.overwrite, progress));
         report.method = std::string(prefix) + "built a new PFS image from the file tree";

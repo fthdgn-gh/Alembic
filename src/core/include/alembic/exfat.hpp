@@ -25,9 +25,13 @@ struct BuildOptions {
     // Without cluster_size, pick the size the way PS5PKGTool/MkPFS do instead:
     // 64 KiB when the average file is at least 1 MiB, otherwise 32 KiB.
     bool ps5pkgtool_cluster_rule = false;
-    // Add ampr_emu.index when the dump has fakelib/libSceAmpr.sprx (an
-    // LZ4-packed tree keeps the index it has).
+    // Add ampr_emu.index when the dump has fakelib/libSceAmpr.sprx and none
+    // yet (an LZ4-packed tree keeps the index it has).
     bool generate_ampr_index = true;
+    // Replace an existing ampr_emu.index with a fresh one, as PS5PKGTool and
+    // MkPFS do. Off by default: a game's own index is kept, so conversions
+    // round-trip byte for byte (owner decision, 2026-10-18).
+    bool rebuild_ampr_index = false;
     // Hashing rules for that index. ampr_emu is what the console reads;
     // ps5pkgtool reproduces PS5PKGTool byte for byte (differs for non-ASCII names).
     ampr::Scheme ampr_scheme = ampr::Scheme::ampr_emu;

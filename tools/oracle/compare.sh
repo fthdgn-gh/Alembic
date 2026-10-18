@@ -31,12 +31,14 @@ for fixture in "$work"/fixtures/*; do
     for cluster in default 4096 131072; do
         extra=(--cluster-size ps5pkgtool); [[ $cluster != default ]] && extra=(--cluster-size "$cluster")
         oextra=(); [[ $cluster != default ]] && oextra=("$cluster")
-        "$alembic" exfat "$fixture" "$work/$name-$cluster.alembic.img" --ampr-scheme ps5pkgtool ${extra[@]+"${extra[@]}"} 2>/dev/null
+        "$alembic" exfat "$fixture" "$work/$name-$cluster.alembic.img" --ampr-scheme ps5pkgtool --ampr-index rebuild ${extra[@]+"${extra[@]}"} 2>/dev/null
         oracle exfat "$fixture" "$work/$name-$cluster.oracle.img" ${oextra[@]+"${oextra[@]}"}
         check "exfat $name cluster=$cluster" "$work/$name-$cluster.alembic.img" "$work/$name-$cluster.oracle.img"
     done
 done
 
+# PS5PKGTool and MkPFS always regenerate ampr_emu.index; Alembic keeps a
+# game's own index unless --ampr-index rebuild, which the parity runs pass.
 # PS5PKGTool compresses at zlib level 9; Alembic defaults to 6, so parity runs pass --level 9.
 # PFSC: compressed bytes depend on the zlib build on each side (they matched on
 # macOS with .NET 10 and system zlib, 2026-10-17). The hard requirement is that
@@ -57,14 +59,14 @@ if cmp -s "$work/a.pfsc" "$work/o.pfsc"; then echo "same  pfsc container bytes";
 ts=1700000000
 ffpfsc_case() { # name, source, extra alembic args...
     local name="$1" src="$2"; shift 2
-    "$alembic" ffpfsc "$src" "$work/ff-$name.alembic" --timestamp $ts --level 9 --ampr-scheme ps5pkgtool --cluster-size ps5pkgtool "$@" >/dev/null 2>&1
+    "$alembic" ffpfsc "$src" "$work/ff-$name.alembic" --timestamp $ts --level 9 --ampr-scheme ps5pkgtool --ampr-index rebuild --cluster-size ps5pkgtool "$@" >/dev/null 2>&1
     oracle ffpfsc-dir "$src" "$work/ff-$name.oracle" $ts >/dev/null
     check "ffpfsc $name" "$work/ff-$name.alembic" "$work/ff-$name.oracle"
 }
 for fixture in "$work"/fixtures/small "$work"/fixtures/ampr "$work"/fixtures/many "$work"/fixtures/empty "$work"/dumps/*; do
     ffpfsc_case "$(basename "$fixture" | tr -c 'A-Za-z0-9_\n-' _)" "$fixture"
 done
-"$alembic" ffpfsc "$work/many-default.oracle.img" "$work/ff-image.alembic" --timestamp $ts --level 9 >/dev/null 2>&1
+"$alembic" ffpfsc "$work/many-default.oracle.img" "$work/ff-image.alembic" --timestamp $ts --level 9 --ampr-index rebuild >/dev/null 2>&1
 oracle ffpfsc-image "$work/many-default.oracle.img" "$work/ff-image.oracle" $ts >/dev/null
 check "ffpfsc from image" "$work/ff-image.alembic" "$work/ff-image.oracle"
 
@@ -84,7 +86,7 @@ done
 # AMPR index: rebuilt files carry exFAT's fixed timestamps, which the index records).
 for fixture in small many large empty; do
     img="$work/$fixture-default.oracle.img"
-    "$alembic" convert "$img" "$work/rb-$fixture.exfat" --rebuild --ampr-scheme ps5pkgtool --cluster-size ps5pkgtool >/dev/null 2>&1
+    "$alembic" convert "$img" "$work/rb-$fixture.exfat" --rebuild --ampr-scheme ps5pkgtool --ampr-index rebuild --cluster-size ps5pkgtool >/dev/null 2>&1
     check "exfat --rebuild $fixture" "$work/rb-$fixture.exfat" "$img"
 done
 
@@ -138,7 +140,7 @@ if [[ -x "$mkpfs_py" ]] && "$mkpfs_py" -I -c 'import mkpfs' 2>/dev/null; then
         cp -Rp "$work/ufs2-src/$fixture" "$work/pfs-mk-$fixture"
         "$mkpfs_py" -I -c 'import sys,time; t=float(sys.argv[3]); time.time=lambda: t; from mkpfs import cli; sys.argv=["mkpfs","pack","folder","--raw","--no-compress","--no-adjust-output-file-extension",sys.argv[1],sys.argv[2]]; sys.exit(cli.main() or 0)' \
             "$work/pfs-mk-$fixture" "$work/pfs-ampr-$fixture.mkpfs" $ts > "$work/pfs-mk-$fixture.log" 2>&1
-        "$alembic" convert "$work/ufs2-src/$fixture" "$work/pfs-ampr-$fixture.alembic" --to ffpfs --timestamp $ts --ampr-scheme ps5pkgtool >/dev/null 2>&1
+        "$alembic" convert "$work/ufs2-src/$fixture" "$work/pfs-ampr-$fixture.alembic" --to ffpfs --timestamp $ts --ampr-scheme ps5pkgtool --ampr-index rebuild >/dev/null 2>&1
         check "ffpfs $fixture with AMPR index" "$work/pfs-ampr-$fixture.alembic" "$work/pfs-ampr-$fixture.mkpfs"
     done
     # Reading MkPFS output: a raw PFS with PFSC-compressed files, and an FFPFSC
