@@ -51,6 +51,14 @@ Status install_package(const std::string&) {
     return make_error(Errc::unsupported, "installing packages needs a PS5");
 }
 
+bool launcher_supported() { return false; }
+bool launcher_installed() { return false; }
+std::string launcher_problem() { return "needs a PS5"; }
+Status install_launcher(std::uint16_t, const std::uint8_t*, std::size_t, bool) {
+    return make_error(Errc::unsupported, "the home-screen shortcut needs a PS5");
+}
+Status remove_launcher() { return make_error(Errc::unsupported, "the home-screen shortcut needs a PS5"); }
+
 std::string default_state_dir() {
     const char* home = std::getenv("HOME");
     return std::string(home && *home ? home : ".") + "/.alembic";

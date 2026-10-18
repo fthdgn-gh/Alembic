@@ -120,6 +120,15 @@ if(ALEMBIC_BUILD_ENGINE)
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/icon/alembic.svg ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_text.cmake
         COMMENT "Embedding the icon"
         VERBATIM)
+    set(ALEMBIC_ICON0_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/engine_icon0_png.cpp)
+    add_custom_command(
+        OUTPUT ${ALEMBIC_ICON0_SOURCE}
+        COMMAND ${CMAKE_COMMAND} -DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/assets/icon/icon0.png
+                -DOUTPUT=${ALEMBIC_ICON0_SOURCE} -DSYMBOL=kIcon0Png -DNAMESPACE=alembic::engine
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_text.cmake
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/icon/icon0.png ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_text.cmake
+        COMMENT "Embedding the home-screen icon"
+        VERBATIM)
     if(PS5)
         set(ALEMBIC_ENGINE_PLATFORM src/engine/platform_ps5.cpp)
     else()
@@ -138,13 +147,13 @@ if(ALEMBIC_BUILD_ENGINE)
     target_include_directories(alembic_engine_lib PUBLIC src/engine)
     target_compile_options(alembic_engine_lib PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
     target_link_libraries(alembic_engine_lib PUBLIC alembic_core)
-    add_executable(alembic_engine src/engine/main.cpp ${ALEMBIC_WEB_SOURCE} ${ALEMBIC_ICON_SOURCE})
+    add_executable(alembic_engine src/engine/main.cpp ${ALEMBIC_WEB_SOURCE} ${ALEMBIC_ICON_SOURCE} ${ALEMBIC_ICON0_SOURCE})
     target_compile_options(alembic_engine PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
     target_compile_definitions(alembic_engine PRIVATE ALEMBIC_VERSION="${PROJECT_VERSION}")
     target_link_libraries(alembic_engine PRIVATE alembic_engine_lib)
     if(PS5)
         set_target_properties(alembic_engine PROPERTIES OUTPUT_NAME alembic.elf)
-        target_link_libraries(alembic_engine PRIVATE SceNotification SceSystemService SceAppInstUtil SceNet SceSsl SceHttp)
+        target_link_libraries(alembic_engine PRIVATE SceNotification SceSystemService SceUserService SceAppInstUtil SceNet SceSsl SceHttp)
     else()
         set_target_properties(alembic_engine PROPERTIES OUTPUT_NAME alembic-engine)
     endif()

@@ -38,4 +38,21 @@ Result<std::vector<std::uint8_t>> http_get(const std::string& url, std::size_t m
 // Where the engine keeps its queue and log.
 std::string default_state_dir();
 
+// The home-screen shortcut: a stub title in the Media tab whose param.json
+// has a deeplinkUri, so the console opens the engine's page in its browser.
+// Only on the PS5.
+inline constexpr const char* kLauncherTitleId = "ALEM00001";
+bool launcher_supported();
+// How the system installer was found, or why not (for Settings).
+std::string launcher_problem();
+// Whether the shortcut is registered (its appmeta copy exists).
+bool launcher_installed();
+// Writes /user/app/<id>/sce_sys/{param.json,icon0.png} pointing at
+// http://127.0.0.1:<port>/ and registers it. Does nothing when it is already
+// registered with the same param.json, unless `again` (then it unregisters
+// and registers it anew).
+Status install_launcher(std::uint16_t port, const std::uint8_t* icon_png, std::size_t icon_size, bool again = false);
+// Unregisters the shortcut and deletes its files.
+Status remove_launcher();
+
 } // namespace alembic::engine::platform

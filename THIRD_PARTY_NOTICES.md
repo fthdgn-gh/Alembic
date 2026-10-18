@@ -30,6 +30,8 @@ Ported files say where they come from in their header comment.
 | [ps5-payload-dev/sdk](https://github.com/ps5-payload-dev/sdk) v0.44 | GPL-3.0-or-later | the toolchain, libc and libc++ the engine payload (`alembic.elf`) is built and linked with; the notification call follows its `samples/notify` |
 | [drakmor/ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus) | GPL-3.0 | HTTPS downloads with `libSceHttp`/`libSceSsl` (from `src/sm_ampr_updater.c`) and its public CA certificates for GitHub (`src/engine/github_ca.inc`, from `src/sm_ampr_ca.inc`) |
 | [ps5-payload-dev/shsrv](https://github.com/ps5-payload-dev/shsrv) | GPL-3.0-or-later | installing a `.pkg` with `sceAppInstUtilInstallByPackage` (from `bundles/pkg_install`) |
+| [ps5-payload-dev/websrv](https://github.com/ps5-payload-dev/websrv), [owendswang/ps5-web-file-manager](https://github.com/owendswang/ps5-web-file-manager) | GPL-3.0-or-later | the Media-tab shortcut: a stub title in `/user/app` with a `deeplinkUri` param.json, registered with `sceAppInstUtilAppInstallTitleDir` (websrv `src/ps5/sys.c`, ps5-web-file-manager `src/app_installer.c`); category 65536 as in ps5-web-file-manager and [itsPLK/ps5-payload-manager](https://github.com/itsPLK/ps5-payload-manager) |
+| [blackbearreloaded/ps5-homebrew-ui](https://github.com/blackbearreloaded/ps5-homebrew-ui) | GPL-3.0-or-later | design reference only (no code): the web page's Files layout, focus ring and button-hint bar follow its Files and Settings screens |
 | theghostonline/PS5-LZ4-Compression | GPL-3.0-or-later | keeping the console awake during a job (`sceSystemServicePowerTick`), from `src/lzc_power_guard.c`; the engine/app split and the job/web API idea |
 
 ## Bundled data

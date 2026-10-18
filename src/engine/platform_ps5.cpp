@@ -7,13 +7,20 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cerrno>
 #include <cstring>
 #include <mutex>
 #include <sys/mount.h>
 #include <sys/stat.h>
+#include <unistd.h>
+
+#include <ps5/kernel.h>
 
 // sceAppInstUtilInstallByPackage, as in ps5-payload-dev/shsrv's
 // bundles/pkg_install (GPL-3.0-or-later).
+// Layouts checked against ps5-web-file-manager's src/pkg_installer.c
+// (GPL-3.0-or-later), which asserts the same sizes: the system writes the
+// whole PlaygoInfo, so a short one overflows.
 struct PkgMetadata {
     const char* uri;
     const char* ex_uri;
@@ -21,18 +28,22 @@ struct PkgMetadata {
     const char* content_id;
     const char* content_name;
     const char* icon_url;
+    std::uint32_t slot;
+    std::uint32_t is_playgo_enabled;
 };
+static_assert(sizeof(PkgMetadata) == 0x38, "sceAppInstUtil metadata ABI");
 struct PkgInfo {
     char content_id[48];
     int type;
     int platform;
 };
 struct PlaygoInfo {
-    char lang[8][30];
-    char scenario_ids[3][64];
-    char content_ids[64];
+    char languages[30][8];
+    char scenario_ids[64][3];
+    char content_ids[64][48];
     long unknown[810];
 };
+static_assert(sizeof(PlaygoInfo) == 0x2700, "sceAppInstUtil PlayGoInfo ABI");
 
 // HTTPS through the system libraries, following drakmor/ShadowMountPlus's
 // src/sm_ampr_updater.c (GPL-3.0).
@@ -76,8 +87,11 @@ int sceHttpSetRecvTimeOut(int id, std::uint32_t us) __attribute__((weak));
 extern "C" {
 int sceAppInstUtilInitialize(void) __attribute__((weak));
 int sceAppInstUtilInstallByPackage(const PkgMetadata*, PkgInfo*, PlaygoInfo*) __attribute__((weak));
+int sceAppInstUtilAppInstallTitleDir(const char* title_id, const char* dir, void*) __attribute__((weak));
+int sceAppInstUtilAppUnInstall(const char* title_id) __attribute__((weak));
 int sceNotificationSend(int user_id, bool is_logged, const char* payload) __attribute__((weak));
 int sceSystemServicePowerTick(void) __attribute__((weak));
+int sceUserServiceInitialize(const int* priority) __attribute__((weak));
 }
 
 namespace alembic::engine::platform {
@@ -227,12 +241,95 @@ Result<std::vector<std::uint8_t>> http_get(const std::string& url, std::size_t m
     return result;
 }
 
-Status install_package(const std::string& path) {
-    if (!sceAppInstUtilInitialize || !sceAppInstUtilInstallByPackage)
-        return make_error(Errc::unsupported, "the system installer is not available");
+namespace {
+
+
+
+// The system installer's functions. The loader may leave the weak imports
+// empty (seen on a console: the shortcut never ran), so they are also looked
+// up at run time, loading the library first when needed, as
+// PS5-LZ4-Compression's src/lzc_app_installer.c (GPL-3.0-or-later) does.
+struct AppInstApi {
+    int (*initialize)(void) = nullptr;
+    int (*install_by_package)(const PkgMetadata*, PkgInfo*, PlaygoInfo*) = nullptr;
+    int (*install_title_dir)(const char*, const char*, void*) = nullptr;
+    int (*install_all)(void*) = nullptr;
+    int (*uninstall)(const char*) = nullptr;
+    int (*user_service_initialize)(const int*) = nullptr;
+    std::string note; // how they were found, or why not
+};
+
+extern "C" int sceKernelLoadStartModule(const char*, std::size_t, const void*, std::uint32_t, void*, int*);
+
+bool module_handle(const char* name, const char* path, std::uint32_t& handle, std::string& note) {
+    if (kernel_dynlib_handle(-1, name, &handle) == 0) return true;
+    int rc = sceKernelLoadStartModule(path, 0, nullptr, 0, nullptr, nullptr);
+    if (rc > 0 && kernel_dynlib_handle(-1, name, &handle) == 0) {
+        note += std::string(name) + " loaded; ";
+        return true;
+    }
+    note += std::string("cannot load ") + path + " (" + hex_code(rc) + "); ";
+    return false;
+}
+
+template <typename F>
+void pick(F& out, F linked, std::uint32_t handle, bool have, const char* symbol, const char* nid) {
+    if (linked) { out = linked; return; }
+    if (!have) return;
+    intptr_t a = kernel_dynlib_dlsym(-1, handle, symbol);
+    if (!a && nid) a = kernel_dynlib_resolve(-1, handle, nid);
+    out = reinterpret_cast<F>(a);
+}
+
+const AppInstApi& appinst() {
+    static AppInstApi api;
     static std::once_flag once;
-    static int init = 0;
-    std::call_once(once, [] { init = sceAppInstUtilInitialize(); });
+    std::call_once(once, [] {
+        std::uint32_t h = 0, uh = 0;
+        bool have = module_handle("libSceAppInstUtil.sprx", "/system/common/lib/libSceAppInstUtil.sprx", h, api.note);
+        bool uhave = module_handle("libSceUserService.sprx", "/system/common/lib/libSceUserService.sprx", uh, api.note);
+        bool linked = sceAppInstUtilAppInstallTitleDir != nullptr;
+        pick(api.initialize, sceAppInstUtilInitialize ? &sceAppInstUtilInitialize : nullptr, h, have, "sceAppInstUtilInitialize", nullptr);
+        pick(api.install_by_package, sceAppInstUtilInstallByPackage ? &sceAppInstUtilInstallByPackage : nullptr, h, have, "sceAppInstUtilInstallByPackage", nullptr);
+        pick(api.install_title_dir, sceAppInstUtilAppInstallTitleDir ? &sceAppInstUtilAppInstallTitleDir : nullptr, h, have, "sceAppInstUtilAppInstallTitleDir", "Wudg3Xe3heE");
+        pick(api.install_all, decltype(api.install_all)(nullptr), h, have, "sceAppInstUtilAppInstallAll", nullptr);
+        pick(api.uninstall, sceAppInstUtilAppUnInstall ? &sceAppInstUtilAppUnInstall : nullptr, h, have, "sceAppInstUtilAppUnInstall", nullptr);
+        pick(api.user_service_initialize, sceUserServiceInitialize ? &sceUserServiceInitialize : nullptr, uh, uhave, "sceUserServiceInitialize", nullptr);
+        api.note += linked ? "imports linked" : "imports looked up at run time";
+        const std::pair<const char*, bool> found[] = {
+            {"Initialize", api.initialize != nullptr}, {"AppInstallTitleDir", api.install_title_dir != nullptr},
+            {"AppInstallAll", api.install_all != nullptr}, {"AppUnInstall", api.uninstall != nullptr},
+            {"InstallByPackage", api.install_by_package != nullptr}};
+        std::string missing;
+        for (const auto& f : found)
+            if (!f.second) missing += std::string(missing.empty() ? "" : ", ") + f.first;
+        if (!missing.empty()) api.note += "; missing: " + missing;
+    });
+    return api;
+}
+
+int appinst_init() {
+    static std::once_flag once;
+    static int rc = 0;
+    std::call_once(once, [] {
+        // websrv, ps5-web-file-manager and Payload Manager all start the user
+        // service before registering their shortcut.
+        const AppInstApi& api = appinst();
+        if (api.user_service_initialize) {
+            int priority = 256;
+            api.user_service_initialize(&priority);
+        }
+        rc = api.initialize ? api.initialize() : -1;
+    });
+    return rc;
+}
+
+} // namespace
+
+Status install_package(const std::string& path) {
+    if (!appinst().initialize || !appinst().install_by_package)
+        return make_error(Errc::unsupported, "the system installer is not available");
+    int init = appinst_init();
     if (init) {
         char code[16];
         std::snprintf(code, sizeof code, "0x%08x", static_cast<unsigned>(init));
@@ -244,9 +341,9 @@ Status install_package(const std::string& path) {
     meta.ex_uri = meta.playgo_scenario_id = meta.content_id = meta.icon_url = "";
     meta.content_name = name.c_str();
     PkgInfo info{};
-    static PlaygoInfo playgo; // ~6.8 KB; one install at a time (the queue runs jobs in order)
+    static PlaygoInfo playgo; // ~10 KB; one install at a time (the queue runs jobs in order)
     playgo = PlaygoInfo{};
-    int rc = sceAppInstUtilInstallByPackage(&meta, &info, &playgo);
+    int rc = appinst().install_by_package(&meta, &info, &playgo);
     if (rc) {
         char code[16];
         std::snprintf(code, sizeof code, "0x%08x", static_cast<unsigned>(rc));
@@ -256,5 +353,121 @@ Status install_package(const std::string& path) {
 }
 
 std::string default_state_dir() { return "/data/alembic"; }
+
+// The Media-tab shortcut, as ps5-payload-dev/websrv (src/ps5/sys.c) and
+// ps5-web-file-manager (src/app_installer.c) install theirs (both
+// GPL-3.0-or-later): a title folder in /user/app with only sce_sys/param.json
+// and icon0.png, registered with sceAppInstUtilAppInstallTitleDir.
+// applicationCategoryType 65536 ("native media app") puts it in Media instead
+// of Games; deeplinkUri makes the console open that URL in its browser.
+namespace {
+
+const std::string kAppDir = std::string("/user/app/") + kLauncherTitleId;
+const std::string kMetaParam = std::string("/user/appmeta/") + kLauncherTitleId + "/param.json";
+
+std::string launcher_param(std::uint16_t port) {
+    return std::string("{\n  \"applicationCategoryType\": 65536,\n  \"titleId\": \"") + kLauncherTitleId +
+           "\",\n  \"deeplinkUri\": \"http://127.0.0.1:" + std::to_string(port) +
+           "/\",\n  \"localizedParameters\": {\n    \"defaultLanguage\": \"en-US\",\n"
+           "    \"en-US\": {\n      \"titleName\": \"Alembic\"\n    }\n  }\n}\n";
+}
+
+bool read_small_file(const std::string& path, std::string& out) {
+    std::FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return false;
+    char buf[4096];
+    std::size_t n;
+    out.clear();
+    while ((n = std::fread(buf, 1, sizeof buf, f)) > 0 && out.size() < 65536) out.append(buf, n);
+    std::fclose(f);
+    return true;
+}
+
+bool write_whole_file(const std::string& path, const void* data, std::size_t size) {
+    std::FILE* f = std::fopen(path.c_str(), "wb");
+    if (!f) return false;
+    bool ok = std::fwrite(data, 1, size, f) == size;
+    return std::fclose(f) == 0 && ok;
+}
+
+
+std::mutex g_launcher_mutex;
+
+// websrv sets its auth ID to this one before registering its shortcut
+// (src/ps5/sys.c). Here only for the call, then the old one is restored, as
+// ShadowMountPlus's src/sm_shellcore_remote.c does around its own calls.
+constexpr std::uint64_t kShellCoreAuthId = 0x4801000000000013ULL;
+class AuthIdScope {
+public:
+    AuthIdScope() : saved_(kernel_get_ucred_authid(-1)) { changed_ = kernel_set_ucred_authid(-1, kShellCoreAuthId) == 0; }
+    ~AuthIdScope() { if (changed_) kernel_set_ucred_authid(-1, saved_); }
+    std::uint64_t saved() const { return saved_; }
+    bool changed() const { return changed_; }
+
+private:
+    std::uint64_t saved_;
+    bool changed_ = false;
+};
+
+std::string hex64(std::uint64_t v) {
+    char b[24];
+    std::snprintf(b, sizeof b, "0x%016llx", static_cast<unsigned long long>(v));
+    return b;
+}
+
+} // namespace
+
+// websrv, ps5-web-file-manager and Payload Manager register their shortcut
+// with AppInstallTitleDir and, where a firmware lacks it, AppInstallAll (which
+// registers every title folder in /user/app).
+bool launcher_supported() { return appinst().initialize && (appinst().install_title_dir || appinst().install_all); }
+std::string launcher_problem() { return appinst().note; }
+
+bool launcher_installed() {
+    struct stat st{};
+    return ::stat(kMetaParam.c_str(), &st) == 0;
+}
+
+Status install_launcher(std::uint16_t port, const std::uint8_t* icon_png, std::size_t icon_size, bool again) {
+    std::lock_guard<std::mutex> lock(g_launcher_mutex);
+    if (!launcher_supported()) return make_error(Errc::unsupported, "the system installer is not available");
+    std::string param = launcher_param(port), current;
+    std::string param_path = kAppDir + "/sce_sys/param.json";
+    if (!again && launcher_installed() && read_small_file(param_path, current) && current == param) return {};
+    if (int rc = appinst_init(); rc != 0) return make_error(Errc::io, "sceAppInstUtilInitialize failed: " + hex_code(rc));
+    // Registering again: drop the old registration first, as
+    // PS5-LZ4-Compression's src/lzc_app_installer.c does.
+    if (again && launcher_installed() && appinst().uninstall) {
+        AuthIdScope auth;
+        appinst().uninstall(kLauncherTitleId);
+    }
+    for (const std::string& d : {std::string("/user/app"), kAppDir, kAppDir + "/sce_sys"})
+        if (::mkdir(d.c_str(), 0755) != 0 && errno != EEXIST) return make_error(Errc::io, "cannot create " + d);
+    if (!write_whole_file(param_path, param.data(), param.size()) ||
+        !write_whole_file(kAppDir + "/sce_sys/icon0.png", icon_png, icon_size))
+        return make_error(Errc::io, "cannot write the shortcut's files in " + kAppDir);
+    AuthIdScope auth;
+    const char* call = appinst().install_title_dir ? "sceAppInstUtilAppInstallTitleDir" : "sceAppInstUtilAppInstallAll";
+    int rc = appinst().install_title_dir ? appinst().install_title_dir(kLauncherTitleId, "/user/app/", nullptr)
+                                         : appinst().install_all(nullptr);
+    std::string how = " (auth ID " + hex64(auth.saved()) + (auth.changed() ? ", raised for the call)" : ", could not be raised)");
+    if (rc != 0) return make_error(Errc::io, std::string(call) + " failed: " + hex_code(rc) + how);
+    for (int i = 0; i < 50 && !launcher_installed(); ++i) ::usleep(100 * 1000); // it may record it a moment later
+    if (!launcher_installed()) return make_error(Errc::io, "the system accepted the shortcut but did not record it" + how);
+    return {};
+}
+
+Status remove_launcher() {
+    std::lock_guard<std::mutex> lock(g_launcher_mutex);
+    if (!appinst().uninstall) return make_error(Errc::unsupported, "the system installer is not available");
+    if (int rc = appinst_init(); rc != 0) return make_error(Errc::io, "sceAppInstUtilInitialize failed: " + hex_code(rc));
+    AuthIdScope auth;
+    int rc = launcher_installed() ? appinst().uninstall(kLauncherTitleId) : 0;
+    for (const char* f : {"/sce_sys/param.json", "/sce_sys/icon0.png"}) ::unlink((kAppDir + f).c_str());
+    ::rmdir((kAppDir + "/sce_sys").c_str());
+    ::rmdir(kAppDir.c_str());
+    if (rc != 0) return make_error(Errc::io, "sceAppInstUtilAppUnInstall failed: " + hex_code(rc));
+    return {};
+}
 
 } // namespace alembic::engine::platform

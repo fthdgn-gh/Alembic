@@ -26,6 +26,7 @@
 //   POST /api/fs/mkdir   {path}       new folder
 //   POST /api/fs/rename  {path, name} rename in place
 //   POST /api/fs/delete  {path}       delete a file or a folder with its contents
+//   POST /api/launcher   {enabled}    add or remove the Media-tab shortcut (PS5)
 //   POST /api/quit                    stop the engine (cancels a running job)
 #include "deps.hpp"
 #include "fs_ops.hpp"
@@ -51,6 +52,8 @@
 #include <dirent.h>
 #include <mutex>
 #include <sys/stat.h>
+#include <thread>
+#include <unistd.h>
 
 #ifndef ALEMBIC_VERSION
 #define ALEMBIC_VERSION "dev"
@@ -64,6 +67,9 @@ extern const std::size_t kIndexHtmlSize;
 // assets/icon/alembic.svg
 extern const char* const kIconSvg;
 extern const std::size_t kIconSvgSize;
+// assets/icon/icon0.png, the home-screen shortcut's icon
+extern const char* const kIcon0Png;
+extern const std::size_t kIcon0PngSize;
 
 namespace {
 
@@ -167,6 +173,25 @@ public:
 
     std::uint16_t port() const { return server_.port(); }
 
+    // The Media-tab shortcut, unless the user removed it (launcher.off).
+    void start_launcher() {
+        if (!platform::launcher_supported()) {
+            set_launcher_status("not available: " + platform::launcher_problem());
+            if (std::string(platform::name()) == "ps5") platform::notify("Alembic: no Media shortcut: " + platform::launcher_problem());
+            return;
+        }
+        if (path_exists(launcher_off_path())) {
+            set_launcher_status("turned off in Settings");
+            return;
+        }
+        set_launcher_status("registering…");
+        std::thread([this] {
+            Status s = platform::install_launcher(port(), reinterpret_cast<const std::uint8_t*>(kIcon0Png), kIcon0PngSize);
+            launcher_result(s, "at start");
+            platform::notify(s.ok() ? "Alembic is in Media on the home screen" : "Alembic: Media shortcut failed: " + s.error().message);
+        }).detach();
+    }
+
 private:
     static void finished(const Job& job) {
         std::string name = job.spec.input.substr(job.spec.input.rfind('/') + 1);
@@ -230,6 +255,7 @@ private:
             quit_cv_.notify_all();
             return json(200, JsonValue::object());
         }
+        if (r.path == "/api/launcher" && r.method == "POST") return launcher(r);
         if (r.path == "/api/fs/space" && r.method == "GET") return fs_space();
         if (r.path == "/api/locations" && r.method == "GET") return locations();
         if ((r.path == "/api/meta" || r.path == "/api/icon") && r.method == "GET") return game_meta(r);
@@ -242,6 +268,39 @@ private:
         if (r.path.rfind("/api/fs/", 0) == 0 && r.method == "POST") return fs_action(r);
         if (r.path.rfind("/api/jobs/", 0) == 0) return job_action(r);
         return error(404, "not found");
+    }
+
+    std::string launcher_off_path() const { return config_.state_dir + "/launcher.off"; }
+
+    // The last shortcut result, shown in Settings: on the console it is the
+    // only place to see why the shortcut is missing.
+    void set_launcher_status(const std::string& text) {
+        std::lock_guard<std::mutex> lock(launcher_mutex_);
+        launcher_status_ = text;
+    }
+    void launcher_result(const Status& s, const std::string& when) {
+        std::string text = s.ok() ? (platform::launcher_installed() ? "registered" : "registered, but the system has no record of it yet")
+                                  : "failed: " + s.error().message;
+        set_launcher_status(text + " (" + when + "; " + platform::launcher_problem() + ")");
+        log_line("home-screen shortcut " + when + ": " + text);
+    }
+
+    HttpResponse launcher(const HttpRequest& r) {
+        auto body = parse_json(r.body);
+        if (!body.ok()) return error(400, body.error().message);
+        bool enable = (*body)["enabled"].boolean(), again = (*body)["again"].boolean();
+        std::lock_guard<std::mutex> lock(deps_mutex_);
+        Status s = enable ? platform::install_launcher(port(), reinterpret_cast<const std::uint8_t*>(kIcon0Png), kIcon0PngSize, again)
+                          : platform::remove_launcher();
+        if (enable) launcher_result(s, std::string(again ? "registered again" : "added") + " by " + r.peer);
+        else {
+            set_launcher_status(s.ok() ? "removed" : "remove failed: " + s.error().message);
+            log_line("remove home-screen shortcut by " + r.peer + (s.ok() ? "" : ": " + s.error().message));
+        }
+        if (!s.ok()) return error(502, s.error().message);
+        if (enable) ::unlink(launcher_off_path().c_str());
+        else if (std::FILE* f = std::fopen(launcher_off_path().c_str(), "w")) std::fclose(f);
+        return info();
     }
 
     HttpResponse info() {
@@ -272,6 +331,17 @@ private:
         }
         v.set("lz4_profiles", std::move(profiles));
         v.set("busy", queue_.busy());
+        JsonValue shortcut = JsonValue::object();
+        shortcut.set("supported", platform::launcher_supported());
+        shortcut.set("installed", platform::launcher_installed());
+        shortcut.set("title_id", platform::kLauncherTitleId);
+        {
+            std::lock_guard<std::mutex> lock(launcher_mutex_);
+            shortcut.set("status", launcher_status_);
+        }
+        shortcut.set("off", path_exists(launcher_off_path()));
+        v.set("launcher", std::move(shortcut));
+        v.set("port", static_cast<std::uint64_t>(port()));
         return json(200, v);
     }
 
@@ -579,6 +649,8 @@ private:
     JobQueue queue_;
     HttpServer server_;
     std::mutex deps_mutex_;
+    std::mutex launcher_mutex_;
+    std::string launcher_status_ = "not tried";
     std::mutex quit_mutex_;
     std::condition_variable quit_cv_;
     bool quit_ = false;
@@ -635,7 +707,10 @@ int main(int argc, char** argv) {
         return 1;
     }
     log_line("listening on " + address + ":" + std::to_string(engine.port()));
-    platform::notify("Alembic engine ready on port " + std::to_string(engine.port()));
+    engine.start_launcher();
+    platform::notify(platform::launcher_supported()
+                         ? "Alembic is ready: open it from Media on the home screen (port " + std::to_string(engine.port()) + ")"
+                         : "Alembic engine ready on port " + std::to_string(engine.port()));
     engine.wait_for_quit();
     engine.stop();
     log_line("stopped");

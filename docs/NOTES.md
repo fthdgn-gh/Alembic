@@ -8,11 +8,15 @@ Chronological log below; **read "Where we are" and "Next session" first.**
 
 | From \ To | folder | exFAT | FFPFSC | FFPKG (UFS2) | FPKG |
 |---|---|---|---|---|---|
-| folder | – | ✓ | ✓ | – | – |
-| exFAT | ✓ | `--rebuild` | ✓ (wrap) | – | – |
-| FFPFSC (exFAT or UFS2 payload) | ✓ | ✓ | ✓ | ✓ (unwrap UFS2) | – |
-| FFPKG (UFS2) | ✓ | ✓ | ✓ (wrap) | – | – |
-| FPKG (debug) | ✓ | ✓ | ✓ | – | – |
+| folder | – | ✓ | ✓ | ✓ | – |
+| exFAT | ✓ | `--rebuild` | ✓ (wrap) | ✓ | – |
+| FFPFSC (exFAT, UFS2 or PFS payload) | ✓ | ✓ | ✓ | ✓ (unwrap UFS2) | – |
+| FFPKG (UFS2) | ✓ | ✓ | ✓ (wrap) | `--rebuild` | – |
+| FFPFS (PFS) | ✓ | ✓ | ✓ (wrap) | ✓ | – |
+| FPKG (debug) | ✓ | ✓ | ✓ | ✓ | – |
+
+Every row can also be written as FFPFS (`.ffpfs`, uncompressed PFS),
+byte-identical to MkPFS (see the 2026-10-18 FFPFS entry).
 
 - `alembic convert <in> <out>` (format from content / extension / `--to`),
   `alembic ls <in>`, plus `exfat`, `ffpfsc`, `ffpfsc-info|extract|verify`,
@@ -33,8 +37,8 @@ Chronological log below; **read "Where we are" and "Next session" first.**
 ### How it is checked
 
 ```sh
-cmake -S . -B build && cmake --build build && ./build/alembic_tests   # 41 unit tests
-tools/oracle/compare.sh             # 47 byte-for-byte checks vs PS5PKGTool + ampr_emu builder
+cmake -S . -B build && cmake --build build && ./build/alembic_tests   # 51 unit tests
+tools/oracle/compare.sh             # 69 byte-for-byte checks vs PS5PKGTool, MkPFS (.ffpfs) + ampr_emu builder
 tools/pkg-oracle/compare.sh         # FPKG reading vs packages built by ProsperoPkgTool/LibProsperoPKG
 tools/pkg-oracle/check_samples.sh   # owner's real files in .refs/samples/ (~5 min)
 tools/lz4-oracle/compare.sh         # LZ4 packs vs ampr_pack.py (needs .refs/venv, Homebrew lz4)
@@ -49,6 +53,12 @@ tools/lz4-oracle/compare.sh         # LZ4 packs vs ampr_pack.py (needs .refs/ven
   https://github.com/drakmor/ampr_emu, https://github.com/drakmor/ShadowMountPlus,
   https://github.com/theghostonline/PS5-LZ4-Compression,
   https://github.com/rdmrocha/fpkg-cli (no license: read only).
+- `.refs/MkPFS` (https://github.com/PSBrew/MkPFS, GPL-3.0, 1.1.0 at `1d5df56`)
+  and `.refs/mkpfs-venv`: `python3 -m venv .refs/mkpfs-venv &&
+  .refs/mkpfs-venv/bin/pip install ./.refs/MkPFS` (the oracle for `.ffpfs`;
+  its own PyPI dependencies). Also cloned for reference: danthespal/MkPFS.CSharp
+  (GPL-3.0, has an FPKG builder too), ps5-homebrew-ui, websrv,
+  ps5-web-file-manager, ps5-payload-manager.
 - `.refs/venv`: `python3 -m venv .refs/venv` (no packages; the LZ4 oracle uses
   Homebrew's liblz4 1.10.0). `.refs/runtime/ampr_emu-0.4.2.1/`: the PackedStdio
   `libSceAmpr.sprx` from the official release (SHA-256 in the 2026-10-18 entry).
@@ -63,11 +73,13 @@ tools/lz4-oracle/compare.sh         # LZ4 packs vs ampr_pack.py (needs .refs/ven
 
 ### Known limitations
 
-- Writing FPKG, UFS2 (.ffpkg) and PFS (.ffpfs) is not implemented.
+- Writing FPKG is not implemented (UFS2 and PFS writing are done).
 - LZ4 packs: no TOML profile input yet (only the automatic profile); pass 1
   keeps ~200 bytes per chunk in RAM (456 MB for 2.2M chunks), which may need
   trimming for the PS5 payload; never tested on a console.
-- PFS (.ffpfs) images are not read either, standalone or as FFPFSC payload.
+- PFS reading covers unsigned, unencrypted images with 32-bit inodes and
+  contiguous files (what MkPFS and Alembic write); signed, encrypted, 64-bit
+  inode and fragmented PFS images are refused.
 - FPKG: retail and patch (LIH) packages are not opened; NAPS "shuffle"
   layouts (current LibProsperoPKG output) are refused.
 - Reading (inflate, Kraken, SHA-256, AES) is single-threaded and uses no
@@ -814,7 +826,180 @@ is about the USB drive's own format (shown on connect), not about the image.
   (PS5PKGTool 4 s). Engine and page offer FFPKG as a target.
 - Not yet tried on the console (ShadowMount+ mounts `.ffpkg` by extension).
 
+### 2026-10-18: FPKG writer, research (not started in code)
+
+- Port target: ProsperoPkgTool 0.3 (MIT) `img_create` ->
+  `ProsperoDebugPackageBuilder.Build` (Containers/): inner image
+  (`ProsperoInnerImageAssembler`, stored or Kraken), NAPS
+  (`ProsperoNapsPlanGenerator` + `ProsperoNapsLayoutBuilder`), outer PFS
+  (`ProsperoOuterPfsBuilder`, AES-XTS with keys from EKPFS + outer seed), CNT
+  (`ProsperoCntBuilder`, entries: standard keys, param.json, imagedigs,
+  PlayGo chunk/hash-table/ficm, sce_sys media), FIH (`ProsperoFihBuilder`,
+  built twice around the SI segment). ~10k lines incl. Kraken encoder.
+- Determinism: output is random only through `OuterSeed` (16 bytes) and the
+  entry keys; `DeterministicEntryKeys = true` + fixed `OuterSeed` + the
+  default timestamps (0x6A31A5B9 s / 0x14DC9380 ns) make it reproducible ->
+  byte-parity oracle possible (needs a small C# oracle setting those options;
+  the CLI only exposes `--seed`). Two plain builds differ in ~80 M bytes.
+- img_create input: `Directory.EnumerateFiles(src, "*", AllDirectories)`
+  ordinal-sorted, skipping .gp4/.gp5/.pkg and `IsExcludedFromInner` paths;
+  sce_sys outer entries via `CollectSceSysFiles` (read CliApplication.cs
+  ~990-1100 next).
+- Key material: the three public moduli (Components: fpkg_keys). Keystone:
+  `Crypto/Keystone.cs` hardcodes HMAC keys; dumps from debug FPKGs already
+  ship sce_sys/keystone, so v1 reuses it and refuses a dump without one.
+  right.sprx: ProsperoPkgTool embeds the same 12,752-byte SELF as
+  LibProsperoPKG (origin unclear) -> Alembic never injects it (dumps ship it).
+- Plan: (1) stored-mode parity vs the oracle on the 124 MB sample, (2) Kraken
+  encoder, (3) streaming for large games, fself of raw ELFs, DDS generation,
+  keystone. Install testing waits for the owner's hardware.
+
+### 2026-10-18: web page for the controller, Media-tab shortcut
+
+- **Owner decision:** the native PS5 app (ps5-homebrew-ui) is shelved for
+  now; the engine's web page is the front end, opened on the console itself
+  and usable with a controller. The app may adopt the same design later.
+- **Media-tab shortcut** (`platform::install_launcher`, PS5 only): at start
+  the engine writes `/user/app/ALEM00001/sce_sys/{param.json,icon0.png}`
+  (`applicationCategoryType` 65536 = Media, `deeplinkUri`
+  `http://127.0.0.1:<port>/`) and registers it with
+  `sceAppInstUtilAppInstallTitleDir` (by name from the SDK's stub, weak like
+  the other system calls); skipped when the registered param.json is the
+  same. Same technique as websrv, ps5-web-file-manager and Payload Manager
+  (all GPL). Settings → "Shortcut in Media" removes it
+  (`sceAppInstUtilAppUnInstall`, and `<state>/launcher.off` so it stays
+  removed) or adds it back: `POST /api/launcher {enabled}`; `/api/info` has
+  `launcher` and `port`. **Not tried on a console yet.** Payload Manager notes
+  an older Games-tab tile must be removed before a Media one shows.
+- First console try (owner): the page opened fine, but **no shortcut
+  appeared in Media**. Compared with websrv / ps5-web-file-manager / Payload
+  Manager: the symbol name does hash to their NID `Wudg3Xe3heE`, so linking by
+  name is fine; all three call `sceUserServiceInitialize` first, which we
+  didn't (now done in `appinst_init`, shared with package install). websrv
+  also sets its auth ID to `0x4801000000000013` (`kernel_set_ucred_authid`);
+  second try (still nothing): now raised to that ID only around the
+  register/unregister calls and restored after (`AuthIdScope`), and the
+  status reports the original auth ID and whether the system recorded the
+  title in `/user/appmeta`.
+- Third try: the console showed "engine ready on port", i.e. the weak import
+  `sceAppInstUtilAppInstallTitleDir` was null although the ELF lists
+  `libSceAppInstUtil.sprx` as NEEDED and the symbols as weak imports: the
+  loader left them empty. Now every installer function is taken from the
+  import if set, else from `kernel_dynlib_handle` + `dlsym` (NID
+  `Wudg3Xe3heE` as fallback), loading `/system/common/lib/libSceAppInstUtil.sprx`
+  with `sceKernelLoadStartModule` first when needed (PS5-LZ4-Compression's
+  `resolve_module_handle`). The result goes into the Settings status and a
+  second notification at start.
+- Fourth try: the library was found but has neither the name nor the NID
+  of `AppInstallTitleDir` on the owner's firmware. All four reference
+  projects fall back to `sceAppInstUtilAppInstallAll(0)` (registers every
+  folder in `/user/app`); Alembic now does too, and the status lists which
+  installer functions are missing.
+- Owner, first controller run on the console: D-pad navigation works; **✕ is
+  a mouse click at the browser's cursor**, not Enter on the focused item; L1/R1
+  switch sections the wrong way round and never reach Settings (cause unknown:
+  maybe the browser's own back/forward, maybe a double press). Done: while the
+  D-pad is in use (`pointer.mode`, until the cursor really moves > 4 px), a
+  trusted click and its mousedown act on the focused item instead of where the
+  cursor is. Added Settings → Controller test: logs every key (key, code,
+  keyCode), gamepad button index and mapping, click and history event, and
+  swallows them, so the owner can report what L1/R1/△/□/L2/R2/Options send.
+- **PS5 browser controller map** (owner, Controller test on the console):
+
+  | Button | Page receives | Alembic action |
+  |---|---|---|
+  | D-pad | ArrowUp/Down/Left/Right | move focus |
+  | ✕ | mouse click at the browser's cursor | the focused item (`pointer.mode`) |
+  | ○ | Escape | back (dialog, folder, section) |
+  | △ | F1 | options for the focused item |
+  | □ | F2 | (free) |
+  | Options | F3 | (free) |
+  | L1 / R1 | F5 / F6 | previous / next section |
+  | L2 / R2 | F7 / F8 | page up / down in the list |
+  | L3 / R3 | F9 / F10 | (free) |
+
+  F5 is the browser's reload and F6 its address bar, which is why L1/R1
+  misbehaved; every F1-F12 now has its default prevented. The Gamepad API
+  mapping (standard indices) stays as a fallback and only acts when no key
+  arrived for the same press.
+- Owner: navigation works on the console. Removed the details panel (Files is
+  rail + list; Install etc. are in △ options). Queue cards now show the game's
+  icon, title, title ID and version (`jobMeta`: `/api/meta` of the input, or
+  of the output for a finished job whose source was deleted).
+- Owner: the list's scrollbar showed through dialogs on the console (the old
+  WebKit can paint a scrolling area's bar above a fixed layer). Now every
+  overlay sets `body.covered` (and marks the overlay below it `.under`), which
+  turns the covered scroll areas to `overflow: hidden` (positions kept), the
+  overlay gets its own layer (`translateZ(0)`), `-webkit-overflow-scrolling`
+  is gone, and scrollbars are thin and dark. Holds for any future page or
+  dialog that uses `openOverlay`. Settings now shows the last shortcut result
+  (`/api/info` `launcher.status`) and has "Register again" (unregister, then
+  register). Also fixed: `PkgMetadata` lacked `slot`/`is_playgo_enabled` and
+  `PlaygoInfo` was 0x1B40 bytes instead of 0x2700 (layouts asserted as in
+  ps5-web-file-manager), so a package install would have overflowed it.
+- **Page rewrite** (`src/engine/web/index.html`), after ps5-homebrew-ui's
+  Files screens: drives/places rail, list, details panel for the focused
+  item (icon art, title, title ID, version, Convert/Install/More), a
+  button-hint bar; sections Files, Queue, Components, Settings (new: shortcut
+  switch, text size, engine facts, stop the engine).
+  - Input: D-pad = arrow keys (spatial focus by position; up/down stay inside
+    the rail/list/details columns; coming back into a column returns to its
+    last item); ✕ = Enter/click; ○ = the browser's Back, so folders, sections
+    and every dialog push a history entry (○ on the first page leaves the
+    browser, as on the console); △ = options (key A); L1/R1 = sections (Q/E).
+    The Gamepad API is used where the browser has it, for △/L1/R1, and for
+    D-pad/✕/○ only when no key event arrived for the same press.
+  - Dropdowns became ‹ value › rows changed with ←/→; checkboxes are switch
+    rows; dialogs are sheets whose hints stay visible.
+  - Compatibility: older firmwares have a Safari-12-era WebKit (Payload
+    Manager's changelog), so no `?.`/`??`, flex `gap`, `inset`, `clamp()`,
+    `:focus-visible`, `<dialog>`.
+  - Checked in headless Chromium at 1920×1080 and 390 px wide by driving keys
+    over DevTools (file browsing, back to the parent row, Convert dialog,
+    queue with live jobs, settings, phone layout). **Not verified:** how the
+    PS5 browser actually maps the controller (arrow keys, ○ as Back, Gamepad
+    API), and the old WebKit.
+
+### 2026-10-18: FFPFS (PFS) writer and reader
+
+- Owner: focus on the writers still missing, FPKG and PFS. PFS first: it is
+  smaller, and the FPKG's inner image is a PFS too.
+- `.ffpfs` = PFS holding the game directly, as ShadowMount+ mounts it (MkPFS
+  `--version PS5 --inode-bits 32`, uncompressed: MkPFS's README says the console
+  misreads per-file-compressed raw PFS). `src/core/pfs_image.cpp` ports MkPFS
+  1.1.0's `build_pfs` (unsigned, uncompressed): only files are scanned (empty
+  folders are left out), paths sorted lower-cased; inodes: super root,
+  flat_path_table, [collision_resolver], uroot, folders, files; blocks: header,
+  inode table (whole 0xA8-byte D32 inodes per block), super root, path table,
+  resolver or one empty block, then each folder and file as one contiguous run;
+  flat_path_table = Java hash of `/path` (upper-cased when case-insensitive)
+  with 0x20000000 for folders and 0x80000000|offset into the resolver on a
+  collision. Planned first, then streamed in block order (any tree, no temp).
+  ampr_emu.index is generated like the exFAT writer does (`--no-ampr`,
+  `--ampr-scheme`).
+- Reader (`pfs::open_image`): the tree under uroot, PFSC-compressed files
+  decoded on read; detection: PFS header + a valid FFPFSC wrapper = FFPFSC,
+  other PFS = FFPFS; FFPFSCs with a PFS payload open and unwrap to `.ffpfs`.
+- Checked (`tools/oracle/compare.sh`, MkPFS with a pinned clock via
+  `mkpfs_raw.py`): every ASCII fixture, block sizes 4 KiB-128 KiB,
+  case-sensitive, a path-hash collision ("0_"/"1@"), the AMPR index (with
+  `--ampr-scheme ps5pkgtool`: MkPFS follows PS5PKGTool's index rules, which
+  list ampr_commands.bin; our default ampr_emu scheme leaves it out), MkPFS's
+  compressed raw PFS read back, its two-pass FFPFSC unwrapped byte for byte.
+  69/69 checks. Package B: folder -> .ffpfs byte-identical to MkPFS (2.79 GB,
+  1.4 s vs 1.7 s); FPKG -> .ffpfs directly gives the same image (4.9 s); all
+  496 files read back identical.
+- Engine and page: FFPFS is a Convert target. Not tried on a console yet.
+- MkPFS bug seen: it crashes when param.json is not a JSON object.
+- Next: the FPKG writer (ProsperoPkgTool's builder, which PS5PKGTool wraps);
+  its inner image is PFS, so this writer is the starting point.
+
 ## Next session
+
+**First (owner, 2026-10-18): the web page on the console.** Load the
+payload, check the Media tab shows "Alembic" and opens the page, then try the
+controller: D-pad focus, ✕, ○ closing dialogs and going up folders, △, L1/R1.
+Fix what the real browser does differently, then continue below.
 
 Agreed order (owner, end of session 1). Each item: port, test against the
 references and the samples, commit.
