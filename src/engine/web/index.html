@@ -211,6 +211,7 @@ dialog.poly[open] { display: block; }
         <span class="lbl">Convert to</span>
         <div class="seg">
           <label><input type="radio" name="to" value="ffpfsc" checked><b>FFPFSC</b><span>compressed image, smallest</span></label>
+          <label><input type="radio" name="to" value="ffpkg"><b>FFPKG</b><span>UFS2 image, ShadowMount+'s recommended format</span></label>
           <label><input type="radio" name="to" value="exfat"><b>exFAT</b><span>plain image, fastest to load</span></label>
           <label><input type="radio" name="to" value="folder"><b>Folder</b><span>loose files</span></label>
         </div>
@@ -675,7 +676,7 @@ async function openConvert(entry) {
   for (const id of ["#cv-lz4", "#cv-delete", "#cv-overwrite"]) $(id).checked = false;
   $("#cv-verify").checked = true; $("#cv-name").value = ""; $("#cv-name").placeholder = ""; $("#cv-path").textContent = ""; $("#cv-msg").textContent = "";
   fillDest(store.get("dest") || "");
-  document.querySelector(`input[name="to"][value="${entry.kind === "ffpfsc" ? "exfat" : "ffpfsc"}"]`).checked = true;
+  document.querySelector(`input[name="to"][value="${entry.kind === "ffpfsc" ? "ffpkg" : "ffpfsc"}"]`).checked = true;
   segSync(); cvSync();
   const d = $("#dlg-convert");
   d.onclose = null;

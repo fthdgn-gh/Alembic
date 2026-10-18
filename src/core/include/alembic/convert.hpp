@@ -8,6 +8,7 @@
 #include "alembic/io.hpp"
 #include "alembic/lz4pack.hpp"
 #include "alembic/tree.hpp"
+#include "alembic/ufs2.hpp"
 
 #include <memory>
 #include <optional>
@@ -48,6 +49,8 @@ struct Options {
     std::string passcode = std::string(32, '0'); // FPKG inputs
     exfat::BuildOptions exfat;
     ffpfsc::BuildOptions ffpfsc;
+    // FFPKG output. An empty volume name becomes the title ID (else the output name).
+    ufs2::BuildOptions ufs2;
     // Pack the tree into LZ4 asset packs on the way (folder, exFAT and FFPFSC
     // outputs; images are rebuilt).
     std::optional<lz4pack::PackOptions> lz4;

@@ -12,4 +12,13 @@
   <ItemGroup>
     <ProjectReference Include="$(PS5PKGToolDir)/PS5PKGTool.Ffpfsc/PS5PKGTool.Ffpfsc.csproj" />
   </ItemGroup>
+  <!-- patch_ufs2.py's reproducible copy of PS5PKGTool's UFS2 writer (UFS2ToolPatched). -->
+  <ItemGroup Condition="'$(Ufs2PatchedDir)' != ''">
+    <Compile Include="$(Ufs2PatchedDir)/*.cs" />
+  </ItemGroup>
+  <PropertyGroup Condition="'$(Ufs2PatchedDir)' != ''">
+    <DefineConstants>$(DefineConstants);UFS2_PATCHED</DefineConstants>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CS8600;CS8601;CS8602;CS8603;CS8604;CS8618;CS8625;CA1416</NoWarn>
+  </PropertyGroup>
 </Project>

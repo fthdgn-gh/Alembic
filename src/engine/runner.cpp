@@ -34,8 +34,8 @@ std::string extension_for(convert::Format f) {
 Result<convert::Format> target_format(const JobSpec& spec) {
     if (!spec.to.empty()) {
         auto f = convert::parse_format(spec.to);
-        if (!f || (*f != convert::Format::folder && *f != convert::Format::exfat && *f != convert::Format::ffpfsc))
-            return make_error(Errc::invalid_argument, "to must be folder, exfat or ffpfsc");
+        if (!f || *f == convert::Format::fpkg)
+            return make_error(Errc::invalid_argument, "to must be folder, exfat, ffpkg or ffpfsc");
         return *f;
     }
     if (spec.output.empty()) return make_error(Errc::invalid_argument, "give an output path or a target format (to)");
@@ -112,6 +112,7 @@ Result<std::string> resolve_target(const JobSpec& spec) {
     switch (f) {
     case convert::Format::folder: return std::string("folder");
     case convert::Format::exfat: return std::string("exfat");
+    case convert::Format::ffpkg: return std::string("ffpkg");
     default: return std::string("ffpfsc");
     }
 }

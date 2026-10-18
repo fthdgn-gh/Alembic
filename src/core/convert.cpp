@@ -162,8 +162,8 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         ALEMBIC_ASSIGN(unpacked, lz4pack::unpack(*tree_ptr));
         tree_ptr = unpacked.get();
     } else if (options.lz4) {
-        if (to != Format::folder && to != Format::exfat && to != Format::ffpfsc)
-            return make_error(Errc::unsupported, "LZ4 packs can be written to a folder, exFAT or FFPFSC");
+        if (to != Format::folder && to != Format::exfat && to != Format::ffpfsc && to != Format::ffpkg)
+            return make_error(Errc::unsupported, "LZ4 packs can be written to a folder, exFAT, FFPKG or FFPFSC");
         ALEMBIC_ASSIGN(packed, lz4pack::pack(*tree_ptr, *options.lz4, progress));
         report.lz4 = packed->stats();
         report.lz4_config_toml = lz4pack::to_toml(packed->config());
@@ -220,13 +220,25 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         return report;
     }
     case Format::ffpkg: {
-        // Only unwrapping is possible until there is a UFS2 writer.
-        if (input.image && input.image_is_ufs2 && input.ffpfsc && !rebuild) {
+        if (input.image && input.image_is_ufs2 && !rebuild) {
+            if (!input.ffpfsc) return unsupported(input.format, to, "pass --rebuild to re-lay out the image");
             ALEMBIC_TRY(copy_image(*input.image, output, options.overwrite, progress));
             report.method = "unwrapped the UFS2 image unchanged";
             return report;
         }
-        return make_error(Errc::unsupported, "writing FFPKG (UFS2) images is not supported yet");
+        ufs2::BuildOptions u = options.ufs2;
+        if (u.volume_name.empty()) {
+            // PS5PKGTool: the title ID for a dump, else the file name.
+            if (auto id = ffpfsc::read_title_id(tree, tree.root())) u.volume_name = *id;
+            else {
+                std::string name = base_name(output);
+                std::size_t dot = name.rfind('.');
+                u.volume_name = dot == std::string::npos ? name : name.substr(0, dot);
+            }
+        }
+        ALEMBIC_TRY(ufs2::write_image(tree, tree.root(), output, u, options.overwrite, progress));
+        report.method = std::string(prefix) + "built a new UFS2 image from the file tree";
+        return report;
     }
     case Format::fpkg: break;
     }

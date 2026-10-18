@@ -14,8 +14,10 @@ alembic="$repo/build/alembic"
 work="$(mktemp -d "${TMPDIR:-/tmp}/alembic-oracle-XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 
+# PS5PKGTool's UFS2 writer, patched for a fixed clock, process ID and folder order.
+python3 -I "$here/patch_ufs2.py" "$ps5pkgtool" "$work/ufs2-patched"
 dotnet build "$here/Oracle.csproj" -c Release -nologo -v q -p:PS5PKGToolDir="$ps5pkgtool" \
-    -o "$work/oracle" >/dev/null
+    -p:Ufs2PatchedDir="$work/ufs2-patched" -o "$work/oracle" >/dev/null
 oracle() { dotnet "$work/oracle/Oracle.dll" "$@"; }
 python3 -I "$here/make_fixtures.py" "$work/fixtures"
 
@@ -85,6 +87,28 @@ for fixture in small many large empty; do
     "$alembic" convert "$img" "$work/rb-$fixture.exfat" --rebuild --ampr-scheme ps5pkgtool --cluster-size ps5pkgtool >/dev/null 2>&1
     check "exfat --rebuild $fixture" "$work/rb-$fixture.exfat" "$img"
 done
+
+# FFPKG (UFS2). PS5PKGTool writes names with Encoding.ASCII (non-ASCII becomes '?')
+# and copies macOS junk files, so it is compared on ASCII-only copies without them.
+export ALEMBIC_UFS2_TIME=1700000000 ALEMBIC_UFS2_PID=4242
+for fixture in "$work"/fixtures/*; do
+    name="$(basename "$fixture")"
+    clean="$work/ufs2-src/$name"
+    mkdir -p "$work/ufs2-src" && cp -R "$fixture" "$clean"
+    { find "$clean" -depth | LC_ALL=C grep '[^ -~]' || true; } | while IFS= read -r p; do rm -rf "$p"; done
+    find "$clean" \( -name .DS_Store -o -name '._*' \) -exec rm -rf {} +
+    "$alembic" convert "$clean" "$work/$name.alembic.ffpkg" --ufs2-timestamp $ALEMBIC_UFS2_TIME \
+        --ufs2-pid $ALEMBIC_UFS2_PID --volume-name TESTVOL >/dev/null 2>&1
+    oracle ffpkg "$clean" "$work/$name.oracle.ffpkg" TESTVOL >/dev/null
+    check "ffpkg $name" "$work/$name.alembic.ffpkg" "$work/$name.oracle.ffpkg"
+done
+# A size whose last cylinder group is smaller than its own metadata (the image
+# then ends past fs_size, as PS5PKGTool's does).
+mkdir -p "$work/ufs2-tail" && head -c $((39 * 409600 + 12345)) /dev/zero > "$work/ufs2-tail/f.bin"
+"$alembic" convert "$work/ufs2-tail" "$work/tail.alembic.ffpkg" --ufs2-timestamp $ALEMBIC_UFS2_TIME \
+    --ufs2-pid $ALEMBIC_UFS2_PID --volume-name T >/dev/null 2>&1
+oracle ffpkg "$work/ufs2-tail" "$work/tail.oracle.ffpkg" T >/dev/null
+check "ffpkg small last cylinder group" "$work/tail.alembic.ffpkg" "$work/tail.oracle.ffpkg"
 
 # AMPR index: Alembic's default scheme against the console-side project's builder.
 if [[ -f "$ampr_emu/tools/build_ampr_index.py" ]]; then

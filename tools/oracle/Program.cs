@@ -8,6 +8,8 @@
 //   exfat-extract <image> <out-dir>   PS5PKGTool's exFAT reader: extract every file
 //   ffpfsc-verify <in>                PS5PKGTool's FFPFSC verifier: SHA-256 of the decoded payload
 //   ufs2-extract <image> <out-dir>    PS5PKGTool's UFS2 reader: extract every file
+//   ffpkg <dir> <out> <volume>        PS5PKGTool's FFPKG (UFS2) builder (patched copy: time and
+//                                     process ID from ALEMBIC_UFS2_TIME / ALEMBIC_UFS2_PID, sorted folders)
 //   lower                             dump string.ToLowerInvariant() as "from to" hex pairs
 using PS5PKGTool.Ffpfsc;
 
@@ -58,6 +60,11 @@ switch (args.Length > 0 ? args[0] : "")
     case "ufs2-extract":
         await UFS2Tool.Ufs2Operations.ExtractAsync(args[1], args[2]);
         return 0;
+#if UFS2_PATCHED
+    case "ffpkg":
+        await UFS2ToolPatched.Ufs2Operations.CreateFromDirectoryAsync(args[1], args[2], args[3]);
+        return 0;
+#endif
     case "lower":
         for (int cp = 0; cp <= 0x10FFFF; cp++)
         {

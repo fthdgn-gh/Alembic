@@ -30,7 +30,7 @@ struct JobSpec {
     std::string output;   // empty: <output_dir>/<output_name>
     std::string output_dir;  // empty: the input's folder
     std::string output_name; // empty: the input's name with the target's extension
-    std::string to;       // folder, exfat, ffpfsc; empty: from the output name
+    std::string to;       // folder, exfat, ffpkg, ffpfsc; empty: from the output name
     int level = 6;        // zlib level for FFPFSC
     bool overwrite = false;
     bool rebuild = false; // exFAT input → rebuilt exFAT

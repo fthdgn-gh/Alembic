@@ -91,6 +91,35 @@ TEST_CASE(convert_round_trips) {
     CHECK(wrapped->detail == "direct.exfat");
 }
 
+TEST_CASE(convert_writes_ffpkg) {
+    std::string tmp = test::make_temp_dir();
+    std::string game = make_game(tmp); // non-ASCII name, empty file and folder
+    convert::Options options;
+    options.ufs2.timestamp = 1700000000;
+    options.ufs2.process_id = 1;
+
+    // folder -> ffpkg -> folder, and the volume name from param.json
+    REQUIRE_OK(convert::run(game, tmp + "/g.ffpkg", convert::Format::ffpkg, options));
+    REQUIRE_OK(convert::run(tmp + "/g.ffpkg", tmp + "/from_ffpkg", convert::Format::folder, options));
+    check_same_tree(game, tmp + "/from_ffpkg");
+    std::vector<std::uint8_t> image = test::read_file(tmp + "/g.ffpkg");
+    CHECK(image.size() > 65536 + 0x2A8 + 9);
+    CHECK(std::string(reinterpret_cast<const char*>(image.data()) + 65536 + 0x2A8, 9) == "PPSA01234");
+
+    // Deterministic for a fixed time stamp and process ID; ffpkg -> ffpkg needs --rebuild.
+    CHECK(!convert::run(tmp + "/g.ffpkg", tmp + "/again.ffpkg", convert::Format::ffpkg, options).ok());
+    options.rebuild = true;
+    REQUIRE_OK(convert::run(tmp + "/g.ffpkg", tmp + "/again.ffpkg", convert::Format::ffpkg, options));
+    CHECK(test::read_file(tmp + "/again.ffpkg") == image);
+
+    // ffpkg -> ffpfsc keeps the UFS2 payload; ffpfsc -> ffpkg unwraps it unchanged.
+    options.rebuild = false;
+    options.ffpfsc.build_timestamp = 1;
+    REQUIRE_OK(convert::run(tmp + "/g.ffpkg", tmp + "/g.ffpfsc", convert::Format::ffpfsc, options));
+    REQUIRE_OK(convert::run(tmp + "/g.ffpfsc", tmp + "/unwrapped.ffpkg", convert::Format::ffpkg, options));
+    CHECK(test::read_file(tmp + "/unwrapped.ffpkg") == image);
+}
+
 TEST_CASE(convert_detects_and_refuses) {
     std::string tmp = test::make_temp_dir();
     test::write_file(tmp + "/junk.bin", bytes(5000, 9));

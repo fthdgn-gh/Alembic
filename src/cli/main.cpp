@@ -31,10 +31,12 @@ void usage() {
         "usage: alembic <command> [options]\n"
         "\n"
         "commands:\n"
-        "  convert <input> <output> [--to folder|exfat|ffpfsc] [--rebuild] [--overwrite] [options]\n"
+        "  convert <input> <output> [--to folder|exfat|ffpkg|ffpfsc] [--rebuild] [--overwrite] [options]\n"
         "        convert a dump folder, exFAT, FFPKG (UFS2), FFPFSC or debug FPKG\n"
         "        (--passcode P) to a folder, exFAT or FFPFSC; the input format is\n"
         "        detected, the output format comes from --to or the output extension\n"
+        "        (.ffpkg: UFS2, byte-identical to PS5PKGTool; --ufs2-timestamp, --ufs2-pid and\n"
+        "        --volume-name fix what it takes from the clock, process and param.json)\n"
         "        (.exfat/.img, .ffpfsc, or a trailing '/' for a folder). Images are\n"
         "        copied unchanged unless --rebuild asks for a fresh exFAT layout.\n"
         "        Takes the ffpfsc and exfat options below, and:\n"
@@ -306,6 +308,18 @@ int cmd_convert(const Args& args) {
     if (auto passcode = args.get("--passcode")) options.passcode = *passcode;
     options.overwrite = args.get("--overwrite").has_value();
     options.lz4_unpack = args.get("--lz4-unpack").has_value();
+    // FFPKG (UFS2): fixed time stamp and process ID for reproducible images.
+    if (auto text = args.get("--ufs2-timestamp")) {
+        auto value = parse_number(text->c_str());
+        if (!value || *value > INT64_MAX) return std::fputs("error: bad --ufs2-timestamp\n", stderr), 2;
+        options.ufs2.timestamp = static_cast<std::int64_t>(*value);
+    }
+    if (auto text = args.get("--ufs2-pid")) {
+        auto value = parse_number(text->c_str());
+        if (!value || *value > INT32_MAX) return std::fputs("error: bad --ufs2-pid\n", stderr), 2;
+        options.ufs2.process_id = static_cast<std::int32_t>(*value);
+    }
+    if (auto text = args.get("--volume-name")) options.ufs2.volume_name = *text;
     std::optional<std::string> config_out = args.get("--lz4-config-out");
     if (args.get("--lz4")) {
         lz4pack::ProfileRequest request;
@@ -348,7 +362,7 @@ int cmd_convert(const Args& args) {
     std::optional<convert::Format> to;
     if (auto text = args.get("--to")) {
         to = convert::parse_format(*text);
-        if (!to) return std::fputs("error: --to must be folder, exfat or ffpfsc\n", stderr), 2;
+        if (!to) return std::fputs("error: --to must be folder, exfat, ffpkg or ffpfsc\n", stderr), 2;
     } else {
         to = convert::guess_output_format(args.positional[1]);
         if (!to) return std::fputs("error: cannot tell the output format from its name; pass --to\n", stderr), 2;

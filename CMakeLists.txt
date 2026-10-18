@@ -81,6 +81,7 @@ add_library(alembic_core STATIC
     src/core/toml.cpp
     src/core/tree.cpp
     src/core/ufs2.cpp
+    src/core/ufs2_image.cpp
     src/core/unicode.cpp
 )
 target_include_directories(alembic_core

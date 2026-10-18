@@ -778,6 +778,42 @@ is about the USB drive's own format (shown on connect), not about the image.
   read 0.02-0.3 s, cached 0.02 s. The icon cache is never pruned (about
   0.1-0.8 MB per game).
 
+### 2026-10-18: FFPKG (UFS2) writer
+
+- `src/core/ufs2_image.cpp`: port of UFS2Tool's `Ufs2ImageCreator` as
+  PS5PKGTool's `Ufs2Operations.CreateFromDirectoryAsync` drives it (UFS2,
+  sector 4096 normalised to 512 for the layout, 32 KiB blocks / 4 KiB
+  fragments, 256 KiB per inode, minfree 0, optimisation "space", no soft
+  updates, no .snap; volume name = title ID). Same sizing (24-byte
+  estimate per directory entry, CG-overhead sizing, the inode check, and the
+  25 % retries with the exact ffs_size_dir size), same allocation order
+  (inodes pre-order; a directory's blocks after its children; files' blocks
+  with their single/double/triple pointer blocks in between; tail fragments
+  of files without indirect blocks free), same CG headers, bitmaps, cluster
+  maps, summaries and superblock, di_gen from .NET's seeded `Random(cg + 1)`
+  (ported Knuth subtractive generator). PS5PKGTool writes an empty FS and
+  patches it; Alembic plans everything first (extents of file / directory /
+  pointer blocks, ~20k for a 150 GB game) and streams the image in order, so
+  any tree (FPKG, image, folder) becomes an FFPKG without a temporary copy.
+- PS5PKGTool quirks kept: the image grows past fs_size when the last CG is
+  smaller than its metadata (it still writes that CG's header and inode
+  table; about 3 % of sizes); permissions 0555. Not kept: names are UTF-8
+  (PS5PKGTool's Encoding.ASCII turns non-ASCII into '?' and then fails its own
+  verify), folder order is sorted (PS5PKGTool takes the host's listing order:
+  NTFS's case-insensitive order on Windows, which Alembic uses), and macOS
+  junk files are skipped like everywhere else in Alembic.
+- Checked: `tools/oracle/compare.sh` now runs a patched copy of PS5PKGTool's
+  UFS2 code (`patch_ufs2.py`: clock and PID from environment variables,
+  sorted listings, namespace `UFS2ToolPatched`; the checkout is untouched):
+  7 fixtures (ASCII copies) and a small-last-CG size byte-identical (55/55
+  checks). By hand: the extracted 1.4 GB, 124 MB and 350 MB sample packages
+  byte-identical (files over 128 MB, double-indirect), FPKG -> FFPKG directly
+  equals folder -> FFPKG, 60 000 long names in one folder (directory
+  indirect block) identical. The retry path never triggered: the inode
+  sizing leaves far more room than directory entries need. Package B: 1 s
+  (PS5PKGTool 4 s). Engine and page offer FFPKG as a target.
+- Not yet tried on the console (ShadowMount+ mounts `.ffpkg` by extension).
+
 ## Next session
 
 Agreed order (owner, end of session 1). Each item: port, test against the
