@@ -390,22 +390,25 @@ Result<const tree::Node*> resolve_game_root(const tree::Node& search_root, std::
     return &search_root;
 }
 
+std::optional<std::string> read_title_id(const tree::Source& source, const tree::Node& game_root) {
+    const tree::Node* param = param_json(game_root);
+    if (!param) return std::nullopt;
+    auto text = read_small(source, *param);
+    if (!text.ok()) return std::nullopt;
+    auto properties = json::top_level_properties(*text);
+    if (!properties.ok()) return std::nullopt;
+    for (const json::Property& p : *properties) {
+        if (!unicode::ascii_iequals(p.name, "titleId") || !p.value || !is_title_id(*p.value)) continue;
+        std::string id = *p.value;
+        for (char& c : id) c = static_cast<char>(c >= 'a' && c <= 'z' ? c - 32 : c);
+        return id;
+    }
+    return std::nullopt;
+}
+
 std::string resolve_dump_image_name(const tree::Source& source, const tree::Node& game_root,
                                     const std::string& folder_name) {
-    if (const tree::Node* param = param_json(game_root)) {
-        auto text = read_small(source, *param);
-        if (text.ok()) {
-            auto properties = json::top_level_properties(*text);
-            if (properties.ok()) {
-                for (const json::Property& p : *properties) {
-                    if (!unicode::ascii_iequals(p.name, "titleId") || !p.value || !is_title_id(*p.value)) continue;
-                    std::string id = *p.value;
-                    for (char& c : id) c = static_cast<char>(c >= 'a' && c <= 'z' ? c - 32 : c);
-                    return id + ".exfat";
-                }
-            }
-        }
-    }
+    if (auto id = read_title_id(source, game_root)) return *id + ".exfat";
 
     // The folder name with anything outside printable ASCII (and the
     // characters exFAT forbids) replaced by '_', per UTF-16 code unit.

@@ -6,7 +6,10 @@
 # folder with the configuration Alembic used (pack.toml + excludes.txt), and
 # compares the manifest, its sidecars and every volume byte for byte. Then
 # ampr_pack.py verifies Alembic's output, and the packed tree goes through
-# exFAT and FFPFSC and back (--lz4-unpack) to the original files.
+# exFAT and FFPFSC and back (--lz4-unpack) to the original files. Profiles:
+# the unity and insomniac profiles (profiles/lz4/, or PROFILE_DIR) pack a game
+# with that layout, compared against ampr_pack.py with the same TOML file, at
+# its own level and with --lz4-level overriding it.
 # Needs: a configured build in ./build, Python 3.11+ and LZ4 1.10.0, either the
 # Python `lz4` module built against 1.10.0 or liblz4 1.10.0 where ctypes finds
 # it (on macOS with Homebrew: DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib, set
@@ -37,7 +40,7 @@ check() { # name, file a, file b
 }
 
 for variant in "level=9" "level=12 block=16384" "level=3 block=262144"; do
-    args=(--lz4 --lz4-timestamp 1700000500 --threads 3)
+    args=(--lz4 --lz4-profile scan --lz4-timestamp 1700000500 --threads 3)
     for kv in $variant; do
         case "$kv" in
         level=*) args+=(--lz4-level "${kv#level=}") ;;
@@ -62,6 +65,52 @@ for variant in "level=9" "level=12 block=16384" "level=3 block=262144"; do
     alembic_count=$(find "$out" -maxdepth 1 -name '*.pak' | wc -l | tr -d ' ')
     [[ $count == "$alembic_count" ]] || { echo "DIFF  $tag volume count $alembic_count vs $count"; fail=1; }
     if pack verify --index "$out/ampr_assets.index" >/dev/null; then echo "ok    $tag ampr_pack.py verify"; else echo "FAIL  $tag ampr_pack.py verify"; fail=1; fi
+done
+
+# Bundled profiles: Alembic reading the TOML vs ampr_pack.py reading it.
+profile_dir="${PROFILE_DIR:-$repo/profiles/lz4}"
+[[ -f $profile_dir/unity.toml ]] || profile_dir="$repo/.refs/PS5-LZ4-Compression/profiles"
+compare_sets() { # tag, alembic folder, ampr_pack.py folder
+    local tag="$1" a="$2" p="$3" vol count=0
+    for f in ampr_assets.index ampr_assets.index.crc; do check "$tag $f" "$a/$f" "$p/$f"; done
+    if [[ -f $p/ampr_assets.index.runtime || -f $a/ampr_assets.index.runtime ]]; then
+        check "$tag ampr_assets.index.runtime" "$a/ampr_assets.index.runtime" "$p/ampr_assets.index.runtime"
+    fi
+    for vol in "$p"/*.pak; do
+        check "$tag $(basename "$vol")" "$a/$(basename "$vol")" "$vol"
+        count=$((count + 1))
+    done
+    [[ $count -gt 0 && $count == "$(find "$a" -maxdepth 1 -name '*.pak' | wc -l | tr -d ' ')" ]] ||
+        { echo "DIFF  $tag volume count"; fail=1; }
+}
+for engine in unity insomniac; do
+    toml="$profile_dir/$engine.toml"
+    [[ -f $toml ]] || { echo "skip  $engine profile (no $toml)"; continue; }
+    "$python" -I "$here/make_fixture.py" "$work/$engine-game" --layout "$engine"
+    # The profile's own level (12), then --lz4-level 9 replacing it.
+    mkdir -p "$work/$engine-cfg"
+    sed 's/^\[pack\]$/[pack]\ncompression_level = 9/' "$toml" > "$work/$engine-cfg/level9.toml"
+    for level in 12 9; do
+        tag="$engine-level$level"
+        config="$toml"; [[ $level == 9 ]] && config="$work/$engine-cfg/level9.toml"
+        out="$work/alembic-$tag"
+        mkdir -p "$work/cfg-$tag"
+        "$alembic" convert "$work/$engine-game" "$out/" --lz4 --lz4-profile "$toml" --lz4-level $level \
+            --lz4-timestamp 1700000500 --lz4-config-out "$work/cfg-$tag" >"$work/log-$tag" 2>&1 ||
+            { cat "$work/log-$tag"; exit 1; }
+        pack pack --root "$work/$engine-game" --ampr-index "$out/ampr_emu.index" --output "$work/py-$tag" \
+            --config "$config" --exclude-from "$work/cfg-$tag/excludes.txt" --no-progress >"$work/py-$tag.json"
+        compare_sets "$tag" "$out" "$work/py-$tag"
+    done
+    # What the profile kept loose is still a loose file.
+    if [[ $engine == unity ]]; then
+        out="$work/alembic-unity-level12"
+        for f in Media/globalgamemanagers Media/level0 Media/Metadata/global-metadata.dat; do
+            if [[ -f $out/$f ]]; then echo "ok    unity keeps $f loose"; else echo "FAIL  unity packed $f"; fail=1; fi
+        done
+        if [[ ! -f $out/Media/StreamingAssets/aa/PS5/level_assets_all.bundle ]]; then echo "ok    unity packs StreamingAssets"; else
+            echo "FAIL  unity left StreamingAssets loose"; fail=1; fi
+    fi
 done
 
 # ampr_emu's own index builder agrees with the index the packs refer to.

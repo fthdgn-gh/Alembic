@@ -603,6 +603,65 @@ is about the USB drive's own format (shown on connect), not about the image.
 - `alembic same <a> <b>` compares two inputs file by file (unpacking LZ4 on
   either side).
 
+### 2026-10-18: first console test of an LZ4 pack, 64 KiB clusters
+
+- Owner tested package D's LZ4 exFAT on the PS5 with ShadowMountPlus: it
+  mounts, but the game reports that its pack files are missing. The message
+  is the game's own (not in ampr_emu or SMP): it cannot see the archives that
+  were moved into the volumes. The runtime in the image is the right one
+  (same SHA-256 as the release's `-test-pack` build, which intercepts ordinary
+  reads, `stat` and directory listing). Suspects, in order:
+  1. SMP's `update_emulators=1` (default) replaces the game's
+     `fakelib/libSceAmpr.sprx` with any same-named file in
+     `/data/shadowmount/emus/` (an older or no-pack build turns packing off);
+     check that folder and `/data/shadowmount/debug.log`.
+  2. The game maps its archives with `mmap`, which ampr_emu cannot serve;
+     those files would have to stay loose.
+  The debug runtime (`libSceAmpr.sprx-0.4.2.1-test-debug-pack`) logs to
+  `/app0/ampr_emu.log`, so it needs a writable folder install, not an image.
+- Second test image: package B (a Unity title whose Alembic FFPFSC already
+  runs on the console) as an LZ4 exFAT, written beside the sample. 434 of 497
+  files packed, 2.22 GiB -> 1.61 GiB in 4 volumes, 0.35 GiB loose; image
+  2.0 GiB, built in 11 s; `lz4-verify` and `same` pass. Package B ships its
+  own `fakelib/` (other libraries); Alembic adds only `libSceAmpr.sprx`.
+- exFAT default cluster size is now 64 KiB (see the SMP section).
+- **Console result for package B (scan profile): crash at start**,
+  `0xa0020318 SYSTEM_ABNORMAL_TERMINATION_REQUEST` in eboot.bin 3 s in. Cause:
+  the scan profile packed Unity's own data files (`level*`, `*.resS`,
+  `globalgamemanagers`, `sharedassets*`, `boot.config`). PS5-LZ4-Compression's
+  console-tested `unity.toml` says exactly this makes Unity abort at start and
+  packs only `StreamingAssets/` (`global-metadata.dat` must stay loose: IL2CPP
+  mmaps it). Every tested profile starts from `default_action = "loose"` and
+  packs only the engine's known data; their notes say packing everything
+  crashed the game. Package D (another engine: large archive files plus small
+  index files next to them) has no tested profile; the scan profile packed
+  the index files too (UFC 6's notes: packing its `.toc` files crashed it).
+  SMP log also showed the USB drive uses 128 KiB blocks (the toast).
+- **LZ4 profiles** (`lz4pack_profile.cpp`, `toml.cpp`): `--lz4-profile
+  auto|scan|<id>|FILE.toml`. `config_from_toml` reads ampr_pack.py TOML like
+  its `load_config` (unknown keys ignored, `required_packed` refused for now);
+  `--lz4-level` replaces `[pack] compression_level` as PS5-LZ4-Compression
+  does; the safety list is always forced loose. Bundled profiles (astrobot,
+  ufc6, insomniac, unity) are embedded from `profiles/lz4/` at build time and
+  picked by title ID, then by engine layout. Unity detection also accepts the
+  PS5 `Media/` layout (`Media/globalgamemanagers`,
+  `Media/Metadata/global-metadata.dat`), which PS5-LZ4-Compression's check
+  (`Data/globalgamemanagers` only) misses, package B included. No match: the
+  scan profile with a warning. Name matching (param.json `titleName`) is not
+  ported. LZ4 oracle: unity and insomniac profiles byte-identical to
+  `ampr_pack.py pack --config <same toml>`, at the profile's level and with
+  the override.
+- Package B rebuilt with `unity.toml`: 93 files packed, 0.53 GiB, but almost
+  no saving (Unity's bundles are already compressed); 2.79 GB image. It tests
+  that runtime + packs run, not the size win. For Unity games FFPFSC (zlib,
+  1.51 GB for package B) is the better size option.
+- **Console result (owner): package B with `unity.toml` runs from internal
+  storage.** From USB (exFAT drive with 128 KiB clusters) it hung on a black
+  screen. SMP mounts USB images with its legacy-1.6 profile (the optimized
+  one is only for `/data/...` and `/user/...`); untested whether a 64 KiB
+  cluster drive fixes it. Until then: LZ4-packed images belong on internal
+  storage.
+
 ## Next session
 
 Agreed order (owner, end of session 1). Each item: port, test against the

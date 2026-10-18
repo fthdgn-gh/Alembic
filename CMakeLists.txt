@@ -20,7 +20,25 @@ add_library(alembic_lz4 STATIC third_party/lz4/lz4.c third_party/lz4/lz4hc.c thi
 target_include_directories(alembic_lz4 PUBLIC third_party/lz4)
 target_compile_options(alembic_lz4 PRIVATE -O3)
 
+# The console-tested LZ4 pack profiles in profiles/lz4/, built into the binary.
+set(ALEMBIC_PROFILE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/profiles/lz4)
+file(GLOB ALEMBIC_PROFILE_FILES CONFIGURE_DEPENDS ${ALEMBIC_PROFILE_DIR}/*.toml)
+set(ALEMBIC_PROFILE_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/lz4_profiles_data.cpp)
+# Copied files can be older than the generated source, so a changed file list
+# must regenerate it too.
+set(ALEMBIC_PROFILE_LIST ${CMAKE_CURRENT_BINARY_DIR}/lz4_profiles.list)
+string(REPLACE ";" "\n" ALEMBIC_PROFILE_LIST_TEXT "${ALEMBIC_PROFILE_FILES}")
+file(CONFIGURE OUTPUT ${ALEMBIC_PROFILE_LIST} CONTENT "${ALEMBIC_PROFILE_LIST_TEXT}\n")
+add_custom_command(
+    OUTPUT ${ALEMBIC_PROFILE_SOURCE}
+    COMMAND ${CMAKE_COMMAND} -DINPUT_DIR=${ALEMBIC_PROFILE_DIR} -DOUTPUT=${ALEMBIC_PROFILE_SOURCE}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_files.cmake
+    DEPENDS ${ALEMBIC_PROFILE_FILES} ${ALEMBIC_PROFILE_LIST} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_files.cmake
+    COMMENT "Embedding LZ4 pack profiles"
+    VERBATIM)
+
 add_library(alembic_core STATIC
+    ${ALEMBIC_PROFILE_SOURCE}
     src/core/ampr.cpp
     src/core/convert.cpp
     src/core/crypto.cpp
@@ -34,9 +52,11 @@ add_library(alembic_core STATIC
     src/core/kraken.cpp
     src/core/lz4pack_build.cpp
     src/core/lz4pack_format.cpp
+    src/core/lz4pack_profile.cpp
     src/core/lz4pack_read.cpp
     src/core/pfsc.cpp
     src/core/sha256.cpp
+    src/core/toml.cpp
     src/core/tree.cpp
     src/core/ufs2.cpp
     src/core/unicode.cpp
@@ -67,6 +87,7 @@ if(ALEMBIC_BUILD_TESTS)
         tests/test_lz4pack.cpp
         tests/test_pfsc.cpp
         tests/test_sha256.cpp
+        tests/test_toml.cpp
         tests/test_unicode.cpp
     )
     target_compile_options(alembic_tests PRIVATE ${ALEMBIC_COMPILE_OPTIONS})

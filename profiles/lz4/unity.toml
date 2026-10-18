@@ -1,0 +1,25 @@
+# MkPFS / AMPR Emu pack profile
+# Game:    God of War Sons of Sparta (PPSA28997), Unity engine
+# Status:  runs on the PS5 (AMPR Emu 0.4.2.1, ShadowMountPlus)
+# Use:     mkpfs ampr game --root <game> --output <out> --config unity-PPSA28997.toml
+#
+# Only StreamingAssets is packed (Addressables bundles, FMOD banks, videos): Unity reads it with ordinary
+# file reads that AMPR Emu serves. Unity's own data files (level*, sharedassets*, globalgamemanagers, .resS)
+# stay loose: packing them made a Unity title abort at startup. global-metadata.dat stays loose because
+# IL2CPP memory-maps it and AMPR Emu does not intercept mmap.
+# May suit other Unity games; only PPSA28997 has been tested.
+
+[pack]
+default_action = "loose"
+
+[[rule]]
+action = "compress"
+include = ["StreamingAssets/*", "*/StreamingAssets/*"]
+
+# Safety exclusions. The last matching rule wins; * also matches /.
+[[rule]]
+action = "loose"
+include = [
+  "eboot.bin", "*/eboot.bin", "*.prx", "*.sprx", "*.elf", "*.self",
+  "sce_sys/*", "sce_module/*", "fakelib/*", "fakelib2/*", "*/global-metadata.dat",
+]

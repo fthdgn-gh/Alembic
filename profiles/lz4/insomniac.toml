@@ -1,0 +1,33 @@
+# MkPFS / AMPR Emu pack profile
+# Game:    PPSA03671 (Insomniac Games engine), version 01.001.005
+# Status:  runs on the PS5 (AMPR Emu 0.4.2.1, ShadowMountPlus)
+# Use:     mkpfs ampr game --root <game> --output <out> --config insomniac-PPSA03671.toml
+#
+# Insomniac titles have toc, dag and a d/ folder at the top of /app0. Only the d/ archives are packed;
+# the boot, movie, sound bank and streamed audio (wem) archives stay loose, like Lazy_AMPR's Spider-Man
+# profile. Packing every file crashed the game at startup; these rules run it.
+# The same layout is used by other Insomniac titles, but only PPSA03671 has been tested.
+
+[pack]
+default_action = "loose"
+default_block_size = "128KiB"
+
+[[rule]]
+action = "compress"
+include = ["d/*"]
+block_size = "128KiB"
+
+[[rule]]
+action = "loose"
+include = [
+  "d/*/bootload*", "d/*/critbootload*", "d/*/movie*", "d/*/soundbank*", "d/*/wem*",
+  "toc", "dag", "commandline.txt", "pkg_settings.set", "known_islands.dat",
+]
+
+# Safety exclusions. The last matching rule wins; * also matches /.
+[[rule]]
+action = "loose"
+include = [
+  "eboot.bin", "*/eboot.bin", "*.prx", "*.sprx", "*.elf", "*.self",
+  "sce_sys/*", "sce_module/*", "fakelib/*", "fakelib2/*", "_DUPLEX_/*",
+]

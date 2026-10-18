@@ -12,7 +12,7 @@ Ported files say where they come from in their header comment.
 | [pearlxcore/ProsperoPkgTool](https://github.com/pearlxcore/ProsperoPkgTool) | MIT (notice below) | FPKG reading: package header/CNT parsing, key derivation, outer PFS reading |
 | [SvenGDK/UFS2Tool](https://github.com/SvenGDK/UFS2Tool), as shipped in PS5PKGTool | BSD-2-Clause (notice below) | UFS2 reader (`src/core/ufs2.cpp`): superblock field offsets and validation rules |
 | [drakmor/ampr_emu](https://github.com/drakmor/ampr_emu) | GPL-3.0 | AMPRIDX3 hashing, sorting and exclusion rules (`ampr::Scheme::ampr_emu`), following `tools/build_ampr_index.py` and `src/ampr_emu_index.cpp`; LZ4 asset packs (AMPRPAK4/AMPRDAT3/AMPRCRC1/AMPRCFG1 format, packer, verifier) in `src/core/lz4pack_*.cpp`, ported from `tools/ampr_pack.py` and `tools/ampr_pack_format.py` |
-| [theghostonline/PS5-LZ4-Compression](https://github.com/theghostonline/PS5-LZ4-Compression) | GPL-3.0-or-later | the automatic LZ4 pack profile, its safety list, the keep-on-disk list and the runtime cache budget (`lz4pack::automatic_profile`, `src/core/lz4pack_build.cpp`), from `src/ampr_pack_profile.c` and `src/ampr_pack.c` only (not its `src/pfs_*` code) |
+| [theghostonline/PS5-LZ4-Compression](https://github.com/theghostonline/PS5-LZ4-Compression) | GPL-3.0-or-later | the automatic LZ4 pack profile, its safety list, the keep-on-disk list and the runtime cache budget (`lz4pack::automatic_profile`, `src/core/lz4pack_build.cpp`), from `src/ampr_pack_profile.c` and `src/ampr_pack.c` only (not its `src/pfs_*` code); how bundled profiles are matched to a game and how a TOML profile is applied (`src/core/lz4pack_profile.cpp`, from `src/lzc_api.c` and `src/ampr_pack_profile.c`); the TOML subset `src/core/toml.cpp` reads (from `src/ampr_pack_toml.c`) |
 | .NET runtime (`string.ToLowerInvariant`) | MIT | the lower-case mapping in `src/core/data/lowercase_table.inc`, generated from .NET 10 |
 
 ## Bundled source code
@@ -20,6 +20,12 @@ Ported files say where they come from in their header comment.
 | Project | License | Where |
 | --- | --- | --- |
 | [lz4/lz4](https://github.com/lz4/lz4) v1.10.0 (tag commit `ebb370ca`) | BSD-2-Clause (notice below) | `third_party/lz4/`: `lz4.c`, `lz4.h`, `lz4hc.c`, `lz4hc.h`, `xxhash.c`, `xxhash.h`, unchanged |
+
+## Bundled data
+
+| Project | License | Where |
+| --- | --- | --- |
+| LZ4 pack profiles by danthespal, posted with [MkPFS.CSharp](https://github.com/danthespal/MkPFS.CSharp), as bundled unchanged by PS5-LZ4-Compression (`profiles/`) | GPL-3.0 | `profiles/lz4/*.toml`, unchanged, built into the binary |
 
 ## Used for testing only (not part of Alembic builds)
 

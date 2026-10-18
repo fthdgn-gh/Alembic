@@ -839,7 +839,7 @@ Status validate(Config& c) {
 namespace {
 
 // PS5-LZ4-Compression's k_safety_exclusions.
-const char* const kSafetyExclusions[] = {
+const char* const kSafetyExclusionList[] = {
     "eboot.bin", "**/eboot.bin", "*.elf", "**/*.elf", "*.self", "**/*.self", "*.prx", "**/*.prx", "*.sprx",
     "**/*.sprx", "*.bak", "**/*.bak", "*.dat", "**/*.dat", "*.utoc", "**/*.utoc", "decrypted/**", "sce_module/**",
     "**/sce_module/**", "sce_sys/**", "**/sce_sys/**", "system/**", "**/system/**", "mods/**", "**/mods/**",
@@ -1028,12 +1028,17 @@ Config automatic_profile(const tree::Node& root, int level, std::uint32_t block_
     }
     Rule safety;
     safety.action = Action::loose;
-    safety.include.assign(std::begin(kSafetyExclusions), std::end(kSafetyExclusions));
+    safety.include = safety_exclusions();
     safety.level = level;
     safety.hc = c.hc;
     c.rules.push_back(safety);
-    c.force_loose.assign(std::begin(kSafetyExclusions), std::end(kSafetyExclusions));
+    c.force_loose = safety_exclusions();
     return c;
+}
+
+const std::vector<std::string>& safety_exclusions() {
+    static const std::vector<std::string> list(std::begin(kSafetyExclusionList), std::end(kSafetyExclusionList));
+    return list;
 }
 
 std::string canonical_config_json(const Config& c) {

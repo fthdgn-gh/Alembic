@@ -25,6 +25,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -227,6 +228,67 @@ Status validate(Config& config); // also adds the "default" group
 // already-compressed formats loose (its safety list), four balanced lanes
 // of up to 16 GiB. `level` 1-4 means LZ4 fast, 5-12 LZ4 HC.
 Config automatic_profile(const tree::Node& root, int level = 9, std::uint32_t block_shift = 16);
+
+// PS5-LZ4-Compression's safety list: patterns that always stay loose
+// (executables, system folders, indexes, media and compressed formats).
+const std::vector<std::string>& safety_exclusions();
+// Adds safety_exclusions() to force_loose, as PS5-LZ4-Compression does for
+// every profile.
+void add_safety_exclusions(Config& config);
+
+// ---------------------------------------------------------------- profiles
+
+struct TomlOptions {
+    // Replaces [pack] compression_level, so rules without their own level
+    // inherit it (PS5-LZ4-Compression applies the chosen level this way).
+    std::optional<int> level;
+    // Reads an include_from / exclude_from file, named relative to the TOML
+    // file. Unset: profiles that use them are refused.
+    std::function<Result<std::string>(const std::string& relative)> read_file;
+};
+// An ampr_pack.py TOML configuration (`pack --config`), read the way its
+// load_config() reads it. Unknown keys are ignored, as there.
+Result<Config> config_from_toml(std::string_view text, const TomlOptions& options = {});
+
+// A console-tested profile shipped with Alembic (profiles/lz4/, written by
+// danthespal for MkPFS.CSharp and bundled by PS5-LZ4-Compression).
+struct BundledProfile {
+    std::string id;
+    std::string file;
+    std::string label;
+    std::string tested; // the game and version it ran on
+    std::string engine; // "unity", "insomniac" or ""
+    std::vector<std::string> title_ids;
+    std::string_view text;
+};
+const std::vector<BundledProfile>& bundled_profiles();
+
+// "unity", "insomniac" or "" from the file layout.
+std::string detect_engine(const tree::Node& root);
+
+struct ProfileMatch {
+    const BundledProfile* profile = nullptr;
+    bool by_title = false; // else by engine layout
+    std::string engine;
+};
+// The bundled profile for a game: by title ID first, then by engine layout.
+ProfileMatch match_bundled_profile(const tree::Node& root, std::string_view title_id);
+
+struct ProfileRequest {
+    // "auto" (bundled match, else the scan profile), "scan", a bundled
+    // profile id, or a path to a .toml file.
+    std::string profile = "auto";
+    int level = 9;
+    std::optional<std::uint32_t> block_shift; // the scan profile's block size
+};
+struct ProfileChoice {
+    Config config;
+    std::string name;        // "scan", a bundled id or the file path
+    std::string description; // one line for the log
+    bool tested = false;     // a bundled, console-tested profile
+    std::vector<std::string> notes;
+};
+Result<ProfileChoice> choose_profile(const tree::Source& source, const ProfileRequest& request);
 
 // The same configuration as ampr_pack.py TOML (for its `pack --config`).
 std::string to_toml(const Config& config);

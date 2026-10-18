@@ -1,0 +1,558 @@
+# MkPFS / AMPR Emu pack profile
+# Game:    EA SPORTS UFC 6 (PPSA23566), Frostbite engine
+# Status:  runs on the PS5 (AMPR Emu 0.4.2.1, ShadowMountPlus); 166 GB -> about 98 GB
+# Use:     mkpfs ampr game --root <game> --output <out> --config ufc6-PPSA23566.toml
+#
+# Built from two APR trace sessions (ampr profile generate) plus every .cas archive no session read.
+# All 292 .cas archives are packed; the .toc files, initfs_Ps5 and chunkmanifest stay loose (packing
+# them crashed the game about 40 s in, and they are tiny). The paths are exact, so a game update that
+# adds or renames archives leaves the new ones loose until the profile is regenerated.
+#
+# Projected resident pack index: 47.75 MiB.
+# Recommended decoded cache: 512.00 MiB.
+# Recommended physical-page cache: 64.00 MiB.
+# Recommended runtime workers: 4.
+# Recommended latency-reserved workers: 1.
+# Recommended AMPR internal pool: 768.00 MiB.
+
+[pack]
+index_name = "ampr_assets.index"
+pack_pattern = "ampr_assets-{group}-lane{lane:02d}-vol{volume:02d}-{id:03d}.pak"
+default_action = "loose"
+default_block_size = "64KiB"
+io_page_size = "64KiB"
+payload_alignment = "64KiB"
+chunk_alignment = "64B"
+workers = 8
+compression_mode = "hc"
+compression_level = 12
+acceleration = 1
+deduplicate = true
+deduplicate_scope = "lane"
+deduplicate_streaming = false
+min_savings_bytes = 64
+min_savings_ratio = 0.01
+io_neutral_min_savings_bytes = "8KiB"
+io_neutral_min_savings_ratio = 0.125
+auto_loose_large_files = true
+auto_loose_hot_files = false
+auto_loose_min_file_size = "64MiB"
+auto_loose_sample_blocks = 32
+auto_loose_sample_bytes = "16MiB"
+auto_loose_min_savings_ratio = 0.05
+auto_loose_max_raw_ratio = 0.90
+preserve_mtime = true
+validate_index_metadata = true
+
+[runtime]
+decoded_cache_bytes = 536870912
+physical_cache_bytes = 67108864
+workers = 4
+latency_reserve_workers = 1
+
+[groups.metadata]
+pack_count = 4
+assignment = "balanced"
+max_pack_size = "8GiB"
+stripe_large_files = false
+io_page_size = "64KiB"
+
+[groups.bulk]
+pack_count = 4
+assignment = "balanced"
+max_pack_size = "16GiB"
+stripe_large_files = false
+io_page_size = "64KiB"
+
+[groups.stream]
+pack_count = 1
+assignment = "balanced"
+max_pack_size = "16GiB"
+stripe_large_files = false
+io_page_size = "64KiB"
+
+# observed files=11, reads=3039, submitted=490.26 MiB
+# confidence=high:4, low:4, medium:3
+[[rule]]
+action = "compress"
+include = [
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_32.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_07/cas_06.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_07/cas_07.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_07/cas_11.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_07/cas_12.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_27.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_28.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_30.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_07/cas_11.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_07/cas_16.cas",
+]
+block_size = "32KiB"
+group = "bulk"
+layout = "mixed"
+hot = true
+min_savings_bytes = 16
+min_savings_ratio = 0.0025
+io_neutral_min_savings_bytes = "2KiB"
+io_neutral_min_savings_ratio = 0.125
+
+# observed files=7, reads=1458, submitted=442.37 MiB
+# confidence=high:1, low:6
+[[rule]]
+action = "compress"
+include = [
+  "Data/Ps5/superbundlelayout/ufc_installpackage_01/cas_03.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_19.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_84.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_05/cas_03.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/en/cas_01.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_07/cas_09.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_07/cas_12.cas",
+]
+block_size = "64KiB"
+group = "bulk"
+layout = "mixed"
+
+# observed files=62, reads=237167, submitted=188.23 GiB
+# confidence=high:45, low:7, medium:10
+[[rule]]
+action = "compress"
+include = [
+  "Data/Ps5/superbundlelayout/ufc_installpackage_00/cas_02.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_00/cas_06.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_01/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_01/cas_04.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_03.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_04.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_09.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_10.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_11.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_12.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_13.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_14.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_15.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_16.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_17.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_18.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_19.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_20.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_21.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_24.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_25.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_26.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_27.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_05/cas_02.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_05/cas_03.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_05/cas_04.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_07.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_08.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_10.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_14.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_19.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_29.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_33.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_50.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_52.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_55.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_56.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_59.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_62.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_63.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_65.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_67.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_68.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_69.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_70.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_71.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_72.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_07/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_07/cas_02.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_07/cas_05.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_07/cas_08.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_07/cas_09.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_07/cas_10.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_00/cas_01.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_01/cas_01.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_01/cas_02.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_01.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_15.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_18.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_24.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_25.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_07/cas_10.cas",
+]
+block_size = "64KiB"
+group = "bulk"
+layout = "mixed"
+hot = true
+
+# observed files=10, reads=110, submitted=167.18 MiB
+# confidence=high:1, low:9
+[[rule]]
+action = "compress"
+include = [
+  "Data/Ps5/split.toc",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_43.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/en/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_07/cas_04.cas",
+  "Data/initfs_Ps5",
+  "Patch/Ps5/levels/ufcgame/ufcgame.toc",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_00/en/cas_01.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_30.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_45.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_71.cas",
+]
+block_size = "128KiB"
+group = "bulk"
+layout = "mixed"
+
+# observed files=26, reads=38551, submitted=56.74 GiB
+# confidence=high:19, medium:7
+[[rule]]
+action = "compress"
+include = [
+  "Data/Ps5/superbundlelayout/ufc_installpackage_00/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_05.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_06.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_22.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_23.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_03/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_02.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_03.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_04.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_05.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_06.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_20.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_25.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_36.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_37.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_38.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_39.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_41.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_42.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_64.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_66.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_16.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_10.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_17.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_21.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_39.cas",
+]
+block_size = "128KiB"
+group = "bulk"
+layout = "mixed"
+hot = true
+
+# observed files=12, reads=24, submitted=204.42 MiB
+# confidence=low:9, medium:3
+[[rule]]
+action = "compress"
+include = [
+  "Data/Ps5/contentlaunchsb.toc",
+  "Data/Ps5/contentsb.toc",
+  "Data/Ps5/globals.toc",
+  "Data/Ps5/globalsfull.toc",
+  "Data/Ps5/levels/ufcgame/ufcgame.toc",
+  "Data/Ps5/ufc_stubbing_assets_superbundle.toc",
+  "Patch/Ps5/contentlaunchsb.toc",
+  "Patch/Ps5/contentsb.toc",
+  "Patch/Ps5/globals.toc",
+  "Patch/Ps5/globalsfull.toc",
+  "Patch/Ps5/split.toc",
+  "Patch/initfs_Ps5",
+]
+block_size = "256KiB"
+group = "bulk"
+layout = "mixed"
+
+# observed files=4, reads=39, submitted=461.19 KiB
+# confidence=low:4
+[[rule]]
+action = "compress"
+include = [
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_20.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_78.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_33.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_34.cas",
+]
+block_size = "16KiB"
+group = "metadata"
+layout = "random"
+
+# observed files=60, reads=81191, submitted=31.68 GiB
+# confidence=high:35, low:10, medium:15
+[[rule]]
+action = "compress"
+include = [
+  "Data/Ps5/superbundlelayout/ufc_installpackage_00/cas_03.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_00/cas_04.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_00/cas_05.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_02.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_07.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_02/cas_08.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_05/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_09.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_11.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_13.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_15.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_16.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_17.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_18.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_21.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_22.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_23.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_24.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_26.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_27.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_28.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_30.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_31.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_35.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_44.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_46.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_47.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_48.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_49.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_51.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_53.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_54.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_57.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_58.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_60.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_61.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_00/cas_02.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_00/cas_03.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_13.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_77.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_83.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_03/cas_01.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_05/cas_01.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_05/cas_02.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_01.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_02.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_04.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_05.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_26.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_29.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_31.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_32.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_35.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_36.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_40.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_42.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_44.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_45.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_46.cas",
+]
+block_size = "16KiB"
+group = "metadata"
+layout = "random"
+hot = true
+min_savings_bytes = 16
+min_savings_ratio = 0.0025
+io_neutral_min_savings_bytes = "2KiB"
+io_neutral_min_savings_ratio = 0.125
+
+# observed files=3, reads=1313, submitted=869.97 MiB
+# confidence=high:2, medium:1
+[[rule]]
+action = "compress"
+include = [
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_12.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_45.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_03.cas",
+]
+block_size = "32KiB"
+group = "metadata"
+layout = "random"
+hot = true
+min_savings_bytes = 16
+min_savings_ratio = 0.0025
+io_neutral_min_savings_bytes = "2KiB"
+io_neutral_min_savings_ratio = 0.125
+
+# observed files=8, reads=20, submitted=222.75 KiB
+# confidence=low:8
+[[rule]]
+action = "compress"
+include = [
+  "Data/Ps5/movies.toc",
+  "Data/Ps5/ui.toc",
+  "Data/chunkmanifest",
+  "Data/layout.toc",
+  "Patch/Ps5/movies.toc",
+  "Patch/Ps5/ufc_stubbing_assets_superbundle.toc",
+  "Patch/Ps5/ui.toc",
+  "Patch/layout.toc",
+]
+block_size = "64KiB"
+group = "metadata"
+layout = "random"
+
+# observed files=2, reads=36, submitted=127.97 KiB
+# confidence=low:2
+[[rule]]
+action = "compress"
+include = [
+  "Data/Ps5/loc/en.toc",
+  "Patch/Ps5/loc/en.toc",
+]
+block_size = "64KiB"
+group = "metadata"
+layout = "random"
+hot = true
+
+# observed files=1, reads=1387, submitted=547.02 MiB
+# confidence=high:1
+[[rule]]
+action = "compress"
+include = ["Data/Ps5/superbundlelayout/ufc_installpackage_01/cas_02.cas"]
+block_size = "512KiB"
+group = "stream"
+layout = "streaming"
+streaming = true
+
+# 111 .cas archives no trace session read (23.84 GiB), packed like most traced .cas files
+[[rule]]
+action = "compress"
+include = [
+  "Data/Ps5/superbundlelayout/ufc_installpackage_00/br/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_00/cn/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_00/de/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_00/en/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_00/es/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_00/fr/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_00/it/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_00/ja/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_00/ko/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_00/mx/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_00/pl/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_00/tw/cas_01.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_34.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_06/cas_40.cas",
+  "Data/Ps5/superbundlelayout/ufc_installpackage_07/cas_03.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_00/br/cas_01.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_00/cn/cas_01.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_00/de/cas_01.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_00/es/cas_01.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_00/fr/cas_01.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_00/it/cas_01.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_00/ja/cas_01.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_00/ko/cas_01.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_00/mx/cas_01.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_00/pl/cas_01.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_00/tw/cas_01.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_07.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_08.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_09.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_10.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_11.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_12.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_17.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_21.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_22.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_23.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_24.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_25.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_26.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_27.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_28.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_29.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_31.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_32.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_33.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_34.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_35.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_36.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_37.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_38.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_39.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_40.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_41.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_42.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_43.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_44.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_46.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_47.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_48.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_49.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_50.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_51.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_52.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_53.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_54.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_55.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_56.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_57.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_58.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_59.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_60.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_61.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_62.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_63.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_64.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_65.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_66.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_67.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_68.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_69.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_70.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_72.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_73.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_74.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_75.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_76.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_79.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_80.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_81.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_02/cas_82.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_06.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_07.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_08.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_09.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_11.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_12.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_13.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_14.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_15.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_20.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_22.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_23.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_37.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_38.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_06/cas_43.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_07/cas_02.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_07/cas_08.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_07/cas_13.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_07/cas_14.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_07/cas_15.cas",
+  "Patch/Ps5/superbundlelayout/ufc_installpackage_07/cas_17.cas",
+]
+block_size = "64KiB"
+group = "bulk"
+layout = "mixed"
+
+# Safety exclusions. The last matching rule wins.
+[[rule]]
+action = "loose"
+include = [
+  "sce_module/**",
+  "system/**",
+  "mods/**",
+  "save/**",
+  "**/*.prx",
+  "**/*.sprx",
+  "eboot.bin",
+  "ampr_emu.index",
+  "ampr_assets.index",
+  "ampr_assets.index.crc",
+  "ampr_assets.index.runtime",
+  "ampr_assets-*.pak",
+]
+
+# Keep the engine's index and metadata files loose (tiny; packing them saves nothing).
+[[rule]]
+action = "loose"
+include = ["*.toc", "*initfs_Ps5", "*chunkmanifest"]

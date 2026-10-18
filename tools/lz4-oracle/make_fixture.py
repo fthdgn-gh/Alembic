@@ -4,13 +4,16 @@
 and random data, block-boundary sizes, duplicate blocks, a large random file
 (auto-loose) and a large compressible one, empty files, hot audio folders,
 root numbered files, safety-listed types, odd glob characters and non-ASCII
-names. Deterministic (fixed seed and mtimes)."""
+names. `--layout unity` / `--layout insomniac` write a game with that
+engine's file layout instead, for the bundled profiles. Deterministic (fixed
+seed and mtimes)."""
 import os
 import random
 import sys
 
 root = sys.argv[1]
-big = len(sys.argv) > 2 and sys.argv[2] == "--big"
+big = "--big" in sys.argv[2:]
+layout = sys.argv[sys.argv.index("--layout") + 1] if "--layout" in sys.argv else ""
 rng = random.Random(1234)
 MTIME = 1700000000
 
@@ -43,6 +46,44 @@ def put(rel, data, mtime=MTIME):
 
 
 K = 1024
+
+
+def common():
+    put("eboot.bin", noise(300 * K))
+    put("sce_sys/param.json", b'{"titleId": "TEST00002"}')
+    put("sce_module/libc.prx", noise(20 * K))
+    put("fakelib/libSceAmpr.sprx", noise(50 * K))
+
+
+if layout == "unity":  # a PS5 Unity build: Unity's data files in Media/
+    common()
+    put("Media/globalgamemanagers", mixed(90 * K))
+    put("Media/globalgamemanagers.assets", mixed(120 * K))
+    put("Media/level0", mixed(70 * K))
+    put("Media/level0.resS", text(200 * K))
+    put("Media/sharedassets0.assets", mixed(150 * K))
+    put("Media/boot.config", text(1 * K))
+    put("Media/Metadata/global-metadata.dat", text(300 * K))
+    put("Media/Plugins/libfmod.prx", noise(40 * K))
+    put("Media/StreamingAssets/aa/catalog.json", text(20 * K))
+    put("Media/StreamingAssets/aa/PS5/level_assets_all.bundle", mixed(400 * K))
+    put("Media/StreamingAssets/aa/PS5/shared_assets_all.bundle", text(260 * K))
+    put("Media/StreamingAssets/PS5/Master.bank", mixed(180 * K))
+    put("Media/StreamingAssets/SaveIcon.png", noise(30 * K))
+    sys.exit(0)
+if layout == "insomniac":  # toc, dag and d/ archives at the top
+    common()
+    put("toc", text(10 * K))
+    put("dag", text(12 * K))
+    put("commandline.txt", text(1 * K))
+    put("d/a/archive_000", mixed(300 * K))
+    put("d/a/archive_001", text(200 * K))
+    put("d/a/bootload_000", mixed(100 * K))
+    put("d/b/movie_000", noise(120 * K))
+    put("d/b/wem_000", mixed(90 * K))
+    put("d/b/soundbank_000", mixed(80 * K))
+    sys.exit(0)
+
 put("eboot.bin", noise(300 * K))
 put("sce_sys/param.json", b'{"titleId": "TEST00001", "contentId": "UP0000-TEST00001_00-0000000000000000"}')
 put("sce_sys/icon0.png", noise(40 * K))

@@ -42,8 +42,13 @@ void usage() {
         "                              (folder, exFAT or FFPFSC output; read on the console\n"
         "                              by ampr_emu's PackedStdio runtime)\n"
         "        --lz4-runtime FILE    that runtime (libSceAmpr.sprx), placed in fakelib/\n"
-        "        --lz4-level N         1-4 LZ4 fast, 5-12 LZ4 HC (default 9)\n"
-        "        --lz4-block-size N    16384..1048576 (default 65536)\n"
+        "        --lz4-profile P       which files to pack: auto (default: a console-tested\n"
+        "                              profile matched by title ID or engine, else scan),\n"
+        "                              scan, unity, insomniac, astrobot, ufc6, or FILE.toml\n"
+        "                              (an ampr_pack.py configuration)\n"
+        "        --lz4-level N         1-4 LZ4 fast, 5-12 LZ4 HC (default 9; also replaces\n"
+        "                              a profile's compression_level)\n"
+        "        --lz4-block-size N    16384..1048576 (default 65536; scan profile only)\n"
         "        --lz4-timestamp UNIX  time stamp of the files the packer adds (default now)\n"
         "        --lz4-config-out DIR  also write the pack configuration (pack.toml) and the\n"
         "                              forced-loose list (excludes.txt) for ampr_pack.py\n"
@@ -303,8 +308,9 @@ int cmd_convert(const Args& args) {
     options.lz4_unpack = args.get("--lz4-unpack").has_value();
     std::optional<std::string> config_out = args.get("--lz4-config-out");
     if (args.get("--lz4")) {
-        int level = 9;
-        std::uint32_t shift = 16;
+        lz4pack::ProfileRequest request;
+        int& level = request.level;
+        if (auto text = args.get("--lz4-profile")) request.profile = *text;
         if (auto text = args.get("--lz4-level")) {
             auto value = parse_number(text->c_str());
             if (!value || *value < 1 || *value > 12) return std::fputs("error: --lz4-level must be 1-12\n", stderr), 2;
@@ -314,13 +320,18 @@ int cmd_convert(const Args& args) {
             auto value = parse_number(text->c_str());
             if (!value || *value < 16384 || *value > 1048576 || (*value & (*value - 1)))
                 return std::fputs("error: --lz4-block-size must be a power of two from 16384 to 1048576\n", stderr), 2;
-            shift = 0;
+            std::uint32_t shift = 0;
             while ((1ull << shift) < *value) ++shift;
+            request.block_shift = shift;
         }
         lz4pack::PackOptions pack;
         auto input = convert::open(args.positional[0], options.passcode);
         if (!input.ok()) return fail(input.error());
-        pack.config = lz4pack::automatic_profile(input->tree->root(), level, shift);
+        auto profile = lz4pack::choose_profile(*input->tree, request);
+        if (!profile.ok()) return fail(profile.error());
+        std::printf("LZ4 profile: %s\n", profile->description.c_str());
+        for (const std::string& note : profile->notes) std::fprintf(stderr, "warning: %s\n", note.c_str());
+        pack.config = std::move(profile->config);
         pack.config.workers = options.ffpfsc.compression.threads;
         if (auto runtime = args.get("--lz4-runtime")) {
             auto file = File::open(*runtime, File::Mode::read);
