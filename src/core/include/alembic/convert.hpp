@@ -68,4 +68,17 @@ struct Report {
 Result<Report> run(const std::string& input, const std::string& output, Format to, const Options& options = {},
                    const ProgressFn& progress = {});
 
+// Compares the files of two inputs byte for byte. LZ4-packed inputs are
+// unpacked first; ampr_emu.index is ignored (outputs rebuild it).
+struct Comparison {
+    std::uint64_t files = 0; // compared (present in both)
+    std::uint64_t bytes = 0;
+    std::vector<std::string> only_in_a;
+    std::vector<std::string> only_in_b;
+    std::vector<std::string> different; // size or content
+    bool same() const { return only_in_a.empty() && only_in_b.empty() && different.empty(); }
+};
+Result<Comparison> compare(const std::string& a, const std::string& b, const std::string& passcode = std::string(32, '0'),
+                           const ProgressFn& progress = {});
+
 } // namespace alembic::convert

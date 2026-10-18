@@ -662,6 +662,51 @@ is about the USB drive's own format (shown on connect), not about the image.
   cluster drive fixes it. Until then: LZ4-packed images belong on internal
   storage.
 
+### 2026-10-18: PS5 build and the conversion engine
+
+- **Toolchain on macOS:** `brew install llvm@18` and ps5-payload-dev/sdk v0.44
+  (release zip `ps5-payload-sdk.zip`, SHA-256
+  `4d06eab777bb135705b5a6816688c9132efb246093fe606ac488ab6cf65ca5b0`) unpacked
+  to `.refs/ps5-payload-sdk` (git-ignored). `tools/ps5/build.sh` sets
+  `PS5_PAYLOAD_SDK` / `LLVM_CONFIG` and builds into `build-ps5/` with the SDK's
+  CMake toolchain. The SDK ships libc++ and pthreads but no zlib, so zlib
+  1.3.1 sources are vendored in `third_party/zlib` (used on the PS5 by
+  default). The whole core, the CLI and the unit tests build for the PS5
+  with no warnings; `int64_t` is `long` there (`long long` on macOS).
+- **Engine** (`src/engine/`, `alembic.elf` on the PS5, `alembic-engine` on a
+  PC): one worker thread runs queued conversions in order; the queue is saved
+  to `<state>/jobs.json` (PS5: `/data/alembic`) after each change; a job that
+  was running when the engine died comes back as `interrupted` and its
+  `AtomicOutput` temp file is deleted. HTTP JSON API on port 5940 (all
+  interfaces, no authentication, like PS5-LZ4-Compression) plus a built-in
+  web page (`src/engine/web/index.html`): queue with progress, speed and time
+  left, cancel / retry / remove, a file browser limited to the allowed roots
+  (PS5: `/data`, `/mnt/usb0-7`, `/mnt/ext0-1`), inspect (format, title ID,
+  size, matching LZ4 profile) and the new-job form. Notifications when a job
+  finishes; `sceSystemServicePowerTick` every 20 s while one runs. LZ4 jobs
+  use `<state>/runtime/libSceAmpr.sprx` when the game has no runtime; `/api/info`
+  reports whether it is the pinned build.
+- Checked on the Mac (engine on 127.0.0.1): queueing, two jobs in a row
+  (package B → FFPFSC in 6 s through the queue), cancel while queued and while
+  running (temp file removed), output conflicts (409), paths outside the roots
+  (403), kill -9 mid-job and restart (job interrupted, temp removed, next job
+  runs), `/api/quit`.
+- **Owner: the engine works on the PS5** (loaded with the ELF loader, web
+  page on port 5940).
+- **File manager + delete source** (same day): web page rewritten with Files
+  and Queue tabs, drive free space, dialogs (works without `<dialog>` support
+  too). Jobs have a `kind`: `convert`, `copy`, `move` (copy/move run in the
+  queue with progress; files go through `<dest>.alembic-partial`; a failed
+  copy removes what it created; move is a rename on the same file system,
+  else copy + delete). Instant: `/api/fs/mkdir`, `rename`, `delete`, `space`.
+  Roots, the engine's state folder and anything a queued or running job uses
+  cannot be renamed or deleted. `delete_source` on a conversion deletes the
+  input only after success and, with `verify` (default on), after
+  `convert::compare` (moved from the CLI's `same` into the core) finds every
+  file identical (the LZ4 runtime the packer adds is allowed); a source that
+  another queued job still reads is kept. Package B: convert + check +
+  delete 14 s (6 s without the check).
+
 ## Next session
 
 Agreed order (owner, end of session 1). Each item: port, test against the

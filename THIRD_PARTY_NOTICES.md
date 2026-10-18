@@ -19,7 +19,15 @@ Ported files say where they come from in their header comment.
 
 | Project | License | Where |
 | --- | --- | --- |
+| [zlib](https://zlib.net) 1.3.1 (release tarball, SHA-256 `9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23`) | zlib (`third_party/zlib/LICENSE`) | `third_party/zlib/`: the library sources needed for deflate/inflate, unchanged; built for the PS5 (the payload SDK has no zlib), or on a PC with `-DALEMBIC_BUNDLED_ZLIB=ON` |
 | [lz4/lz4](https://github.com/lz4/lz4) v1.10.0 (tag commit `ebb370ca`) | BSD-2-Clause (notice below) | `third_party/lz4/`: `lz4.c`, `lz4.h`, `lz4hc.c`, `lz4hc.h`, `xxhash.c`, `xxhash.h`, unchanged |
+
+## PS5 build
+
+| Project | License | What Alembic uses |
+| --- | --- | --- |
+| [ps5-payload-dev/sdk](https://github.com/ps5-payload-dev/sdk) v0.44 | GPL-3.0-or-later | the toolchain, libc and libc++ the engine payload (`alembic.elf`) is built and linked with; the notification call follows its `samples/notify` |
+| theghostonline/PS5-LZ4-Compression | GPL-3.0-or-later | keeping the console awake during a job (`sceSystemServicePowerTick`), from `src/lzc_power_guard.c`; the engine/app split and the job/web API idea |
 
 ## Bundled data
 

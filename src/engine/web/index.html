@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alembic</title>
+<style>
+:root {
+  --bg: #0d0f14; --panel: #151922; --panel2: #1b202b; --line: #262c39; --text: #e7e9ef; --muted: #8d95a7;
+  --accent: #6c8cff; --accent2: #8f6cff; --ok: #3fb67a; --bad: #ef5b52; --warn: #e0ae35;
+  --radius: 12px;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+button, input, select { font: inherit; color: inherit; }
+a { color: var(--accent); }
+
+/* header */
+header { position: sticky; top: 0; z-index: 5; background: rgba(13,15,20,.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+.top { display: flex; align-items: center; gap: 14px; padding: 12px 20px; max-width: 1280px; margin: 0 auto; flex-wrap: wrap; }
+.logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; letter-spacing: .01em; }
+.logo i { width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg, var(--accent), var(--accent2)); display: inline-block; position: relative; }
+.logo i::after { content: ""; position: absolute; inset: 7px 9px 6px; border: 2px solid #fff; border-top: 0; border-radius: 0 0 8px 8px; }
+.chip { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; white-space: nowrap; }
+.chip.live { color: var(--accent); border-color: rgba(108,140,255,.4); }
+.tabs { display: flex; gap: 4px; margin-left: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+.tab { border: 0; background: none; padding: 6px 14px; border-radius: 7px; cursor: pointer; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.tab.on { background: var(--panel2); color: var(--text); }
+.badge { background: var(--accent); color: #fff; font-size: 11px; border-radius: 999px; padding: 0 7px; min-width: 18px; text-align: center; }
+.drives { display: flex; gap: 10px; padding: 0 20px 10px; max-width: 1280px; margin: 0 auto; flex-wrap: wrap; }
+.drive { font-size: 12px; color: var(--muted); min-width: 160px; flex: 0 1 220px; cursor: pointer; }
+.drive .meter { height: 4px; border-radius: 2px; background: #252b38; overflow: hidden; margin-top: 4px; }
+.drive .meter div { height: 100%; background: var(--accent); }
+.drive.low .meter div { background: var(--warn); }
+
+main { max-width: 1280px; margin: 0 auto; padding: 16px 20px 40px; }
+@media (max-width: 700px) { .top, .drives, main { padding-left: 16px; padding-right: 16px; } .tabs { margin-left: 0; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; word-break: break-all; }
+
+/* buttons */
+.btn { background: var(--panel2); border: 1px solid #313849; border-radius: 8px; padding: 7px 14px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.btn:hover, .btn:focus-visible { border-color: var(--accent); outline: none; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.danger { color: var(--bad); }
+.btn.danger.solid { background: var(--bad); border-color: var(--bad); color: #fff; }
+.btn.ghost { background: none; border-color: transparent; }
+.btn.ghost:hover { border-color: #313849; }
+.btn:disabled { opacity: .45; cursor: default; border-color: #313849; }
+.btn.sm { padding: 4px 10px; font-size: 13px; }
+
+/* files */
+.toolbar { display: flex; gap: 8px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.crumbs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; flex: 1; min-width: 0; }
+.crumbs button { background: none; border: 0; padding: 3px 6px; border-radius: 6px; cursor: pointer; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.crumbs button:last-child { color: var(--text); font-weight: 600; }
+.crumbs button:hover { background: var(--panel2); }
+.crumbs span { color: #4a5264; }
+.list { min-height: 120px; }
+.row { display: grid; grid-template-columns: 34px minmax(0, 1fr) 110px 150px auto; gap: 10px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; }
+.row:hover { background: rgba(255,255,255,.02); }
+.row .name { cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .name:hover { color: var(--accent); }
+.row .size, .row .date { color: var(--muted); font-size: 13px; text-align: right; }
+.row .acts { display: flex; gap: 4px; justify-content: flex-end; }
+@media (max-width: 760px) { .row { grid-template-columns: 30px minmax(0, 1fr) auto; } .row .size, .row .date { display: none; } .row .sub { display: block; } }
+.row .sub { display: none; color: var(--muted); font-size: 12px; }
+.ico { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; font-size: 11px; font-weight: 700; letter-spacing: .02em; }
+.ico.folder { background: #2a2f3d; color: #c5ccdd; }
+.ico.fpkg { background: rgba(108,140,255,.16); color: var(--accent); }
+.ico.ffpfsc { background: rgba(63,182,122,.15); color: var(--ok); }
+.ico.exfat { background: rgba(224,174,53,.15); color: var(--warn); }
+.ico.ffpkg { background: rgba(143,108,255,.16); color: var(--accent2); }
+.ico.file { background: #1f2430; color: var(--muted); }
+.empty { padding: 40px; text-align: center; color: var(--muted); }
+.menu { position: relative; }
+.menu-pop { position: absolute; right: 0; top: calc(100% + 4px); background: var(--panel2); border: 1px solid #313849; border-radius: 10px; padding: 4px; z-index: 20; min-width: 170px; box-shadow: 0 12px 30px rgba(0,0,0,.45); }
+.menu-pop button { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 7px 10px; border-radius: 7px; cursor: pointer; }
+.menu-pop button:hover, .menu-pop button:focus-visible { background: #262c3a; outline: none; }
+.menu-pop button.danger { color: var(--bad); }
+
+/* queue */
+.section-title { display: flex; align-items: center; justify-content: space-between; margin: 4px 2px 10px; }
+.section-title h2 { font-size: 15px; margin: 0; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+.jobs { display: grid; gap: 10px; margin-bottom: 26px; }
+.job { padding: 14px 16px; }
+.job .head { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.job .title { font-weight: 600; word-break: break-all; }
+.job .to { margin-top: 2px; }
+.job .detail { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
+.bar { height: 8px; background: #0b0d12; border-radius: 4px; overflow: hidden; margin-top: 10px; }
+.bar div { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .5s; }
+.bar.indet div { width: 30% !important; animation: slide 1.4s ease-in-out infinite; }
+@keyframes slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+.state { font-size: 11px; padding: 2px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+.state.running { background: rgba(108,140,255,.15); color: var(--accent); }
+.state.queued, .state.cancelled { background: #232836; color: var(--muted); }
+.state.done { background: rgba(63,182,122,.15); color: var(--ok); }
+.state.failed, .state.interrupted { background: rgba(239,91,82,.14); color: var(--bad); }
+.err { color: var(--bad); font-size: 13px; margin-top: 6px; word-break: break-word; }
+.note { color: var(--warn); font-size: 13px; margin-top: 6px; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.tag { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; }
+
+/* dialogs */
+dialog { background: var(--panel); color: var(--text); border: 1px solid #313849; border-radius: 16px; padding: 0; width: min(620px, calc(100vw - 32px)); box-shadow: 0 24px 60px rgba(0,0,0,.6); }
+dialog::backdrop { background: rgba(5,6,9,.7); }
+/* Fallback for browsers without <dialog> (older WebKit) */
+dialog.poly { display: none; position: fixed; inset: 0; margin: auto; height: fit-content; z-index: 40; }
+dialog.poly[open] { display: block; }
+.poly-backdrop { position: fixed; inset: 0; background: rgba(5,6,9,.7); z-index: 39; }
+.dlg-head { padding: 16px 20px 0; font-size: 17px; font-weight: 700; }
+.dlg-body { padding: 14px 20px; max-height: min(70vh, 640px); overflow: auto; }
+.dlg-foot { padding: 12px 20px 16px; display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid var(--line); flex-wrap: wrap; align-items: center; }
+.dlg-foot .msg { margin-right: auto; font-size: 13px; }
+.field { margin: 12px 0; }
+.field > .lbl { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; display: block; }
+.input, select.input { width: 100%; background: #0f1218; border: 1px solid #313849; border-radius: 8px; padding: 8px 10px; }
+.input:focus { outline: none; border-color: var(--accent); }
+.seg { display: flex; gap: 6px; flex-wrap: wrap; }
+.seg label { flex: 1 1 120px; border: 1px solid #313849; border-radius: 10px; padding: 10px 12px; cursor: pointer; background: #12161e; }
+.seg label.sel { border-color: var(--accent); background: rgba(108,140,255,.08); }
+.seg input { display: none; }
+.seg b { display: block; font-size: 14px; }
+.seg span { font-size: 12px; color: var(--muted); }
+.check { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0; cursor: pointer; }
+.check input { margin-top: 3px; accent-color: var(--accent); width: 16px; height: 16px; }
+.check small { display: block; color: var(--muted); font-size: 12px; }
+.sub-opts { margin: 4px 0 8px 26px; padding-left: 12px; border-left: 2px solid var(--line); }
+.inline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.inline .input { width: auto; }
+.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; font-size: 13px; background: #11141b; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.facts div:nth-child(odd) { color: var(--muted); }
+.picker { border: 1px solid var(--line); border-radius: 10px; max-height: 300px; overflow: auto; }
+.picker .row { grid-template-columns: 30px minmax(0, 1fr); padding: 6px 10px; cursor: pointer; }
+.warnbox { background: rgba(239,91,82,.08); border: 1px solid rgba(239,91,82,.3); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+
+#toasts { position: fixed; right: 16px; bottom: 16px; display: grid; gap: 8px; z-index: 50; max-width: min(420px, calc(100vw - 32px)); }
+.toast { background: var(--panel2); border: 1px solid #313849; border-left: 3px solid var(--accent); border-radius: 10px; padding: 10px 14px; font-size: 14px; box-shadow: 0 10px 24px rgba(0,0,0,.4); animation: in .2s ease-out; }
+.toast.bad { border-left-color: var(--bad); }
+.toast.ok { border-left-color: var(--ok); }
+@keyframes in { from { transform: translateY(8px); opacity: 0; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <div class="logo"><i></i>Alembic</div>
+    <span class="chip" id="status">connecting…</span>
+    <nav class="tabs">
+      <button class="tab on" data-tab="files">Files</button>
+      <button class="tab" data-tab="queue">Queue <span class="badge" id="qcount" hidden>0</span></button>
+    </nav>
+  </div>
+  <div class="drives" id="drives"></div>
+</header>
+
+<main>
+  <section id="view-files">
+    <div class="panel">
+      <div class="toolbar">
+        <div class="crumbs" id="crumbs"></div>
+        <button class="btn sm" id="btn-mkdir" title="New folder">＋ Folder</button>
+        <button class="btn sm ghost" id="btn-refresh" title="Refresh">↻</button>
+      </div>
+      <div class="list" id="list"></div>
+    </div>
+  </section>
+
+  <section id="view-queue" hidden>
+    <div class="section-title"><h2>Active</h2></div>
+    <div class="jobs" id="active"></div>
+    <div class="section-title"><h2>History</h2><button class="btn sm ghost" id="btn-clear">Clear history</button></div>
+    <div class="jobs" id="history"></div>
+  </section>
+</main>
+
+<!-- convert -->
+<dialog id="dlg-convert">
+  <form method="dialog">
+    <div class="dlg-head">Convert</div>
+    <div class="dlg-body">
+      <div class="facts" id="cv-facts"><div>Reading</div><div>…</div></div>
+      <div class="field">
+        <span class="lbl">Convert to</span>
+        <div class="seg">
+          <label><input type="radio" name="to" value="ffpfsc" checked><b>FFPFSC</b><span>compressed image, smallest</span></label>
+          <label><input type="radio" name="to" value="exfat"><b>exFAT</b><span>plain image, fastest to load</span></label>
+          <label><input type="radio" name="to" value="folder"><b>Folder</b><span>loose files</span></label>
+        </div>
+      </div>
+      <div class="field" id="cv-level-field">
+        <span class="lbl">Compression</span>
+        <div class="inline">
+          <select class="input" id="cv-level">
+            <option value="1">Level 1 · fastest</option>
+            <option value="6" selected>Level 6 · balanced</option>
+            <option value="9">Level 9 · smallest (PS5PKGTool)</option>
+          </select>
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" id="cv-lz4"><span>Pack into LZ4 asset packs<small>For ampr_emu games. Uses a console-tested profile when one matches.</small></span></label>
+      <div class="sub-opts" id="cv-lz4-opts" hidden>
+        <div class="field"><span class="lbl">Profile</span><select class="input" id="cv-profile"></select></div>
+        <div class="field"><span class="lbl">LZ4 level</span>
+          <select class="input" id="cv-lz4level"><option value="1">1 · fast</option><option value="9" selected>9 · default</option><option value="12">12 · smallest</option></select></div>
+        <div class="note" id="cv-runtime"></div>
+      </div>
+      <label class="check"><input type="checkbox" id="cv-delete"><span>Delete the source when done<small>Frees the space of the original after a successful conversion.</small></span></label>
+      <div class="sub-opts" id="cv-delete-opts" hidden>
+        <label class="check"><input type="checkbox" id="cv-verify" checked><span>Check the output first (recommended)<small>Reads the output back and compares every file with the source; the source is kept if anything differs. Takes about as long as reading both once.</small></span></label>
+      </div>
+      <div class="field">
+        <span class="lbl">Output</span>
+        <input class="input mono" id="cv-output" placeholder="next to the source">
+        <div class="small muted" id="cv-space" style="margin-top:6px"></div>
+      </div>
+      <label class="check"><input type="checkbox" id="cv-overwrite"><span>Replace the output if it already exists</span></label>
+    </div>
+    <div class="dlg-foot">
+      <span class="msg" id="cv-msg"></span>
+      <button class="btn" value="cancel">Cancel</button>
+      <button class="btn primary" id="cv-go" value="go">Add to queue</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- copy / move destination -->
+<dialog id="dlg-dest">
+  <form method="dialog">
+    <div class="dlg-head" id="dest-title">Copy to</div>
+    <div class="dlg-body">
+      <div class="crumbs" id="dest-crumbs" style="margin-bottom:8px"></div>
+      <div class="picker" id="dest-list"></div>
+      <div class="field"><span class="lbl">Name</span><input class="input mono" id="dest-name"></div>
+      <label class="check"><input type="checkbox" id="dest-overwrite"><span>Replace if it already exists</span></label>
+      <div class="small muted" id="dest-space"></div>
+    </div>
+    <div class="dlg-foot">
+      <span class="msg" id="dest-msg"></span>
+      <button class="btn" value="cancel">Cancel</button>
+      <button class="btn primary" id="dest-go" value="go">Copy here</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- confirm / prompt -->
+<dialog id="dlg-ask">
+  <form method="dialog">
+    <div class="dlg-head" id="ask-title"></div>
+    <div class="dlg-body"><div id="ask-body"></div><input class="input" id="ask-input" hidden></div>
+    <div class="dlg-foot">
+      <button class="btn" value="cancel">Cancel</button>
+      <button class="btn primary" id="ask-go" value="go">OK</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toasts"></div>
+
+<script>
+"use strict";
+const $ = (s, root = document) => root.querySelector(s);
+const state = { info: null, cwd: null, listing: null, jobs: [], speeds: {}, tab: "files", space: [] };
+const CONVERTIBLE = ["fpkg", "exfat", "ffpfsc", "ffpkg"];
+const KIND_LABEL = { fpkg: "PKG", exfat: "EXF", ffpfsc: "FSC", ffpkg: "UFS", ffpfs: "PFS", folder: "DIR", file: "" };
+
+/* ---------- helpers ---------- */
+async function api(method, path, body) {
+  const res = await fetch(path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const text = await res.text();
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch { data = { error: text }; }
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+function h(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === "class") e.className = v;
+    else if (k === "text") e.textContent = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) e.append(c);
+  return e;
+}
+function bytes(n) {
+  if (n == null) return "";
+  const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0;
+  while (n >= 1000 && i < u.length - 1) { n /= 1000; i++; }
+  return (i ? n.toFixed(n < 10 ? 2 : n < 100 ? 1 : 0) : n) + " " + u[i];
+}
+function duration(s) {
+  s = Math.max(0, Math.round(s));
+  const hh = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), r = s % 60;
+  return hh ? `${hh} h ${m} min` : m ? `${m} min${r ? " " + r + " s" : ""}` : `${r} s`;
+}
+function date(t) {
+  if (!t) return "";
+  const d = new Date(t * 1000), now = new Date();
+  const same = d.toDateString() === now.toDateString();
+  return same ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
+}
+const base = (p) => p.replace(/\/+$/, "").split("/").pop();
+const dir = (p) => { const s = p.replace(/\/+$/, ""); const i = s.lastIndexOf("/"); return i <= 0 ? "/" : s.slice(0, i); };
+const stem = (n) => { const i = n.lastIndexOf("."); return i > 0 ? n.slice(0, i) : n; };
+function toast(text, kind = "") {
+  const t = h("div", { class: "toast " + kind, text });
+  $("#toasts").append(t);
+  setTimeout(() => t.remove(), kind === "bad" ? 7000 : 4000);
+}
+function rootOf(path) {
+  let best = null;
+  for (const s of state.space) if (path === s.root || path.startsWith(s.root + "/")) if (!best || s.root.length > best.root.length) best = s;
+  return best;
+}
+function ask({ title, body, input, ok = "OK", danger = false }) {
+  const d = $("#dlg-ask");
+  $("#ask-title").textContent = title;
+  const b = $("#ask-body"); b.textContent = ""; if (body) b.append(body);
+  const inp = $("#ask-input"); inp.hidden = input == null; inp.value = input || "";
+  const go = $("#ask-go"); go.textContent = ok; go.className = "btn " + (danger ? "danger solid" : "primary");
+  return new Promise((resolve) => {
+    d.onclose = () => resolve(d.returnValue === "go" ? (input == null ? true : inp.value.trim()) : null);
+    d.returnValue = ""; d.showModal();
+    if (input != null) { inp.focus(); inp.select(); }
+  });
+}
+
+/* Dialog buttons close with their value; a fallback for browsers without <dialog>. */
+for (const d of document.querySelectorAll("dialog")) {
+  if (typeof d.showModal !== "function") {
+    d.classList.add("poly");
+    let backdrop = null;
+    d.showModal = () => { backdrop = h("div", { class: "poly-backdrop" }); document.body.append(backdrop); d.setAttribute("open", ""); };
+    d.close = (value) => {
+      if (!d.hasAttribute("open")) return;
+      if (value !== undefined) d.returnValue = value;
+      d.removeAttribute("open"); if (backdrop) backdrop.remove();
+      if (d.onclose) d.onclose();
+    };
+  }
+  d.querySelector("form").addEventListener("submit", (e) => e.preventDefault());
+  for (const b of d.querySelectorAll("button[value]")) b.addEventListener("click", (e) => { e.preventDefault(); if (!b.disabled) d.close(b.value); });
+  d.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); d.close("cancel"); }
+    if (e.key === "Enter" && e.target.tagName === "INPUT" && e.target.type === "text") { e.preventDefault(); const go = d.querySelector('button[value="go"]'); if (!go.disabled) d.close("go"); }
+  });
+}
+for (const r of document.querySelectorAll('.seg input')) r.addEventListener("change", segSync);
+function segSync() { for (const l of document.querySelectorAll(".seg label")) l.classList.toggle("sel", l.querySelector("input").checked); }
+
+/* ---------- header ---------- */
+async function loadInfo() {
+  state.info = await api("GET", "/api/info");
+  state.space = await api("GET", "/api/fs/space").catch(() => []);
+  renderStatus(); renderDrives();
+}
+function renderStatus() {
+  const running = state.jobs.filter((j) => j.state === "running").length, queued = state.jobs.filter((j) => j.state === "queued").length;
+  const s = $("#status");
+  s.textContent = state.info ? `${state.info.version} · ${running ? "working" : "idle"}${queued ? ` · ${queued} waiting` : ""}` : "offline";
+  s.className = "chip" + (running ? " live" : "");
+  const n = running + queued, b = $("#qcount");
+  b.hidden = !n; b.textContent = n;
+}
+function renderDrives() {
+  const box = $("#drives"); box.textContent = "";
+  for (const s of state.space) {
+    const used = s.total ? 1 - s.free / s.total : 0;
+    box.append(h("div", { class: "drive" + (s.free < 20e9 ? " low" : ""), title: s.root, onclick: () => { showTab("files"); browse(s.root); } },
+      h("div", {}, h("b", { text: s.root }), ` · ${bytes(s.free)} free of ${bytes(s.total)}`),
+      h("div", { class: "meter" }, h("div", { style: `width:${(used * 100).toFixed(1)}%` }))));
+  }
+}
+
+/* ---------- tabs ---------- */
+function showTab(tab) {
+  state.tab = tab;
+  for (const b of document.querySelectorAll(".tab")) b.classList.toggle("on", b.dataset.tab === tab);
+  $("#view-files").hidden = tab !== "files"; $("#view-queue").hidden = tab !== "queue";
+  if (tab === "queue") renderJobs();
+}
+for (const b of document.querySelectorAll(".tab")) b.addEventListener("click", () => showTab(b.dataset.tab));
+
+/* ---------- files ---------- */
+function crumbs(box, path, onPick) {
+  box.textContent = "";
+  box.append(h("button", { type: "button", onclick: () => onPick("/"), text: "Drives" }));
+  if (!path || path === "/") return;
+  const root = rootOf(path) || { root: path };
+  const parts = [root.root];
+  let rest = path.slice(root.root.length).split("/").filter(Boolean), acc = root.root;
+  for (const p of rest) { acc += "/" + p; parts.push(acc); }
+  for (const p of parts) {
+    box.append(h("span", { text: "/" }));
+    box.append(h("button", { type: "button", onclick: () => onPick(p), text: p === root.root ? p : base(p) }));
+  }
+}
+async function browse(path) {
+  let data;
+  try { data = await api("GET", "/api/browse?path=" + encodeURIComponent(path || "/")); }
+  catch (e) { toast(e.message, "bad"); return; }
+  state.cwd = data.path; state.listing = data;
+  crumbs($("#crumbs"), data.path, browse);
+  $("#btn-mkdir").disabled = data.path === "/";
+  renderList();
+}
+function closeMenus() { for (const m of document.querySelectorAll(".menu-pop")) m.remove(); }
+document.addEventListener("click", (e) => { if (!e.target.closest(".menu")) closeMenus(); });
+function menuButton(items) {
+  const wrap = h("div", { class: "menu" });
+  const btn = h("button", { class: "btn sm ghost", type: "button", title: "More", text: "⋯", onclick: (e) => {
+    e.stopPropagation();
+    const open = wrap.querySelector(".menu-pop"); closeMenus(); if (open) return;
+    wrap.append(h("div", { class: "menu-pop" }, items.map(([label, fn, cls]) =>
+      h("button", { type: "button", class: cls || "", text: label, onclick: () => { closeMenus(); fn(); } }))));
+    wrap.querySelector(".menu-pop button").focus();
+  } });
+  wrap.append(btn);
+  return wrap;
+}
+function renderList() {
+  const box = $("#list"), data = state.listing; box.textContent = "";
+  if (!data.entries.length) { box.append(h("div", { class: "empty", text: "This folder is empty." })); return; }
+  const top = data.path === "/";
+  for (const e of data.entries) {
+    const isDir = e.kind === "folder", conv = CONVERTIBLE.includes(e.kind);
+    const open = () => isDir ? browse(e.path) : conv ? openConvert(e) : null;
+    const items = [];
+    if (!top) {
+      if (conv || isDir) items.push(["Convert…", () => openConvert(e)]);
+      items.push(["Rename…", () => renameEntry(e)], ["Copy to…", () => openDest(e, "copy")], ["Move to…", () => openDest(e, "move")], ["Delete…", () => deleteEntry(e), "danger"]);
+    }
+    box.append(h("div", { class: "row" },
+      h("div", { class: "ico " + e.kind, text: KIND_LABEL[e.kind] ?? "" }),
+      h("div", { style: "min-width:0" },
+        h("div", { class: "name", title: e.name, onclick: open, text: e.name }),
+        h("div", { class: "sub", text: [isDir ? "" : bytes(e.size), date(e.mtime)].filter(Boolean).join(" · ") })),
+      h("div", { class: "size", text: isDir ? "" : bytes(e.size) }),
+      h("div", { class: "date", text: date(e.mtime) }),
+      h("div", { class: "acts" },
+        conv && !top ? h("button", { class: "btn sm", type: "button", text: "Convert", onclick: () => openConvert(e) }) : null,
+        items.length ? menuButton(items) : null)));
+  }
+}
+$("#btn-refresh").addEventListener("click", () => { browse(state.cwd); loadInfo().catch(() => {}); });
+$("#btn-mkdir").addEventListener("click", async () => {
+  const name = await ask({ title: "New folder", input: "New folder", ok: "Create" });
+  if (!name) return;
+  try { await api("POST", "/api/fs/mkdir", { path: state.cwd + "/" + name }); browse(state.cwd); }
+  catch (e) { toast(e.message, "bad"); }
+});
+async function renameEntry(e) {
+  const name = await ask({ title: "Rename", input: e.name, ok: "Rename" });
+  if (!name || name === e.name) return;
+  try { await api("POST", "/api/fs/rename", { path: e.path, name }); toast("Renamed to " + name, "ok"); browse(state.cwd); }
+  catch (err) { toast(err.message, "bad"); }
+}
+async function deleteEntry(e) {
+  const body = h("div", {},
+    h("div", { class: "warnbox" }, h("b", { text: e.kind === "folder" ? "Delete this folder and everything in it?" : "Delete this file?" }),
+      h("div", { class: "mono", style: "margin-top:6px", text: e.path }),
+      e.size != null ? h("div", { class: "muted", style: "margin-top:4px", text: bytes(e.size) }) : null),
+    h("div", { class: "small muted", style: "margin-top:10px", text: "This can't be undone." }));
+  if (!await ask({ title: "Delete", body, ok: "Delete", danger: true })) return;
+  try { await api("POST", "/api/fs/delete", { path: e.path }); toast("Deleted " + e.name, "ok"); browse(state.cwd); loadInfo().catch(() => {}); }
+  catch (err) { toast(err.message, "bad"); }
+}
+
+/* ---------- copy / move ---------- */
+const dest = { entry: null, kind: "copy", path: null };
+async function destBrowse(path) {
+  let data;
+  try { data = await api("GET", "/api/browse?path=" + encodeURIComponent(path || "/")); } catch (e) { $("#dest-msg").textContent = e.message; return; }
+  dest.path = data.path;
+  crumbs($("#dest-crumbs"), data.path, destBrowse);
+  const list = $("#dest-list"); list.textContent = "";
+  const folders = data.entries.filter((x) => x.kind === "folder");
+  if (!folders.length) list.append(h("div", { class: "empty small", text: data.path === "/" ? "No drives." : "No sub-folders." }));
+  for (const f of folders) list.append(h("div", { class: "row", onclick: () => destBrowse(f.path) }, h("div", { class: "ico folder", text: "DIR" }), h("div", { class: "name", text: f.name })));
+  const r = data.path === "/" ? null : rootOf(data.path);
+  $("#dest-space").textContent = r ? `${bytes(r.free)} free on ${r.root}` + (dest.entry.size ? ` · needs ${bytes(dest.entry.size)}` : "") : "Pick a drive and folder.";
+  $("#dest-go").disabled = data.path === "/";
+}
+function openDest(entry, kind) {
+  dest.entry = entry; dest.kind = kind;
+  $("#dest-title").textContent = (kind === "copy" ? "Copy " : "Move ") + entry.name;
+  $("#dest-go").textContent = kind === "copy" ? "Copy here" : "Move here";
+  $("#dest-name").value = entry.name; $("#dest-overwrite").checked = false; $("#dest-msg").textContent = "";
+  destBrowse(dir(entry.path));
+  const d = $("#dlg-dest");
+  d.onclose = async () => {
+    if (d.returnValue !== "go") return;
+    const name = $("#dest-name").value.trim();
+    if (!name || name.includes("/")) { toast("Enter a plain name", "bad"); return; }
+    try {
+      await api("POST", "/api/jobs", { kind, input: entry.path, output: dest.path + "/" + name, overwrite: $("#dest-overwrite").checked });
+      toast(`${kind === "copy" ? "Copy" : "Move"} queued`, "ok"); refreshJobs();
+    } catch (e) { toast(e.message, "bad"); }
+  };
+  d.returnValue = ""; d.showModal();
+}
+
+/* ---------- convert ---------- */
+const cv = { entry: null, inspect: null, timer: 0 };
+function cvSpec() {
+  return {
+    input: cv.entry.path, to: document.querySelector('input[name="to"]:checked').value, output: $("#cv-output").value.trim(),
+    level: +$("#cv-level").value, lz4: $("#cv-lz4").checked, lz4_profile: $("#cv-profile").value, lz4_level: +$("#cv-lz4level").value,
+    delete_source: $("#cv-delete").checked, verify: $("#cv-verify").checked, overwrite: $("#cv-overwrite").checked,
+  };
+}
+function cvSync() {
+  const to = document.querySelector('input[name="to"]:checked').value;
+  $("#cv-level-field").hidden = to !== "ffpfsc";
+  $("#cv-lz4-opts").hidden = !$("#cv-lz4").checked;
+  $("#cv-delete-opts").hidden = !$("#cv-delete").checked;
+  clearTimeout(cv.timer);
+  cv.timer = setTimeout(async () => {
+    const msg = $("#cv-msg");
+    try {
+      const p = await api("POST", "/api/plan", cvSpec());
+      $("#cv-output").placeholder = p.output;
+      const r = rootOf(p.output), need = cv.inspect ? cv.inspect.bytes : 0;
+      $("#cv-space").textContent = r ? `${bytes(r.free)} free on ${r.root}` + (need ? ` · the game is ${bytes(need)} unpacked` : "") : "";
+      msg.textContent = ""; msg.className = "msg"; $("#cv-go").disabled = false;
+    } catch (e) { msg.textContent = e.message; msg.className = "msg err"; $("#cv-go").disabled = true; }
+  }, 150);
+}
+async function openConvert(entry) {
+  cv.entry = entry; cv.inspect = null;
+  const facts = $("#cv-facts"); facts.textContent = "";
+  facts.append(h("div", { text: "Source" }), h("div", { class: "mono", text: entry.path }), h("div", { text: "Reading" }), h("div", { class: "muted", text: "…" }));
+  const sel = $("#cv-profile"); sel.textContent = "";
+  sel.append(h("option", { value: "auto", text: "Automatic · a tested profile for this game" }));
+  for (const p of (state.info ? state.info.lz4_profiles : [])) sel.append(h("option", { value: p.id, text: `${p.label} · tested on ${p.tested}` }));
+  sel.append(h("option", { value: "scan", text: "Scan · packs most files (untested)" }));
+  const rt = state.info ? state.info.lz4_runtime : null;
+  $("#cv-runtime").textContent = !rt ? "" : !rt.present ? `No runtime at ${rt.path}: only games that ship ampr_emu can be packed.` : rt.pinned ? "" : "The runtime file is not the pinned ampr_emu 0.4.2.1 build.";
+  for (const id of ["#cv-lz4", "#cv-delete", "#cv-overwrite"]) $(id).checked = false;
+  $("#cv-verify").checked = true; $("#cv-output").value = ""; $("#cv-msg").textContent = "";
+  document.querySelector(`input[name="to"][value="${entry.kind === "ffpfsc" ? "exfat" : "ffpfsc"}"]`).checked = true;
+  segSync(); cvSync();
+  const d = $("#dlg-convert");
+  d.onclose = async () => {
+    if (d.returnValue !== "go") return;
+    try { const job = await api("POST", "/api/jobs", cvSpec()); toast("Queued: " + base(job.spec.output), "ok"); refreshJobs(); }
+    catch (e) { toast(e.message, "bad"); }
+  };
+  d.returnValue = ""; d.showModal();
+  try {
+    const i = cv.inspect = await api("GET", "/api/inspect?path=" + encodeURIComponent(entry.path));
+    facts.textContent = "";
+    const add = (k, v, cls) => facts.append(h("div", { text: k }), h("div", { class: cls || "", text: v }));
+    add("Source", i.path, "mono");
+    add("Format", i.format + (i.lz4_packed ? " · LZ4-packed" : ""));
+    add("Title ID", i.title_id || "—");
+    add("Contents", `${i.files.toLocaleString()} files · ${bytes(i.bytes)}`);
+    add("LZ4 profile", i.lz4_profile === "scan" ? "no tested profile matches" : i.lz4_profile);
+    if (i.format === "fpkg" || i.format === "ffpkg") $("#cv-delete").parentElement.querySelector("small").textContent = "Frees " + bytes(entry.size) + " after a successful conversion.";
+    cvSync();
+  } catch (e) {
+    facts.textContent = "";
+    facts.append(h("div", { text: "Source" }), h("div", { class: "mono", text: entry.path }), h("div", { text: "Problem" }), h("div", { class: "err", text: e.message }));
+    $("#cv-go").disabled = true;
+  }
+}
+for (const el of document.querySelectorAll('#dlg-convert input, #dlg-convert select')) el.addEventListener("change", cvSync);
+
+/* ---------- queue ---------- */
+function jobText(j) {
+  const s = j.spec, r = j.result || {};
+  if (s.kind === "copy" || s.kind === "move") return { title: base(s.input), to: (s.kind === "copy" ? "Copy to " : "Move to ") + s.output };
+  return { title: base(s.input), to: "→ " + s.output };
+}
+function renderJobs() {
+  renderStatus();
+  if (state.tab !== "queue") return;
+  const active = state.jobs.filter((j) => j.state === "running" || j.state === "queued");
+  const done = state.jobs.filter((j) => !(j.state === "running" || j.state === "queued")).reverse();
+  const fill = (box, list, empty) => {
+    box.textContent = "";
+    if (!list.length) { box.append(h("div", { class: "panel empty small", text: empty })); return; }
+    for (const j of list) box.append(jobCard(j));
+  };
+  fill($("#active"), active, "Nothing running. Pick a package in Files and choose Convert.");
+  fill($("#history"), done, "No finished jobs.");
+}
+function jobCard(j) {
+  const s = j.spec, r = j.result || {}, t = jobText(j);
+  const pct = j.total ? Math.min(100, 100 * j.done / j.total) : 0;
+  let detail = "";
+  if (j.state === "running") {
+    const now = Date.now() / 1000, sp = state.speeds[j.id];
+    let rate = sp && sp.stage === j.stage ? sp.rate : 0;
+    if (sp && sp.stage === j.stage && j.done >= sp.done && now - sp.t > 0.5) {
+      const inst = (j.done - sp.done) / (now - sp.t); rate = rate ? rate * 0.75 + inst * 0.25 : inst;
+      state.speeds[j.id] = { t: now, done: j.done, rate, stage: j.stage };
+    } else if (!sp || sp.stage !== j.stage) state.speeds[j.id] = { t: now, done: j.done, rate: 0, stage: j.stage };
+    detail = [j.stage, j.total ? pct.toFixed(1) + "%" : "", rate > 1 ? bytes(rate) + "/s" : "",
+      rate > 1 && j.total ? duration((j.total - j.done) / rate) + " left" : "", j.started ? duration(Date.now() / 1000 - j.started) + " so far" : ""].filter(Boolean).join(" · ");
+  } else if (j.state === "done") {
+    detail = [r.method, r.output_bytes ? bytes(r.output_bytes) : "", duration(j.finished - j.started), r.source_deleted ? "source deleted" : ""].filter(Boolean).join(" · ");
+  } else if (j.state === "queued") detail = "Waiting for the job before it";
+  else detail = j.finished ? date(j.finished) : "";
+  const tags = [];
+  if (s.kind === "convert") {
+    tags.push(s.to);
+    if (s.to === "ffpfsc") tags.push("level " + s.level);
+    if (s.lz4) tags.push("LZ4 · " + s.lz4_profile);
+    if (s.delete_source) tags.push(s.verify ? "check, then delete source" : "delete source");
+  }
+  const buttons = [];
+  if (j.state === "queued" || j.state === "running") buttons.push(h("button", { class: "btn sm danger", type: "button", text: "Cancel", onclick: () => act("POST", `/api/jobs/${j.id}/cancel`, j.state === "running" ? "Cancel the running job? Its partial output is deleted." : null) }));
+  if (["failed", "cancelled", "interrupted"].includes(j.state)) buttons.push(h("button", { class: "btn sm", type: "button", text: "Retry", onclick: () => act("POST", `/api/jobs/${j.id}/retry`) }));
+  if (j.state === "done" && r.output) buttons.push(h("button", { class: "btn sm ghost", type: "button", text: "Show", onclick: () => { showTab("files"); browse(dir(r.output)); } }));
+  if (!["queued", "running"].includes(j.state)) buttons.push(h("button", { class: "btn sm ghost", type: "button", text: "Remove", onclick: () => act("DELETE", `/api/jobs/${j.id}`) }));
+  const notes = r.lz4 && r.lz4.profile && r.lz4.profile.notes ? r.lz4.profile.notes : [];
+  return h("div", { class: "panel job" },
+    h("div", { class: "head" }, h("div", { class: "title", text: t.title }), h("span", { class: "state " + j.state, text: j.state })),
+    h("div", { class: "to mono muted", text: t.to }),
+    j.state === "running" ? h("div", { class: "bar" + (j.total ? "" : " indet") }, h("div", { style: `width:${pct}%` })) : null,
+    h("div", { class: "detail" }, h("div", { class: "small muted", text: detail }), h("div", { class: "tags" }, tags.map((x) => h("span", { class: "tag", text: x })))),
+    r.lz4 ? h("div", { class: "small muted", style: "margin-top:4px", text: `LZ4: ${r.lz4.files_packed} of ${r.lz4.files_total} files packed · ${bytes(r.lz4.packed_bytes)} → ${bytes(r.lz4.volume_bytes)}` }) : null,
+    r.source_kept ? h("div", { class: "note", text: "Source kept: " + r.source_kept }) : null,
+    notes.length ? h("div", { class: "note", text: notes.join(" ") }) : null,
+    j.error && j.state !== "cancelled" ? h("div", { class: "err", text: j.error }) : null,
+    buttons.length ? h("div", { class: "detail", style: "justify-content:flex-end" }, h("div", { class: "tags" }, buttons)) : null);
+}
+async function act(method, path, confirmText) {
+  if (confirmText && !await ask({ title: "Are you sure?", body: confirmText, ok: "Yes", danger: true })) return;
+  try { await api(method, path); } catch (e) { toast(e.message, "bad"); }
+  refreshJobs();
+}
+$("#btn-clear").addEventListener("click", () => act("POST", "/api/jobs/clear"));
+
+let lastFinished = null;
+async function refreshJobs() {
+  try {
+    const jobs = await api("GET", "/api/jobs");
+    // Toast and refresh the listing when a job finishes.
+    const finished = jobs.filter((j) => !["queued", "running"].includes(j.state)).map((j) => j.id + j.state).join();
+    if (lastFinished !== null && finished !== lastFinished) {
+      const newest = jobs.filter((j) => j.finished).sort((a, b) => b.finished - a.finished)[0];
+      if (newest && newest.state === "done") toast("Finished: " + base(newest.spec.input), "ok");
+      if (newest && newest.state === "failed") toast("Failed: " + base(newest.spec.input), "bad");
+      if (state.tab === "files" && state.cwd) browse(state.cwd);
+      loadInfo().catch(() => {});
+    }
+    lastFinished = finished;
+    state.jobs = jobs; renderJobs();
+  } catch (e) { $("#status").textContent = "engine not reachable"; $("#status").className = "chip"; }
+}
+
+loadInfo().then(() => browse("/")).catch((e) => { $("#status").textContent = "engine not reachable: " + e.message; browse("/"); });
+refreshJobs();
+setInterval(refreshJobs, 1000);
+setInterval(() => loadInfo().catch(() => {}), 15000);
+</script>
+</body>
+</html>

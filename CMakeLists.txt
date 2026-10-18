@@ -9,7 +9,29 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-find_package(ZLIB REQUIRED)
+# zlib: the system's on a PC; the PS5 payload SDK has none, so the bundled
+# zlib 1.3.1 (third_party/zlib, official release sources) is built there.
+if(PS5)
+    set(ALEMBIC_BUNDLED_ZLIB_DEFAULT ON)
+else()
+    set(ALEMBIC_BUNDLED_ZLIB_DEFAULT OFF)
+endif()
+option(ALEMBIC_BUNDLED_ZLIB "Build the bundled zlib instead of using the system's" ${ALEMBIC_BUNDLED_ZLIB_DEFAULT})
+if(ALEMBIC_BUNDLED_ZLIB)
+    add_library(alembic_zlib STATIC
+        third_party/zlib/adler32.c third_party/zlib/compress.c third_party/zlib/crc32.c
+        third_party/zlib/deflate.c third_party/zlib/infback.c third_party/zlib/inffast.c
+        third_party/zlib/inflate.c third_party/zlib/inftrees.c third_party/zlib/trees.c
+        third_party/zlib/uncompr.c third_party/zlib/zutil.c)
+    target_include_directories(alembic_zlib PUBLIC third_party/zlib)
+    target_compile_options(alembic_zlib PRIVATE -O3)
+    if(NOT WIN32)
+        target_compile_definitions(alembic_zlib PRIVATE HAVE_UNISTD_H)
+    endif()
+    add_library(ZLIB::ZLIB ALIAS alembic_zlib)
+else()
+    find_package(ZLIB REQUIRED)
+endif()
 find_package(Threads REQUIRED)
 
 # The PS5 build forbids exceptions and RTTI, so the host build does too.
@@ -74,6 +96,47 @@ if(ALEMBIC_BUILD_CLI)
     target_link_libraries(alembic PRIVATE alembic_core)
 endif()
 
+# The engine: job queue + HTTP API + web page. alembic.elf on the PS5 (a
+# payload), alembic-engine on a PC for testing.
+option(ALEMBIC_BUILD_ENGINE "Build the conversion engine" ON)
+if(ALEMBIC_BUILD_ENGINE)
+    set(ALEMBIC_WEB_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/engine_index_html.cpp)
+    add_custom_command(
+        OUTPUT ${ALEMBIC_WEB_SOURCE}
+        COMMAND ${CMAKE_COMMAND} -DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/src/engine/web/index.html
+                -DOUTPUT=${ALEMBIC_WEB_SOURCE} -DSYMBOL=kIndexHtml -DNAMESPACE=alembic::engine
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_text.cmake
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/web/index.html ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_text.cmake
+        COMMENT "Embedding the engine web page"
+        VERBATIM)
+    if(PS5)
+        set(ALEMBIC_ENGINE_PLATFORM src/engine/platform_ps5.cpp)
+    else()
+        set(ALEMBIC_ENGINE_PLATFORM src/engine/platform_host.cpp)
+    endif()
+    add_library(alembic_engine_lib STATIC
+        src/engine/fs_ops.cpp
+        src/engine/http.cpp
+        src/engine/jobs.cpp
+        src/engine/json_value.cpp
+        src/engine/runner.cpp
+        ${ALEMBIC_ENGINE_PLATFORM}
+    )
+    target_include_directories(alembic_engine_lib PUBLIC src/engine)
+    target_compile_options(alembic_engine_lib PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
+    target_link_libraries(alembic_engine_lib PUBLIC alembic_core)
+    add_executable(alembic_engine src/engine/main.cpp ${ALEMBIC_WEB_SOURCE})
+    target_compile_options(alembic_engine PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
+    target_compile_definitions(alembic_engine PRIVATE ALEMBIC_VERSION="${PROJECT_VERSION}")
+    target_link_libraries(alembic_engine PRIVATE alembic_engine_lib)
+    if(PS5)
+        set_target_properties(alembic_engine PROPERTIES OUTPUT_NAME alembic.elf)
+        target_link_libraries(alembic_engine PRIVATE SceNotification SceSystemService)
+    else()
+        set_target_properties(alembic_engine PROPERTIES OUTPUT_NAME alembic-engine)
+    endif()
+endif()
+
 if(ALEMBIC_BUILD_TESTS)
     enable_testing()
     add_executable(alembic_tests
@@ -91,6 +154,11 @@ if(ALEMBIC_BUILD_TESTS)
         tests/test_unicode.cpp
     )
     target_compile_options(alembic_tests PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
-    target_link_libraries(alembic_tests PRIVATE alembic_core)
+    if(ALEMBIC_BUILD_ENGINE)
+        target_sources(alembic_tests PRIVATE tests/test_engine.cpp)
+        target_link_libraries(alembic_tests PRIVATE alembic_engine_lib) # includes alembic_core
+    else()
+        target_link_libraries(alembic_tests PRIVATE alembic_core)
+    endif()
     add_test(NAME alembic_tests COMMAND alembic_tests)
 endif()

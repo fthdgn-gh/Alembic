@@ -474,84 +474,16 @@ int cmd_lz4_verify(const Args& args) {
 
 int cmd_same(const Args& args) {
     if (args.positional.size() != 2) return usage(), 2;
-    std::string passcode = args.get("--passcode").value_or(std::string(32, '0'));
-    convert::Input inputs[2];
-    std::unique_ptr<tree::Source> unpacked[2];
-    const tree::Source* trees[2];
-    for (int i = 0; i < 2; ++i) {
-        auto input = convert::open(args.positional[i], passcode);
-        if (!input.ok()) return fail(input.error());
-        inputs[i] = std::move(*input);
-        trees[i] = inputs[i].tree.get();
-        if (lz4pack::is_packed(trees[i]->root())) {
-            auto u = lz4pack::unpack(*trees[i]);
-            if (!u.ok()) return fail(u.error());
-            unpacked[i] = std::move(*u);
-            trees[i] = unpacked[i].get();
-        }
-    }
-    std::vector<std::pair<std::string, const tree::Node*>> files[2];
-    for (int i = 0; i < 2; ++i) {
-        std::vector<std::pair<std::string, const tree::Node*>> stack{{"", &trees[i]->root()}};
-        while (!stack.empty()) {
-            auto [prefix, node] = stack.back();
-            stack.pop_back();
-            for (const tree::Node& c : node->children) {
-                std::string path = prefix.empty() ? c.name : prefix + "/" + c.name;
-                if (c.is_directory) stack.push_back({path, &c});
-                else if (path != "ampr_emu.index") files[i].push_back({path, &c});
-            }
-        }
-        std::sort(files[i].begin(), files[i].end());
-    }
-    std::uint64_t total = 0, done = 0;
-    for (auto& f : files[0]) total += f.second->size;
-    int differences = 0;
-    std::size_t j = 0;
-    std::vector<std::uint8_t> a(4 << 20), b(4 << 20);
     ProgressPrinter printer;
-    ProgressFn progress = printer.callback();
-    for (auto& [path, node] : files[0]) {
-        while (j < files[1].size() && files[1][j].first < path) {
-            std::printf("only in b: %s\n", files[1][j++].first.c_str());
-            ++differences;
-        }
-        if (j >= files[1].size() || files[1][j].first != path) {
-            std::printf("only in a: %s\n", path.c_str());
-            ++differences;
-            done += node->size;
-            continue;
-        }
-        const tree::Node* other = files[1][j++].second;
-        if (other->size != node->size) {
-            std::printf("size differs: %s\n", path.c_str());
-            ++differences;
-            done += node->size;
-            continue;
-        }
-        auto fa = trees[0]->open(*node);
-        auto fb = trees[1]->open(*other);
-        if (!fa.ok()) return fail(fa.error());
-        if (!fb.ok()) return fail(fb.error());
-        for (std::uint64_t at = 0; at < node->size;) {
-            auto n = static_cast<std::size_t>(std::min<std::uint64_t>(a.size(), node->size - at));
-            Status s1 = (*fa)->read_at(at, MutableBytes(a.data(), n));
-            if (!s1.ok()) return fail(s1.error());
-            Status s2 = (*fb)->read_at(at, MutableBytes(b.data(), n));
-            if (!s2.ok()) return fail(s2.error());
-            if (std::memcmp(a.data(), b.data(), n) != 0) {
-                std::printf("content differs: %s\n", path.c_str());
-                ++differences;
-                break;
-            }
-            at += n;
-            done += n;
-            if (progress) progress({"Comparing", done, total});
-        }
-    }
-    for (; j < files[1].size(); ++j, ++differences) std::printf("only in b: %s\n", files[1][j].first.c_str());
+    auto result = convert::compare(args.positional[0], args.positional[1],
+                                   args.get("--passcode").value_or(std::string(32, '0')), printer.callback());
     printer.done();
-    std::printf("%zu files compared, %d differences\n", files[0].size(), differences);
+    if (!result.ok()) return fail(result.error());
+    for (const std::string& p : result->only_in_a) std::printf("only in a: %s\n", p.c_str());
+    for (const std::string& p : result->only_in_b) std::printf("only in b: %s\n", p.c_str());
+    for (const std::string& p : result->different) std::printf("differs: %s\n", p.c_str());
+    std::size_t differences = result->only_in_a.size() + result->only_in_b.size() + result->different.size();
+    std::printf("%llu files compared, %zu differences\n", static_cast<unsigned long long>(result->files), differences);
     return differences == 0 ? 0 : 1;
 }
 

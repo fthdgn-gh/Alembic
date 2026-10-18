@@ -6,3 +6,4 @@
 .DS_Store
 /tools/pkg-oracle/bin/
 /tools/pkg-oracle/obj/
+/build-ps5/

@@ -233,4 +233,72 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     return unsupported(input.format, to);
 }
 
+Result<Comparison> compare(const std::string& a, const std::string& b, const std::string& passcode,
+                           const ProgressFn& progress) {
+    Input inputs[2];
+    std::unique_ptr<tree::Source> unpacked[2];
+    const tree::Source* trees[2];
+    const std::string* paths[2] = {&a, &b};
+    for (int i = 0; i < 2; ++i) {
+        ALEMBIC_ASSIGN(inputs[i], open(*paths[i], passcode));
+        trees[i] = inputs[i].tree.get();
+        if (lz4pack::is_packed(trees[i]->root())) {
+            ALEMBIC_ASSIGN(unpacked[i], lz4pack::unpack(*trees[i]));
+            trees[i] = unpacked[i].get();
+        }
+    }
+    std::vector<std::pair<std::string, const tree::Node*>> files[2];
+    for (int i = 0; i < 2; ++i) {
+        std::vector<std::pair<std::string, const tree::Node*>> stack{{"", &trees[i]->root()}};
+        while (!stack.empty()) {
+            auto [prefix, node] = stack.back();
+            stack.pop_back();
+            for (const tree::Node& c : node->children) {
+                std::string path = prefix.empty() ? c.name : prefix + "/" + c.name;
+                if (c.is_directory) stack.push_back({path, &c});
+                else if (path != "ampr_emu.index") files[i].push_back({path, &c});
+            }
+        }
+        std::sort(files[i].begin(), files[i].end());
+    }
+    Comparison result;
+    std::uint64_t total = 0, done = 0;
+    for (auto& f : files[0]) total += f.second->size;
+    std::size_t j = 0;
+    std::vector<std::uint8_t> x(4 << 20), y(4 << 20);
+    for (auto& [path, node] : files[0]) {
+        while (j < files[1].size() && files[1][j].first < path) result.only_in_b.push_back(files[1][j++].first);
+        if (j >= files[1].size() || files[1][j].first != path) {
+            result.only_in_a.push_back(path);
+            done += node->size;
+            continue;
+        }
+        const tree::Node* other = files[1][j++].second;
+        ++result.files;
+        if (other->size != node->size) {
+            result.different.push_back(path);
+            done += node->size;
+            continue;
+        }
+        ALEMBIC_ASSIGN(auto fa, trees[0]->open(*node));
+        ALEMBIC_ASSIGN(auto fb, trees[1]->open(*other));
+        for (std::uint64_t at = 0; at < node->size;) {
+            auto n = static_cast<std::size_t>(std::min<std::uint64_t>(x.size(), node->size - at));
+            ALEMBIC_TRY(fa->read_at(at, MutableBytes(x.data(), n)));
+            ALEMBIC_TRY(fb->read_at(at, MutableBytes(y.data(), n)));
+            at += n;
+            done += n;
+            result.bytes += n;
+            if (std::memcmp(x.data(), y.data(), n) != 0) {
+                result.different.push_back(path);
+                done += node->size - at;
+                break;
+            }
+            if (progress && !progress({"Comparing", done, total})) return make_error(Errc::cancelled, "cancelled");
+        }
+    }
+    for (; j < files[1].size(); ++j) result.only_in_b.push_back(files[1][j].first);
+    return result;
+}
+
 } // namespace alembic::convert
