@@ -52,7 +52,7 @@ const std::vector<Dependency>& dependencies() {
             "fpkg_keys",
             "FPKG key files",
             "The public RSA-3072 moduli a debug FPKG is built with (passcode key wraps, image key wrap, metadata "
-            "header). Needed for PKG output, which is still being written.",
+            "header). Needed for PKG output.",
             "pearlxcore/ProsperoPkgTool, commit " + kPptCommit.substr(0, 12) +
                 " (Keys/). That project describes them as public constants from Sony's publishing tools.",
             "distributed by ProsperoPkgTool (MIT); not part of Alembic",

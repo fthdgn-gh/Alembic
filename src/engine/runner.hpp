@@ -26,7 +26,7 @@ struct EngineConfig {
 // The output a job writes: spec.output, or next to the input with the
 // target's extension ("-lz4" added when packing).
 Result<std::string> resolve_output(const JobSpec& spec);
-// The target format name for a job ("folder", "exfat", "ffpfsc").
+// The target format name for a job ("folder", "exfat", "ffpfsc", "fpkg", ...).
 Result<std::string> resolve_target(const JobSpec& spec);
 
 // ShadowMount+ mounts an image at <base>/<name without extension>_<8 hex>,

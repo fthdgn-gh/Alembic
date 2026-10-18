@@ -4,6 +4,7 @@
 #include "fs_ops.hpp"
 #include "platform.hpp"
 
+#include <algorithm>
 #include <map>
 #include <mutex>
 #include <sys/stat.h>
@@ -35,8 +36,7 @@ std::string extension_for(convert::Format f) {
 Result<convert::Format> target_format(const JobSpec& spec) {
     if (!spec.to.empty()) {
         auto f = convert::parse_format(spec.to);
-        if (!f || *f == convert::Format::fpkg)
-            return make_error(Errc::invalid_argument, "to must be folder, exfat, ffpkg, ffpfs or ffpfsc");
+        if (!f) return make_error(Errc::invalid_argument, "to must be folder, exfat, ffpkg, ffpfs, ffpfsc or fpkg");
         return *f;
     }
     if (spec.output.empty()) return make_error(Errc::invalid_argument, "give an output path or a target format (to)");
@@ -115,6 +115,7 @@ Result<std::string> resolve_target(const JobSpec& spec) {
     case convert::Format::exfat: return std::string("exfat");
     case convert::Format::ffpkg: return std::string("ffpkg");
     case convert::Format::ffpfs: return std::string("ffpfs");
+    case convert::Format::fpkg: return std::string("fpkg");
     default: return std::string("ffpfsc");
     }
 }
@@ -186,6 +187,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     options.ffpfsc.compression.level = spec.level;
     options.ffpfsc.compression.threads = config.threads;
     options.lz4_unpack = spec.lz4_unpack;
+    options.fpkg.keys_folder = config.state_dir + "/keys"; // the fpkg_keys component
 
     JsonValue profile_json;
     if (spec.lz4) {
@@ -222,6 +224,11 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     r.set("output", output);
     r.set("method", report.method);
     if (!report.detail.empty()) r.set("detail", report.detail);
+    if (!report.warnings.empty()) {
+        JsonValue warnings = JsonValue::array();
+        for (const std::string& w : report.warnings) warnings.push(w);
+        r.set("warnings", std::move(warnings));
+    }
     if (is_regular_file(output)) {
         auto file = File::open(output, File::Mode::read);
         if (file.ok()) {
@@ -253,6 +260,11 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
             std::vector<std::string> extra;
             for (const std::string& p : cmp.only_in_b)
                 if (!(spec.lz4 && p == lz4pack::kRuntimeRelativePath)) extra.push_back(p);
+            // A package build writes its own sce_sys/playgo-chunk.dat (as ProsperoPkgTool does).
+            if (to == convert::Format::fpkg)
+                cmp.different.erase(std::remove_if(cmp.different.begin(), cmp.different.end(),
+                                                   [](const std::string& p) { return p == "sce_sys/playgo-chunk.dat"; }),
+                                    cmp.different.end());
             JsonValue v = JsonValue::object();
             v.set("files", cmp.files);
             v.set("bytes", cmp.bytes);
@@ -310,6 +322,12 @@ std::vector<std::string> missing_dependencies(const JobSpec& spec, const EngineC
     if (spec.kind == "convert" && spec.lz4 && spec.lz4_runtime.empty() && !is_regular_file(config.runtime_path) &&
         !ships_ampr_runtime(strip_slashes(spec.input), spec.passcode.empty() ? std::string(32, '0') : spec.passcode))
         out.push_back("ampr_runtime");
+    if (spec.kind == "convert") {
+        auto to = target_format(spec);
+        const Dependency* keys = find_dependency("fpkg_keys");
+        if (to.ok() && *to == convert::Format::fpkg && keys && dependency_state(*keys, config.state_dir) != "installed")
+            out.push_back("fpkg_keys");
+    }
     return out;
 }
 

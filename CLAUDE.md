@@ -40,8 +40,8 @@ environment in `.refs/mkpfs-venv`).
   feature). folder/exFAT/FFPFSC conversions are done (`alembic convert`),
   byte-identical to PS5PKGTool. FPKG and FFPKG (UFS2) reading are done,
   checked on real files. FFPKG (UFS2) writing is byte-identical to PS5PKGTool
-  and FFPFS (PFS) writing to MkPFS; FPKG writing (stored) is byte-identical to
-  ProsperoPkgTool `img_create --seed S --no_right_sprx`.
+  and FFPFS (PFS) writing to MkPFS; FPKG writing (stored; `convert --to fpkg`, the engine and the page) is
+  byte-identical to ProsperoPkgTool `img_create --seed S --no_right_sprx`.
 - **Design:** every input is a `tree::Source` and every writer takes one, so
   conversions stream without temporary copies.
 - **AMPR index:** a game's own `ampr_emu.index` is kept by default (byte-exact

@@ -73,7 +73,7 @@ tools/lz4-oracle/compare.sh         # LZ4 packs vs ampr_pack.py (needs .refs/ven
 
 ### Known limitations
 
-- Writing FPKG: stored packages only, CLI `fpkg-build` (not yet in `convert`/engine); no Kraken, fake-signing, DDS generation or keystone generation.
+- Writing FPKG: stored packages only (`convert --to fpkg`, `fpkg-build`, the engine); no Kraken, fake-signing, DDS generation or keystone generation. Not yet installed on a console.
 - LZ4 packs: no TOML profile input yet (only the automatic profile); pass 1
   keeps ~200 bytes per chunk in RAM (456 MB for 2.2M chunks), which may need
   trimming for the PS5 payload; never tested on a console.
@@ -1032,6 +1032,21 @@ is about the USB drive's own format (shown on connect), not about the image.
   each build regenerates it for its own layout.)
 - Speed to improve: 2.6 GB package in ~30 s (single-threaded SHA3/AES-XTS
   plus the read-back).
+
+### 2026-10-19: FPKG output in convert, the engine and the page
+
+- `alembic convert <in> <out.pkg> --keys DIR [--seed HEX32]
+  [--package-passcode P]` (or `--to fpkg`) runs the same writer as
+  `fpkg-build`; FPKG to FPKG needs `--rebuild`. LZ4 packing and unpacking
+  can target a package too (the writer does not look at `fakelib/`).
+- Engine: `to: "fpkg"` uses the fpkg_keys component in `<state>/keys`;
+  `/api/plan` lists it under `needs` until it is downloaded. The writer's
+  warnings come back in the job result. "Check, then delete" skips
+  `sce_sys/playgo-chunk.dat` for package outputs (each build writes its own).
+- Page: FPKG is a Convert target ("Debug package to install,
+  uncompressed"), hidden for packages as their own format.
+- The round trip's last step now uses `convert` (P2 == P1 for two sample
+  packages); an engine job exFAT -> FPKG with check-then-delete passed.
 
 ## Next session
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Round trip through every format with default options:
-#   package -> P1 (fpkg-build, fixed seed) -> FFPFSC -> exFAT -> FFPKG -> FFPFS -> P2 (fpkg-build)
+#   package -> P1 (fpkg-build, fixed seed) -> FFPFSC -> exFAT -> FFPKG -> FFPFS -> P2 (convert --to fpkg)
 # P2 must equal P1 byte for byte, and every step must hold P1's files.
 #   tools/pkg-oracle/roundtrip.sh <package.pkg> [keys dir] [work dir]
 # The keys dir holds ProsperoPkgTool's passcode.bin and mount_image.bin
@@ -26,7 +26,7 @@ step "P1 -> FFPFSC" "$alembic" convert "$work/p1.pkg" "$work/c.ffpfsc"
 step "FFPFSC -> exFAT" "$alembic" convert "$work/c.ffpfsc" "$work/c.exfat"
 step "exFAT -> FFPKG" "$alembic" convert "$work/c.exfat" "$work/c.ffpkg"
 step "FFPKG -> FFPFS" "$alembic" convert "$work/c.ffpkg" "$work/c.ffpfs"
-step "FFPFS -> P2" "$alembic" fpkg-build "$work/c.ffpfs" "$work/p2.pkg" --keys "$keys" --seed $seed
+step "FFPFS -> P2" "$alembic" convert "$work/c.ffpfs" "$work/p2.pkg" --keys "$keys" --seed $seed
 
 for x in c.ffpfsc c.exfat c.ffpkg c.ffpfs p2.pkg; do
     result="$("$alembic" same "$work/p1.pkg" "$work/$x" 2>&1 | tail -1)"

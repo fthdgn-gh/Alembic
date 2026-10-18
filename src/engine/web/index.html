@@ -1050,6 +1050,7 @@ const FORMATS = [
   { value: "ffpfs", label: "FFPFS", hint: "PFS image, uncompressed (experimental in ShadowMount+)" },
   { value: "exfat", label: "exFAT", hint: "Plain image, fastest to load" },
   { value: "folder", label: "Folder", hint: "Loose files" },
+  { value: "fpkg", label: "FPKG", hint: "Debug package to install, uncompressed" },
 ];
 function rememberFolder(path) {
   if (state.locations.some((l) => l.path === path)) return;
@@ -1410,6 +1411,7 @@ function fillJob(c, j) {
     r.lz4 ? h("div", { class: "line", text: "LZ4: " + r.lz4.files_packed + " of " + r.lz4.files_total + " files packed · " + bytes(r.lz4.packed_bytes) + " → " + bytes(r.lz4.volume_bytes) }) : null,
     r.source_kept ? h("div", { class: "note", text: "Source kept: " + r.source_kept }) : null,
     notes.length ? h("div", { class: "note", text: notes.join(" ") }) : null,
+    r.warnings && r.warnings.length ? h("div", { class: "note", text: r.warnings.join(" ") }) : null,
     j.error && j.state !== "cancelled" ? h("div", { class: "err", text: j.error }) : null);
 }
 async function jobActions(j) {

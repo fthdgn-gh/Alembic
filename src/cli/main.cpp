@@ -35,19 +35,21 @@ void usage() {
         "usage: alembic <command> [options]\n"
         "\n"
         "commands:\n"
-        "  convert <input> <output> [--to folder|exfat|ffpkg|ffpfs|ffpfsc] [--rebuild] [--overwrite] [options]\n"
+        "  convert <input> <output> [--to folder|exfat|ffpkg|ffpfs|ffpfsc|fpkg] [--rebuild] [--overwrite] [options]\n"
         "        convert a dump folder, exFAT, FFPKG (UFS2), FFPFS (PFS), FFPFSC or debug\n"
-        "        FPKG (--passcode P) to a folder, exFAT, FFPKG, FFPFS or FFPFSC; the input format is\n"
+        "        FPKG (--passcode P) to a folder, exFAT, FFPKG, FFPFS, FFPFSC or FPKG; the input format is\n"
         "        detected, the output format comes from --to or the output extension\n"
         "        (.ffpkg: UFS2, byte-identical to PS5PKGTool; --ufs2-timestamp, --ufs2-pid and\n"
         "        --volume-name fix what it takes from the clock, process and param.json)\n"
         "        (.ffpfs: uncompressed PFS, byte-identical to MkPFS pack folder --raw\n"
         "        --no-compress; takes --timestamp, --block-size, --case-sensitive, --no-ampr)\n"
+        "        (.pkg: a stored debug FPKG, as fpkg-build; needs --keys DIR, takes --seed\n"
+        "        and --package-passcode)\n"
         "        (.exfat/.img, .ffpfsc, or a trailing '/' for a folder). Images are\n"
         "        copied unchanged unless --rebuild asks for a fresh exFAT layout.\n"
         "        Takes the ffpfsc and exfat options below, and:\n"
         "        --lz4                 pack game files into AMPR LZ4 asset packs on the way\n"
-        "                              (folder, exFAT or FFPFSC output; read on the console\n"
+        "                              (any output; read on the console\n"
         "                              by ampr_emu's PackedStdio runtime)\n"
         "        --lz4-runtime FILE    that runtime (libSceAmpr.sprx), placed in fakelib/\n"
         "        --lz4-profile P       which files to pack: auto (default: a console-tested\n"
@@ -61,6 +63,9 @@ void usage() {
         "        --lz4-config-out DIR  also write the pack configuration (pack.toml) and the\n"
         "                              forced-loose list (excludes.txt) for ampr_pack.py\n"
         "        --lz4-unpack          turn LZ4-packed files back into ordinary files\n"
+        "  fpkg-build <input> <out.pkg> --keys DIR [--seed HEX32] [--package-passcode P] [--overwrite]\n"
+        "        build a stored debug FPKG from a game folder or image; DIR holds ProsperoPkgTool's\n"
+        "        passcode.bin and mount_image.bin; a fixed --seed makes it reproducible\n"
         "  ls <input> [--passcode P]\n"
         "        list the files in a folder, exFAT, FFPKG, FFPFSC or debug FPKG\n"
         "  cat <input> <path> [<out>] [--passcode P]\n"
@@ -310,6 +315,24 @@ bool parse_ffpfsc_options(const Args& args, ffpfsc::BuildOptions& options) {
     return true;
 }
 
+// --keys, --package-passcode and --seed, for FPKG output.
+bool parse_package_options(const Args& args, fpkg::build::PackageOptions& o) {
+    o.keys_folder = args.get("--keys").value_or("");
+    if (o.keys_folder.empty()) return std::fputs("error: pass --keys DIR (passcode.bin, mount_image.bin)\n", stderr), false;
+    if (auto p = args.get("--package-passcode")) o.passcode = *p;
+    if (auto hex = args.get("--seed")) {
+        if (hex->size() != 32) return std::fputs("error: --seed takes 32 hex digits\n", stderr), false;
+        std::array<std::uint8_t, 16> seed{};
+        for (int i = 0; i < 16; ++i) {
+            auto v = parse_number(("0x" + hex->substr(i * 2, 2)).c_str());
+            if (!v) return std::fputs("error: bad --seed\n", stderr), false;
+            seed[i] = static_cast<std::uint8_t>(*v);
+        }
+        o.seed = seed;
+    }
+    return true;
+}
+
 int cmd_convert(const Args& args) {
     if (args.positional.size() != 2) return usage(), 2;
     convert::Options options;
@@ -372,17 +395,20 @@ int cmd_convert(const Args& args) {
     std::optional<convert::Format> to;
     if (auto text = args.get("--to")) {
         to = convert::parse_format(*text);
-        if (!to) return std::fputs("error: --to must be folder, exfat, ffpkg or ffpfsc\n", stderr), 2;
+        if (!to) return std::fputs("error: --to must be folder, exfat, ffpkg, ffpfs, ffpfsc or fpkg\n", stderr), 2;
     } else {
         to = convert::guess_output_format(args.positional[1]);
         if (!to) return std::fputs("error: cannot tell the output format from its name; pass --to\n", stderr), 2;
     }
+    if (*to == convert::Format::fpkg && !parse_package_options(args, options.fpkg)) return 2;
     ProgressPrinter printer;
     auto report = convert::run(args.positional[0], args.positional[1], *to, options, printer.callback());
     printer.done();
     if (!report.ok()) return fail(report.error());
     std::printf("%s -> %s: %s\n", convert::name(report->from), convert::name(report->to), report->method.c_str());
-    if (!report->detail.empty()) std::printf("inner name: %s\n", report->detail.c_str());
+    if (!report->detail.empty())
+        std::printf("%s: %s\n", report->to == convert::Format::fpkg ? "content ID" : "inner name", report->detail.c_str());
+    for (const std::string& w : report->warnings) std::fprintf(stderr, "warning: %s\n", w.c_str());
     if (report->lz4) {
         const lz4pack::PackStats& st = *report->lz4;
         auto gib = [](std::uint64_t v) { return static_cast<double>(v) / (1024.0 * 1024.0 * 1024.0); };
@@ -443,19 +469,7 @@ int cmd_fpkg_build(const Args& args) {
     auto input = convert::open(args.positional[0], args.get("--passcode").value_or(std::string(32, '0')));
     if (!input.ok()) return fail(input.error());
     fpkg::build::PackageOptions o;
-    o.keys_folder = args.get("--keys").value_or("");
-    if (o.keys_folder.empty()) return std::fputs("error: pass --keys DIR (passcode.bin, mount_image.bin)\n", stderr), 2;
-    if (auto p = args.get("--package-passcode")) o.passcode = *p;
-    if (auto hex = args.get("--seed")) {
-        if (hex->size() != 32) return std::fputs("error: --seed takes 32 hex digits\n", stderr), 2;
-        std::array<std::uint8_t, 16> seed{};
-        for (int i = 0; i < 16; ++i) {
-            auto v = parse_number(("0x" + hex->substr(i * 2, 2)).c_str());
-            if (!v) return std::fputs("error: bad --seed\n", stderr), 2;
-            seed[i] = static_cast<std::uint8_t>(*v);
-        }
-        o.seed = seed;
-    }
+    if (!parse_package_options(args, o)) return 2;
     o.overwrite = args.get("--overwrite").has_value();
     auto r = fpkg::build::write_package(*input->tree, input->tree->root(), args.positional[1], o);
     if (!r.ok()) return fail(r.error());

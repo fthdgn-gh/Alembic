@@ -160,13 +160,12 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     ALEMBIC_ASSIGN(std::string in_full, absolute_path(input_path));
     ALEMBIC_ASSIGN(std::string out_full, absolute_path(output));
     if (in_full == out_full) return make_error(Errc::invalid_argument, "the output must differ from the input");
-    if (to == Format::fpkg) return make_error(Errc::unsupported, "writing FPKG files is not supported yet");
 
     if (to != Format::folder && !options.overwrite && path_exists(output))
         return make_error(Errc::invalid_argument, "the output file already exists: " + output);
 
     ALEMBIC_ASSIGN(Input input, open(input_path, options.passcode));
-    Report report{input.format, to, "", "", std::nullopt, "", {}};
+    Report report{input.format, to, "", "", std::nullopt, "", {}, {}};
     const tree::Source* tree_ptr = input.tree.get();
     std::unique_ptr<lz4pack::PackedTree> packed;
     std::unique_ptr<tree::Source> unpacked;
@@ -178,8 +177,6 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         ALEMBIC_ASSIGN(unpacked, lz4pack::unpack(*tree_ptr));
         tree_ptr = unpacked.get();
     } else if (options.lz4) {
-        if (to == Format::fpkg)
-            return make_error(Errc::unsupported, "LZ4 packs can be written to a folder, exFAT, FFPKG, FFPFS or FFPFSC");
         ALEMBIC_ASSIGN(packed, lz4pack::pack(*tree_ptr, *options.lz4, progress));
         report.lz4 = packed->stats();
         report.lz4_config_toml = lz4pack::to_toml(packed->config());
@@ -274,7 +271,16 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         report.method = std::string(prefix) + "built a new PFS image from the file tree";
         return report;
     }
-    case Format::fpkg: break;
+    case Format::fpkg: {
+        if (input.format == Format::fpkg && !rebuild) return unsupported(input.format, to, "pass --rebuild to build it again");
+        fpkg::build::PackageOptions o = options.fpkg;
+        o.overwrite = options.overwrite;
+        ALEMBIC_ASSIGN(fpkg::build::PackageResult r, fpkg::build::write_package(tree, tree.root(), output, o, progress));
+        report.method = std::string(prefix) + "built a debug package from the file tree";
+        report.detail = r.content_id;
+        report.warnings = std::move(r.warnings);
+        return report;
+    }
     }
     return unsupported(input.format, to);
 }

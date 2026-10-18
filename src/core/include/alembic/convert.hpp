@@ -5,6 +5,7 @@
 
 #include "alembic/exfat.hpp"
 #include "alembic/ffpfsc.hpp"
+#include "alembic/fpkg_build.hpp"
 #include "alembic/io.hpp"
 #include "alembic/lz4pack.hpp"
 #include "alembic/tree.hpp"
@@ -57,6 +58,8 @@ struct Options {
     // Pack the tree into LZ4 asset packs on the way (folder, exFAT and FFPFSC
     // outputs; images are rebuilt).
     std::optional<lz4pack::PackOptions> lz4;
+    // FPKG output: keys_folder is required; `overwrite` comes from above.
+    fpkg::build::PackageOptions fpkg;
     // Serve LZ4-packed files as ordinary files again (drops the packs).
     bool lz4_unpack = false;
 };
@@ -69,6 +72,7 @@ struct Report {
     std::optional<lz4pack::PackStats> lz4; // set when packing
     std::string lz4_config_toml;            // the pack configuration, as ampr_pack.py TOML
     std::vector<std::string> lz4_forced_loose;
+    std::vector<std::string> warnings;
 };
 
 Result<Report> run(const std::string& input, const std::string& output, Format to, const Options& options = {},
