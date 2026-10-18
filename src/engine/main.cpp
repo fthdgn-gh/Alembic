@@ -27,6 +27,7 @@
 //   POST /api/fs/rename  {path, name} rename in place
 //   POST /api/fs/delete  {path}       delete a file or a folder with its contents
 //   POST /api/launcher   {enabled}    add or remove the Media-tab shortcut (PS5)
+//   POST /api/cache/clear             delete the cached game info and icons
 //   POST /api/quit                    stop the engine (cancels a running job)
 #include "deps.hpp"
 #include "fs_ops.hpp"
@@ -173,6 +174,12 @@ public:
 
     std::uint16_t port() const { return server_.port(); }
 
+    // Trims the game info cache (unused for 30 days, or over 100 MB).
+    void prune_cache() {
+        std::uint64_t dropped = meta_.prune();
+        if (dropped) log_line("game info cache: dropped " + std::to_string(dropped) + " old entries");
+    }
+
     // The Media-tab shortcut, unless the user removed it (launcher.off).
     void start_launcher() {
         if (!platform::launcher_supported()) {
@@ -256,6 +263,12 @@ private:
             return json(200, JsonValue::object());
         }
         if (r.path == "/api/launcher" && r.method == "POST") return launcher(r);
+        if (r.path == "/api/cache/clear" && r.method == "POST") {
+            Status s = meta_.clear();
+            if (!s.ok()) return error(500, s.error().message);
+            log_line("game info cache cleared by " + r.peer);
+            return json(200, cache_json());
+        }
         if (r.path == "/api/fs/space" && r.method == "GET") return fs_space();
         if (r.path == "/api/locations" && r.method == "GET") return locations();
         if ((r.path == "/api/meta" || r.path == "/api/icon") && r.method == "GET") return game_meta(r);
@@ -270,6 +283,13 @@ private:
         return error(404, "not found");
     }
 
+    JsonValue cache_json() const {
+        GameMetaCache::Stats st = meta_.stats();
+        JsonValue c = JsonValue::object();
+        c.set("games", st.games);
+        c.set("bytes", st.bytes);
+        return c;
+    }
     std::string launcher_off_path() const { return config_.state_dir + "/launcher.off"; }
 
     // The last shortcut result, shown in Settings: on the console it is the
@@ -279,7 +299,8 @@ private:
         launcher_status_ = text;
     }
     void launcher_result(const Status& s, const std::string& when) {
-        std::string text = s.ok() ? (platform::launcher_installed() ? "registered" : "registered, but the system has no record of it yet")
+        std::string text = s.ok() ? (platform::launcher_recorded() ? "registered"
+                                                                   : "registered; check Media (" + platform::launcher_record_note() + ")")
                                   : "failed: " + s.error().message;
         set_launcher_status(text + " (" + when + "; " + platform::launcher_problem() + ")");
         log_line("home-screen shortcut " + when + ": " + text);
@@ -341,6 +362,7 @@ private:
         }
         shortcut.set("off", path_exists(launcher_off_path()));
         v.set("launcher", std::move(shortcut));
+        v.set("cache", cache_json());
         v.set("port", static_cast<std::uint64_t>(port()));
         return json(200, v);
     }
@@ -708,6 +730,7 @@ int main(int argc, char** argv) {
     }
     log_line("listening on " + address + ":" + std::to_string(engine.port()));
     engine.start_launcher();
+    std::thread([&engine] { engine.prune_cache(); }).detach();
     platform::notify(platform::launcher_supported()
                          ? "Alembic is ready: open it from Media on the home screen (port " + std::to_string(engine.port()) + ")"
                          : "Alembic engine ready on port " + std::to_string(engine.port()));

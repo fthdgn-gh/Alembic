@@ -5,12 +5,17 @@
 #include "alembic/convert.hpp"
 #include "alembic/io.hpp"
 
+#include <algorithm>
 #include <condition_variable>
 #include <cstdio>
+#include <ctime>
+#include <dirent.h>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <sys/stat.h>
+#include <sys/time.h>
+#include <unistd.h>
 
 namespace alembic::engine {
 
@@ -163,6 +168,7 @@ Status GameMetaCache::load(const std::string& path, const std::string& key) {
     if (auto data = read_file(json_path); data.ok()) {
         auto v = parse_json(std::string(data->begin(), data->end()));
         if (v.ok()) {
+            ::utimes(json_path.c_str(), nullptr); // used now (once per run: it stays in memory)
             std::lock_guard<std::mutex> lock(g_memory_mutex);
             g_memory[key] = from_json(*v);
             return {};
@@ -220,6 +226,92 @@ Result<std::vector<std::uint8_t>> GameMetaCache::icon(const std::string& path) {
     ALEMBIC_ASSIGN(auto data, read_node(*input.tree, *i, kMaxIcon));
     (void)write_file(cached, data);
     return data;
+}
+
+namespace {
+
+// The cache folder's entries: key -> {last use, bytes of its .json and .png}.
+struct Entry {
+    std::time_t used = 0;
+    std::uint64_t bytes = 0;
+    bool has_json = false;
+};
+
+std::map<std::string, Entry> scan(const std::string& dir, std::uint64_t* other_bytes) {
+    std::map<std::string, Entry> out;
+    DIR* d = ::opendir(dir.c_str());
+    if (!d) return out;
+    while (dirent* e = ::readdir(d)) {
+        std::string name = e->d_name;
+        if (name == "." || name == "..") continue;
+        struct stat st{};
+        if (::stat((dir + "/" + name).c_str(), &st) != 0 || !S_ISREG(st.st_mode)) continue;
+        std::size_t dot = name.rfind('.');
+        std::string ext = dot == std::string::npos ? "" : name.substr(dot);
+        if (ext != ".json" && ext != ".png") {
+            if (other_bytes) *other_bytes += static_cast<std::uint64_t>(st.st_size);
+            continue;
+        }
+        Entry& entry = out[name.substr(0, dot)];
+        entry.bytes += static_cast<std::uint64_t>(st.st_size);
+        if (ext == ".json") {
+            entry.has_json = true;
+            entry.used = st.st_mtime;
+        } else if (!entry.has_json) {
+            entry.used = std::max(entry.used, st.st_mtime);
+        }
+    }
+    ::closedir(d);
+    return out;
+}
+
+} // namespace
+
+GameMetaCache::Stats GameMetaCache::stats() const {
+    Stats s;
+    for (const auto& [key, e] : scan(dir_, &s.bytes)) {
+        s.bytes += e.bytes;
+        if (e.has_json) ++s.games;
+    }
+    return s;
+}
+
+std::uint64_t GameMetaCache::prune(std::uint64_t max_age_days, std::uint64_t max_bytes) {
+    auto entries = scan(dir_, nullptr);
+    std::time_t oldest = std::time(nullptr) - static_cast<std::time_t>(max_age_days * 86400);
+    std::uint64_t total = 0, dropped = 0;
+    std::vector<std::pair<std::time_t, std::string>> by_use;
+    for (const auto& [key, e] : entries) {
+        total += e.bytes;
+        by_use.push_back({e.used, key});
+    }
+    std::sort(by_use.begin(), by_use.end());
+    auto drop = [&](const std::string& key) {
+        ::unlink((dir_ + "/" + key + ".json").c_str());
+        ::unlink((dir_ + "/" + key + ".png").c_str());
+        std::lock_guard<std::mutex> lock(g_memory_mutex);
+        g_memory.erase(key);
+    };
+    for (const auto& [used, key] : by_use) {
+        const Entry& e = entries[key];
+        // An icon without its .json is left over from an interrupted write.
+        if (used >= oldest && total <= max_bytes && e.has_json) continue;
+        drop(key);
+        total -= e.bytes;
+        ++dropped;
+    }
+    return dropped;
+}
+
+Status GameMetaCache::clear() {
+    for (const auto& [key, e] : scan(dir_, nullptr)) {
+        (void)e;
+        ::unlink((dir_ + "/" + key + ".json").c_str());
+        ::unlink((dir_ + "/" + key + ".png").c_str());
+    }
+    std::lock_guard<std::mutex> lock(g_memory_mutex);
+    g_memory.clear();
+    return {};
 }
 
 } // namespace alembic::engine

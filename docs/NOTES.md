@@ -1048,6 +1048,20 @@ is about the USB drive's own format (shown on connect), not about the image.
 - The round trip's last step now uses `convert` (P2 == P1 for two sample
   packages); an engine job exFAT -> FPKG with check-then-delete passed.
 
+### 2026-10-19: page and engine fixes
+
+- Queue cards keep their icon element across progress updates (a new one
+  reloaded the picture and flashed the format label).
+- Media shortcut: on the owner's firmware it shows in Media while
+  `/user/appmeta/ALEM00001/param.json` never appears. The Settings switch now
+  follows Alembic's own files in /user/app; the status says what
+  /user/appmeta/ALEM00001 holds, to learn where the record is (pending the
+  owner's report). Without that file, the shortcut is registered at each start.
+- Game info cache (`<state>/cache/meta`, a .json and icon .png per path,
+  size and mtime): a .json's time stamp is its last use; at start, entries
+  unused for 30 days go, then the least recently used until under 100 MB.
+  Settings shows its size and has "Clear cache" (`POST /api/cache/clear`).
+
 ## Next session
 
 **First (owner, 2026-10-18): the web page on the console.** Load the

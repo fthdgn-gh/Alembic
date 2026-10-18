@@ -45,8 +45,13 @@ inline constexpr const char* kLauncherTitleId = "ALEM00001";
 bool launcher_supported();
 // How the system installer was found, or why not (for Settings).
 std::string launcher_problem();
-// Whether the shortcut is registered (its appmeta copy exists).
+// Whether the shortcut is in place: its files in /user/app are there (the
+// system keeps no record Alembic can rely on across firmwares).
 bool launcher_installed();
+// Whether the system's copy in /user/appmeta/<id>/param.json exists.
+bool launcher_recorded();
+// What /user/appmeta/<id> holds, for Settings ("no folder", or its files).
+std::string launcher_record_note();
 // Writes /user/app/<id>/sce_sys/{param.json,icon0.png} pointing at
 // http://127.0.0.1:<port>/ and registers it. Does nothing when it is already
 // registered with the same param.json, unless `again` (then it unregisters

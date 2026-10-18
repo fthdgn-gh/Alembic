@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cerrno>
 #include <cstring>
+#include <dirent.h>
 #include <mutex>
 #include <sys/mount.h>
 #include <sys/stat.h>
@@ -425,7 +426,26 @@ std::string launcher_problem() { return appinst().note; }
 
 bool launcher_installed() {
     struct stat st{};
+    return ::stat((kAppDir + "/sce_sys/param.json").c_str(), &st) == 0;
+}
+
+bool launcher_recorded() {
+    struct stat st{};
     return ::stat(kMetaParam.c_str(), &st) == 0;
+}
+
+std::string launcher_record_note() {
+    std::string dir = std::string("/user/appmeta/") + kLauncherTitleId;
+    DIR* d = ::opendir(dir.c_str());
+    if (!d) return "no " + dir + " (" + std::strerror(errno) + ")";
+    std::string names;
+    int n = 0;
+    while (dirent* e = ::readdir(d)) {
+        if (!std::strcmp(e->d_name, ".") || !std::strcmp(e->d_name, "..")) continue;
+        if (n++ < 8) names += (names.empty() ? "" : ", ") + std::string(e->d_name);
+    }
+    ::closedir(d);
+    return dir + " holds " + (n ? names + (n > 8 ? ", ..." : "") : std::string("nothing"));
 }
 
 Status install_launcher(std::uint16_t port, const std::uint8_t* icon_png, std::size_t icon_size, bool again) {
@@ -433,11 +453,11 @@ Status install_launcher(std::uint16_t port, const std::uint8_t* icon_png, std::s
     if (!launcher_supported()) return make_error(Errc::unsupported, "the system installer is not available");
     std::string param = launcher_param(port), current;
     std::string param_path = kAppDir + "/sce_sys/param.json";
-    if (!again && launcher_installed() && read_small_file(param_path, current) && current == param) return {};
+    if (!again && launcher_recorded() && read_small_file(param_path, current) && current == param) return {};
     if (int rc = appinst_init(); rc != 0) return make_error(Errc::io, "sceAppInstUtilInitialize failed: " + hex_code(rc));
     // Registering again: drop the old registration first, as
     // PS5-LZ4-Compression's src/lzc_app_installer.c does.
-    if (again && launcher_installed() && appinst().uninstall) {
+    if (again && (launcher_recorded() || launcher_installed()) && appinst().uninstall) {
         AuthIdScope auth;
         appinst().uninstall(kLauncherTitleId);
     }
@@ -452,8 +472,9 @@ Status install_launcher(std::uint16_t port, const std::uint8_t* icon_png, std::s
                                          : appinst().install_all(nullptr);
     std::string how = " (auth ID " + hex64(auth.saved()) + (auth.changed() ? ", raised for the call)" : ", could not be raised)");
     if (rc != 0) return make_error(Errc::io, std::string(call) + " failed: " + hex_code(rc) + how);
-    for (int i = 0; i < 50 && !launcher_installed(); ++i) ::usleep(100 * 1000); // it may record it a moment later
-    if (!launcher_installed()) return make_error(Errc::io, "the system accepted the shortcut but did not record it" + how);
+    // The system may write its copy a moment later, or (on some firmwares)
+    // elsewhere: the shortcut can show in Media without it, so this is no error.
+    for (int i = 0; i < 50 && !launcher_recorded(); ++i) ::usleep(100 * 1000);
     return {};
 }
 
@@ -462,7 +483,7 @@ Status remove_launcher() {
     if (!appinst().uninstall) return make_error(Errc::unsupported, "the system installer is not available");
     if (int rc = appinst_init(); rc != 0) return make_error(Errc::io, "sceAppInstUtilInitialize failed: " + hex_code(rc));
     AuthIdScope auth;
-    int rc = launcher_installed() ? appinst().uninstall(kLauncherTitleId) : 0;
+    int rc = launcher_recorded() || launcher_installed() ? appinst().uninstall(kLauncherTitleId) : 0;
     for (const char* f : {"/sce_sys/param.json", "/sce_sys/icon0.png"}) ::unlink((kAppDir + f).c_str());
     ::rmdir((kAppDir + "/sce_sys").c_str());
     ::rmdir(kAppDir.c_str());

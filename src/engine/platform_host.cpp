@@ -53,6 +53,8 @@ Status install_package(const std::string&) {
 
 bool launcher_supported() { return false; }
 bool launcher_installed() { return false; }
+bool launcher_recorded() { return false; }
+std::string launcher_record_note() { return ""; }
 std::string launcher_problem() { return "needs a PS5"; }
 Status install_launcher(std::uint16_t, const std::uint8_t*, std::size_t, bool) {
     return make_error(Errc::unsupported, "the home-screen shortcut needs a PS5");

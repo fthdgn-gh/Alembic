@@ -1291,6 +1291,24 @@ function renderSettings() {
     } else add("Engine", "not connected");
     box.append(h("div", { class: "card" }, facts,
       h("div", { class: "btns" }, h("button", { class: "btn sm danger", "data-key": "s:quit", text: "Stop the engine", onclick: quitEngine }))));
+    if (i && i.cache) {
+      // Titles and icons the engine read from games; read again when needed.
+      const c = i.cache;
+      const clear = h("button", { class: "btn sm", "data-key": "s:cache", text: "Clear cache", disabled: c.games || c.bytes ? null : true, onclick: async () => {
+        clear.disabled = true;
+        try {
+          state.info.cache = await api("POST", "/api/cache/clear");
+          meta.cache.clear(); meta.waiting.clear();
+          toast("Cache cleared", "ok");
+        } catch (e) { toast(e.message, "bad"); }
+        renderSettings();
+      } });
+      box.append(h("div", { class: "head2" }, h("div", { class: "sect", text: "Cache" })),
+        h("div", { class: "card" },
+          h("div", { class: "facts" }, h("div", { text: "Game info" }), h("div", { text: c.games.toLocaleString() + (c.games === 1 ? " game" : " games") + " · " + bytes(c.bytes) })),
+          h("p", { class: "muted", style: "margin:.5rem 0 0", text: "Titles and icons, so lists open quickly. Entries unused for 30 days are removed at start, and the cache is kept under 100 MB." }),
+          h("div", { class: "btns" }, clear)));
+    }
   });
 }
 // Shows what each button sends; nothing acts while it is open, except ✕ on Close.
@@ -1399,8 +1417,15 @@ function fillJob(c, j) {
   c.__sig = sig;
   c.textContent = "";
   const kind = s.kind === "convert" ? s.to : s.kind;
-  const ico = CONVERTIBLE.indexOf(kind) >= 0 ? h("div", { class: "ico " + kind, text: KIND_LABEL[kind] }) : h("div", { class: "ico folder", html: ICONS.folder });
-  if (m && m.icon) setIcon(ico, m.from);
+  // Keep the icon element across updates: a new one would load the picture
+  // again and flash the format label meanwhile.
+  const icoKey = kind + "|" + (m && m.icon ? iconUrl(m.from) : "");
+  if (!c.__ico || c.__icoKey !== icoKey) {
+    c.__ico = CONVERTIBLE.indexOf(kind) >= 0 ? h("div", { class: "ico " + kind, text: KIND_LABEL[kind] }) : h("div", { class: "ico folder", html: ICONS.folder });
+    c.__icoKey = icoKey;
+    if (m && m.icon) setIcon(c.__ico, m.from);
+  }
+  const ico = c.__ico;
   const sub = h("div", { class: "s ellip" });
   if (m) sub.append([base(s.input), m.version ? "v" + m.version.replace(/^0+(?=\d)/, "") : "", m.title_id].filter(Boolean).join("  ·  "));
   put(c, h("div", { class: "hd" }, ico,
