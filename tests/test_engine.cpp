@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The engine's JSON value, folder rules and output naming.
 #include "json_value.hpp"
+#include "l10n.hpp"
 #include "runner.hpp"
 #include "test.hpp"
 
@@ -90,4 +91,32 @@ TEST_CASE(engine_names_outputs_next_to_the_input) {
     CHECK(!resolve_target(none).ok()); // no output and no target
     none.output = "/data/x.ffpfsc";
     CHECK(*resolve_target(none) == "ffpfsc");
+}
+
+// The engine's translations come from the page's i18n.js.
+TEST_CASE(engine_l10n_messages) {
+    std::string here = __FILE__;
+    std::vector<std::uint8_t> js = test::read_file(here.substr(0, here.rfind('/')) + "/../src/engine/web/i18n.js");
+    CHECK(!js.empty());
+    l10n::load(reinterpret_cast<const char*>(js.data()), js.size());
+    CHECK(l10n::has_language("tr") && l10n::has_language("ja") && !l10n::has_language("xx"));
+
+    l10n::Vars v;
+    CHECK(l10n::match("cannot write '{path}': {reason}", "cannot write '/mnt/usb0/a b.exfat': No space left on device", v));
+    CHECK(v.size() == 2 && v[0].second == "/mnt/usb0/a b.exfat" && v[1].second == "No space left on device");
+    CHECK(!l10n::match("cannot write '{path}': {reason}", "cannot read '/x': y", v));
+    CHECK(!l10n::match("Copied {name}", "Copied ", v)); // a part is never empty
+
+    l10n::set_language("en");
+    CHECK(l10n::t("Converted {name}", {{"name", "A"}}) == "Converted A");
+    CHECK(l10n::message("cancel the job first") == "cancel the job first");
+    l10n::set_language("tr");
+    CHECK(l10n::t("Converted {name}", {{"name", "A"}}) == "A dönüştürüldü");
+    // The pattern, and the system reason inside it.
+    CHECK(l10n::message("cannot write '/x': No space left on device") == "'/x' yazılamıyor: Aygıtta boş yer kalmadı");
+    CHECK(l10n::message("the output does not match the source (differs: eboot.bin); the source was kept") ==
+          "çıktı kaynakla eşleşmiyor (farklı: eboot.bin); kaynak korundu");
+    CHECK(l10n::message("something nobody translated") == "something nobody translated");
+    l10n::set_language("xx");
+    CHECK(l10n::language() == "en");
 }

@@ -29,8 +29,10 @@
 //   POST /api/fs/delete  {path}       delete a file or a folder with its contents
 //   POST /api/launcher   {enabled}    add or remove the Media-tab shortcut (PS5)
 //   POST /api/cache/clear             delete the cached game info and icons
+//   POST /api/lang       {lang}       the language of the engine's notifications
 //   POST /api/quit                    stop the engine (cancels a running job)
 #include "deps.hpp"
+#include "l10n.hpp"
 #include "fs_ops.hpp"
 #include "game_meta.hpp"
 #include "http.hpp"
@@ -67,6 +69,8 @@ namespace alembic::engine {
 extern const char* const kIndexHtml;
 extern const std::size_t kIndexHtmlSize;
 // assets/icon/alembic.svg
+extern const char* const kI18nJs;
+extern const std::size_t kI18nJsSize;
 extern const char* const kIconSvg;
 extern const std::size_t kIconSvgSize;
 // assets/icon/icon0.png, the home-screen shortcut's icon
@@ -188,7 +192,8 @@ public:
     void start_launcher() {
         if (!platform::launcher_supported()) {
             set_launcher_status("not available: " + platform::launcher_problem());
-            if (std::string(platform::name()) == "ps5") platform::notify("Alembic: no Media shortcut: " + platform::launcher_problem());
+            if (std::string(platform::name()) == "ps5")
+                platform::notify(l10n::t("Alembic: no Media shortcut: {why}", {{"why", l10n::message(platform::launcher_problem())}}));
             return;
         }
         if (path_exists(launcher_off_path())) {
@@ -199,7 +204,8 @@ public:
         std::thread([this] {
             Status s = platform::install_launcher(port(), reinterpret_cast<const std::uint8_t*>(kIcon0Png), kIcon0PngSize);
             launcher_result(s, "at start");
-            platform::notify(s.ok() ? "Alembic is in Media on the home screen" : "Alembic: Media shortcut failed: " + s.error().message);
+            platform::notify(s.ok() ? l10n::t("Alembic is in Media on the home screen")
+                                    : l10n::t("Alembic: Media shortcut failed: {error}", {{"error", l10n::message(s.error().message)}}));
         }).detach();
     }
 
@@ -208,10 +214,13 @@ private:
         std::string name = job.spec.input.substr(job.spec.input.rfind('/') + 1);
         switch (job.state) {
         case JobState::done:
-            platform::notify((job.spec.kind == "copy" ? "Copied " : job.spec.kind == "move" ? "Moved "
-                              : job.spec.kind == "install" ? "Installing " : "Converted ") + name);
+            platform::notify(l10n::t(job.spec.kind == "copy" ? "Copied {name}" : job.spec.kind == "move" ? "Moved {name}"
+                                     : job.spec.kind == "install" ? "Installing {name}" : "Converted {name}",
+                                     {{"name", name}}));
             break;
-        case JobState::failed: platform::notify("Failed: " + name + ": " + job.error); break;
+        case JobState::failed:
+            platform::notify(l10n::t("Failed: {name}: {error}", {{"name", name}, {"error", l10n::message(job.error)}}));
+            break;
         default: break;
         }
     }
@@ -228,6 +237,12 @@ private:
             HttpResponse resp;
             resp.content_type = "text/html; charset=utf-8";
             resp.body.assign(kIndexHtml, kIndexHtmlSize);
+            return resp;
+        }
+        if (r.path == "/i18n.js") {
+            HttpResponse resp;
+            resp.content_type = "text/javascript; charset=utf-8";
+            resp.body.assign(kI18nJs, kI18nJsSize);
             return resp;
         }
         if (r.path == "/icon.svg" || r.path == "/favicon.ico") {
@@ -277,6 +292,18 @@ private:
             return json(200, JsonValue::object());
         }
         if (r.path == "/api/launcher" && r.method == "POST") return launcher(r);
+        if (r.path == "/api/lang" && r.method == "POST") {
+            auto body = parse_json(r.body);
+            if (!body.ok()) return error(400, body.error().message);
+            std::string code = (*body)["lang"].str();
+            if (!l10n::has_language(code)) return error(400, "unknown language: " + code);
+            l10n::set_language(code);
+            if (std::FILE* f = std::fopen(lang_path().c_str(), "w")) {
+                std::fputs(code.c_str(), f);
+                std::fclose(f);
+            }
+            return json(200, JsonValue::object());
+        }
         if (r.path == "/api/cache/clear" && r.method == "POST") {
             Status s = meta_.clear();
             if (!s.ok()) return error(500, s.error().message);
@@ -304,6 +331,7 @@ private:
         c.set("bytes", st.bytes);
         return c;
     }
+    std::string lang_path() const { return config_.state_dir + "/lang"; }
     std::string launcher_off_path() const { return config_.state_dir + "/launcher.off"; }
 
     // The last shortcut result, shown in Settings: on the console it is the
@@ -378,6 +406,8 @@ private:
         v.set("launcher", std::move(shortcut));
         v.set("cache", cache_json());
         v.set("port", static_cast<std::uint64_t>(port()));
+        v.set("enter_button", platform::enter_button());
+        v.set("lang", l10n::language());
         return json(200, v);
     }
 
@@ -746,19 +776,31 @@ int main(int argc, char** argv) {
     if (dirs.ok()) g_log_path = config.state_dir + "/engine.log";
     log_line(std::string("Alembic engine ") + ALEMBIC_VERSION + " starting (" + platform::name() + ")");
 
+    // Notifications follow the page's language (saved by /api/lang), else the console's.
+    l10n::load(kI18nJs, kI18nJsSize);
+    {
+        std::string code = platform::system_language();
+        if (std::FILE* f = std::fopen((config.state_dir + "/lang").c_str(), "r")) {
+            char buf[16] = {};
+            if (std::fgets(buf, sizeof buf, f)) code = buf;
+            std::fclose(f);
+        }
+        l10n::set_language(code);
+    }
     Engine engine(config);
     alembic::Status started = engine.start(address, port);
     if (!started.ok()) {
         log_line("cannot start: " + started.error().message);
-        platform::notify("Alembic: " + started.error().message);
+        platform::notify(l10n::t("Alembic: {error}", {{"error", l10n::message(started.error().message)}}));
         return 1;
     }
     log_line("listening on " + address + ":" + std::to_string(engine.port()));
     engine.start_launcher();
     std::thread([&engine] { engine.prune_cache(); }).detach();
+    const std::string port_text = std::to_string(engine.port());
     platform::notify(platform::launcher_supported()
-                         ? "Alembic is ready: open it from Media on the home screen (port " + std::to_string(engine.port()) + ")"
-                         : "Alembic engine ready on port " + std::to_string(engine.port()));
+                         ? l10n::t("Alembic is ready: open it from Media on the home screen (port {port})", {{"port", port_text}})
+                         : l10n::t("Alembic engine ready on port {port}", {{"port", port_text}}));
     engine.wait_for_quit();
     engine.stop();
     log_line("stopped");

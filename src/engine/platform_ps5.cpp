@@ -92,6 +92,7 @@ int sceAppInstUtilAppInstallTitleDir(const char* title_id, const char* dir, void
 int sceAppInstUtilAppUnInstall(const char* title_id) __attribute__((weak));
 int sceNotificationSend(int user_id, bool is_logged, const char* payload) __attribute__((weak));
 int sceSystemServicePowerTick(void) __attribute__((weak));
+int sceSystemServiceParamGetInt(int param_id, int* value) __attribute__((weak));
 int sceUserServiceInitialize(const int* priority) __attribute__((weak));
 }
 
@@ -351,6 +352,27 @@ Status install_package(const std::string& path) {
         return make_error(Errc::io, std::string("the system installer refused the package: ") + code);
     }
     return {};
+}
+
+// SCE_SYSTEM_SERVICE_PARAM_ID_LANG (1), as in the public PS4 headers.
+std::string system_language() {
+    int value = -1;
+    if (!sceSystemServiceParamGetInt || sceSystemServiceParamGetInt(1, &value) != 0) return "en";
+    switch (value) {
+    case 0: return "ja";
+    case 2: return "fr";
+    case 3: case 20: return "es"; // Spain, Latin America
+    case 4: return "de";
+    case 19: return "tr";
+    default: return "en";
+    }
+}
+
+// SCE_SYSTEM_SERVICE_PARAM_ID_ENTER_BUTTON_ASSIGN: 0 is ○, 1 is ✕.
+std::string enter_button() {
+    int value = -1;
+    if (!sceSystemServiceParamGetInt || sceSystemServiceParamGetInt(1000, &value) != 0) return "";
+    return value == 0 ? "circle" : value == 1 ? "cross" : "";
 }
 
 std::string default_state_dir() { return "/data/alembic"; }

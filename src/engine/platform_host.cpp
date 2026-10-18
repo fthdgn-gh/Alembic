@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "platform.hpp"
 
+#include <cstring>
+
 #include <cstdio>
 #include <cstdlib>
 #include <sys/stat.h>
@@ -12,6 +14,11 @@ const char* name() { return "host"; }
 void notify(const std::string& message) { std::fprintf(stderr, "[notify] %s\n", message.c_str()); }
 
 void keep_awake() {}
+std::string enter_button() { return ""; }
+std::string system_language() {
+    const char* l = std::getenv("LANG");
+    return l && std::strlen(l) >= 2 ? std::string(l, 2) : "en";
+}
 
 std::vector<std::string> default_roots() {
     const char* home = std::getenv("HOME");

@@ -1100,6 +1100,49 @@ is about the USB drive's own format (shown on connect), not about the image.
   continued by itself. Both outputs have the same payload hash and match the
   package file for file.
 
+### 2026-10-19: languages and the confirm button
+
+- The page speaks English, Spanish, French, German, Japanese and Turkish
+  (`src/engine/web/i18n.js`, served at /i18n.js). Texts are keyed by their
+  English wording through `t("...", {vars})`; anything missing falls back to
+  English. The language follows the browser, and Settings → Language
+  overrides it (kept in localStorage). Texts the engine sends (stages, how a
+  job was done, place and component names) are translated on the page by
+  exact match; error messages stay English. `tools/i18n_keys.py --check`
+  lists missing or unused keys and placeholder mismatches; run it after
+  changing page texts. Translations are the model's; the owner checks Turkish.
+- Confirm button: the page follows the console's own setting. The engine
+  reads it (`sceSystemServiceParamGetInt(1000)`: 0 = ○, 1 = ✕, as in the
+  public PS4 headers) and reports `enter_button` in /api/info; the browser
+  already sends its keys to match, so the page only swaps the ✕/○ hint
+  glyphs and its reading of raw Gamepad API buttons. (A Settings switch that
+  swapped the actions against the console was tried first and removed: with
+  it the owner could not close dialogs.)
+- Hold Back (○, or ✕ on ○-confirm consoles) to leave: after 0.7 s every
+  dialog closes and the page returns to its first history entry, where one
+  more press leaves the browser (a toast says so; window.close() is tried
+  too). On the PS5 a held ○ arrives as a stream of Escape keydowns with
+  e.repeat false (owner's Controller test), so presses under 250 ms apart
+  count as one hold and the third one leaves; the stream is swallowed so it
+  no longer steps back one level per repeat.
+- The browser keeps △, Options, L3 and R3 for its own actions (owner), so
+  the page's second action (Options in Files, Add to queue, Copy/Move here)
+  moved from △ to □. The page uses ✕ ○ □, the D-pad, L1/R1 and L2/R2 only.
+  Their keys (F1, F3, F9, F10) are no longer stopped either, not even in the
+  Controller test; only the function keys the page uses are (F2, F5-F8).
+- Engine texts. i18n.js is now `var I18N = <JSON>` with the five language
+  tables and a "messages" list: the engine's messages as patterns
+  ("cannot write '{path}': {reason}"), longest first. The page's tMsg()
+  translates errors, warnings and statuses by exact key or pattern, and the
+  matched parts too (system reasons such as "No space left on device"). About
+  90 user-facing messages are in it; damaged-file diagnostics and the engine
+  log stay English. The engine reads the same file (l10n.cpp) for its console
+  notifications, in the page's language (POST /api/lang, saved in
+  <state>/lang) or else the console's (`sceSystemServiceParamGetInt(1)`:
+  0 ja, 2 fr, 3/20 es, 4 de, 19 tr, as in the public PS4 headers). A new
+  engine message that users can see needs a pattern and its translations in
+  i18n.js; `tools/i18n_keys.py --check` also covers the notification texts.
+
 ## Next session
 
 **First (owner, 2026-10-18): the web page on the console.** Load the

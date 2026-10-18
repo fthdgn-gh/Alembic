@@ -120,6 +120,15 @@ if(ALEMBIC_BUILD_ENGINE)
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/web/index.html ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_text.cmake
         COMMENT "Embedding the engine web page"
         VERBATIM)
+    set(ALEMBIC_I18N_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/engine_i18n_js.cpp)
+    add_custom_command(
+        OUTPUT ${ALEMBIC_I18N_SOURCE}
+        COMMAND ${CMAKE_COMMAND} -DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/src/engine/web/i18n.js
+                -DOUTPUT=${ALEMBIC_I18N_SOURCE} -DSYMBOL=kI18nJs -DNAMESPACE=alembic::engine
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_text.cmake
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/web/i18n.js ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_text.cmake
+        COMMENT "Embedding the page translations"
+        VERBATIM)
     set(ALEMBIC_ICON_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/engine_icon_svg.cpp)
     add_custom_command(
         OUTPUT ${ALEMBIC_ICON_SOURCE}
@@ -150,13 +159,14 @@ if(ALEMBIC_BUILD_ENGINE)
         src/engine/http.cpp
         src/engine/jobs.cpp
         src/engine/json_value.cpp
+        src/engine/l10n.cpp
         src/engine/runner.cpp
         ${ALEMBIC_ENGINE_PLATFORM}
     )
     target_include_directories(alembic_engine_lib PUBLIC src/engine)
     target_compile_options(alembic_engine_lib PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
     target_link_libraries(alembic_engine_lib PUBLIC alembic_core)
-    add_executable(alembic_engine src/engine/main.cpp ${ALEMBIC_WEB_SOURCE} ${ALEMBIC_ICON_SOURCE} ${ALEMBIC_ICON0_SOURCE})
+    add_executable(alembic_engine src/engine/main.cpp ${ALEMBIC_WEB_SOURCE} ${ALEMBIC_I18N_SOURCE} ${ALEMBIC_ICON_SOURCE} ${ALEMBIC_ICON0_SOURCE})
     target_compile_options(alembic_engine PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
     target_compile_definitions(alembic_engine PRIVATE ALEMBIC_VERSION="${PROJECT_VERSION}")
     target_link_libraries(alembic_engine PRIVATE alembic_engine_lib)

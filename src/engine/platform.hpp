@@ -15,6 +15,11 @@ const char* name(); // "ps5" or "host"
 void notify(const std::string& message);
 // Keeps the console out of rest mode while a job runs; call every few seconds.
 void keep_awake();
+// The console's "Enter button" setting: "cross" or "circle" ("" when unknown,
+// or not on a PS5). The page shows its button hints to match.
+std::string enter_button();
+// The console's (or the PC's) language as a two-letter code: "tr", "ja", ...
+std::string system_language();
 // Where browsing, inputs and outputs are allowed by default.
 std::vector<std::string> default_roots();
 // Whether a root can be used now. On the PS5 the /mnt/usbN and /mnt/extN
