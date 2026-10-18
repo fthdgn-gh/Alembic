@@ -118,6 +118,11 @@ public:
     ~AtomicOutput();
     // Creates missing parent folders. Fails if `path` exists, unless `overwrite`.
     static Result<AtomicOutput> create(const std::string& path, bool overwrite = false);
+    // A resumable output: writes to `partial_path`, which is opened as it is
+    // when `reuse` (it must exist) and created or emptied otherwise. It is
+    // never deleted here: the caller decides when a partial file is dropped.
+    static Result<AtomicOutput> create_partial(const std::string& path, const std::string& partial_path, bool reuse,
+                                               bool overwrite = false);
     AtomicOutput(AtomicOutput&& other) noexcept;
     AtomicOutput& operator=(AtomicOutput&&) = delete;
 
@@ -131,6 +136,7 @@ private:
     std::string temp_path_;
     bool committed_ = false;
     bool overwrite_ = false;
+    bool keep_ = false; // a partial file: kept when not committed
 };
 
 bool path_exists(const std::string& path);

@@ -7,6 +7,7 @@
 //   cluster heap   allocation bitmap, up-case table, then every directory and
 //                  file in pre-order walk order, each in contiguous clusters.
 #include "alembic/exfat.hpp"
+#include "alembic/resume.hpp"
 
 #include "alembic/ampr.hpp"
 #include "alembic/bytes.hpp"
@@ -229,12 +230,21 @@ int log2_exact(std::uint32_t value) {
 // Coalesces small writes, reports progress and counts bytes.
 class BufferedSink {
 public:
-    BufferedSink(ByteSink& sink, std::uint64_t total, const ProgressFn& progress)
-        : sink_(sink), total_(total), progress_(progress) {
+    BufferedSink(ByteSink& sink, std::uint64_t total, const ProgressFn& progress, std::uint64_t start = 0)
+        : sink_(sink), total_(total), progress_(progress), start_(start) {
         buffer_.reserve(kChunkSize);
     }
 
+    // Bytes still to drop before `start` (nothing is buffered meanwhile).
+    std::uint64_t skippable() const { return start_ > written() ? start_ - written() : 0; }
+    void skip(std::uint64_t n) { written_ += std::min(n, skippable()); }
+
     Status write(Bytes data) {
+        if (std::uint64_t drop = std::min<std::uint64_t>(skippable(), data.size())) {
+            written_ += drop;
+            data = data.subspan(static_cast<std::size_t>(drop));
+            if (data.empty()) return {};
+        }
         if (buffer_.size() + data.size() > kChunkSize) ALEMBIC_TRY(flush());
         if (data.size() >= kChunkSize) {
             ALEMBIC_TRY(sink_.write(data));
@@ -274,6 +284,7 @@ private:
     ByteSink& sink_;
     std::uint64_t total_;
     const ProgressFn& progress_;
+    std::uint64_t start_ = 0;
     std::vector<std::uint8_t> buffer_;
     std::uint64_t written_ = 0;
 };
@@ -482,12 +493,21 @@ Status ImageBuilder::Impl::emit_directory(BufferedSink& out, const Node& directo
 }
 
 Status ImageBuilder::Impl::emit_file(BufferedSink& out, const Node& node) const {
+    // Continuing an interrupted write: files before the start are not read,
+    // and the one it falls in is read from there on.
+    const std::uint64_t span = static_cast<std::uint64_t>(node.cluster_count) * cluster_size;
+    if (out.skippable() >= span) {
+        out.skip(span);
+        return {};
+    }
+    const std::uint64_t first = std::min<std::uint64_t>(out.skippable(), node.size);
+    out.skip(first);
     if (node.is_virtual) {
-        ALEMBIC_TRY(out.write(node.virtual_content));
+        ALEMBIC_TRY(out.write(Bytes(node.virtual_content).subspan(static_cast<std::size_t>(first))));
     } else {
         ALEMBIC_ASSIGN(std::shared_ptr<const RandomAccess> input, source->open(*node.source));
         std::vector<std::uint8_t> buffer(kChunkSize);
-        for (std::uint64_t done = 0; done < node.size;) {
+        for (std::uint64_t done = first; done < node.size;) {
             std::size_t n = static_cast<std::size_t>(std::min<std::uint64_t>(kChunkSize, node.size - done));
             Status read = input->read_at(done, MutableBytes(buffer.data(), n));
             if (!read.ok()) {
@@ -575,8 +595,9 @@ Result<ImageBuilder> ImageBuilder::scan(const std::string& source_directory, con
     return builder;
 }
 
-Status ImageBuilder::write(ByteSink& sink, const ProgressFn& progress) const {
-    BufferedSink out(sink, impl_->image_length, progress);
+Status ImageBuilder::write(ByteSink& sink, const ProgressFn& progress, std::uint64_t start) const {
+    if (start > impl_->image_length) return make_error(Errc::invalid_argument, "the start is past the exFAT image");
+    BufferedSink out(sink, impl_->image_length, progress, start);
     ALEMBIC_TRY(impl_->emit(out));
     if (out.written() != impl_->image_length)
         return make_error(Errc::invalid_data, "the exFAT writer did not produce its planned length");
@@ -597,11 +618,23 @@ Result<std::vector<std::uint8_t>> build_ampr_index(const std::string& source_dir
 }
 
 Status write_image(const tree::Source& source, const tree::Node& root, const std::string& output_path,
-                   const BuildOptions& options, bool overwrite, const ProgressFn& progress) {
+                   const BuildOptions& options, bool overwrite, const ProgressFn& progress, resume::Session* session) {
     ALEMBIC_ASSIGN(ImageBuilder builder, ImageBuilder::from_source(source, root, options));
-    ALEMBIC_ASSIGN(AtomicOutput output, AtomicOutput::create(output_path, overwrite));
-    FileSink sink(output.file(), 0);
-    ALEMBIC_TRY(builder.write(sink, progress));
+    if (!session) {
+        ALEMBIC_ASSIGN(AtomicOutput output, AtomicOutput::create(output_path, overwrite));
+        FileSink sink(output.file(), 0);
+        ALEMBIC_TRY(builder.write(sink, progress));
+        return output.commit();
+    }
+    ALEMBIC_ASSIGN(std::uint64_t start, resume::sequential_start(session, builder.image_length()));
+    ALEMBIC_ASSIGN(AtomicOutput output,
+                   AtomicOutput::create_partial(output_path, session->partial_path, session->from.has_value(), overwrite));
+    ALEMBIC_TRY(output.file().truncate(start)); // drop what came after the checkpoint
+    resume::CheckpointSink sink(output.file(), start, builder.image_length(), session);
+    if (Status s = builder.write(sink, progress, start); !s.ok()) {
+        (void)sink.save_now(); // a pause loses nothing already written
+        return s;
+    }
     return output.commit();
 }
 

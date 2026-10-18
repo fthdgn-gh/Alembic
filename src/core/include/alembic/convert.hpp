@@ -8,6 +8,7 @@
 #include "alembic/fpkg_build.hpp"
 #include "alembic/io.hpp"
 #include "alembic/lz4pack.hpp"
+#include "alembic/resume.hpp"
 #include "alembic/tree.hpp"
 #include "alembic/ufs2.hpp"
 
@@ -60,6 +61,9 @@ struct Options {
     std::optional<lz4pack::PackOptions> lz4;
     // FPKG output: keys_folder is required; `overwrite` comes from above.
     fpkg::build::PackageOptions fpkg;
+    // Resumable output (every target but FPKG; see resume.hpp). FPKG output
+    // and LZ4 packing ignore it and start over.
+    resume::Session* resume = nullptr;
     // Serve LZ4-packed files as ordinary files again (drops the packs).
     bool lz4_unpack = false;
 };
@@ -73,6 +77,7 @@ struct Report {
     std::string lz4_config_toml;            // the pack configuration, as ampr_pack.py TOML
     std::vector<std::string> lz4_forced_loose;
     std::vector<std::string> warnings;
+    bool resumable = false; // the session was used
 };
 
 Result<Report> run(const std::string& input, const std::string& output, Format to, const Options& options = {},

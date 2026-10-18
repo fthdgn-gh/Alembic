@@ -70,6 +70,7 @@ add_library(alembic_core STATIC
     src/core/fpkg.cpp
     src/core/fpkg_inner.cpp
     src/core/io.cpp
+    src/core/resume.cpp
     src/core/json.cpp
     src/core/kraken.cpp
     src/core/lz4pack_build.cpp
@@ -180,6 +181,7 @@ if(ALEMBIC_BUILD_TESTS)
         tests/test_lz4pack.cpp
         tests/test_pfs.cpp
         tests/test_pfsc.cpp
+        tests/test_resume.cpp
         tests/test_sha256.cpp
         tests/test_toml.cpp
         tests/test_unicode.cpp

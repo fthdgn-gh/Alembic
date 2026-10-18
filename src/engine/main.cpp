@@ -14,7 +14,8 @@
 //   GET  /api/jobs                    every job, oldest first
 //   POST /api/jobs                    queue a job (JobSpec as JSON)
 //   GET  /api/jobs/ID                 one job
-//   POST /api/jobs/ID/cancel | /retry
+//   POST /api/jobs/ID/cancel | /retry | /pause | /resume
+//   POST /api/jobs/ID/move    {direction: -1 | 1}   run earlier or later
 //   DELETE /api/jobs/ID               remove a finished job
 //   POST /api/jobs/clear              remove every finished job
 //   GET  /api/deps                    third-party files Alembic can download, and their state
@@ -149,10 +150,13 @@ public:
                                         [](const Job& j) { finished(j); },
                                         [] { platform::keep_awake(); },
                                         [](const std::string& m) { log_line(m); },
+                                        [this](const JobSpec& s) { return checkpoint_info(s, config_).has_value(); },
+                                        [this](const JobSpec& s) { discard_checkpoint(s, config_); },
                                     }) {
         config_.needed_by_other_jobs = [this](const std::string& path) {
             for (const Job& j : queue_.list())
-                if (j.state == JobState::queued && is_within(strip_slashes(j.spec.input), path)) return true;
+                if ((j.state == JobState::queued || j.state == JobState::paused) && is_within(strip_slashes(j.spec.input), path))
+                    return true;
             return false;
         };
     }
@@ -244,6 +248,16 @@ private:
             for (const Job& j : queue_.list()) {
                 JsonValue v = j.to_json();
                 if (j.started) v.set("elapsed", (j.finished ? j.finished : now) - j.started);
+                if (j.spec.kind == "convert") v.set("keeps_progress", keeps_progress(j.spec));
+                // Where a waiting job continues from.
+                if (j.state == JobState::queued || j.state == JobState::paused || j.state == JobState::failed ||
+                    j.state == JobState::interrupted)
+                    if (auto cp = checkpoint_info(j.spec, config_)) {
+                        JsonValue c = JsonValue::object();
+                        c.set("done", cp->done);
+                        c.set("total", cp->total);
+                        v.set("checkpoint", std::move(c));
+                    }
                 list.push(std::move(v));
             }
             return json(200, list);
@@ -657,6 +671,17 @@ private:
         }
         if (action == "cancel" && r.method == "POST") {
             Status s = queue_.cancel(id);
+            return s.ok() ? json(200, JsonValue::object()) : error(409, s.error().message);
+        }
+        if ((action == "pause" || action == "resume") && r.method == "POST") {
+            Status s = action == "pause" ? queue_.pause(id) : queue_.resume(id);
+            if (s.ok()) log_line("job " + std::to_string(id) + " " + action + " by " + r.peer);
+            return s.ok() ? json(200, JsonValue::object()) : error(409, s.error().message);
+        }
+        if (action == "move" && r.method == "POST") {
+            auto body = parse_json(r.body);
+            if (!body.ok()) return error(400, body.error().message);
+            Status s = queue_.move(id, (*body)["direction"].integer(1) < 0 ? -1 : 1);
             return s.ok() ? json(200, JsonValue::object()) : error(409, s.error().message);
         }
         if (action == "retry" && r.method == "POST") {

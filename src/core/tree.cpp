@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "alembic/tree.hpp"
+#include "alembic/resume.hpp"
 
 #include "alembic/unicode.hpp"
 
@@ -88,32 +89,71 @@ public:
     std::vector<std::string> paths_;
 };
 
-Status write_file(const Source& source, const Node& file, const std::string& path, bool overwrite,
-                  std::uint64_t& done, std::uint64_t total, const ProgressFn& progress) {
-    if (path_exists(path) && !overwrite) return make_error(Errc::invalid_argument, "the output file already exists: " + path);
-    if (path_exists(path) && ::unlink(path.c_str()) != 0)
-        return make_error(Errc::io, "cannot replace '" + path + "': " + os_error_message(errno));
-    ALEMBIC_ASSIGN(File out, File::open(path, File::Mode::create_new));
-    if (file.size > 0) {
+// Where an extraction is, for checkpoints.
+struct Extraction {
+    std::uint64_t done = 0, total = 0;
+    std::uint64_t files = 0;        // files finished, in tree order
+    bool resuming = false;          // continuing from a checkpoint
+    std::uint64_t keep = 0;         // files a continued run keeps
+    std::uint64_t keep_bytes = 0;   // and the bytes of the next one
+    std::uint64_t current = 0;      // bytes of the file being written
+    std::uint64_t since_save = 0;   // bytes since the last checkpoint
+    resume::Session* session = nullptr;
+
+    // Flushes everything written so far, then records the finished files
+    // and how far the current one is.
+    Status save() {
+        ::sync();
+        since_save = 0;
+        return session->save(resume::State{
+            {"format", resume::kFolderFormat}, {"files", files}, {"bytes", current}, {"done", done}});
+    }
+    Status wrote(std::uint64_t n) {
+        since_save += n;
+        if (session && session->save && since_save >= session->interval) return save();
+        return {};
+    }
+};
+
+// Writes one file; `from` > 0 continues one whose first `from` bytes are in place.
+Status write_one(const Source& source, const Node& file, const std::string& path, bool overwrite, std::uint64_t from,
+                 Extraction& x, const ProgressFn& progress) {
+    File out;
+    if (from > 0) {
+        ALEMBIC_ASSIGN(out, File::open(path, File::Mode::read_write));
+        ALEMBIC_TRY(out.truncate(from));
+    } else {
+        if (path_exists(path) && !overwrite) return make_error(Errc::invalid_argument, "the output file already exists: " + path);
+        if (path_exists(path) && ::unlink(path.c_str()) != 0)
+            return make_error(Errc::io, "cannot replace '" + path + "': " + os_error_message(errno));
+        ALEMBIC_ASSIGN(out, File::open(path, File::Mode::create_new));
+    }
+    x.current = from;
+    x.done += from;
+    if (file.size > from) {
         ALEMBIC_ASSIGN(std::shared_ptr<const RandomAccess> in, source.open(file));
         std::vector<std::uint8_t> buffer(1 << 20);
-        for (std::uint64_t at = 0; at < file.size;) {
+        for (std::uint64_t at = from; at < file.size;) {
             auto n = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), file.size - at));
             ALEMBIC_TRY(in->read_at(at, MutableBytes(buffer.data(), n)));
             ALEMBIC_TRY(out.write_at(at, Bytes(buffer.data(), n)));
             at += n;
-            done += n;
-            if (progress && !progress({"Extracting", done, total})) return make_error(Errc::cancelled, "cancelled");
+            x.done += n;
+            x.current = at;
+            if (progress && !progress({"Extracting", x.done, x.total})) return make_error(Errc::cancelled, "cancelled");
+            ALEMBIC_TRY(x.wrote(n));
         }
     }
     ALEMBIC_TRY(out.close());
     timeval times[2] = {{static_cast<time_t>(file.mtime), 0}, {static_cast<time_t>(file.mtime), 0}};
     ::utimes(path.c_str(), times); // best effort
+    x.current = 0;
+    ++x.files;
     return {};
 }
 
 Status extract_into(const Source& source, const Node& directory, const std::string& folder, bool overwrite,
-                    std::uint64_t& done, std::uint64_t total, const ProgressFn& progress) {
+                    Extraction& x, const ProgressFn& progress) {
     if (!is_directory(folder) && ::mkdir(folder.c_str(), 0755) != 0)
         return make_error(Errc::io, "cannot create folder '" + folder + "': " + os_error_message(errno));
     for (const Node& child : directory.children) {
@@ -122,8 +162,24 @@ Status extract_into(const Source& source, const Node& directory, const std::stri
             child.name.find('/') != std::string::npos || child.name.find('\0') != std::string::npos)
             return make_error(Errc::invalid_data, "unsafe name in the image: " + child.name);
         std::string path = folder + "/" + child.name;
-        if (child.is_directory) ALEMBIC_TRY(extract_into(source, child, path, overwrite, done, total, progress));
-        else ALEMBIC_TRY(write_file(source, child, path, overwrite, done, total, progress));
+        if (child.is_directory) {
+            ALEMBIC_TRY(extract_into(source, child, path, overwrite, x, progress));
+            continue;
+        }
+        // A continued run keeps the files finished before its checkpoint and
+        // the written part of the one it stopped in.
+        struct stat st{};
+        bool there = x.resuming && ::stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
+        std::uint64_t size = there ? static_cast<std::uint64_t>(st.st_size) : 0;
+        if (there && x.files < x.keep && size == child.size) {
+            ++x.files;
+            x.done += child.size;
+            continue;
+        }
+        std::uint64_t from = there && x.files == x.keep && x.keep_bytes > 0 && size >= x.keep_bytes && x.keep_bytes < child.size
+                                 ? x.keep_bytes : 0;
+        // Anything else written after the checkpoint may be half done: it is replaced.
+        ALEMBIC_TRY(write_one(source, child, path, overwrite || x.resuming, from, x, progress));
     }
     return {};
 }
@@ -187,10 +243,23 @@ Totals totals(const Node& node) {
 }
 
 Status extract(const Source& source, const Node& directory, const std::string& output_folder, bool overwrite,
-               const ProgressFn& progress) {
+               const ProgressFn& progress, resume::Session* session) {
     ALEMBIC_TRY(make_parent_directories(output_folder));
-    std::uint64_t done = 0;
-    return extract_into(source, directory, output_folder, overwrite, done, totals(directory).bytes, progress);
+    Extraction x;
+    x.total = totals(directory).bytes;
+    x.session = session;
+    if (session && session->from) {
+        if (resume::get(*session->from, "format") != resume::kFolderFormat)
+            return make_error(Errc::invalid_data, "the checkpoint does not match this conversion");
+        x.resuming = true;
+        x.keep = resume::get(*session->from, "files");
+        x.keep_bytes = resume::get(*session->from, "bytes");
+        if (x.keep_bytes == ~std::uint64_t{0}) x.keep_bytes = 0;
+        if (x.keep == ~std::uint64_t{0}) return make_error(Errc::invalid_data, "the checkpoint does not match this conversion");
+    }
+    Status s = extract_into(source, directory, output_folder, overwrite, x, progress);
+    if (!s.ok() && session && session->save && (x.files > 0 || x.current > 0)) (void)x.save(); // a pause keeps what is written
+    return s;
 }
 
 } // namespace alembic::tree

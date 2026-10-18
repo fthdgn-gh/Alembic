@@ -22,6 +22,10 @@
 #include <optional>
 #include <string>
 
+namespace alembic::resume {
+struct Session;
+}
+
 namespace alembic::ffpfsc {
 
 struct BuildOptions {
@@ -34,6 +38,9 @@ struct BuildOptions {
     // Fixed PFS timestamp for reproducible output; default is the current time.
     std::optional<std::int64_t> build_timestamp;
     pfsc::CompressionOptions compression;
+    // Resumable write (see resume.hpp): the partial file and checkpoints. The
+    // caller keeps the session alive for the call.
+    resume::Session* resume = nullptr;
 };
 
 struct BuildResult {

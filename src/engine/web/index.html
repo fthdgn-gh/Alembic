@@ -165,6 +165,7 @@ body.covered .view.scroll, body.covered .view .scroll, .overlay.under .scroll { 
 .state { font-size: .7rem; padding: .15rem .6rem; border-radius: 99px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; margin-left: .75rem; white-space: nowrap; }
 .state.running { background: rgba(111,147,255,.15); color: var(--accent); }
 .state.queued, .state.cancelled { background: #232a3a; color: var(--muted); }
+.state.paused { background: rgba(240,180,80,.15); color: var(--warn); }
 .state.done { background: rgba(63,194,130,.15); color: var(--ok); }
 .state.failed, .state.interrupted { background: rgba(240,106,98,.14); color: var(--bad); }
 .tag { display: inline-block; font-size: .72rem; color: var(--muted); border: 1px solid var(--line2); border-radius: .4rem; padding: .05rem .45rem; margin: .15rem 0 0 .35rem; }
@@ -794,7 +795,7 @@ async function loadInfo() {
   if (state.tab === "settings") renderSettings();
 }
 function renderStatus() {
-  const running = state.jobs.filter((j) => j.state === "running").length, queued = state.jobs.filter((j) => j.state === "queued").length;
+  const running = state.jobs.filter((j) => j.state === "running").length, queued = state.jobs.filter((j) => j.state === "queued" || j.state === "paused").length;
   const s = $("#status");
   $("#status-text").textContent = state.info ? (running ? "Working" : "Idle") + (queued ? " · " + queued + " waiting" : "") : "Not connected";
   s.className = "status" + (running ? " live" : "") + (state.info ? "" : " off");
@@ -1345,11 +1346,14 @@ function jobText(j) {
   return { title: base(s.input), to: "→ " + s.output };
 }
 const cards = new Map();
+// Running, or still to run (queued or paused), in the order they run.
+function isActive(j) { return j.state === "running" || j.state === "queued" || j.state === "paused"; }
+function cpText(j) { return j.checkpoint && j.checkpoint.total ? Math.floor(100 * j.checkpoint.done / j.checkpoint.total) + "%" : ""; }
 function renderJobs() {
   renderStatus();
   if (state.tab !== "queue") return;
-  const active = state.jobs.filter((j) => j.state === "running" || j.state === "queued");
-  const done = state.jobs.filter((j) => !(j.state === "running" || j.state === "queued")).reverse();
+  const active = state.jobs.filter((j) => isActive(j));
+  const done = state.jobs.filter((j) => !isActive(j)).reverse();
   const seen = new Set();
   // Cards are updated in place so the focus stays put while jobs run.
   const fill = (box, list, empty) => {
@@ -1401,7 +1405,8 @@ function fillJob(c, j) {
       rate > 1 && j.total ? duration((j.total - j.done) / rate) + " left" : "", j.elapsed != null ? duration(j.elapsed) + " so far" : ""].filter(Boolean).join("  ·  ");
   } else if (j.state === "done") {
     detail = [r.method, r.output_bytes ? bytes(r.output_bytes) : "", j.elapsed != null ? duration(j.elapsed) : "", r.source_deleted ? "source deleted" : ""].filter(Boolean).join("  ·  ");
-  } else if (j.state === "queued") detail = "Waiting for the job before it";
+  } else if (j.state === "queued") detail = cpText(j) ? "Waiting · continues from " + cpText(j) : "Waiting for the job before it";
+  else if (j.state === "paused") detail = cpText(j) ? "Paused at " + cpText(j) + " · resume to continue" : j.stage || "Paused";
   else detail = j.finished ? date(j.finished) : "";
   const tags = [];
   if (s.kind === "convert") {
@@ -1431,7 +1436,8 @@ function fillJob(c, j) {
   put(c, h("div", { class: "hd" }, ico,
       h("div", { style: "min-width:0;flex:1" }, h("div", { class: "ttl ellip", text: m && m.title ? m.title : t.title }), m ? sub : null, h("div", { class: "to mono ellip", text: t.to })),
       h("span", { class: "state " + j.state, text: j.state })),
-    j.state === "running" ? h("div", { class: "pbar" + (j.total ? "" : " indet") }, h("div", { style: "width:" + pct + "%" })) : null,
+    j.state === "running" ? h("div", { class: "pbar" + (j.total ? "" : " indet") }, h("div", { style: "width:" + pct + "%" }))
+      : cpText(j) && isActive(j) ? h("div", { class: "pbar", style: "opacity:.5" }, h("div", { style: "width:" + cpText(j) })) : null,
     h("div", { class: "line" }, h("span", { text: detail }), h("span", {}, tags.map((x) => h("span", { class: "tag", text: x })))),
     r.lz4 ? h("div", { class: "line", text: "LZ4: " + r.lz4.files_packed + " of " + r.lz4.files_total + " files packed · " + bytes(r.lz4.packed_bytes) + " → " + bytes(r.lz4.volume_bytes) }) : null,
     r.source_kept ? h("div", { class: "note", text: "Source kept: " + r.source_kept }) : null,
@@ -1441,19 +1447,29 @@ function fillJob(c, j) {
 }
 async function jobActions(j) {
   const r = j.result || {}, items = [];
-  if (j.state === "queued" || j.state === "running") items.push({ label: "Cancel", danger: true, sub: j.state === "running" ? "Its partial output is deleted" : null, value: "cancel" });
-  if (["failed", "cancelled", "interrupted"].indexOf(j.state) >= 0) items.push({ label: "Retry", value: "retry" });
+  const waiting = state.jobs.filter((x) => x.state === "queued" || x.state === "paused");
+  const pos = waiting.indexOf(waiting.filter((x) => x.id === j.id)[0]);
+  if (j.state === "running") items.push({ label: "Pause", value: "pause",
+    sub: j.keeps_progress ? "Keeps its progress; other jobs run meanwhile" : "This kind of job can't keep its progress: it starts over when resumed" });
+  if (j.state === "paused") items.push({ label: "Resume", value: "resume", sub: cpText(j) ? "Continues from " + cpText(j) : "Starts from the beginning" });
+  if (j.state === "queued") items.push({ label: "Hold", value: "pause", sub: "Keep it waiting until you resume it" });
+  if (pos > 0) items.push({ label: "Move up", value: "up", sub: "Run it before " + jobText(waiting[pos - 1]).title });
+  if (pos >= 0 && pos < waiting.length - 1) items.push({ label: "Move down", value: "down", sub: "Run it after " + jobText(waiting[pos + 1]).title });
+  if (isActive(j)) items.push({ label: "Cancel", danger: true, sub: j.state === "running" || j.checkpoint ? "Its partial output is deleted" : null, value: "cancel" });
+  if (["failed", "cancelled", "interrupted"].indexOf(j.state) >= 0) items.push({ label: "Retry", value: "retry", sub: cpText(j) ? "Continues from " + cpText(j) : null });
   if (j.state === "done" && r.output) items.push({ label: "Show in Files", value: "show" });
-  if (["queued", "running"].indexOf(j.state) < 0) items.push({ label: "Remove from history", value: "remove" });
+  if (!isActive(j)) items.push({ label: "Remove from history", value: "remove", sub: cpText(j) ? "Also deletes its partial output" : null });
   if (!items.length) return;
   const v = await choose(jobText(j).title, items, jobText(j).to);
+  if (v === "pause" || v === "resume") await act("POST", "/api/jobs/" + j.id + "/" + v);
+  if (v === "up" || v === "down") await act("POST", "/api/jobs/" + j.id + "/move", { direction: v === "up" ? -1 : 1 });
   if (v === "cancel") await act("POST", "/api/jobs/" + j.id + "/cancel");
   if (v === "retry") await act("POST", "/api/jobs/" + j.id + "/retry");
   if (v === "remove") await act("DELETE", "/api/jobs/" + j.id);
   if (v === "show") { showTab("files"); browse(dir(r.output), true, r.output); }
 }
-async function act(method, path) {
-  try { await api(method, path); } catch (e) { toast(e.message, "bad"); }
+async function act(method, path, body) {
+  try { await api(method, path, body); } catch (e) { toast(e.message, "bad"); }
   refreshJobs();
 }
 $("#btn-clear").addEventListener("click", () => act("POST", "/api/jobs/clear"));
@@ -1463,7 +1479,7 @@ async function refreshJobs() {
   try {
     const jobs = await api("GET", "/api/jobs");
     // Toast and refresh the listing when a job finishes.
-    const finished = jobs.filter((j) => ["queued", "running"].indexOf(j.state) < 0).map((j) => j.id + j.state).join();
+    const finished = jobs.filter((j) => !isActive(j)).map((j) => j.id + j.state).join();
     if (lastFinished !== null && finished !== lastFinished) {
       const newest = jobs.filter((j) => j.finished).sort((a, b) => b.finished - a.finished)[0];
       if (newest && newest.state === "done") toast("Finished: " + base(newest.spec.input), "ok");

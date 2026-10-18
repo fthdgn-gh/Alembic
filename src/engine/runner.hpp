@@ -5,6 +5,7 @@
 #include "jobs.hpp"
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -45,6 +46,21 @@ std::string shorten_name(const std::string& name, std::size_t limit);
 bool path_allowed(const std::string& path, const std::vector<std::string>& roots);
 
 Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress);
+
+// Checkpoints of interrupted conversions, in <state>/resume/<hash of the
+// output>.json, with the partial output at "<output>.alembic-partial". A
+// conversion continues from one only if the job's options and the input's
+// size and modification time are unchanged.
+struct CheckpointInfo {
+    std::uint64_t done = 0;  // progress when it was saved
+    std::uint64_t total = 0;
+};
+inline constexpr const char* kPartialSuffix = ".alembic-partial";
+// Whether this job keeps its progress when stopped (every output but FPKG; no LZ4 packing).
+bool keeps_progress(const JobSpec& spec);
+std::optional<CheckpointInfo> checkpoint_info(const JobSpec& spec, const EngineConfig& config);
+// Deletes the checkpoint and the partial output.
+void discard_checkpoint(const JobSpec& spec, const EngineConfig& config);
 // The ids of the components (deps.hpp) a job needs that are not installed:
 // the ampr_emu runtime for LZ4 packing when the game ships none.
 std::vector<std::string> missing_dependencies(const JobSpec& spec, const EngineConfig& config);

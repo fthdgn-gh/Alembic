@@ -8,9 +8,11 @@
 #include <map>
 #include <mutex>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "alembic/convert.hpp"
 #include "alembic/lz4pack.hpp"
+#include "alembic/resume.hpp"
 
 namespace alembic::engine {
 
@@ -173,6 +175,88 @@ bool path_allowed(const std::string& path, const std::vector<std::string>& roots
     return false;
 }
 
+namespace {
+
+std::string checkpoint_path(const std::string& output, const EngineConfig& config) {
+    std::uint64_t h = 0xcbf29ce484222325ULL;
+    for (unsigned char c : output) h = (h ^ c) * 0x100000001b3ULL;
+    char buf[24];
+    std::snprintf(buf, sizeof buf, "%016llx", static_cast<unsigned long long>(h));
+    return config.state_dir + "/resume/" + buf + ".json";
+}
+
+// What must not change between a checkpoint and the run that continues it.
+std::string fingerprint(const JobSpec& spec, const std::string& output) {
+    struct stat st{};
+    std::string input = strip_slashes(spec.input);
+    if (::stat(input.c_str(), &st) != 0) return "";
+    JsonValue v = JsonValue::object();
+    v.set("layout", static_cast<std::int64_t>(resume::kLayoutVersion));
+    v.set("input", input);
+    v.set("input_size", static_cast<std::int64_t>(st.st_size));
+    v.set("input_mtime", static_cast<std::int64_t>(st.st_mtime));
+    v.set("output", output);
+    v.set("to", spec.to);
+    v.set("level", spec.level);
+    v.set("rebuild", spec.rebuild);
+    v.set("cluster_size", spec.cluster_size);
+    v.set("lz4_unpack", spec.lz4_unpack);
+    v.set("passcode", spec.passcode);
+    return v.dump();
+}
+
+bool is_folder_output(const std::string& output) { return !output.empty() && output.back() == '/'; }
+
+// What a checkpoint continues: the partial file, or for a folder the folder itself.
+bool has_partial(const std::string& output) {
+    return is_folder_output(output) ? is_directory(output) : is_regular_file(output + kPartialSuffix);
+}
+
+Result<JsonValue> read_json_file(const std::string& path) {
+    auto file = File::open(path, File::Mode::read);
+    if (!file.ok()) return file.error();
+    ALEMBIC_ASSIGN(std::uint64_t size, file->size());
+    if (size > 1 << 20) return make_error(Errc::too_large, "too large");
+    std::string text(static_cast<std::size_t>(size), '\0');
+    ALEMBIC_TRY(file->read_at(0, MutableBytes(reinterpret_cast<std::uint8_t*>(text.data()), text.size())));
+    return parse_json(text);
+}
+
+Status write_json_file(const std::string& path, const JsonValue& v) {
+    std::string text = v.dump();
+    ALEMBIC_ASSIGN(AtomicOutput out, AtomicOutput::create(path, true));
+    ALEMBIC_TRY(out.file().write_at(0, Bytes(reinterpret_cast<const std::uint8_t*>(text.data()), text.size())));
+    return out.commit();
+}
+
+} // namespace
+
+bool keeps_progress(const JobSpec& spec) {
+    if (spec.kind != "convert" || spec.lz4) return false;
+    auto to = target_format(spec);
+    return to.ok() && *to != convert::Format::fpkg;
+}
+
+std::optional<CheckpointInfo> checkpoint_info(const JobSpec& spec, const EngineConfig& config) {
+    if (spec.kind != "convert") return std::nullopt;
+    auto output = resolve_output(spec);
+    if (!output.ok() || !has_partial(*output)) return std::nullopt;
+    auto v = read_json_file(checkpoint_path(*output, config));
+    if (!v.ok() || (*v)["fingerprint"].str() != fingerprint(spec, *output)) return std::nullopt;
+    CheckpointInfo info;
+    info.done = static_cast<std::uint64_t>((*v)["done"].integer());
+    info.total = static_cast<std::uint64_t>((*v)["total"].integer());
+    return info;
+}
+
+void discard_checkpoint(const JobSpec& spec, const EngineConfig& config) {
+    if (spec.kind != "convert") return;
+    auto output = resolve_output(spec);
+    if (!output.ok()) return;
+    if (!is_folder_output(*output)) ::unlink((*output + kPartialSuffix).c_str()); // a folder keeps what it has
+    ::unlink(checkpoint_path(*output, config).c_str());
+}
+
 Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress) {
     ALEMBIC_ASSIGN(convert::Format to, target_format(spec));
     ALEMBIC_ASSIGN(std::string output, resolve_output(spec));
@@ -217,12 +301,71 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
         profile_json.set("notes", std::move(notes));
     }
 
-    ALEMBIC_ASSIGN(convert::Report report, convert::run(spec.input, output, to, options, progress));
+    // Resumable outputs write into a partial file and save checkpoints; a
+    // checkpoint from an earlier run of the same job is continued.
+    resume::Session session;
+    std::uint64_t last_done = 0, last_total = 0;
+    ProgressFn tracked = [&](const ProgressEvent& e) {
+        last_done = e.done;
+        last_total = e.total;
+        return !progress || progress(e);
+    };
+    const std::string cp_path = checkpoint_path(output, config);
+    const std::string fp = fingerprint(spec, output);
+    if (spec.kind == "convert" && !spec.lz4 && !fp.empty()) {
+        if (!is_folder_output(output)) session.partial_path = output + kPartialSuffix;
+        auto saved = read_json_file(cp_path);
+        if (saved.ok() && (*saved)["fingerprint"].str() == fp && has_partial(output)) {
+            resume::State state;
+            for (const auto& [k, v] : (*saved)["state"].fields()) state[k] = static_cast<std::uint64_t>(v.integer());
+            session.from = std::move(state);
+        } else {
+            if (!session.partial_path.empty()) ::unlink(session.partial_path.c_str());
+            ::unlink(cp_path.c_str());
+        }
+        session.save = [&](const resume::State& state) -> Status {
+            JsonValue v = JsonValue::object(), st = JsonValue::object();
+            for (const auto& [k, n] : state) st.set(k, static_cast<std::int64_t>(n));
+            v.set("fingerprint", fp);
+            v.set("partial", session.partial_path);
+            v.set("state", std::move(st));
+            v.set("done", static_cast<std::int64_t>(last_done));
+            v.set("total", static_cast<std::int64_t>(last_total));
+            v.set("saved", unix_now());
+            ALEMBIC_TRY(make_parent_directories(cp_path));
+            return write_json_file(cp_path, v);
+        };
+        options.resume = &session;
+    }
+    bool resumed = session.from.has_value();
+    std::optional<Result<convert::Report>> result;
+    result.emplace(convert::run(spec.input, output, to, options, tracked));
+    if (!result->ok() && resumed && result->error().code == Errc::invalid_data &&
+        result->error().message.find("checkpoint") != std::string::npos) {
+        // The partial file or checkpoint is unusable: start over.
+        ::unlink(session.partial_path.c_str());
+        ::unlink(cp_path.c_str());
+        session.from.reset();
+        resumed = false;
+        result.emplace(convert::run(spec.input, output, to, options, tracked));
+    }
+    Result<convert::Report>& ran = *result;
+    if (ran.ok() || ran.error().code != Errc::cancelled) {
+        // Done, or failed for good: a retry starts from a clean slate unless
+        // it failed after a checkpoint (a full disk, a pulled drive).
+        if (ran.ok() || !is_regular_file(cp_path)) {
+            ::unlink(session.partial_path.c_str());
+            ::unlink(cp_path.c_str());
+        }
+    }
+    if (!ran.ok()) return ran.error();
+    convert::Report report = std::move(*ran);
     JsonValue r = JsonValue::object();
     r.set("from", convert::name(report.from));
     r.set("to", convert::name(report.to));
     r.set("output", output);
     r.set("method", report.method);
+    if (resumed) r.set("resumed", true);
     if (!report.detail.empty()) r.set("detail", report.detail);
     if (!report.warnings.empty()) {
         JsonValue warnings = JsonValue::array();

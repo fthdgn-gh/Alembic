@@ -15,6 +15,7 @@
 #include "alembic/io.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -70,7 +71,26 @@ public:
     Encoder(const Encoder&) = delete;
     Encoder& operator=(const Encoder&) = delete;
 
-    Status begin();
+    // Where an interrupted encode stopped: blocks fully written and the end
+    // of the last one (relative to `start`).
+    struct Checkpoint {
+        std::uint32_t blocks = 0;
+        std::uint64_t written = 0;
+        std::uint32_t compressed = 0;
+    };
+    // Every `interval` input bytes, the offsets of the finished blocks are
+    // written into the table, the file is synced and `save` is called. Set
+    // before begin().
+    void set_checkpoints(std::uint64_t interval, std::function<Status(const Checkpoint&)> save);
+    // Saves a checkpoint at the blocks written so far (after a pause or an
+    // error stopped the input; blocks still being compressed are redone).
+    Status save_now() { return save_checkpoint_ && begun_ ? checkpoint() : Status{}; }
+
+    // Starts a new encode, or continues one from `from`: the offset table is
+    // read back from the file and checked, and the file is cut at the
+    // checkpoint. The caller then writes the input from block `from->blocks`
+    // on (input offset blocks * kBlockSize).
+    Status begin(const std::optional<Checkpoint>& from = std::nullopt);
     Status write(Bytes data) override;
     Result<WriteResult> finish();
 
@@ -94,6 +114,10 @@ private:
     std::uint64_t received_ = 0;
     std::uint64_t last_progress_ = 0;
     bool begun_ = false;
+    std::uint64_t checkpoint_interval_ = 0;
+    std::function<Status(const Checkpoint&)> save_checkpoint_;
+    std::uint32_t checkpoint_blocks_ = 0; // table entries up to here are in the file
+    Status checkpoint();
 };
 
 // Encodes the whole of `source` into `destination` at `start`.

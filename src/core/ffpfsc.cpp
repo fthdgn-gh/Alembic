@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Ported from PS5PKGTool PS5PKGTool.Ffpfsc/FfpfscImage.cs (GPL-3.0).
 #include "alembic/ffpfsc.hpp"
+#include "alembic/resume.hpp"
 
 #include "alembic/bytes.hpp"
 #include "alembic/json.hpp"
@@ -205,14 +206,29 @@ Status validate_options(const BuildOptions& options) {
     return {};
 }
 
-// Pushes the payload into a PFSC encoder positioned in the output file.
-using PayloadWriter = Status (*)(void* context, ByteSink& sink, const ProgressFn& progress);
+// Pushes the payload, from byte `start` on, into a PFSC encoder positioned in the output file.
+using PayloadWriter = Status (*)(void* context, ByteSink& sink, std::uint64_t start);
 
 Result<BuildResult> create_core(std::uint64_t source_length, PayloadWriter write_payload, void* context,
                                 const std::string& output_path, const std::string& inner_name,
                                 const BuildOptions& options, const char* stage, const ProgressFn& progress) {
     const std::uint32_t block_size = options.pfs_block_size;
-    const std::int64_t timestamp = options.build_timestamp.value_or(static_cast<std::int64_t>(std::time(nullptr)));
+    std::int64_t timestamp = options.build_timestamp.value_or(static_cast<std::int64_t>(std::time(nullptr)));
+
+    // Continuing an interrupted build: its time stamp, and where the PFSC
+    // payload stopped.
+    resume::Session* session = options.resume;
+    std::optional<pfsc::Encoder::Checkpoint> from;
+    if (session && session->from) {
+        const resume::State& s = *session->from;
+        auto get = [&](const char* key) { auto it = s.find(key); return it == s.end() ? ~std::uint64_t{0} : it->second; };
+        if (get("format") != resume::kFfpfscFormat || get("source_length") != source_length || get("block_size") != block_size ||
+            get("blocks") > UINT32_MAX || get("compressed") > UINT32_MAX)
+            return make_error(Errc::invalid_data, "the checkpoint does not match this conversion");
+        timestamp = static_cast<std::int64_t>(get("timestamp"));
+        from = pfsc::Encoder::Checkpoint{static_cast<std::uint32_t>(get("blocks")), get("written"),
+                                         static_cast<std::uint32_t>(get("compressed"))};
+    }
 
     std::vector<std::uint8_t> fpt(8);
     put_u32(fpt.data(), hash_path("/" + inner_name));
@@ -240,7 +256,9 @@ Result<BuildResult> create_core(std::uint64_t source_length, PayloadWriter write
         {static_cast<std::uint16_t>(kModeFile | kPermissionsRx), 1, kFlagReadOnly, 0, 0, 1, payload_block, timestamp},
     };
 
-    ALEMBIC_ASSIGN(AtomicOutput output, AtomicOutput::create(output_path, options.overwrite_existing));
+    ALEMBIC_ASSIGN(AtomicOutput output, session ? AtomicOutput::create_partial(output_path, session->partial_path, from.has_value(),
+                                                                               options.overwrite_existing)
+                                                : AtomicOutput::create(output_path, options.overwrite_existing));
     File& file = output.file();
     ALEMBIC_TRY(file.write_at(0, build_header(block_size, options.case_insensitive, 0, inode_blocks, timestamp)));
     ALEMBIC_TRY(file.write_at(block_size, inode_table(inodes)));
@@ -252,8 +270,21 @@ Result<BuildResult> create_core(std::uint64_t source_length, PayloadWriter write
     if (progress)
         pfsc_progress = [&](const ProgressEvent& e) { return progress({stage, e.done, e.total}); };
     pfsc::Encoder encoder(file, payload_offset, source_length, options.compression, pfsc_progress);
-    ALEMBIC_TRY(encoder.begin());
-    ALEMBIC_TRY(write_payload(context, encoder, {}));
+    if (session && session->save)
+        encoder.set_checkpoints(session->interval, [&](const pfsc::Encoder::Checkpoint& c) {
+            return session->save(resume::State{{"format", resume::kFfpfscFormat},
+                                               {"timestamp", static_cast<std::uint64_t>(timestamp)},
+                                               {"source_length", source_length},
+                                               {"block_size", block_size},
+                                               {"blocks", c.blocks},
+                                               {"written", c.written},
+                                               {"compressed", c.compressed}});
+        });
+    ALEMBIC_TRY(encoder.begin(from));
+    if (Status s = write_payload(context, encoder, from ? static_cast<std::uint64_t>(from->blocks) * pfsc::kBlockSize : 0); !s.ok()) {
+        (void)encoder.save_now(); // a pause loses nothing already written
+        return s.error();
+    }
     ALEMBIC_ASSIGN(pfsc::WriteResult pfsc_result, encoder.finish());
 
     std::uint64_t payload_blocks = std::max<std::uint64_t>(1, div_round_up(pfsc_result.stored_length, block_size));
@@ -300,8 +331,8 @@ struct BuilderPayload {
     const exfat::ImageBuilder* builder;
 };
 
-Status write_builder_payload(void* context, ByteSink& sink, const ProgressFn&) {
-    return static_cast<BuilderPayload*>(context)->builder->write(sink);
+Status write_builder_payload(void* context, ByteSink& sink, std::uint64_t start) {
+    return static_cast<BuilderPayload*>(context)->builder->write(sink, {}, std::min(start, static_cast<BuilderPayload*>(context)->builder->image_length()));
 }
 
 struct ImagePayload {
@@ -309,10 +340,10 @@ struct ImagePayload {
     std::uint64_t length;
 };
 
-Status write_image_payload(void* context, ByteSink& sink, const ProgressFn&) {
+Status write_image_payload(void* context, ByteSink& sink, std::uint64_t start) {
     auto* payload = static_cast<ImagePayload*>(context);
     std::vector<std::uint8_t> buffer(1 << 20);
-    for (std::uint64_t done = 0; done < payload->length;) {
+    for (std::uint64_t done = std::min(start, payload->length); done < payload->length;) {
         auto n = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), payload->length - done));
         ALEMBIC_TRY(payload->source->read_at(done, MutableBytes(buffer.data(), n)));
         ALEMBIC_TRY(sink.write(Bytes(buffer.data(), n)));

@@ -13,6 +13,10 @@
 #include <string_view>
 #include <vector>
 
+namespace alembic::resume {
+struct Session;
+}
+
 namespace alembic::tree {
 
 struct Node {
@@ -53,8 +57,11 @@ Totals totals(const Node& node);
 
 // Writes `directory` (usually the root) into `output_folder`, creating it if
 // needed. Existing files are an error unless `overwrite`. Sets file times.
+// With a session (resume.hpp), every interval bytes it flushes the files to
+// disk and saves how many are complete (in tree order); continuing from that
+// keeps those files (when their size matches) and writes the rest again.
 Status extract(const Source& source, const Node& directory, const std::string& output_folder, bool overwrite = false,
-               const ProgressFn& progress = {});
+               const ProgressFn& progress = {}, resume::Session* session = nullptr);
 
 // Junk files that operating systems drop into folders (.DS_Store, ._x, ...).
 bool is_os_junk(std::string_view name);

@@ -1062,6 +1062,44 @@ is about the USB drive's own format (shown on connect), not about the image.
   unused for 30 days go, then the least recently used until under 100 MB.
   Settings shows its size and has "Clear cache" (`POST /api/cache/clear`).
 
+### 2026-10-19: checkpoints, pause, resume and queue order
+
+- **Resumable writes** (`alembic/resume.hpp`): FFPFSC (from a tree or an
+  image), exFAT and image copies write into `<output>.alembic-partial` and,
+  every 1 GiB of input (and when stopped by a pause or an error), sync it
+  and save a small State. PFSC writes the offset-table entries of finished
+  blocks into their final place before each checkpoint, so a State is just
+  {blocks, written, compressed, timestamp, lengths}; on resume the table is
+  read back and checked and the file is cut at the checkpoint. The exFAT
+  builder can start at any offset and does not read files wholly before it.
+  Unit tests stop a run, append junk to the partial file, continue from an
+  older checkpoint and require the same bytes as an uninterrupted run.
+  Bump `resume::kLayoutVersion` when a resumable writer's bytes change.
+- Also resumable since: FFPKG (UFS2; the checkpoint keeps the time stamp and
+  process ID that go into the image) and FFPFS (PFS; the time stamp), both
+  planned first and streamed, so a continued write drops bytes before the
+  checkpoint and does not read files wholly before it; and folder outputs:
+  at each checkpoint everything is flushed (`sync()`, not an fsync per file)
+  and {files finished in tree order, bytes of the current file} is saved; a
+  continued run keeps those files when their size matches, continues the
+  current one from its saved length, and rewrites anything after it. Still
+  starting over: FPKG output and LZ4 packing.
+- **Engine:** the checkpoint lives in `<state>/resume/<hash of output>.json`
+  with a fingerprint (job options, input size and mtime, layout version);
+  anything else is discarded and the job starts over, as it does when the
+  partial file does not match. A job that was running when the payload died
+  is queued again at the next start (at most 3 times automatically); one
+  stopped with the engine continues at the next start. Cancel, removing a
+  failed job and "Clear" delete its partial output (unless another waiting
+  job writes the same output).
+- **Queue:** paused state; `POST /api/jobs/ID/pause | /resume`, `/move
+  {direction}`. The page offers Pause (running), Hold (queued), Resume, Move
+  up/down, and shows where a waiting job continues from.
+- Checked on the PC engine with a 2.8 GB package -> FFPFSC: pause, two other
+  jobs (one moved up) run, resume; and `kill -9` mid-run, restart, the job
+  continued by itself. Both outputs have the same payload hash and match the
+  package file for file.
+
 ## Next session
 
 **First (owner, 2026-10-18): the web page on the console.** Load the

@@ -16,6 +16,10 @@
 #include <string>
 #include <vector>
 
+namespace alembic::resume {
+struct Session;
+}
+
 namespace alembic::exfat {
 
 struct BuildOptions {
@@ -56,8 +60,10 @@ public:
     std::uint32_t directory_count() const; // includes the root
 
     // Streams exactly image_length() bytes into `sink`. Source files are read
-    // during this call and must not change in between.
-    Status write(ByteSink& sink, const ProgressFn& progress = {}) const;
+    // during this call and must not change in between. With `start`, only
+    // the bytes from that offset on are sent (to continue an interrupted
+    // write); files wholly before it are not read.
+    Status write(ByteSink& sink, const ProgressFn& progress = {}, std::uint64_t start = 0) const;
 
 private:
     struct Impl;
@@ -70,8 +76,11 @@ Status write_directory_image(const std::string& source_directory, const std::str
                              const BuildOptions& options = {}, const ProgressFn& progress = {});
 
 // Writes an image of `root` to a new file.
+// With a session, it writes into the session's partial file and can
+// continue from its checkpoint (see resume.hpp).
 Status write_image(const tree::Source& source, const tree::Node& root, const std::string& output_path,
-                   const BuildOptions& options = {}, bool overwrite = false, const ProgressFn& progress = {});
+                   const BuildOptions& options = {}, bool overwrite = false, const ProgressFn& progress = {},
+                   resume::Session* session = nullptr);
 
 // Builds ampr_emu.index for a tree with the same rules as the image builder,
 // whether or not it has fakelib/libSceAmpr.sprx.

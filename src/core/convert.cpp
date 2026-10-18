@@ -4,6 +4,7 @@
 #include "alembic/bytes.hpp"
 #include "alembic/exfat_reader.hpp"
 #include "alembic/fpkg_inner.hpp"
+#include "alembic/resume.hpp"
 #include "alembic/pfs.hpp"
 #include "alembic/ufs2.hpp"
 #include "alembic/unicode.hpp"
@@ -32,16 +33,25 @@ Error unsupported(Format from, Format to, const std::string& hint = "") {
     return make_error(Errc::unsupported, hint.empty() ? message : message + "; " + hint);
 }
 
-Status copy_image(const RandomAccess& image, const std::string& output, bool overwrite, const ProgressFn& progress) {
+Status copy_image(const RandomAccess& image, const std::string& output, bool overwrite, const ProgressFn& progress,
+                  resume::Session* session) {
     ALEMBIC_ASSIGN(std::uint64_t length, image.size());
-    ALEMBIC_ASSIGN(AtomicOutput out, AtomicOutput::create(output, overwrite));
+    ALEMBIC_ASSIGN(std::uint64_t start, resume::sequential_start(session, length));
+    ALEMBIC_ASSIGN(AtomicOutput out, session ? AtomicOutput::create_partial(output, session->partial_path, session->from.has_value(), overwrite)
+                                             : AtomicOutput::create(output, overwrite));
+    if (session) ALEMBIC_TRY(out.file().truncate(start)); // drop what came after the checkpoint
+    resume::CheckpointSink sink(out.file(), start, length, session);
     std::vector<std::uint8_t> buffer(1 << 20);
-    for (std::uint64_t done = 0; done < length;) {
+    for (std::uint64_t done = start; done < length;) {
         auto n = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), length - done));
-        ALEMBIC_TRY(image.read_at(done, MutableBytes(buffer.data(), n)));
-        ALEMBIC_TRY(out.file().write_at(done, Bytes(buffer.data(), n)));
+        Status s = image.read_at(done, MutableBytes(buffer.data(), n));
+        if (s.ok()) s = sink.write(Bytes(buffer.data(), n));
         done += n;
-        if (progress && !progress({"Copying image", done, length})) return make_error(Errc::cancelled, "cancelled");
+        if (s.ok() && progress && !progress({"Copying image", done, length})) s = make_error(Errc::cancelled, "cancelled");
+        if (!s.ok()) {
+            (void)sink.save_now(); // a pause loses nothing already written
+            return s;
+        }
     }
     return out.commit();
 }
@@ -165,7 +175,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         return make_error(Errc::invalid_argument, "the output file already exists: " + output);
 
     ALEMBIC_ASSIGN(Input input, open(input_path, options.passcode));
-    Report report{input.format, to, "", "", std::nullopt, "", {}, {}};
+    Report report{input.format, to, "", "", std::nullopt, "", {}, {}, false};
     const tree::Source* tree_ptr = input.tree.get();
     std::unique_ptr<lz4pack::PackedTree> packed;
     std::unique_ptr<tree::Source> unpacked;
@@ -188,11 +198,15 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     bool transformed = tree_ptr != input.tree.get();
     bool rebuild = options.rebuild || transformed;
     const char* prefix = packed ? "LZ4-packed and " : unpacked ? "LZ4-unpacked and " : "";
+    // LZ4 packing stamps the time it runs, so it cannot continue a checkpoint;
+    // neither can the FPKG writer yet.
+    resume::Session* session = packed || to == Format::fpkg ? nullptr : options.resume;
+    report.resumable = session != nullptr;
 
     switch (to) {
     case Format::folder: {
         if (input.format == Format::folder && !transformed) return unsupported(input.format, to, "copy the folder instead");
-        ALEMBIC_TRY(tree::extract(tree, tree.root(), output, options.overwrite, progress));
+        ALEMBIC_TRY(tree::extract(tree, tree.root(), output, options.overwrite, progress, session));
         report.method = std::string(prefix) + "extracted the file tree";
         return report;
     }
@@ -200,17 +214,18 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         if (input.format == Format::exfat && !rebuild)
             return unsupported(input.format, to, "pass --rebuild to re-lay out the image");
         if (input.image && !input.image_is_ufs2 && !input.image_is_pfs && !rebuild) {
-            ALEMBIC_TRY(copy_image(*input.image, output, options.overwrite, progress));
+            ALEMBIC_TRY(copy_image(*input.image, output, options.overwrite, progress, session));
             report.method = "unwrapped the exFAT image unchanged";
             return report;
         }
-        ALEMBIC_TRY(exfat::write_image(tree, tree.root(), output, options.exfat, options.overwrite, progress));
+        ALEMBIC_TRY(exfat::write_image(tree, tree.root(), output, options.exfat, options.overwrite, progress, session));
         report.method = std::string(prefix) + "built a new exFAT image from the file tree";
         return report;
     }
     case Format::ffpfsc: {
         ffpfsc::BuildOptions ff = options.ffpfsc;
         ff.overwrite_existing = options.overwrite;
+        ff.resume = session;
         if (input.format == Format::folder && !transformed) {
             ALEMBIC_ASSIGN(ffpfsc::BuildResult r,
                            ffpfsc::create_from_directory(input_path, output, ff, options.exfat, progress));
@@ -235,7 +250,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     case Format::ffpkg: {
         if (input.image && input.image_is_ufs2 && !rebuild) {
             if (!input.ffpfsc) return unsupported(input.format, to, "pass --rebuild to re-lay out the image");
-            ALEMBIC_TRY(copy_image(*input.image, output, options.overwrite, progress));
+            ALEMBIC_TRY(copy_image(*input.image, output, options.overwrite, progress, session));
             report.method = "unwrapped the UFS2 image unchanged";
             return report;
         }
@@ -249,14 +264,14 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
                 u.volume_name = dot == std::string::npos ? name : name.substr(0, dot);
             }
         }
-        ALEMBIC_TRY(ufs2::write_image(tree, tree.root(), output, u, options.overwrite, progress));
+        ALEMBIC_TRY(ufs2::write_image(tree, tree.root(), output, u, options.overwrite, progress, session));
         report.method = std::string(prefix) + "built a new UFS2 image from the file tree";
         return report;
     }
     case Format::ffpfs: {
         if (input.image && input.image_is_pfs && !rebuild) {
             if (!input.ffpfsc) return unsupported(input.format, to, "pass --rebuild to re-lay out the image");
-            ALEMBIC_TRY(copy_image(*input.image, output, options.overwrite, progress));
+            ALEMBIC_TRY(copy_image(*input.image, output, options.overwrite, progress, session));
             report.method = "unwrapped the PFS image unchanged";
             return report;
         }
@@ -267,7 +282,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         p.generate_ampr_index = options.exfat.generate_ampr_index;
         p.rebuild_ampr_index = options.exfat.rebuild_ampr_index;
         p.ampr_scheme = options.exfat.ampr_scheme;
-        ALEMBIC_TRY(pfs::write_image(tree, tree.root(), output, p, options.overwrite, progress));
+        ALEMBIC_TRY(pfs::write_image(tree, tree.root(), output, p, options.overwrite, progress, session));
         report.method = std::string(prefix) + "built a new PFS image from the file tree";
         return report;
     }

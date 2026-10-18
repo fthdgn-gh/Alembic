@@ -15,7 +15,10 @@ namespace {
 
 constexpr std::size_t kKeepFinished = 200;
 
-bool finished(JobState s) { return s != JobState::queued && s != JobState::running; }
+bool finished(JobState s) { return s != JobState::queued && s != JobState::running && s != JobState::paused; }
+// Jobs still to run, in their order.
+bool waiting(JobState s) { return s == JobState::queued || s == JobState::paused; }
+constexpr std::uint32_t kMaxAutoResumes = 3; // a job that keeps stopping the engine is left alone
 
 Result<std::string> read_text(const std::string& path) {
     ALEMBIC_ASSIGN(File file, File::open(path, File::Mode::read));
@@ -66,6 +69,7 @@ const char* state_name(JobState s) {
     case JobState::failed: return "failed";
     case JobState::cancelled: return "cancelled";
     case JobState::interrupted: return "interrupted";
+    case JobState::paused: return "paused";
     }
     return "failed";
 }
@@ -142,6 +146,7 @@ JsonValue Job::to_json() const {
     j.set("finished", finished);
     j.set("error", error);
     j.set("result", result);
+    if (auto_resumes) j.set("auto_resumes", static_cast<std::uint64_t>(auto_resumes));
     return j;
 }
 
@@ -151,7 +156,7 @@ Result<Job> Job::from_json(const JsonValue& j) {
     ALEMBIC_ASSIGN(job.spec, JobSpec::from_json(j["spec"]));
     std::string state = j["state"].str();
     for (JobState s : {JobState::queued, JobState::running, JobState::done, JobState::failed, JobState::cancelled,
-                       JobState::interrupted})
+                       JobState::interrupted, JobState::paused})
         if (state == state_name(s)) job.state = s;
     job.stage = j["stage"].str();
     job.done = static_cast<std::uint64_t>(j["done"].integer(0));
@@ -161,6 +166,7 @@ Result<Job> Job::from_json(const JsonValue& j) {
     job.finished = j["finished"].integer(0);
     job.error = j["error"].str();
     job.result = j["result"];
+    job.auto_resumes = static_cast<std::uint32_t>(j["auto_resumes"].integer(0));
     if (job.id == 0) return make_error(Errc::invalid_data, "a saved job has no id");
     return job;
 }
@@ -183,10 +189,18 @@ Status JobQueue::start() {
                 auto job = Job::from_json(item);
                 if (!job.ok()) continue;
                 if (job->state == JobState::running) {
-                    job->state = JobState::interrupted;
-                    job->error = "the engine stopped while this job ran";
-                    job->finished = unix_now();
                     remove_stale_temp_files(job->spec.output, hooks_.log);
+                    if (hooks_.has_checkpoint && hooks_.has_checkpoint(job->spec) && job->auto_resumes < kMaxAutoResumes) {
+                        // Continue it where its last checkpoint left off.
+                        job->state = JobState::queued;
+                        job->stage = "Continues from its checkpoint";
+                        ++job->auto_resumes;
+                        if (hooks_.log) hooks_.log("job " + std::to_string(job->id) + " continues from its checkpoint");
+                    } else {
+                        job->state = JobState::interrupted;
+                        job->error = "the engine stopped while this job ran";
+                        job->finished = unix_now();
+                    }
                 }
                 next_id_ = std::max(next_id_, job->id + 1);
                 jobs_.push_back(std::move(*job));
@@ -252,32 +266,98 @@ Result<Job> JobQueue::add(JobSpec spec) {
     return job;
 }
 
+void JobQueue::discard(const JobSpec& spec) {
+    if (!hooks_.discard_checkpoint) return;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (const Job& j : jobs_)
+            if ((waiting(j.state) || j.state == JobState::running) && j.spec.output == spec.output) return;
+    }
+    hooks_.discard_checkpoint(spec);
+}
+
 Status JobQueue::cancel(std::uint64_t id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    Job* job = find_locked(id);
-    if (!job) return make_error(Errc::invalid_argument, "no such job");
-    if (job->state == JobState::queued) {
+    JobSpec dropped;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        Job* job = find_locked(id);
+        if (!job) return make_error(Errc::invalid_argument, "no such job");
+        if (job->state == JobState::running) {
+            pause_running_ = false;
+            cancel_running_ = true;
+            return {};
+        }
+        if (!waiting(job->state)) return make_error(Errc::invalid_argument, "the job has already finished");
         job->state = JobState::cancelled;
         job->error = "cancelled";
         job->finished = unix_now();
         save_locked();
-        if (hooks_.log) hooks_.log("job " + std::to_string(id) + " cancelled before it started");
-        return {};
+        if (hooks_.log) hooks_.log("job " + std::to_string(id) + " cancelled before it finished");
+        dropped = job->spec;
     }
-    if (job->state == JobState::running) {
-        cancel_running_ = true;
-        return {};
-    }
-    return make_error(Errc::invalid_argument, "the job has already finished");
+    discard(dropped);
+    return {};
 }
 
-Status JobQueue::remove(std::uint64_t id) {
+Status JobQueue::pause(std::uint64_t id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    Job* job = find_locked(id);
+    if (!job) return make_error(Errc::invalid_argument, "no such job");
+    if (job->state == JobState::running) {
+        pause_running_ = true;
+        cancel_running_ = true;
+        job->stage = "Pausing";
+        return {};
+    }
+    if (job->state != JobState::queued) return make_error(Errc::invalid_argument, "only queued or running jobs can be paused");
+    job->state = JobState::paused;
+    job->stage = "Paused";
+    save_locked();
+    return {};
+}
+
+Status JobQueue::resume(std::uint64_t id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    Job* job = find_locked(id);
+    if (!job) return make_error(Errc::invalid_argument, "no such job");
+    if (job->state != JobState::paused) return make_error(Errc::invalid_argument, "the job is not paused");
+    job->state = JobState::queued;
+    job->stage = "";
+    save_locked();
+    wake_.notify_all();
+    return {};
+}
+
+Status JobQueue::move(std::uint64_t id, int direction) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = std::find_if(jobs_.begin(), jobs_.end(), [&](const Job& j) { return j.id == id; });
     if (it == jobs_.end()) return make_error(Errc::invalid_argument, "no such job");
-    if (!finished(it->state)) return make_error(Errc::invalid_argument, "cancel the job first");
-    jobs_.erase(it);
-    save_locked();
+    if (!waiting(it->state)) return make_error(Errc::invalid_argument, "only queued or paused jobs can be moved");
+    std::ptrdiff_t i = it - jobs_.begin(), step = direction < 0 ? -1 : 1;
+    for (std::ptrdiff_t k = i + step; k >= 0 && k < static_cast<std::ptrdiff_t>(jobs_.size()); k += step) {
+        if (!waiting(jobs_[static_cast<std::size_t>(k)].state)) continue;
+        // Keep the jobs in between (running or finished) where they are.
+        std::swap(jobs_[static_cast<std::size_t>(i)], jobs_[static_cast<std::size_t>(k)]);
+        save_locked();
+        return {};
+    }
+    return make_error(Errc::invalid_argument, direction < 0 ? "it is already first" : "it is already last");
+}
+
+Status JobQueue::remove(std::uint64_t id) {
+    JobSpec dropped;
+    bool drop = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = std::find_if(jobs_.begin(), jobs_.end(), [&](const Job& j) { return j.id == id; });
+        if (it == jobs_.end()) return make_error(Errc::invalid_argument, "no such job");
+        if (!finished(it->state)) return make_error(Errc::invalid_argument, "cancel the job first");
+        drop = it->state != JobState::done;
+        dropped = it->spec;
+        jobs_.erase(it);
+        save_locked();
+    }
+    if (drop) discard(dropped); // a failed job's partial output
     return {};
 }
 
@@ -295,9 +375,15 @@ Result<Job> JobQueue::retry(std::uint64_t id) {
 }
 
 void JobQueue::clear_finished() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    jobs_.erase(std::remove_if(jobs_.begin(), jobs_.end(), [](const Job& j) { return finished(j.state); }), jobs_.end());
-    save_locked();
+    std::vector<JobSpec> dropped;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (const Job& j : jobs_)
+            if (finished(j.state) && j.state != JobState::done) dropped.push_back(j.spec);
+        jobs_.erase(std::remove_if(jobs_.begin(), jobs_.end(), [](const Job& j) { return finished(j.state); }), jobs_.end());
+        save_locked();
+    }
+    for (const JobSpec& s : dropped) discard(s);
 }
 
 std::vector<Job> JobQueue::list() const {
@@ -340,6 +426,7 @@ void JobQueue::worker() {
             id = running_id_ = job->id;
             spec = job->spec;
             cancel_running_ = false;
+            pause_running_ = false;
             save_locked();
         }
         if (hooks_.log) hooks_.log("job " + std::to_string(id) + " started: " + spec.input);
@@ -358,7 +445,11 @@ void JobQueue::worker() {
         };
         Result<JsonValue> result = hooks_.run(spec, progress);
 
+        // Whether the job left a checkpoint (asked before taking the lock).
+        bool stopped = !result.ok() && (result.error().code == Errc::cancelled || cancel_running_);
+        bool kept = stopped && hooks_.has_checkpoint && hooks_.has_checkpoint(spec);
         Job copy;
+        bool drop = false;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             running_id_ = 0;
@@ -369,15 +460,32 @@ void JobQueue::worker() {
                 job->state = JobState::done;
                 job->result = std::move(*result);
                 job->stage = "Done";
-            } else if (result.error().code == Errc::cancelled || cancel_running_) {
-                job->state = stopping_ ? JobState::interrupted : JobState::cancelled;
-                job->error = stopping_ ? "the engine was stopped" : "cancelled";
+            } else if (stopped && stopping_) {
+                // The engine is stopping: a job with a checkpoint continues at the next start.
+                job->state = kept ? JobState::queued : JobState::interrupted;
+                job->error = kept ? "" : "the engine was stopped";
+                job->stage = kept ? "Continues when the engine starts" : job->stage;
+                job->finished = kept ? 0 : job->finished;
+            } else if (stopped && pause_running_) {
+                job->state = JobState::paused;
+                job->stage = kept ? "Paused" : "Paused; starts over when resumed";
+                job->finished = 0;
+            } else if (stopped) {
+                job->state = JobState::cancelled;
+                job->error = "cancelled";
+                drop = true;
             } else {
                 job->state = JobState::failed;
                 job->error = result.error().message;
             }
+            pause_running_ = false;
             save_locked();
             copy = *job;
+        }
+        if (drop) discard(copy.spec);
+        if (copy.state == JobState::paused || copy.state == JobState::queued) {
+            if (hooks_.log) hooks_.log("job " + std::to_string(id) + " " + state_name(copy.state));
+            continue;
         }
         if (hooks_.log)
             hooks_.log("job " + std::to_string(id) + " " + state_name(copy.state) +

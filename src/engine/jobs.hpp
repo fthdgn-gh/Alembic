@@ -2,7 +2,8 @@
 // The engine's job queue: conversions run one at a time on a worker thread,
 // in the order they were added. The queue is saved to <state>/jobs.json after
 // every change, so it survives an engine restart (a job that was running is
-// marked interrupted and can be retried).
+// marked interrupted and can be retried, or queued again when it left a
+// checkpoint to continue from). Jobs can be paused, resumed and reordered.
 #pragma once
 
 #include "json_value.hpp"
@@ -50,7 +51,7 @@ struct JobSpec {
     static Result<JobSpec> from_json(const JsonValue& json);
 };
 
-enum class JobState { queued, running, done, failed, cancelled, interrupted };
+enum class JobState { queued, running, done, failed, cancelled, interrupted, paused };
 const char* state_name(JobState state);
 
 struct Job {
@@ -65,6 +66,7 @@ struct Job {
     std::int64_t finished = 0;
     std::string error;
     JsonValue result; // the conversion report
+    std::uint32_t auto_resumes = 0; // times it was continued after the engine stopped mid-run
 
     JsonValue to_json() const;
     static Result<Job> from_json(const JsonValue& json);
@@ -78,6 +80,9 @@ struct QueueHooks {
     std::function<void(const Job&)> on_finished; // notification, log
     std::function<void()> while_running;         // keep the console awake
     std::function<void(const std::string&)> log;
+    // Checkpoints the runner keeps for interrupted jobs.
+    std::function<bool(const JobSpec&)> has_checkpoint;
+    std::function<void(const JobSpec&)> discard_checkpoint;
 };
 
 class JobQueue {
@@ -90,8 +95,16 @@ public:
     void stop(); // cancels the running job and joins the worker
 
     Result<Job> add(JobSpec spec);
-    // Queued: removed from the queue; running: asked to stop.
+    // Queued or paused: cancelled; running: asked to stop. Its checkpoint
+    // and partial output are deleted.
     Status cancel(std::uint64_t id);
+    // Running: stopped, keeping its checkpoint; queued: held. Either way it
+    // waits as paused until resume().
+    Status pause(std::uint64_t id);
+    Status resume(std::uint64_t id);
+    // Swaps a queued or paused job with the next one up (-1) or down (+1)
+    // among the queued and paused jobs; the order is the order they run in.
+    Status move(std::uint64_t id, int direction);
     // Finished jobs only.
     Status remove(std::uint64_t id);
     // A failed, cancelled or interrupted job queued again (new id).
@@ -107,6 +120,8 @@ private:
     void worker();
     void save_locked() const;
     Job* find_locked(std::uint64_t id);
+    // Deletes a dropped job's checkpoint unless a waiting job writes the same output.
+    void discard(const JobSpec& spec);
 
     std::string state_dir_;
     QueueHooks hooks_;
@@ -116,6 +131,7 @@ private:
     std::uint64_t next_id_ = 1;
     std::uint64_t running_id_ = 0;
     std::atomic<bool> cancel_running_{false};
+    std::atomic<bool> pause_running_{false};
     bool stopping_ = false;
     std::thread thread_;
 };

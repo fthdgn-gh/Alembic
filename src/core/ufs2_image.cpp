@@ -19,6 +19,7 @@
 // - Names are written as UTF-8 with their byte length; PS5PKGTool writes
 //   Encoding.ASCII bytes (non-ASCII becomes '?') with the UTF-16 length.
 #include "alembic/ufs2.hpp"
+#include "alembic/resume.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -1032,8 +1033,11 @@ Result<ImageBuilder> ImageBuilder::from_source(const tree::Source& source, const
     return ImageBuilder(std::move(impl));
 }
 
-Status ImageBuilder::write(ByteSink& sink, const ProgressFn& progress) const {
+Status ImageBuilder::write(ByteSink& sink, const ProgressFn& progress, std::uint64_t start_at) const {
     const Impl& m = *impl_;
+    if (start_at > static_cast<std::uint64_t>(m.image_length)) return make_error(Errc::invalid_argument, "the start is past the UFS2 image");
+    // Bytes before `skip_to` are dropped (nothing is buffered meanwhile).
+    const std::int64_t skip_to = static_cast<std::int64_t>(start_at);
     const std::int64_t fsize = m.fsize, bsize = m.bsize;
 
     // Final counts and the CG headers.
@@ -1059,7 +1063,7 @@ Status ImageBuilder::write(ByteSink& sink, const ProgressFn& progress) const {
     // Streams the image through a 1 MiB buffer.
     std::vector<std::uint8_t> buf;
     buf.reserve(1 << 20);
-    std::uint64_t written = 0, total = static_cast<std::uint64_t>(m.image_length);
+    std::uint64_t written = start_at, total = static_cast<std::uint64_t>(m.image_length);
     auto flush = [&]() -> Status {
         if (buf.empty()) return {};
         ALEMBIC_TRY(sink.write(buf));
@@ -1070,6 +1074,12 @@ Status ImageBuilder::write(ByteSink& sink, const ProgressFn& progress) const {
     };
     std::int64_t pos = 0;
     auto emit = [&](const std::uint8_t* data, std::size_t n) -> Status {
+        if (pos < skip_to) {
+            std::size_t drop = static_cast<std::size_t>(std::min<std::int64_t>(skip_to - pos, static_cast<std::int64_t>(n)));
+            data += drop;
+            n -= drop;
+            pos += static_cast<std::int64_t>(drop);
+        }
         while (n) {
             std::size_t room = (1u << 20) - buf.size();
             std::size_t k = std::min(room, n);
@@ -1168,6 +1178,10 @@ Status ImageBuilder::write(ByteSink& sink, const ProgressFn& progress) const {
                 }
                 for (std::uint32_t j = 0; j < e.blocks; ++j) {
                     std::uint64_t off = (e.index + j) * static_cast<std::uint64_t>(bsize);
+                    if (pos + bsize <= skip_to) { // written before: not read again
+                        pos += bsize;
+                        continue;
+                    }
                     std::size_t n = static_cast<std::size_t>(std::min<std::uint64_t>(static_cast<std::uint64_t>(bsize), static_cast<std::uint64_t>(f.size) - off));
                     std::fill(block.begin() + static_cast<std::ptrdiff_t>(n), block.end(), 0);
                     ALEMBIC_TRY(file->read_at(off, MutableBytes(block.data(), n)));
@@ -1182,11 +1196,41 @@ Status ImageBuilder::write(ByteSink& sink, const ProgressFn& progress) const {
 }
 
 Status write_image(const tree::Source& source, const tree::Node& root, const std::string& output_path,
-                   const BuildOptions& options, bool overwrite, const ProgressFn& progress) {
-    ALEMBIC_ASSIGN(ImageBuilder builder, ImageBuilder::from_source(source, root, options));
-    ALEMBIC_ASSIGN(AtomicOutput output, AtomicOutput::create(output_path, overwrite));
-    FileSink sink(output.file(), 0);
-    ALEMBIC_TRY(builder.write(sink, progress));
+                   const BuildOptions& options, bool overwrite, const ProgressFn& progress, resume::Session* session) {
+    if (!session) {
+        ALEMBIC_ASSIGN(ImageBuilder builder, ImageBuilder::from_source(source, root, options));
+        ALEMBIC_ASSIGN(AtomicOutput output, AtomicOutput::create(output_path, overwrite));
+        FileSink sink(output.file(), 0);
+        ALEMBIC_TRY(builder.write(sink, progress));
+        return output.commit();
+    }
+    // The time stamp and process ID go into the image: a continued write
+    // takes them from the checkpoint.
+    BuildOptions o = options;
+    if (session->from) {
+        std::uint64_t t = resume::get(*session->from, "timestamp"), p = resume::get(*session->from, "pid");
+        if (t == ~std::uint64_t{0} || p > static_cast<std::uint64_t>(INT32_MAX))
+            return make_error(Errc::invalid_data, "the checkpoint does not match this conversion");
+        o.timestamp = static_cast<std::int64_t>(t);
+        o.process_id = static_cast<std::int32_t>(p);
+    } else {
+        if (!o.timestamp)
+            o.timestamp = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        if (!o.process_id) o.process_id = static_cast<std::int32_t>(::getpid());
+    }
+    ALEMBIC_ASSIGN(ImageBuilder builder, ImageBuilder::from_source(source, root, o));
+    const std::uint64_t length = builder.image_length();
+    ALEMBIC_ASSIGN(std::uint64_t start, resume::sequential_start(session, length, resume::kUfs2Format));
+    ALEMBIC_ASSIGN(AtomicOutput output,
+                   AtomicOutput::create_partial(output_path, session->partial_path, session->from.has_value(), overwrite));
+    ALEMBIC_TRY(output.file().truncate(start)); // drop what came after the checkpoint
+    resume::CheckpointSink sink(output.file(), start, length, session, resume::kUfs2Format,
+                                {{"timestamp", static_cast<std::uint64_t>(*o.timestamp)},
+                                 {"pid", static_cast<std::uint64_t>(*o.process_id)}});
+    if (Status s = builder.write(sink, progress, start); !s.ok()) {
+        (void)sink.save_now(); // a pause loses nothing already written
+        return s;
+    }
     return output.commit();
 }
 

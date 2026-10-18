@@ -11,6 +11,7 @@
 #include "alembic/exfat.hpp"
 #include "alembic/unicode.hpp"
 #include "alembic/pfsc.hpp"
+#include "alembic/resume.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -362,9 +363,11 @@ Result<ImageBuilder> ImageBuilder::from_source(const tree::Source& source, const
     return ImageBuilder(std::move(m));
 }
 
-Status ImageBuilder::write(ByteSink& sink, const ProgressFn& progress) const {
+Status ImageBuilder::write(ByteSink& out, const ProgressFn& progress, std::uint64_t start) const {
     const Impl& m = *impl_;
     const std::uint64_t bs = m.bs();
+    if (start > m.total_blocks * bs) return make_error(Errc::invalid_argument, "the start is past the PFS image");
+    resume::SkipSink sink(out, start); // drops what an interrupted write already has
     std::uint64_t written_blocks = 0;
     std::vector<std::uint8_t> block(static_cast<std::size_t>(bs));
     auto emit_padded = [&](const std::uint8_t* data, std::size_t size, std::uint64_t blocks) -> Status {
@@ -445,10 +448,20 @@ Status ImageBuilder::write(ByteSink& sink, const ProgressFn& progress) const {
             done += f.content.size();
             continue;
         }
+        const std::uint64_t span = static_cast<std::uint64_t>(f.inode.blocks) * bs;
+        if (sink.skippable() >= span) { // written before: not read again
+            sink.skip(span);
+            written_blocks += f.inode.blocks;
+            done += f.inode.size;
+            continue;
+        }
         ALEMBIC_ASSIGN(std::shared_ptr<const RandomAccess> in, m.source->open(*f.node));
         ALEMBIC_ASSIGN(std::uint64_t actual, in->size());
         if (actual != f.inode.size) return make_error(Errc::invalid_data, "a file changed size while writing: " + f.rel);
-        for (std::uint64_t off = 0; off < actual;) {
+        const std::uint64_t first = std::min(sink.skippable(), actual);
+        sink.skip(first);
+        done += first;
+        for (std::uint64_t off = first; off < actual;) {
             std::size_t n = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), actual - off));
             ALEMBIC_TRY(in->read_at(off, MutableBytes(buffer.data(), n)));
             ALEMBIC_TRY(sink.write(Bytes(buffer.data(), n)));
@@ -471,11 +484,35 @@ Status ImageBuilder::write(ByteSink& sink, const ProgressFn& progress) const {
 }
 
 Status write_image(const tree::Source& source, const tree::Node& root, const std::string& output_path,
-                   const BuildOptions& options, bool overwrite, const ProgressFn& progress) {
-    ALEMBIC_ASSIGN(ImageBuilder builder, ImageBuilder::from_source(source, root, options));
-    ALEMBIC_ASSIGN(AtomicOutput output, AtomicOutput::create(output_path, overwrite));
-    FileSink sink(output.file(), 0);
-    ALEMBIC_TRY(builder.write(sink, progress));
+                   const BuildOptions& options, bool overwrite, const ProgressFn& progress, resume::Session* session) {
+    if (!session) {
+        ALEMBIC_ASSIGN(ImageBuilder builder, ImageBuilder::from_source(source, root, options));
+        ALEMBIC_ASSIGN(AtomicOutput output, AtomicOutput::create(output_path, overwrite));
+        FileSink sink(output.file(), 0);
+        ALEMBIC_TRY(builder.write(sink, progress));
+        return output.commit();
+    }
+    // The time stamp goes into the image: a continued write takes it from the checkpoint.
+    BuildOptions o = options;
+    if (session->from) {
+        std::uint64_t t = resume::get(*session->from, "timestamp");
+        if (t == ~std::uint64_t{0}) return make_error(Errc::invalid_data, "the checkpoint does not match this conversion");
+        o.timestamp = static_cast<std::int64_t>(t);
+    } else if (!o.timestamp) {
+        o.timestamp = static_cast<std::int64_t>(std::time(nullptr));
+    }
+    ALEMBIC_ASSIGN(ImageBuilder builder, ImageBuilder::from_source(source, root, o));
+    const std::uint64_t length = builder.image_length();
+    ALEMBIC_ASSIGN(std::uint64_t start, resume::sequential_start(session, length, resume::kPfsFormat));
+    ALEMBIC_ASSIGN(AtomicOutput output,
+                   AtomicOutput::create_partial(output_path, session->partial_path, session->from.has_value(), overwrite));
+    ALEMBIC_TRY(output.file().truncate(start)); // drop what came after the checkpoint
+    resume::CheckpointSink sink(output.file(), start, length, session, resume::kPfsFormat,
+                                {{"timestamp", static_cast<std::uint64_t>(*o.timestamp)}});
+    if (Status s = builder.write(sink, progress, start); !s.ok()) {
+        (void)sink.save_now(); // a pause loses nothing already written
+        return s;
+    }
     return output.commit();
 }
 

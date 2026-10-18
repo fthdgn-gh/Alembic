@@ -141,7 +141,26 @@ Encoder::Encoder(File& destination, std::uint64_t start, std::uint64_t source_le
 
 Encoder::~Encoder() = default;
 
-Status Encoder::begin() {
+void Encoder::set_checkpoints(std::uint64_t interval, std::function<Status(const Checkpoint&)> save) {
+    checkpoint_interval_ = std::max<std::uint64_t>(interval, kBlockSize);
+    save_checkpoint_ = std::move(save);
+}
+
+// Writes the table entries of the blocks finished since the last checkpoint,
+// makes everything durable, then records the checkpoint.
+Status Encoder::checkpoint() {
+    std::uint32_t first = checkpoint_blocks_ + 1, last = blocks_done_;
+    if (last >= first) {
+        std::vector<std::uint8_t> entries(static_cast<std::size_t>(last - first + 1) * 8);
+        for (std::uint32_t i = first; i <= last; ++i) put_u64(entries.data() + (i - first) * 8, offsets_[i]);
+        ALEMBIC_TRY(destination_.write_at(start_ + kOffsetTableOffset + static_cast<std::uint64_t>(first) * 8, entries));
+    }
+    ALEMBIC_TRY(destination_.sync());
+    checkpoint_blocks_ = blocks_done_;
+    return save_checkpoint_(Checkpoint{blocks_done_, write_position_, compressed_blocks_});
+}
+
+Status Encoder::begin(const std::optional<Checkpoint>& from) {
     if (options_.level < 0 || options_.level > 9)
         return make_error(Errc::invalid_argument, "compression level must be between 0 and 9");
     if (options_.minimum_gain_percent < 0 || options_.minimum_gain_percent > 100)
@@ -176,7 +195,33 @@ Status Encoder::begin() {
     offsets_.assign(static_cast<std::size_t>(block_count_) + 1, 0);
     offsets_[0] = header_size_;
     write_position_ = header_size_;
-    ALEMBIC_TRY(destination_.truncate(start_ + header_size_));
+    if (from) {
+        // The table entries up to the checkpoint were written and synced
+        // before it was recorded; anything after it is dropped.
+        if (from->blocks > block_count_ || from->compressed > from->blocks)
+            return make_error(Errc::invalid_data, "the checkpoint does not fit this PFSC payload");
+        std::vector<std::uint8_t> entries((static_cast<std::size_t>(from->blocks) + 1) * 8);
+        ALEMBIC_TRY(destination_.read_at(start_ + kOffsetTableOffset, entries));
+        for (std::uint32_t i = 0; i <= from->blocks; ++i) {
+            offsets_[i] = get_u64(entries.data() + static_cast<std::size_t>(i) * 8);
+            std::uint64_t step = i ? offsets_[i] - offsets_[i - 1] : 0;
+            if ((i == 0 && offsets_[0] != header_size_) || (i && (offsets_[i] <= offsets_[i - 1] || step > kBlockSize)))
+                return make_error(Errc::invalid_data, "the partial file does not match its checkpoint");
+        }
+        if (offsets_[from->blocks] != from->written)
+            return make_error(Errc::invalid_data, "the partial file does not match its checkpoint");
+        blocks_done_ = checkpoint_blocks_ = from->blocks;
+        compressed_blocks_ = from->compressed;
+        write_position_ = from->written;
+        received_ = std::min<std::uint64_t>(static_cast<std::uint64_t>(from->blocks) * kBlockSize, source_length_);
+        last_progress_ = received_;
+        ALEMBIC_TRY(destination_.truncate(start_ + write_position_));
+    } else {
+        ALEMBIC_TRY(destination_.truncate(start_ + header_size_));
+        std::uint8_t first[8];
+        put_u64(first, header_size_);
+        ALEMBIC_TRY(destination_.write_at(start_ + kOffsetTableOffset, Bytes(first, 8)));
+    }
     begun_ = true;
     return {};
 }
@@ -242,6 +287,9 @@ Status Encoder::drain_one() {
     slot.busy = slot.done = false;
     --p.in_flight;
     p.drain_slot = (p.drain_slot + 1) % p.slots.size();
+    if (save_checkpoint_ &&
+        static_cast<std::uint64_t>(blocks_done_ - checkpoint_blocks_) * kBlockSize >= checkpoint_interval_)
+        ALEMBIC_TRY(checkpoint());
 
     std::uint64_t processed = std::min<std::uint64_t>(static_cast<std::uint64_t>(blocks_done_) * kBlockSize, source_length_);
     if (progress_ && (processed - last_progress_ >= kProgressStep || blocks_done_ == block_count_)) {

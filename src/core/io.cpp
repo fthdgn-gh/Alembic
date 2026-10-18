@@ -171,6 +171,10 @@ Result<std::string> absolute_path(const std::string& path) {
 }
 
 AtomicOutput::~AtomicOutput() {
+    if (keep_ && !committed_) {
+        (void)file_.close();
+        return;
+    }
     if (!committed_ && !temp_path_.empty()) {
         (void)file_.close();
         ::unlink(temp_path_.c_str());
@@ -182,7 +186,8 @@ AtomicOutput::AtomicOutput(AtomicOutput&& other) noexcept
       final_path_(std::move(other.final_path_)),
       temp_path_(std::move(other.temp_path_)),
       committed_(other.committed_),
-      overwrite_(other.overwrite_) {
+      overwrite_(other.overwrite_),
+      keep_(other.keep_) {
     other.temp_path_.clear();
     other.committed_ = true;
 }
@@ -201,6 +206,28 @@ Result<AtomicOutput> AtomicOutput::create(const std::string& path, bool overwrit
     output.final_path_ = path;
     output.temp_path_ = path + "." + suffix + ".tmp";
     ALEMBIC_ASSIGN(output.file_, File::open(output.temp_path_, File::Mode::create_new));
+    return output;
+}
+
+Result<AtomicOutput> AtomicOutput::create_partial(const std::string& path, const std::string& partial_path, bool reuse,
+                                                  bool overwrite) {
+    if (!overwrite && path_exists(path))
+        return make_error(Errc::invalid_argument, "the output file already exists: " + path);
+    if (overwrite && is_directory(path)) return make_error(Errc::invalid_argument, "the output is a folder: " + path);
+    if (partial_path.empty() || partial_path == path) return make_error(Errc::invalid_argument, "bad partial file path");
+    ALEMBIC_TRY(make_parent_directories(partial_path));
+    AtomicOutput output;
+    output.overwrite_ = overwrite;
+    output.final_path_ = path;
+    output.temp_path_ = partial_path;
+    output.keep_ = true;
+    if (reuse) {
+        if (!is_regular_file(partial_path)) return make_error(Errc::invalid_argument, "the partial file is gone: " + partial_path);
+        ALEMBIC_ASSIGN(output.file_, File::open(partial_path, File::Mode::read_write));
+    } else {
+        ::unlink(partial_path.c_str());
+        ALEMBIC_ASSIGN(output.file_, File::open(partial_path, File::Mode::create_new));
+    }
     return output;
 }
 

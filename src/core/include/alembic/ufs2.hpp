@@ -13,6 +13,10 @@
 #include <optional>
 #include <string>
 
+namespace alembic::resume {
+struct Session;
+}
+
 namespace alembic::ufs2 {
 
 struct Geometry {
@@ -66,7 +70,9 @@ public:
     std::uint64_t image_length() const;
     std::uint32_t cylinder_groups() const;
     // Streams exactly image_length() bytes into `sink`.
-    Status write(ByteSink& sink, const ProgressFn& progress = {}) const;
+    // With `start`, only the bytes from that offset on are sent (to continue
+    // an interrupted write); file blocks wholly before it are not read.
+    Status write(ByteSink& sink, const ProgressFn& progress = {}, std::uint64_t start = 0) const;
 
 private:
     struct Impl;
@@ -74,7 +80,10 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
+// With a session, it writes into the session's partial file and can
+// continue from its checkpoint, which keeps the time stamp and process ID.
 Status write_image(const tree::Source& source, const tree::Node& root, const std::string& output_path,
-                   const BuildOptions& options, bool overwrite, const ProgressFn& progress = {});
+                   const BuildOptions& options, bool overwrite, const ProgressFn& progress = {},
+                   resume::Session* session = nullptr);
 
 } // namespace alembic::ufs2
