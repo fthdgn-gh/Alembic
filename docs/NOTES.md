@@ -1145,6 +1145,16 @@ is about the USB drive's own format (shown on connect), not about the image.
 
 ## Next session
 
+**Open (owner, 2026-10-19), in this order:**
+1. PKG -> FFPFSC fails on the console, for a small package and for the
+   ~90 GB one (both run on ELF builds from before checkpoints). Get the
+   exact error text from the Queue card (and engine.log in the state
+   folder), reproduce on the PC with the same package if possible.
+2. Holding Back is "not working properly" yet; ask what exactly (leaves
+   only after release, steps back first, never triggers, or false
+   triggers) and the Controller test's timing of the repeated Escapes.
+3. Then: checkpoints for FPKG output and LZ4 packing; FPKG speed.
+
 **First (owner, 2026-10-18): the web page on the console.** Load the
 payload, check the Media tab shows "Alembic" and opens the page, then try the
 controller: D-pad focus, ✕, ○ closing dialogs and going up folders, △, L1/R1.
