@@ -1067,8 +1067,8 @@ async function openConvert(entry) {
   const rt = state.info ? state.info.lz4_runtime : null;
   // Left column: the choices.
   const fmts = h("div", { class: "opts" });
-  // The source's own format is no conversion, except when packing into LZ4
-  // (an exFAT game into an LZ4-packed exFAT, say).
+  // The source's own format is no conversion, except when packing or unpacking
+  // LZ4 (an exFAT game into an LZ4-packed exFAT, say).
   const sameFormat = entry.game ? "folder" : entry.kind;
   let lz4On = false;
   const offered = () => FORMATS.filter((f) => f.value !== sameFormat || lz4On);
@@ -1090,6 +1090,11 @@ async function openConvert(entry) {
   else if (rt && !rt.pinned) rtNote.textContent = "The runtime file is not the pinned ampr_emu 0.4.2.1 build.";
   const lz4Opts = h("div", { class: "indent" }, profile, lz4level, rtNote.childNodes.length || rtNote.textContent ? rtNote : null);
   const lz4 = switchRow("Pack into LZ4 asset packs", "For ampr_emu games", false, () => sync());
+  // Shown instead of the pack switch for a game that is already packed.
+  const unpack = switchRow("Unpack LZ4 asset packs", "Turns the packs back into ordinary files; ampr_emu's runtime stays in fakelib", false, () => sync());
+  unpack.hidden = true;
+  // LZ4 packs inside an FFPFSC work, but the console then undoes zlib and LZ4.
+  const lz4Note = h("div", { class: "note", hidden: true });
   const verify = switchRow("Check the output first", "Compares every file before deleting; recommended", true, () => sync());
   const del = switchRow("Delete the source when done", entry.kind === "fpkg" || entry.kind === "ffpkg" ? "Frees " + bytes(entry.size) + " after a successful conversion" : "Frees its space after a successful conversion", false, () => sync());
   const delOpts = h("div", { class: "indent" }, verify);
@@ -1099,7 +1104,7 @@ async function openConvert(entry) {
   const over = switchRow("Replace the output if it exists", null, false, () => sync());
   const form = h("div", {},
     h("div", { class: "lbl", text: "Convert to" }), fmts,
-    h("div", { class: "lbl", text: "Options" }), level, lz4, lz4Opts, del, delOpts,
+    h("div", { class: "lbl", text: "Options" }), level, lz4, lz4Opts, unpack, lz4Note, del, delOpts,
     h("div", { class: "lbl", text: "Output" }), destRow, h("div", { style: "margin-bottom:.5rem" }, name), over);
   // Right column: what it is and where it goes.
   const facts = h("div", { class: "facts" }, h("div", { text: "Reading" }), h("div", { class: "muted", text: "…" }));
@@ -1113,13 +1118,22 @@ async function openConvert(entry) {
   const go = h("button", { class: "btn primary", text: "Add to queue" });
   const cancel = h("button", { class: "btn", text: "Cancel", onclick: () => closeOverlay(null) });
   function spec() {
-    return { input: entry.path, to: cv.to, output_dir: cv.dest, output_name: name.value.trim(), level: level.getValue(), lz4: lz4.isOn(),
+    return { input: entry.path, to: cv.to, output_dir: cv.dest, output_name: name.value.trim(), level: level.getValue(), lz4: lz4.isOn(), lz4_unpack: unpack.isOn(),
       lz4_profile: profile.getValue(), lz4_level: lz4level.getValue(), delete_source: del.isOn(), verify: verify.isOn(), overwrite: over.isOn() };
   }
   function sync() {
-    if (lz4.isOn() !== lz4On) { lz4On = lz4.isOn(); renderFormats(); }
+    // An LZ4-packed game can't be packed again, only unpacked.
+    const packedSrc = !!(cv.inspect && cv.inspect.lz4_packed);
+    lz4.hidden = packedSrc; unpack.hidden = !packedSrc;
+    if (packedSrc && lz4.isOn()) lz4.setOn(false);
+    if (!packedSrc && unpack.isOn()) unpack.setOn(false);
+    const changesTree = lz4.isOn() || unpack.isOn();
+    if (changesTree !== lz4On) { lz4On = changesTree; renderFormats(); }
     level.hidden = cv.to !== "ffpfsc";
     lz4Opts.hidden = !lz4.isOn(); delOpts.hidden = !del.isOn();
+    lz4Note.hidden = !(cv.to === "ffpfsc" && (lz4.isOn() || (packedSrc && !unpack.isOn())));
+    lz4Note.textContent = (packedSrc ? "This game is already LZ4-packed. " : "") +
+      "FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data.";
     destVal.textContent = destLabel(cv.dest);
     clearTimeout(cv.timer);
     cv.timer = setTimeout(async () => {
