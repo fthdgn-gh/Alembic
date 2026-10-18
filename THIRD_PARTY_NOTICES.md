@@ -27,6 +27,8 @@ Ported files say where they come from in their header comment.
 | Project | License | What Alembic uses |
 | --- | --- | --- |
 | [ps5-payload-dev/sdk](https://github.com/ps5-payload-dev/sdk) v0.44 | GPL-3.0-or-later | the toolchain, libc and libc++ the engine payload (`alembic.elf`) is built and linked with; the notification call follows its `samples/notify` |
+| [drakmor/ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus) | GPL-3.0 | HTTPS downloads with `libSceHttp`/`libSceSsl` (from `src/sm_ampr_updater.c`) and its public CA certificates for GitHub (`src/engine/github_ca.inc`, from `src/sm_ampr_ca.inc`) |
+| [ps5-payload-dev/shsrv](https://github.com/ps5-payload-dev/shsrv) | GPL-3.0-or-later | installing a `.pkg` with `sceAppInstUtilInstallByPackage` (from `bundles/pkg_install`) |
 | theghostonline/PS5-LZ4-Compression | GPL-3.0-or-later | keeping the console awake during a job (`sceSystemServicePowerTick`), from `src/lzc_power_guard.c`; the engine/app split and the job/web API idea |
 
 ## Bundled data
@@ -34,6 +36,17 @@ Ported files say where they come from in their header comment.
 | Project | License | Where |
 | --- | --- | --- |
 | LZ4 pack profiles by danthespal, posted with [MkPFS.CSharp](https://github.com/danthespal/MkPFS.CSharp), as bundled unchanged by PS5-LZ4-Compression (`profiles/`) | GPL-3.0 | `profiles/lz4/*.toml`, unchanged, built into the binary |
+
+## Downloaded on request (not part of Alembic)
+
+The engine's Components page downloads these from their sources, checks each
+file's SHA-256 and stores it on the console; they are never in this repository
+or in Alembic's binaries.
+
+| File | Source | Note |
+| --- | --- | --- |
+| `libSceAmpr.sprx` (ampr_emu 0.4.2.1 PackedStdio) | drakmor/ampr_emu release asset | GPL-3.0 |
+| `passcode.bin`, `mount_image.bin`, `metadata_modulus.bin` | pearlxcore/ProsperoPkgTool `ProsperoPkgTool/Keys/` at `f2c91cd7a5d8` | public RSA moduli that project ships; it describes them as constants from Sony's publishing tools |
 
 ## Used for testing only (not part of Alembic builds)
 

@@ -52,6 +52,39 @@ TEST_CASE(engine_names_outputs_next_to_the_input) {
     CHECK(!resolve_output(s).ok()); // would replace the input
     s.output = "/data/other.exfat";
     CHECK(*resolve_output(s) == "/data/other.exfat");
+    JobSpec other;
+    other.input = "/mnt/usb0/games/A.pkg";
+    other.to = "ffpfsc";
+    other.output_dir = "/data/homebrew/";
+    CHECK(*resolve_output(other) == "/data/homebrew/A.ffpfsc"); // another drive, default name
+    other.output_name = "B.ffpfsc";
+    CHECK(*resolve_output(other) == "/data/homebrew/B.ffpfsc");
+    other.to = "folder";
+    other.output_name = "";
+    CHECK(*resolve_output(other) == "/data/homebrew/A/");
+    other.output_dir = "/";
+    CHECK(*resolve_output(other) == "/A/");
+    JsonValue bad = JsonValue::object();
+    bad.set("input", "/data/x.pkg");
+    bad.set("output_name", "../x");
+    CHECK(!JobSpec::from_json(bad).ok());
+    // ShadowMount+'s mount point limit: 58 characters for .ffpfsc, 63 for .exfat.
+    CHECK_EQ(mount_name_limit("/data/x.ffpfsc"), 58u);
+    CHECK_EQ(mount_name_limit("/data/x.EXFAT"), 63u);
+    CHECK_EQ(mount_name_limit("/data/x/"), 0u);
+    JobSpec longname;
+    longname.input = "/data/XX0000-ABCD12345_00-0123456789ABCDEFG-A0100-V0100.pkg"; // 54 characters
+    longname.to = "ffpfsc";
+    longname.lz4 = true;
+    CHECK(*resolve_output(longname) == "/data/XX0000-ABCD12345_00-0123456789ABCDEFG-A0100-V0100-lz4.ffpfsc"); // 58: fits
+    longname.input = "/data/XX0000-ABCD12345_00-0123456789ABCDEFGHIJKLMN-A0100-V0100.pkg"; // + -lz4 = 60
+    CHECK(*resolve_output(longname) == "/data/ABCD12345-A0100-V0100-lz4.ffpfsc");
+    longname.to = "exfat";
+    CHECK(*resolve_output(longname) == "/data/XX0000-ABCD12345_00-0123456789ABCDEFGHIJKLMN-A0100-V0100-lz4.exfat"); // 60 <= 63
+    CHECK(shorten_name(std::string(70, 'x') + "-lz4", 58) == std::string(54, 'x') + "-lz4");
+    CHECK(shorten_name("short", 58) == "short");
+    CHECK(mount_name_warning("/data/" + std::string(59, 'a') + ".ffpfsc") != "");
+    CHECK(mount_name_warning("/data/" + std::string(58, 'a') + ".ffpfsc") == "");
     JobSpec none;
     none.input = "/data/x.pkg";
     CHECK(!resolve_target(none).ok()); // no output and no target

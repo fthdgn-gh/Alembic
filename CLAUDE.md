@@ -52,6 +52,10 @@ LibProsperoPKG-sven, fpkg-cli, PS5-LZ4-Compression.
 - **Language rules:** C++20 with no exceptions and no RTTI (the PS5 build
   forbids them), so errors are returned as values.
 - **License:** GPL-3.0-or-later, compatible with every source we port from.
+- **Third-party files at run time:** the engine's Components page downloads
+  them on request from a fixed URL, pinned by SHA-256 (`src/engine/deps.cpp`):
+  ampr_emu's `libSceAmpr.sprx` and ProsperoPkgTool's FPKG key moduli (needed
+  for PKG output). Never commit them.
 
 ## Never
 

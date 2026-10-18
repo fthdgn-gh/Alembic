@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Alembic</title>
+<link rel="icon" type="image/svg+xml" href="/icon.svg">
 <style>
 :root {
   --bg: #0d0f14; --panel: #151922; --panel2: #1b202b; --line: #262c39; --text: #e7e9ef; --muted: #8d95a7;
@@ -20,8 +21,7 @@ a { color: var(--accent); }
 header { position: sticky; top: 0; z-index: 5; background: rgba(13,15,20,.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
 .top { display: flex; align-items: center; gap: 14px; padding: 12px 20px; max-width: 1280px; margin: 0 auto; flex-wrap: wrap; }
 .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; letter-spacing: .01em; }
-.logo i { width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg, var(--accent), var(--accent2)); display: inline-block; position: relative; }
-.logo i::after { content: ""; position: absolute; inset: 7px 9px 6px; border: 2px solid #fff; border-top: 0; border-radius: 0 0 8px 8px; }
+.logo img { width: 30px; height: 30px; display: block; }
 .chip { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; white-space: nowrap; }
 .chip.live { color: var(--accent); border-color: rgba(108,140,255,.4); }
 .tabs { display: flex; gap: 4px; margin-left: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
@@ -137,6 +137,9 @@ dialog.poly[open] { display: block; }
 .facts div:nth-child(odd) { color: var(--muted); }
 .picker { border: 1px solid var(--line); border-radius: 10px; max-height: 300px; overflow: auto; }
 .picker .row { grid-template-columns: 30px minmax(0, 1fr); padding: 6px 10px; cursor: pointer; }
+.quick { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.quick button { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid #313849; background: #12161e; cursor: pointer; }
+.quick button:hover, .quick button.on { border-color: var(--accent); color: var(--accent); }
 .warnbox { background: rgba(239,91,82,.08); border: 1px solid rgba(239,91,82,.3); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
 
 #toasts { position: fixed; right: 16px; bottom: 16px; display: grid; gap: 8px; z-index: 50; max-width: min(420px, calc(100vw - 32px)); }
@@ -149,11 +152,12 @@ dialog.poly[open] { display: block; }
 <body>
 <header>
   <div class="top">
-    <div class="logo"><i></i>Alembic</div>
+    <div class="logo"><img src="/icon.svg" alt="">Alembic</div>
     <span class="chip" id="status">connecting…</span>
     <nav class="tabs">
       <button class="tab on" data-tab="files">Files</button>
       <button class="tab" data-tab="queue">Queue <span class="badge" id="qcount" hidden>0</span></button>
+      <button class="tab" data-tab="deps">Components</button>
     </nav>
   </div>
   <div class="drives" id="drives"></div>
@@ -169,6 +173,12 @@ dialog.poly[open] { display: block; }
       </div>
       <div class="list" id="list"></div>
     </div>
+  </section>
+
+  <section id="view-deps" hidden>
+    <div class="section-title"><h2>Components</h2></div>
+    <p class="small muted" style="margin:0 2px 14px">Files from other projects that Alembic doesn't ship. Each one is downloaded from the source shown and kept only if its SHA-256 matches.</p>
+    <div class="jobs" id="deps"></div>
   </section>
 
   <section id="view-queue" hidden>
@@ -215,16 +225,23 @@ dialog.poly[open] { display: block; }
         <label class="check"><input type="checkbox" id="cv-verify" checked><span>Check the output first (recommended)<small>Reads the output back and compares every file with the source; the source is kept if anything differs. Takes about as long as reading both once.</small></span></label>
       </div>
       <div class="field">
-        <span class="lbl">Output</span>
-        <input class="input mono" id="cv-output" placeholder="next to the source">
-        <div class="small muted" id="cv-space" style="margin-top:6px"></div>
+        <span class="lbl">Save to</span>
+        <select class="input" id="cv-dest"></select>
       </div>
+      <div class="field">
+        <span class="lbl">File name</span>
+        <input class="input mono" id="cv-name">
+        <div class="small muted mono" id="cv-path" style="margin-top:6px"></div>
+        <div class="small muted" id="cv-space" style="margin-top:2px"></div>
+      </div>
+      <div class="note" id="cv-needs" hidden></div>
+      <div class="note" id="cv-warn" hidden></div>
       <label class="check"><input type="checkbox" id="cv-overwrite"><span>Replace the output if it already exists</span></label>
     </div>
     <div class="dlg-foot">
       <span class="msg" id="cv-msg"></span>
       <button class="btn" value="cancel">Cancel</button>
-      <button class="btn primary" id="cv-go" value="go">Add to queue</button>
+      <button class="btn primary" id="cv-go" type="button">Add to queue</button>
     </div>
   </form>
 </dialog>
@@ -234,10 +251,13 @@ dialog.poly[open] { display: block; }
   <form method="dialog">
     <div class="dlg-head" id="dest-title">Copy to</div>
     <div class="dlg-body">
+      <div class="quick" id="dest-quick"></div>
       <div class="crumbs" id="dest-crumbs" style="margin-bottom:8px"></div>
       <div class="picker" id="dest-list"></div>
-      <div class="field"><span class="lbl">Name</span><input class="input mono" id="dest-name"></div>
-      <label class="check"><input type="checkbox" id="dest-overwrite"><span>Replace if it already exists</span></label>
+      <div id="dest-naming">
+        <div class="field"><span class="lbl">Name</span><input class="input mono" id="dest-name"></div>
+        <label class="check"><input type="checkbox" id="dest-overwrite"><span>Replace if it already exists</span></label>
+      </div>
       <div class="small muted" id="dest-space"></div>
     </div>
     <div class="dlg-foot">
@@ -265,7 +285,11 @@ dialog.poly[open] { display: block; }
 <script>
 "use strict";
 const $ = (s, root = document) => root.querySelector(s);
-const state = { info: null, cwd: null, listing: null, jobs: [], speeds: {}, tab: "files", space: [] };
+const state = { info: null, cwd: null, listing: null, jobs: [], speeds: {}, tab: "files", space: [], locations: [] };
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem("alembic." + k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem("alembic." + k, JSON.stringify(v)); } catch {} },
+};
 const CONVERTIBLE = ["fpkg", "exfat", "ffpfsc", "ffpkg"];
 const KIND_LABEL = { fpkg: "PKG", exfat: "EXF", ffpfsc: "FSC", ffpkg: "UFS", ffpfs: "PFS", folder: "DIR", file: "" };
 
@@ -338,7 +362,11 @@ for (const d of document.querySelectorAll("dialog")) {
   if (typeof d.showModal !== "function") {
     d.classList.add("poly");
     let backdrop = null;
-    d.showModal = () => { backdrop = h("div", { class: "poly-backdrop" }); document.body.append(backdrop); d.setAttribute("open", ""); };
+    d.showModal = () => {
+      const z = 40 + 2 * document.querySelectorAll("dialog[open]").length;
+      backdrop = h("div", { class: "poly-backdrop", style: `z-index:${z - 1}` }); document.body.append(backdrop);
+      d.style.zIndex = z; d.setAttribute("open", "");
+    };
     d.close = (value) => {
       if (!d.hasAttribute("open")) return;
       if (value !== undefined) d.returnValue = value;
@@ -350,7 +378,11 @@ for (const d of document.querySelectorAll("dialog")) {
   for (const b of d.querySelectorAll("button[value]")) b.addEventListener("click", (e) => { e.preventDefault(); if (!b.disabled) d.close(b.value); });
   d.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { e.preventDefault(); d.close("cancel"); }
-    if (e.key === "Enter" && e.target.tagName === "INPUT" && e.target.type === "text") { e.preventDefault(); const go = d.querySelector('button[value="go"]'); if (!go.disabled) d.close("go"); }
+    if (e.key === "Enter" && e.target.tagName === "INPUT" && e.target.type === "text") {
+      e.preventDefault();
+      const go = d.querySelector(".dlg-foot .btn.primary");
+      if (go && !go.disabled) go.click();
+    }
   });
 }
 for (const r of document.querySelectorAll('.seg input')) r.addEventListener("change", segSync);
@@ -360,6 +392,7 @@ function segSync() { for (const l of document.querySelectorAll(".seg label")) l.
 async function loadInfo() {
   state.info = await api("GET", "/api/info");
   state.space = await api("GET", "/api/fs/space").catch(() => []);
+  state.locations = await api("GET", "/api/locations").catch(() => []);
   renderStatus(); renderDrives();
 }
 function renderStatus() {
@@ -384,8 +417,9 @@ function renderDrives() {
 function showTab(tab) {
   state.tab = tab;
   for (const b of document.querySelectorAll(".tab")) b.classList.toggle("on", b.dataset.tab === tab);
-  $("#view-files").hidden = tab !== "files"; $("#view-queue").hidden = tab !== "queue";
+  $("#view-files").hidden = tab !== "files"; $("#view-queue").hidden = tab !== "queue"; $("#view-deps").hidden = tab !== "deps";
   if (tab === "queue") renderJobs();
+  if (tab === "deps") loadDeps();
 }
 for (const b of document.querySelectorAll(".tab")) b.addEventListener("click", () => showTab(b.dataset.tab));
 
@@ -436,6 +470,7 @@ function renderList() {
     const items = [];
     if (!top) {
       if (conv || isDir) items.push(["Convert…", () => openConvert(e)]);
+      if (e.kind === "fpkg") items.push(["Install", () => installPkg(e)]);
       items.push(["Rename…", () => renameEntry(e)], ["Copy to…", () => openDest(e, "copy")], ["Move to…", () => openDest(e, "move")], ["Delete…", () => deleteEntry(e), "danger"]);
     }
     box.append(h("div", { class: "row" },
@@ -457,6 +492,15 @@ $("#btn-mkdir").addEventListener("click", async () => {
   try { await api("POST", "/api/fs/mkdir", { path: state.cwd + "/" + name }); browse(state.cwd); }
   catch (e) { toast(e.message, "bad"); }
 });
+async function installPkg(e) {
+  if (state.info && state.info.platform !== "ps5") { toast("Installing needs the engine running on a PS5", "bad"); return; }
+  const body = h("div", {},
+    h("div", { class: "mono", text: e.path }),
+    h("div", { class: "small muted", style: "margin-top:8px", text: "The console installs it in the background; follow it in Downloads. Keep the file until the install has finished." }));
+  if (!await ask({ title: "Install this package?", body, ok: "Install" })) return;
+  try { await api("POST", "/api/jobs", { kind: "install", input: e.path }); toast("Install queued", "ok"); refreshJobs(); }
+  catch (err) { toast(err.message, "bad"); }
+}
 async function renameEntry(e) {
   const name = await ask({ title: "Rename", input: e.name, ok: "Rename" });
   if (!name || name === e.name) return;
@@ -474,45 +518,61 @@ async function deleteEntry(e) {
   catch (err) { toast(err.message, "bad"); }
 }
 
-/* ---------- copy / move ---------- */
+/* ---------- copy / move, and the folder picker ---------- */
 const dest = { entry: null, kind: "copy", path: null };
+function quickLocations(box, onPick, current) {
+  box.textContent = "";
+  for (const l of state.locations.filter((x) => x.exists))
+    box.append(h("button", { type: "button", class: current === l.path ? "on" : "", text: l.label, title: l.path, onclick: () => onPick(l.path) }));
+}
 async function destBrowse(path) {
   let data;
   try { data = await api("GET", "/api/browse?path=" + encodeURIComponent(path || "/")); } catch (e) { $("#dest-msg").textContent = e.message; return; }
-  dest.path = data.path;
+  dest.path = data.path; $("#dest-msg").textContent = "";
+  quickLocations($("#dest-quick"), destBrowse, data.path);
   crumbs($("#dest-crumbs"), data.path, destBrowse);
   const list = $("#dest-list"); list.textContent = "";
   const folders = data.entries.filter((x) => x.kind === "folder");
   if (!folders.length) list.append(h("div", { class: "empty small", text: data.path === "/" ? "No drives." : "No sub-folders." }));
   for (const f of folders) list.append(h("div", { class: "row", onclick: () => destBrowse(f.path) }, h("div", { class: "ico folder", text: "DIR" }), h("div", { class: "name", text: f.name })));
   const r = data.path === "/" ? null : rootOf(data.path);
-  $("#dest-space").textContent = r ? `${bytes(r.free)} free on ${r.root}` + (dest.entry.size ? ` · needs ${bytes(dest.entry.size)}` : "") : "Pick a drive and folder.";
+  const need = dest.entry && dest.entry.size ? ` · needs ${bytes(dest.entry.size)}` : "";
+  $("#dest-space").textContent = r ? `${bytes(r.free)} free on ${r.root}${need}` : "Pick a drive and folder.";
   $("#dest-go").disabled = data.path === "/";
 }
-function openDest(entry, kind) {
+// Opens the folder dialog. mode "copy"/"move" queues a job; "pick" resolves with the folder.
+function openDest(entry, kind, start) {
   dest.entry = entry; dest.kind = kind;
-  $("#dest-title").textContent = (kind === "copy" ? "Copy " : "Move ") + entry.name;
-  $("#dest-go").textContent = kind === "copy" ? "Copy here" : "Move here";
-  $("#dest-name").value = entry.name; $("#dest-overwrite").checked = false; $("#dest-msg").textContent = "";
-  destBrowse(dir(entry.path));
+  const pick = kind === "pick";
+  $("#dest-title").textContent = pick ? "Choose a folder" : (kind === "copy" ? "Copy " : "Move ") + entry.name;
+  $("#dest-go").textContent = pick ? "Use this folder" : kind === "copy" ? "Copy here" : "Move here";
+  $("#dest-naming").hidden = pick;
+  if (!pick) { $("#dest-name").value = entry.name; $("#dest-overwrite").checked = false; }
+  destBrowse(start || (entry ? dir(entry.path) : "/"));
   const d = $("#dlg-dest");
-  d.onclose = async () => {
-    if (d.returnValue !== "go") return;
-    const name = $("#dest-name").value.trim();
-    if (!name || name.includes("/")) { toast("Enter a plain name", "bad"); return; }
-    try {
-      await api("POST", "/api/jobs", { kind, input: entry.path, output: dest.path + "/" + name, overwrite: $("#dest-overwrite").checked });
-      toast(`${kind === "copy" ? "Copy" : "Move"} queued`, "ok"); refreshJobs();
-    } catch (e) { toast(e.message, "bad"); }
-  };
-  d.returnValue = ""; d.showModal();
+  return new Promise((resolve) => {
+    d.onclose = async () => {
+      if (d.returnValue !== "go") return resolve(null);
+      if (pick) return resolve(dest.path);
+      const name = $("#dest-name").value.trim();
+      if (!name || name.includes("/")) { toast("Enter a plain name", "bad"); return resolve(null); }
+      try {
+        await api("POST", "/api/jobs", { kind, input: entry.path, output: dest.path + "/" + name, overwrite: $("#dest-overwrite").checked });
+        toast(`${kind === "copy" ? "Copy" : "Move"} queued`, "ok"); refreshJobs();
+      } catch (e) { toast(e.message, "bad"); }
+      resolve(dest.path);
+    };
+    d.returnValue = ""; d.showModal();
+  });
 }
 
 /* ---------- convert ---------- */
 const cv = { entry: null, inspect: null, timer: 0 };
 function cvSpec() {
   return {
-    input: cv.entry.path, to: document.querySelector('input[name="to"]:checked').value, output: $("#cv-output").value.trim(),
+    input: cv.entry.path, to: document.querySelector('input[name="to"]:checked').value,
+    output_dir: $("#cv-dest").value === "__pick" ? ($("#cv-dest").dataset.last || "") : $("#cv-dest").value,
+    output_name: $("#cv-name").value.trim(),
     level: +$("#cv-level").value, lz4: $("#cv-lz4").checked, lz4_profile: $("#cv-profile").value, lz4_level: +$("#cv-lz4level").value,
     delete_source: $("#cv-delete").checked, verify: $("#cv-verify").checked, overwrite: $("#cv-overwrite").checked,
   };
@@ -527,10 +587,16 @@ function cvSync() {
     const msg = $("#cv-msg");
     try {
       const p = await api("POST", "/api/plan", cvSpec());
-      $("#cv-output").placeholder = p.output;
+      if (!$("#cv-name").value.trim()) $("#cv-name").placeholder = base(p.output);
+      $("#cv-path").textContent = "→ " + p.output;
       const r = rootOf(p.output), need = cv.inspect ? cv.inspect.bytes : 0;
       $("#cv-space").textContent = r ? `${bytes(r.free)} free on ${r.root}` + (need ? ` · the game is ${bytes(need)} unpacked` : "") : "";
       msg.textContent = ""; msg.className = "msg"; $("#cv-go").disabled = false;
+      const warns = p.warnings || [], wb = $("#cv-warn");
+      wb.hidden = !warns.length; wb.textContent = warns.join(" ");
+      const needs = p.needs || [], nb = $("#cv-needs");
+      nb.hidden = !needs.length;
+      nb.textContent = needs.length ? "Needs " + needs.map((d) => `${d.label} (${bytes(d.bytes)})`).join(", ") + ", which isn't downloaded yet. You'll be asked to download it when you add this to the queue." : "";
     } catch (e) { msg.textContent = e.message; msg.className = "msg err"; $("#cv-go").disabled = true; }
   }, 150);
 }
@@ -543,17 +609,17 @@ async function openConvert(entry) {
   for (const p of (state.info ? state.info.lz4_profiles : [])) sel.append(h("option", { value: p.id, text: `${p.label} · tested on ${p.tested}` }));
   sel.append(h("option", { value: "scan", text: "Scan · packs most files (untested)" }));
   const rt = state.info ? state.info.lz4_runtime : null;
-  $("#cv-runtime").textContent = !rt ? "" : !rt.present ? `No runtime at ${rt.path}: only games that ship ampr_emu can be packed.` : rt.pinned ? "" : "The runtime file is not the pinned ampr_emu 0.4.2.1 build.";
+  const note = $("#cv-runtime"); note.textContent = "";
+  if (rt && !rt.present) note.append("No ampr_emu runtime yet: only games that ship ampr_emu can be packed. ",
+    h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); $("#dlg-convert").close("cancel"); showTab("deps"); }, text: "Get it in Components" }));
+  else if (rt && !rt.pinned) note.textContent = "The runtime file is not the pinned ampr_emu 0.4.2.1 build.";
   for (const id of ["#cv-lz4", "#cv-delete", "#cv-overwrite"]) $(id).checked = false;
-  $("#cv-verify").checked = true; $("#cv-output").value = ""; $("#cv-msg").textContent = "";
+  $("#cv-verify").checked = true; $("#cv-name").value = ""; $("#cv-name").placeholder = ""; $("#cv-path").textContent = ""; $("#cv-msg").textContent = "";
+  fillDest(store.get("dest") || "");
   document.querySelector(`input[name="to"][value="${entry.kind === "ffpfsc" ? "exfat" : "ffpfsc"}"]`).checked = true;
   segSync(); cvSync();
   const d = $("#dlg-convert");
-  d.onclose = async () => {
-    if (d.returnValue !== "go") return;
-    try { const job = await api("POST", "/api/jobs", cvSpec()); toast("Queued: " + base(job.spec.output), "ok"); refreshJobs(); }
-    catch (e) { toast(e.message, "bad"); }
-  };
+  d.onclose = null;
   d.returnValue = ""; d.showModal();
   try {
     const i = cv.inspect = await api("GET", "/api/inspect?path=" + encodeURIComponent(entry.path));
@@ -572,12 +638,107 @@ async function openConvert(entry) {
     $("#cv-go").disabled = true;
   }
 }
+// "Save to": next to the source, the suggested locations, recent folders, or any folder.
+function rememberFolder(path) {
+  if (state.locations.some((l) => l.path === path)) return;
+  store.set("recent", [path, ...(store.get("recent") || []).filter((p) => p !== path)].slice(0, 5));
+}
+function fillDest(selected) {
+  const sel = $("#cv-dest"); sel.textContent = "";
+  const add = (value, text, parent = sel) => parent.append(h("option", { value, text }));
+  add("", "Next to the source");
+  const sugg = h("optgroup", { label: "Suggested" });
+  for (const l of state.locations) add(l.path, `${l.label} — ${l.path}`, sugg);
+  if (state.locations.length) sel.append(sugg);
+  const recent = (store.get("recent") || []).filter((p) => !state.locations.some((l) => l.path === p) && rootOf(p));
+  if (selected && !recent.includes(selected) && !state.locations.some((l) => l.path === selected) && rootOf(selected)) recent.unshift(selected);
+  if (recent.length) { const g = h("optgroup", { label: "Recent" }); for (const p of recent) add(p, p, g); sel.append(g); }
+  add("__pick", "Choose a folder…");
+  sel.value = [...sel.options].some((o) => o.value === selected) ? selected : "";
+  sel.dataset.last = sel.value;
+}
+// Add to queue: download what the job needs (after asking), then queue it.
+// The dialog stays open until the job is queued, so declining keeps the settings.
+$("#cv-go").addEventListener("click", async () => {
+  const go = $("#cv-go"), msg = $("#cv-msg"), spec = cvSpec();
+  if (go.disabled) return;
+  go.disabled = true;
+  try {
+    const plan = await api("POST", "/api/plan", spec);
+    for (const dep of plan.needs || []) {
+      const body = h("div", {},
+        h("div", { text: `This conversion needs ${dep.label}, which isn't downloaded yet.` }),
+        h("div", { class: "facts", style: "margin-top:10px" },
+          h("div", { text: "Why" }), h("div", { text: dep.purpose }),
+          h("div", { text: "Source" }), h("div", { text: dep.source }),
+          h("div", { text: "Size" }), h("div", { text: bytes(dep.bytes) })),
+        h("div", { class: "small muted", style: "margin-top:8px", text: "It's checked against a pinned SHA-256 before it's saved." }));
+      if (!await ask({ title: "Download " + dep.label + "?", body, ok: "Download and continue" })) {
+        msg.className = "msg"; msg.textContent = "Not queued: " + dep.label + " is needed.";
+        return;
+      }
+      msg.className = "msg"; msg.textContent = "Downloading " + dep.label + "…";
+      await api("POST", `/api/deps/${dep.id}/install`);
+      toast(dep.label + " downloaded", "ok");
+      loadInfo().catch(() => {});
+    }
+    const job = await api("POST", "/api/jobs", spec);
+    store.set("dest", spec.output_dir);
+    if (spec.output_dir) rememberFolder(spec.output_dir);
+    $("#dlg-convert").close("done");
+    toast("Queued: " + base(job.spec.output), "ok"); refreshJobs();
+  } catch (e) {
+    msg.className = "msg err"; msg.textContent = e.message;
+  } finally {
+    go.disabled = false;
+  }
+});
+$("#cv-dest").addEventListener("change", async () => {
+  const sel = $("#cv-dest");
+  if (sel.value !== "__pick") { sel.dataset.last = sel.value; return; }
+  const start = sel.dataset.last || (cv.entry ? dir(cv.entry.path) : "/");
+  const folder = await openDest(null, "pick", start);
+  if (folder) { rememberFolder(folder); fillDest(folder); } else sel.value = sel.dataset.last || "";
+  cvSync();
+});
 for (const el of document.querySelectorAll('#dlg-convert input, #dlg-convert select')) el.addEventListener("change", cvSync);
+$("#cv-name").addEventListener("input", cvSync);
+
+/* ---------- components ---------- */
+const DEP_STATE = { installed: ["done", "installed"], missing: ["queued", "not installed"], partial: ["failed", "incomplete"], modified: ["failed", "changed"] };
+async function loadDeps() {
+  let deps;
+  try { deps = await api("GET", "/api/deps"); } catch (e) { toast(e.message, "bad"); return; }
+  const box = $("#deps"); box.textContent = "";
+  for (const d of deps) {
+    const [cls, label] = DEP_STATE[d.state] || ["queued", d.state];
+    const busy = h("span", { class: "small muted" });
+    const run = async (action, btn) => {
+      for (const b of box.querySelectorAll("button")) b.disabled = true;
+      busy.textContent = action === "install" ? "Downloading…" : "Removing…";
+      try { await api("POST", `/api/deps/${d.id}/${action}`); toast(action === "install" ? `${d.label} installed` : `${d.label} removed`, "ok"); }
+      catch (e) { toast(e.message, "bad"); }
+      await loadInfo().catch(() => {}); loadDeps();
+    };
+    const buttons = [];
+    if (d.state !== "installed") buttons.push(h("button", { class: "btn sm primary", type: "button", text: d.state === "missing" ? `Get (${bytes(d.bytes)})` : "Download again", onclick: (e) => run("install", e.target) }));
+    if (d.state !== "missing") buttons.push(h("button", { class: "btn sm ghost", type: "button", text: "Remove", onclick: (e) => run("remove", e.target) }));
+    box.append(h("div", { class: "panel job" },
+      h("div", { class: "head" }, h("div", { class: "title", text: d.label }), h("span", { class: "state " + cls, text: label })),
+      h("div", { class: "small", style: "margin-top:6px", text: d.purpose }),
+      h("div", { class: "facts", style: "margin-top:10px" },
+        h("div", { text: "Source" }), h("div", { text: d.source }),
+        h("div", { text: "License" }), h("div", { text: d.license }),
+        h("div", { text: "Files" }), h("div", { class: "mono" }, d.files.map((f) => h("div", { text: f.path, title: f.url + "\nSHA-256 " + f.sha256 })))),
+      h("div", { class: "detail", style: "justify-content:flex-end" }, busy, h("div", { class: "tags" }, buttons))));
+  }
+}
 
 /* ---------- queue ---------- */
 function jobText(j) {
   const s = j.spec, r = j.result || {};
   if (s.kind === "copy" || s.kind === "move") return { title: base(s.input), to: (s.kind === "copy" ? "Copy to " : "Move to ") + s.output };
+  if (s.kind === "install") return { title: base(s.input), to: "Install on this console" };
   return { title: base(s.input), to: "→ " + s.output };
 }
 function renderJobs() {
@@ -605,9 +766,9 @@ function jobCard(j) {
       state.speeds[j.id] = { t: now, done: j.done, rate, stage: j.stage };
     } else if (!sp || sp.stage !== j.stage) state.speeds[j.id] = { t: now, done: j.done, rate: 0, stage: j.stage };
     detail = [j.stage, j.total ? pct.toFixed(1) + "%" : "", rate > 1 ? bytes(rate) + "/s" : "",
-      rate > 1 && j.total ? duration((j.total - j.done) / rate) + " left" : "", j.started ? duration(Date.now() / 1000 - j.started) + " so far" : ""].filter(Boolean).join(" · ");
+      rate > 1 && j.total ? duration((j.total - j.done) / rate) + " left" : "", j.elapsed != null ? duration(j.elapsed) + " so far" : ""].filter(Boolean).join(" · ");
   } else if (j.state === "done") {
-    detail = [r.method, r.output_bytes ? bytes(r.output_bytes) : "", duration(j.finished - j.started), r.source_deleted ? "source deleted" : ""].filter(Boolean).join(" · ");
+    detail = [r.method, r.output_bytes ? bytes(r.output_bytes) : "", j.elapsed != null ? duration(j.elapsed) : "", r.source_deleted ? "source deleted" : ""].filter(Boolean).join(" · ");
   } else if (j.state === "queued") detail = "Waiting for the job before it";
   else detail = j.finished ? date(j.finished) : "";
   const tags = [];

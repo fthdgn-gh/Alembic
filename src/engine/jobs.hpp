@@ -27,7 +27,9 @@ namespace alembic::engine {
 struct JobSpec {
     std::string kind = "convert";
     std::string input;
-    std::string output;   // empty: next to the input, with the target's extension
+    std::string output;   // empty: <output_dir>/<output_name>
+    std::string output_dir;  // empty: the input's folder
+    std::string output_name; // empty: the input's name with the target's extension
     std::string to;       // folder, exfat, ffpfsc; empty: from the output name
     int level = 6;        // zlib level for FFPFSC
     bool overwrite = false;

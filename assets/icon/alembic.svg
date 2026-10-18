@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Alembic icon: a retort (distillation flask) whose spout lets one drop fall. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5f86ff"/>
+      <stop offset="1" stop-color="#8a5cff"/>
+    </linearGradient>
+    <linearGradient id="liquid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7fe0c2"/>
+      <stop offset="1" stop-color="#3fb68f"/>
+    </linearGradient>
+    <clipPath id="body">
+      <circle cx="206" cy="318" r="112"/>
+    </clipPath>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <!-- neck and spout -->
+  <path d="M 222 212 C 236 136 330 116 404 262" fill="none" stroke="#ffffff" stroke-width="48" stroke-linecap="round"/>
+  <!-- flask body -->
+  <circle cx="206" cy="318" r="112" fill="#ffffff"/>
+  <!-- liquid -->
+  <g clip-path="url(#body)">
+    <path d="M 80 334 C 120 312 160 312 206 330 C 250 348 290 348 336 326 L 336 450 L 80 450 Z" fill="url(#liquid)"/>
+    <circle cx="170" cy="380" r="13" fill="#ffffff" opacity=".75"/>
+    <circle cx="222" cy="400" r="9" fill="#ffffff" opacity=".75"/>
+    <circle cx="246" cy="366" r="7" fill="#ffffff" opacity=".75"/>
+  </g>
+  <!-- the distilled drop -->
+  <path d="M 410 318 C 424 342 434 356 434 372 A 24 24 0 0 1 386 372 C 386 356 396 342 410 318 Z" fill="#ffffff"/>
+</svg>

@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runner.hpp"
+#include "deps.hpp"
 #include "fs_ops.hpp"
+#include "platform.hpp"
+
+#include <map>
+#include <mutex>
+#include <sys/stat.h>
 
 #include "alembic/convert.hpp"
 #include "alembic/lz4pack.hpp"
@@ -40,6 +46,66 @@ Result<convert::Format> target_format(const JobSpec& spec) {
 
 } // namespace
 
+std::size_t mount_name_limit(const std::string& output) {
+    auto ends = [&](const char* ext) {
+        std::size_t n = std::char_traits<char>::length(ext);
+        if (output.size() < n) return false;
+        for (std::size_t i = 0; i < n; ++i) {
+            char c = output[output.size() - n + i];
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + 32);
+            if (c != ext[i]) return false;
+        }
+        return true;
+    };
+    constexpr std::size_t kMountPointMax = 87; // MNAMELEN 88 with the NUL
+    constexpr std::size_t kHash = 9;           // "_%08x"
+    if (ends(".ffpfsc")) return kMountPointMax - std::char_traits<char>::length("/mnt/shadowmnt/pfsc/") - kHash; // 58
+    if (ends(".exfat") || ends(".ffpkg") || ends(".ffpfs"))
+        return kMountPointMax - std::char_traits<char>::length("/mnt/shadowmnt/") - kHash; // 63
+    return 0;
+}
+
+std::string mount_name_warning(const std::string& output) {
+    std::size_t limit = mount_name_limit(output);
+    if (!limit) return "";
+    std::string name = output.substr(output.rfind('/') + 1);
+    std::size_t dot = name.rfind('.');
+    std::size_t length = dot == std::string::npos ? name.size() : dot;
+    if (length <= limit) return "";
+    return "ShadowMount+ cannot mount this image: its name has " + std::to_string(length) +
+           " characters before the extension, at most " + std::to_string(limit) + " work";
+}
+
+std::string shorten_name(const std::string& name, std::size_t limit) {
+    if (name.size() <= limit) return name;
+    auto is_alpha = [](char c) { return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'); };
+    auto is_digit = [](char c) { return c >= '0' && c <= '9'; };
+    std::string title, version, tag;
+    for (std::size_t i = 0; i + 9 <= name.size() && title.empty(); ++i) {
+        bool ok = (i == 0 || !is_alpha(name[i - 1]));
+        for (std::size_t k = 0; ok && k < 9; ++k) ok = k < 4 ? is_alpha(name[i + k]) : is_digit(name[i + k]);
+        if (ok && (i + 9 == name.size() || !is_digit(name[i + 9]))) title = name.substr(i, 9);
+    }
+    // -A0100-V0100 (app and version numbers in package names)
+    for (std::size_t i = 0; i + 12 <= name.size(); ++i) {
+        if (name[i] == '-' && name[i + 1] == 'A' && name[i + 6] == '-' && name[i + 7] == 'V') {
+            bool ok = true;
+            for (std::size_t k : {2u, 3u, 4u, 5u, 8u, 9u, 10u, 11u}) ok = ok && is_digit(name[i + k]);
+            if (ok) version = name.substr(i, 12);
+        }
+    }
+    for (const char* t : {"-lz4", "-unpacked"}) {
+        std::size_t n = std::char_traits<char>::length(t);
+        if (name.size() >= n && name.compare(name.size() - n, n, t) == 0) tag = t;
+    }
+    std::string candidate = title.empty() ? "" : title + version + tag;
+    if (!candidate.empty() && candidate.size() <= limit) return candidate;
+    // Keep the tag, cut the rest.
+    std::string body = name.substr(0, name.size() - tag.size());
+    std::size_t keep = limit > tag.size() ? limit - tag.size() : limit;
+    return body.substr(0, keep) + (limit > tag.size() ? tag : "");
+}
+
 Result<std::string> resolve_target(const JobSpec& spec) {
     if (spec.kind != "convert") return std::string();
     ALEMBIC_ASSIGN(convert::Format f, target_format(spec));
@@ -56,15 +122,31 @@ Result<std::string> resolve_output(const JobSpec& spec) {
     std::string input = strip_slashes(spec.input);
     std::size_t slash = input.rfind('/');
     std::string dir = slash == std::string::npos ? "." : input.substr(0, slash);
-    std::string name = slash == std::string::npos ? input : input.substr(slash + 1);
-    if (!is_directory(input)) {
-        std::size_t dot = name.rfind('.');
-        if (dot != std::string::npos && dot > 0) name = name.substr(0, dot);
+    if (!spec.output_dir.empty()) dir = strip_slashes(spec.output_dir);
+    std::string out;
+    if (!spec.output_name.empty()) {
+        out = dir + "/" + spec.output_name;
+        if (to == convert::Format::folder) out += "/";
+    } else {
+        std::string name = slash == std::string::npos ? input : input.substr(slash + 1);
+        if (!is_directory(input)) {
+            std::size_t dot = name.rfind('.');
+            if (dot != std::string::npos && dot > 0) name = name.substr(0, dot);
+        }
+        if (spec.lz4) name += "-lz4";
+        if (spec.lz4_unpack) name += "-unpacked";
+        // Default names stay mountable by ShadowMount+.
+        if (std::size_t limit = mount_name_limit(extension_for(to))) name = shorten_name(name, limit);
+        out = (dir == "/" ? "" : dir) + "/" + name + extension_for(to);
     }
-    if (spec.lz4) name += "-lz4";
-    if (spec.lz4_unpack) name += "-unpacked";
-    std::string out = (dir.empty() ? "" : dir + "/") + name + extension_for(to);
     if (strip_slashes(out) == input) return make_error(Errc::invalid_argument, "the output would replace the input");
+    return out;
+}
+
+std::vector<std::string> EngineConfig::available_roots() const {
+    std::vector<std::string> out;
+    for (const std::string& r : roots)
+        if (platform::root_available(strip_slashes(r))) out.push_back(strip_slashes(r));
     return out;
 }
 
@@ -90,7 +172,7 @@ bool path_allowed(const std::string& path, const std::vector<std::string>& roots
 Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress) {
     ALEMBIC_ASSIGN(convert::Format to, target_format(spec));
     ALEMBIC_ASSIGN(std::string output, resolve_output(spec));
-    if (!path_allowed(strip_slashes(spec.input), config.roots) || !path_allowed(strip_slashes(output), config.roots))
+    if (!path_allowed(strip_slashes(spec.input), config.available_roots()) || !path_allowed(strip_slashes(output), config.available_roots()))
         return make_error(Errc::invalid_argument, "the input and output must be inside the allowed folders");
 
     convert::Options options;
@@ -192,9 +274,45 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     return r;
 }
 
+namespace {
+
+// Whether the game at `path` ships fakelib/libSceAmpr.sprx. Opening a large
+// package takes a moment, so answers are kept per path, size and mtime.
+bool ships_ampr_runtime(const std::string& path, const std::string& passcode) {
+    struct stat st{};
+    if (::stat(path.c_str(), &st) != 0) return false;
+    std::string key = path + "|" + std::to_string(st.st_size) + "|" + std::to_string(st.st_mtime);
+    static std::mutex mutex;
+    static std::map<std::string, bool> cache;
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (auto it = cache.find(key); it != cache.end()) return it->second;
+    }
+    bool ships = false;
+    if (auto input = convert::open(path, passcode); input.ok()) {
+        const tree::Node* fakelib = tree::find_child_icase(input->tree->root(), "fakelib");
+        const tree::Node* sprx = fakelib && fakelib->is_directory ? tree::find_child_icase(*fakelib, "libSceAmpr.sprx") : nullptr;
+        ships = sprx && !sprx->is_directory;
+    }
+    std::lock_guard<std::mutex> lock(mutex);
+    if (cache.size() > 256) cache.clear();
+    cache[key] = ships;
+    return ships;
+}
+
+} // namespace
+
+std::vector<std::string> missing_dependencies(const JobSpec& spec, const EngineConfig& config) {
+    std::vector<std::string> out;
+    if (spec.kind == "convert" && spec.lz4 && spec.lz4_runtime.empty() && !is_regular_file(config.runtime_path) &&
+        !ships_ampr_runtime(strip_slashes(spec.input), spec.passcode.empty() ? std::string(32, '0') : spec.passcode))
+        out.push_back("ampr_runtime");
+    return out;
+}
+
 Result<JsonValue> run_transfer(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress) {
     std::string input = strip_slashes(spec.input), output = strip_slashes(spec.output);
-    if (!path_allowed(input, config.roots) || !path_allowed(output, config.roots))
+    if (!path_allowed(input, config.available_roots()) || !path_allowed(output, config.available_roots()))
         return make_error(Errc::invalid_argument, "the source and destination must be inside the allowed folders");
     if (spec.kind == "move" && config.needed_by_other_jobs && config.needed_by_other_jobs(input))
         return make_error(Errc::invalid_argument, "another queued job uses " + input);
@@ -208,7 +326,22 @@ Result<JsonValue> run_transfer(const JobSpec& spec, const EngineConfig& config, 
     return r;
 }
 
+Result<JsonValue> run_install(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress) {
+    std::string input = strip_slashes(spec.input);
+    if (!path_allowed(input, config.available_roots())) return make_error(Errc::invalid_argument, "outside the allowed folders");
+    // Only packages Alembic can read: a debug FPKG (the console refuses others anyway).
+    if (progress) progress({"Checking the package", 0, 0});
+    ALEMBIC_ASSIGN(convert::Format format, convert::detect(input));
+    if (format != convert::Format::fpkg) return make_error(Errc::invalid_argument, "not a PKG file");
+    if (progress) progress({"Handing it to the system installer", 0, 0});
+    ALEMBIC_TRY(platform::install_package(input));
+    JsonValue r = JsonValue::object();
+    r.set("method", "handed to the system installer; it installs in the background (see Downloads)");
+    return r;
+}
+
 Result<JsonValue> run_job(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress) {
+    if (spec.kind == "install") return run_install(spec, config, progress);
     if (spec.kind == "copy" || spec.kind == "move") return run_transfer(spec, config, progress);
     return run_conversion(spec, config, progress);
 }

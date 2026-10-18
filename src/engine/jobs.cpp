@@ -75,6 +75,8 @@ JsonValue JobSpec::to_json() const {
     j.set("kind", kind);
     j.set("input", input);
     j.set("output", output);
+    if (!output_dir.empty()) j.set("output_dir", output_dir);
+    if (!output_name.empty()) j.set("output_name", output_name);
     j.set("to", to);
     j.set("level", level);
     j.set("overwrite", overwrite);
@@ -95,10 +97,14 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
     if (!j.is_object()) return make_error(Errc::invalid_argument, "a job must be a JSON object");
     JobSpec s;
     s.kind = j["kind"].str("convert");
-    if (s.kind != "convert" && s.kind != "copy" && s.kind != "move")
-        return make_error(Errc::invalid_argument, "kind must be convert, copy or move");
+    if (s.kind != "convert" && s.kind != "copy" && s.kind != "move" && s.kind != "install")
+        return make_error(Errc::invalid_argument, "kind must be convert, copy, move or install");
     s.input = j["input"].str();
     s.output = j["output"].str();
+    s.output_dir = j["output_dir"].str();
+    s.output_name = j["output_name"].str();
+    if (s.output_name.find('/') != std::string::npos || s.output_name == "." || s.output_name == "..")
+        return make_error(Errc::invalid_argument, "output_name must be a plain file name");
     s.to = j["to"].str();
     s.level = static_cast<int>(j["level"].integer(6));
     s.overwrite = j["overwrite"].boolean();
@@ -112,7 +118,8 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
     s.lz4_unpack = j["lz4_unpack"].boolean();
     s.delete_source = j["delete_source"].boolean();
     s.verify = j["verify"].boolean(true);
-    if (s.kind != "convert" && s.output.empty()) return make_error(Errc::invalid_argument, "copy and move need an output");
+    if ((s.kind == "copy" || s.kind == "move") && s.output.empty())
+        return make_error(Errc::invalid_argument, "copy and move need an output");
     if (s.input.empty()) return make_error(Errc::invalid_argument, "the job has no input");
     if (s.level < 0 || s.level > 9) return make_error(Errc::invalid_argument, "level must be 0-9");
     if (s.lz4_level < 1 || s.lz4_level > 12) return make_error(Errc::invalid_argument, "lz4_level must be 1-12");

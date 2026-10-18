@@ -706,6 +706,67 @@ is about the USB drive's own format (shown on connect), not about the image.
   file identical (the LZ4 runtime the packer adds is allowed); a source that
   another queued job still reads is kept. Package B: convert + check +
   delete 14 s (6 s without the check).
+- Owner feedback round: elapsed time comes from the engine (`elapsed` in
+  `/api/jobs`; the page no longer compares the console's clock with its own);
+  `/mnt/*` roots count only when a drive is mounted exactly there
+  (`statfs().f_mntonname`), for listing and for every path check; a new
+  icon (`assets/icon/`: SVG for the page and favicon, served at `/icon.svg`;
+  a full-bleed square and its 512×512 `icon0.png` for the PS5 app tile).
+- **Output elsewhere:** jobs take `output_dir` / `output_name` (default: the
+  input's folder and name), so a USB source can go straight to internal
+  storage. `/api/locations` suggests `/data/homebrew` (ShadowMount+ scans it),
+  `/data` and, per mounted drive, `<drive>/homebrew` and `<drive>`; the page's
+  "Save to" lists them plus recent folders (browser storage) and a folder
+  picker; Copy/Move get the same shortcuts.
+
+### 2026-10-18: package install, and the FPKG writer plan
+
+- **Install** (`kind: "install"`, Files → ⋯ → Install on `.pkg` files):
+  `sceAppInstUtilInstallByPackage` with the local path, as in
+  ps5-payload-dev/shsrv `bundles/pkg_install` (GPL-3.0); the system installs
+  in the background (Downloads). The engine links `libSceAppInstUtil`.
+  Not tried on a console yet.
+- **FPKG output is the owner's priority** (image → installable PKG and back).
+  Key material: both reference builders embed Sony publishing-tool blobs
+  (ProsperoPkgTool `Keys/passcode.bin`, `mount_image.bin`,
+  `metadata_modulus.bin`: public RSA-3072 moduli, the header "signature" is
+  an RSA encryption under the metadata modulus, so no private key;
+  LibProsperoPKG also ships `pkg_meta_rsa_key.pem`). Decision: Alembic ships
+  none of them; the user supplies the files, checked by SHA-256.
+- **First, find out which builder's output installs.** Neither reference has
+  ever been installed on a PS5. Test packages of the 124 MB sample package, built from its extracted files minus the licence and PlayGo files (as
+  fpkg-cli advises), are next to it in `.refs/samples/`: `-ppt-stored.pkg`
+  and `-ppt-kraken.pkg` (ProsperoPkgTool 0.3 `img_create`); both read back
+  with every file identical (plus regenerated PlayGo files). LibProsperoPKG's
+  output uses the shuffled NAPS layout, which Alembic refuses and fpkg-cli
+  reports a console does not load, so it was not offered. Owner to install
+  the original, then each test package, and launch them.
+- Then port the builder that works (ProsperoPkgTool is MIT, clean-room:
+  inner PFS, Kraken encoder or stored, outer PFS AES-XTS, CNT, PlayGo, debug
+  licence), streaming from any `tree::Source`, checked byte for byte against
+  it on the samples.
+
+- **Components downloader** (owner: fetch dependencies in the app instead of
+  bundling them). `src/engine/deps.cpp` lists each file with a fixed URL,
+  size and SHA-256; `POST /api/deps/ID/install` downloads all of a
+  component's files, checks every hash, and only then writes them under the
+  state folder (`runtime/libSceAmpr.sprx`: ampr_emu 0.4.2.1 release asset;
+  `keys/*.bin`: ProsperoPkgTool's public moduli at commit `f2c91cd7a5d8`).
+  HTTPS on the PS5 uses `libSceHttp`/`libSceSsl` with the four public CA
+  roots from ShadowMountPlus (`src/engine/github_ca.inc`: Sectigo E46 /
+  USERTrust ECC for github.com, ISRG Root YR / X1 for the
+  githubusercontent.com hosts, checked 2026-10-18); a PC uses curl. The
+  page has a Components tab; the Convert dialog links to it when the
+  runtime is missing. Tested on the Mac with real downloads; not yet on the
+  console. The owner cannot install FPKGs on their console, so FPKG install
+  tests wait.
+- Components are detected per job: `missing_dependencies()` (runner.cpp)
+  reports the runtime for an LZ4 job when the runtime file is missing and the
+  game ships no `fakelib/libSceAmpr.sprx` (checked by opening the input,
+  cached per path/size/mtime); `/api/plan` returns them as `needs`, and
+  `POST /api/jobs` refuses such a job (409 with `needs`). The Convert dialog
+  says what will be downloaded, asks on "Add to queue", downloads, then
+  queues; declining keeps the dialog and its settings.
 
 ## Next session
 
