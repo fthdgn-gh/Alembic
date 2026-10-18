@@ -457,9 +457,9 @@ function duration(s) {
   const hh = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), r = s % 60;
   return hh ? t("{h} h {m} min", { h: hh, m }) : m ? (r ? t("{m} min {s} s", { m, s: r }) : t("{m} min", { m })) : t("{s} s", { s: r });
 }
-function date(t, full) {
-  if (!t) return "";
-  const d = new Date(t * 1000), now = new Date();
+function date(when, full) {
+  if (!when) return "";
+  const d = new Date(when * 1000), now = new Date();
   const time = d.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" });
   if (d.toDateString() === now.toDateString() && !full) return time;
   const day = d.toLocaleDateString(lang, { year: "numeric", month: "short", day: "numeric" });
@@ -468,10 +468,10 @@ function date(t, full) {
 const base = (p) => p.replace(/\/+$/, "").split("/").pop();
 const dir = (p) => { const s = p.replace(/\/+$/, ""); const i = s.lastIndexOf("/"); return i <= 0 ? "/" : s.slice(0, i); };
 function toast(text, kind) {
-  const t = h("div", { class: "toast " + (kind || ""), text });
-  $("#toasts").append(t);
+  const el = h("div", { class: "toast " + (kind || ""), text });
+  $("#toasts").append(el);
   while ($("#toasts").children.length > 3) $("#toasts").firstChild.remove();
-  setTimeout(() => t.remove(), kind === "bad" ? 7000 : 4000);
+  setTimeout(() => el.remove(), kind === "bad" ? 7000 : 4000);
 }
 function rootOf(path) {
   let best = null;
@@ -673,7 +673,7 @@ document.addEventListener("mousedown", (e) => {
   }
 }, true);
 document.addEventListener("keydown", (e) => {
-  const t = e.target, typing = t && t.tagName === "INPUT" && t.type !== "checkbox";
+  const target = e.target, typing = target && target.tagName === "INPUT" && target.type !== "checkbox";
   const k = e.key, code = e.keyCode;
   logInput("key " + JSON.stringify(k) + " code=" + (e.code || "-") + " keyCode=" + code + (e.shiftKey ? " +shift" : "") + (e.repeat ? " (repeat)" : ""));
   let a = null;
@@ -683,7 +683,7 @@ document.addEventListener("keydown", (e) => {
   else if (k === "ArrowRight" || code === 39) a = typing ? null : "right";
   else if (k === "Escape" || code === 27) a = "back";
   else if ((k === "Backspace" || code === 8) && !typing) a = "back";
-  else if ((k === "Enter" || code === 13) && !typing && t && t.tagName !== "BUTTON") a = "ok";
+  else if ((k === "Enter" || code === 13) && !typing && target && target.tagName !== "BUTTON") a = "ok";
   // The PS5 browser sends the other buttons as function keys (owner's
   // Controller test): △ F1, □ F2, Options F3, L1 F5, R1 F6, L2 F7, R2 F8,
   // L3 F9, R3 F10. ○ is Escape, ✕ a click at the cursor. The browser also acts
@@ -698,7 +698,7 @@ document.addEventListener("keydown", (e) => {
   if (PS_KEYS[k]) { e.preventDefault(); useController(); }
   if (BROWSER_KEYS[k]) { useController(); return; }
   if (k === "Enter" || code === 13) lastNative.ok = Date.now();
-  if (inputLog.test && !((k === "Enter" || code === 13) && t && t.hasAttribute && t.hasAttribute("data-test-done"))) { e.preventDefault(); return; }
+  if (inputLog.test && !((k === "Enter" || code === 13) && target && target.hasAttribute && target.hasAttribute("data-test-done"))) { e.preventDefault(); return; }
   if (!a) return;
   if (a === "back" && (k === "Escape" || code === 27)) {
     // A held ○ arrives as a stream of Escape presses, without e.repeat on the
@@ -720,7 +720,7 @@ document.addEventListener("keydown", (e) => {
   lastNative[a] = Date.now();
   if (a === "back" && !overlays.length && !(history.state && history.state.depth > 0)) return; // nothing to go back to: let it be
   e.preventDefault();
-  if (typing && a === "back") t.blur();
+  if (typing && a === "back") target.blur();
   press(a);
 }, true);
 document.addEventListener("keyup", (e) => {
@@ -800,10 +800,10 @@ function padLoop() {
   if (any && !state.pad) { state.pad = true; renderHints(); }
   padState.timer = any ? requestAnimationFrame(padLoop) : 0;
 }
-function padPress(action, t) {
+function padPress(action, at) {
   if (action === "up" || action === "down" || action === "left" || action === "right") useController();
   // The PS5 browser already sends keys for these; act only when none came.
-  setTimeout(() => { if (!(lastNative[action] >= t - 60)) press(action); }, 90);
+  setTimeout(() => { if (!(lastNative[action] >= at - 60)) press(action); }, 90);
 }
 window.addEventListener("gamepadconnected", () => { if (!padState.timer) padState.timer = requestAnimationFrame(padLoop); });
 if (navigator.getGamepads) setTimeout(() => { const p = navigator.getGamepads(); for (const x of p) if (x) { padState.timer = requestAnimationFrame(padLoop); break; } }, 500);
@@ -944,7 +944,7 @@ function showTab(tab, push) {
   if (push !== false && tab !== state.tab) pushNav({ view: tab, path: state.cwd });
   state.tab = tab;
   for (const b of $$(".tab")) b.classList.toggle("on", b.getAttribute("data-tab") === tab);
-  for (const t of TABS) $("#view-" + t).hidden = t !== tab;
+  for (const v of TABS) $("#view-" + v).hidden = v !== tab;
   if (tab === "queue") renderJobs();
   if (tab === "deps") loadDeps();
   if (tab === "settings") renderSettings();
@@ -1024,8 +1024,8 @@ function setIcon(ico, e) {
 function applyMeta(e, m, row) {
   if (!m) return;
   if (m.icon) setIcon($(".ico", row), e);
-  const t = $(".t", row), s = $(".s", row);
-  if (m.title) { t.textContent = m.title; t.title = m.title; }
+  const tl = $(".t", row), s = $(".s", row);
+  if (m.title) { tl.textContent = m.title; tl.title = m.title; }
   s.textContent = "";
   s.append(h("span", { class: "fmt " + (e.game ? "folder" : e.kind), text: e.game ? t("FOLDER") : KIND_LABEL[e.kind] || "" }));
   s.append([m.title ? e.name : "", m.version ? "v" + m.version.replace(/^0+(?=\d)/, "") : "", m.title_id].filter(Boolean).join("  ·  "));
@@ -1542,7 +1542,7 @@ function jobMeta(c, j) {
 }
 function fillJob(c, j) {
   jobMeta(c, j);
-  const s = j.spec, r = j.result || {}, t = jobText(j);
+  const s = j.spec, r = j.result || {}, jt = jobText(j);
   const pct = j.total ? Math.min(100, 100 * j.done / j.total) : 0;
   let detail = "";
   if (j.state === "running") {
@@ -1585,7 +1585,7 @@ function fillJob(c, j) {
   const sub = h("div", { class: "s ellip" });
   if (m) sub.append([base(s.input), m.version ? "v" + m.version.replace(/^0+(?=\d)/, "") : "", m.title_id].filter(Boolean).join("  ·  "));
   put(c, h("div", { class: "hd" }, ico,
-      h("div", { style: "min-width:0;flex:1" }, h("div", { class: "ttl ellip", text: m && m.title ? m.title : t.title }), m ? sub : null, h("div", { class: "to mono ellip", text: t.to })),
+      h("div", { style: "min-width:0;flex:1" }, h("div", { class: "ttl ellip", text: m && m.title ? m.title : jt.title }), m ? sub : null, h("div", { class: "to mono ellip", text: jt.to })),
       h("span", { class: "state " + j.state, text: t(j.state) })),
     j.state === "running" ? h("div", { class: "pbar" + (j.total ? "" : " indet") }, h("div", { style: "width:" + pct + "%" }))
       : cpText(j) && isActive(j) ? h("div", { class: "pbar", style: "opacity:.5" }, h("div", { style: "width:" + cpPct(j) + "%" })) : null,
@@ -1627,8 +1627,11 @@ $("#btn-clear").addEventListener("click", () => act("POST", "/api/jobs/clear"));
 
 let lastFinished = null;
 async function refreshJobs() {
-  try {
-    const jobs = await api("GET", "/api/jobs");
+  let jobs;
+  // Only a failed request means the engine is gone; a page error is logged as one.
+  try { jobs = await api("GET", "/api/jobs"); }
+  catch (e) { $("#status-text").textContent = t("Engine not reachable"); $("#status").className = "status off"; return; }
+  {
     // Toast and refresh the listing when a job finishes.
     const finished = jobs.filter((j) => !isActive(j)).map((j) => j.id + j.state).join();
     if (lastFinished !== null && finished !== lastFinished) {
@@ -1640,7 +1643,7 @@ async function refreshJobs() {
     }
     lastFinished = finished;
     state.jobs = jobs; renderJobs();
-  } catch (e) { $("#status-text").textContent = t("Engine not reachable"); $("#status").className = "status off"; }
+  }
 }
 
 /* ---------- start ---------- */
