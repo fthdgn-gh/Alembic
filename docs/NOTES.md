@@ -1372,8 +1372,11 @@ is about the USB drive's own format (shown on connect), not about the image.
   refuse them ("save it on the console, then copy it there"). Uploads are
   not resumable: a stopped job starts over.
 - **Page:** Settings > FTP servers lists them (Remove) and adds one (name,
-  address, port, user, password; the engine logs in first). The folder
-  picker says "On an FTP server" instead of the free space.
+  address, port, user, password; the engine logs in first). Servers show
+  under Drives in the rail and the top-level list (server icon, host and
+  port), not under Places; breadcrumbs start at the server's name; the
+  folder list, picker and Convert dialog say "On an FTP server" instead
+  of the free space. Owner asked for Drives (2026-10-19).
 - **Checked on the Mac** against pyftpdlib: FTP exFAT -> local FFPFSC; FTP ->
   FTP exFAT (rebuild), FFPKG, FFPFS and folder, nested folders made; output
   equal to local CLI builds except time stamps (two local builds differ in

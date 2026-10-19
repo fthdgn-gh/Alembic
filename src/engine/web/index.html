@@ -78,6 +78,8 @@ body.covered .view.scroll, body.covered .view .scroll, .overlay.under .scroll { 
 .ritem .nm svg { width: 1.15rem; height: 1.15rem; margin-right: .6rem; flex: 0 0 auto; opacity: .85; }
 .ritem.on { color: var(--text); background: rgba(111,147,255,.08); }
 .ritem.on::before { content: ""; position: absolute; left: 0; top: .6rem; bottom: .6rem; width: .18rem; border-radius: .1rem; background: var(--accent); }
+.ftprow { display: flex; align-items: center; gap: .8rem; padding: .6rem 0; border-top: 1px solid rgba(255,255,255,.06); }
+.ftprow .nm svg { width: 1.3rem; height: 1.3rem; display: block; opacity: .85; }
 .ritem .meter { margin: .4rem 0 0 1.75rem; }
 .ritem .free { font-size: .75rem; color: var(--dim); margin: .2rem 0 0 1.75rem; }
 .meter { height: .28rem; border-radius: .2rem; background: #263049; overflow: hidden; }
@@ -482,8 +484,15 @@ function rootOf(path) {
   for (const s of state.space) if (path === s.root || path.indexOf(s.root + "/") === 0) if (!best || s.root.length > best.root.length) best = s;
   return best;
 }
+// The FTP server a path is on (null for paths on the console).
+function ftpOf(path) {
+  for (const s of state.ftp || []) if (path === s.path || String(path).indexOf(s.path + "/") === 0) return s;
+  return null;
+}
 function driveName(root) {
   let m;
+  const f = ftpOf(root);
+  if (f && f.path === root) return f.name;
   if (root === "/data") return t("Internal");
   if ((m = /^\/mnt\/usb(\d+)$/.exec(root))) return t("USB {n}", { n: m[1] });
   if ((m = /^\/mnt\/ext(\d+)$/.exec(root))) return t("Extended {n}", { n: m[1] });
@@ -493,6 +502,7 @@ const ICONS = {
   folder: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h3.6c.6 0 1.2.3 1.6.7L12 6h6.5A2.5 2.5 0 0 1 21 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></svg>',
   drive: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="18" height="10" rx="2"/><circle cx="17" cy="12" r="1" fill="currentColor"/></svg>',
   usb: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="7" y="9" width="10" height="12" rx="1.5"/><path d="M9 9V4h6v5"/></svg>',
+  server: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="7" rx="1.5"/><rect x="4" y="13" width="16" height="7" rx="1.5"/><circle cx="8" cy="7.5" r=".9" fill="currentColor"/><circle cx="8" cy="16.5" r=".9" fill="currentColor"/></svg>',
   place: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7.5A1.5 1.5 0 0 1 5.5 6H10l2 2h6.5A1.5 1.5 0 0 1 20 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/></svg>',
   clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>',
   file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/></svg>',
@@ -977,7 +987,13 @@ function renderRail() {
         h("div", { class: "meter" + (s.free < 20e9 ? " low" : "") }, h("div", { style: "width:" + (used * 100).toFixed(1) + "%" })),
         h("div", { class: "free", text: t("{size} free", { size: bytes(s.free) }) })));
     }
-    const places = state.locations.filter((l) => l.exists && !state.space.some((s) => s.root === l.path));
+    for (const s of state.ftp || []) {
+      const on = state.cwd && ftpOf(state.cwd) === s;
+      box.append(h("button", { class: "ritem" + (on ? " on" : ""), "data-key": "r:" + s.path, title: s.user + "@" + s.host + ":" + s.port, onclick: () => browse(s.path) },
+        h("div", { class: "nm", html: ICONS.server }, h("span", { class: "ellip", text: s.name })),
+        h("div", { class: "free ellip", text: "FTP · " + s.host + (s.port === 21 ? "" : ":" + s.port) })));
+    }
+    const places = state.locations.filter((l) => l.exists && !l.ftp && !state.space.some((s) => s.root === l.path));
     const recent = (store.get("recent") || []).filter((p) => rootOf(p) && !places.some((l) => l.path === p)).slice(0, 4);
     if (places.length || recent.length) box.append(h("h3", { text: t("Places") }));
     for (const l of places) box.append(h("button", { class: "ritem" + (state.cwd === l.path ? " on" : ""), "data-key": "p:" + l.path, title: l.path, onclick: () => browse(l.path) },
@@ -990,7 +1006,8 @@ function crumbs(box, path, onPick) {
   box.textContent = "";
   box.append(h("button", { "data-key": "c:/", onclick: () => onPick("/"), text: t("Drives") }));
   if (!path || path === "/") return;
-  const root = rootOf(path) || { root: path };
+  const f = rootOf(path) ? null : ftpOf(path);
+  const root = rootOf(path) || (f ? { root: f.path } : { root: path });
   const parts = [root.root];
   let acc = root.root;
   for (const p of path.slice(root.root.length).split("/").filter(Boolean)) { acc += "/" + p; parts.push(acc); }
@@ -1014,7 +1031,7 @@ async function browse(path, push, focusKey) {
   const total = files.reduce((n, e) => n + (e.size || 0), 0);
   const r = data.path === "/" ? null : rootOf(data.path);
   $("#summary").textContent = data.path === "/" ? t("Pick a drive") :
-    [folders ? plural(folders, "{n} folder", "{n} folders") : "", files.length ? plural(files.length, "{n} file", "{n} files") + " · " + bytes(total) : "", r ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) : ""].filter(Boolean).join("  ·  ") || t("Empty");
+    [folders ? plural(folders, "{n} folder", "{n} folders") : "", files.length ? plural(files.length, "{n} file", "{n} files") + " · " + bytes(total) : "", r ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) : ftpOf(data.path) ? t("On an FTP server") : ""].filter(Boolean).join("  ·  ") || t("Empty");
   // Back from a folder: land on that folder's row.
   const key = same ? (document.activeElement && document.activeElement.getAttribute("data-key")) : (focusKey || (from && dir(from) === data.path ? from : null));
   renderList(key, same);
@@ -1082,10 +1099,11 @@ function renderList(focusKey, keepPlace) {
   let toFocus = null;
   for (const e of data.entries) {
     const conv = isConvertible(e) && !top;
-    const s = top ? (rootOf(e.path) ? t("{free} free of {total}", { free: bytes(rootOf(e.path).free), total: bytes(rootOf(e.path).total) }) : e.path) :
+    const fs = top ? ftpOf(e.path) : null;
+    const s = top ? (rootOf(e.path) ? t("{free} free of {total}", { free: bytes(rootOf(e.path).free), total: bytes(rootOf(e.path).total) }) : fs ? "FTP · " + fs.user + "@" + fs.host + ":" + fs.port : e.path) :
       [e.kind === "folder" ? "" : bytes(e.size), date(e.mtime)].filter(Boolean).join("  ·  ");
     const row = h("div", { class: "row", tabindex: "0", "data-key": e.path, onclick: () => openEntry(e), onfocus: () => onRowFocus(e) },
-      top ? h("div", { class: "ico folder", html: /usb|ext/.test(e.path) ? ICONS.usb : ICONS.drive }) : icoFor(e),
+      top ? h("div", { class: "ico folder", html: fs ? ICONS.server : /usb|ext/.test(e.path) ? ICONS.usb : ICONS.drive }) : icoFor(e),
       h("div", { style: "min-width:0" }, h("div", { class: "t ellip", title: e.name, text: top ? driveName(e.path) : e.name }), h("div", { class: "s ellip", text: s })),
       h("div", { class: "sz", text: !top && e.kind !== "folder" ? bytes(e.size) : "" }),
       top ? h("span", {}) : h("button", { class: "more", tabindex: "-1", "data-nonav": true, title: t("Options"), text: "⋯", onclick: (ev) => { ev.stopPropagation(); openActions(e); } }));
@@ -1333,7 +1351,7 @@ async function openConvert(entry) {
   const cv = { to: entry.kind === "ffpfsc" ? "ffpkg" : "ffpfsc", dest: store.get("dest") || "", inspect: null, timer: 0 };
   // A shared file has no folder on the console: it goes to a place here.
   if (entry.shared && !cv.dest) cv.dest = (state.locations[0] || {}).path || "";
-  if (cv.dest && !rootOf(cv.dest)) cv.dest = "";
+  if (cv.dest && !rootOf(cv.dest) && !ftpOf(cv.dest)) cv.dest = "";
   const m = meta.cache.get(metaKey(entry));
   const rt = state.info ? state.info.lz4_runtime : null;
   // Left column: the choices.
@@ -1423,7 +1441,7 @@ async function openConvert(entry) {
         name.placeholder = base(p.output);
         outPath.textContent = p.output;
         const r = rootOf(p.output), need = cv.inspect ? cv.inspect.bytes : 0;
-        outSpace.textContent = r ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) + (need ? " · " + t("the game is {size} unpacked", { size: bytes(need) }) : "") : "";
+        outSpace.textContent = r ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) + (need ? " · " + t("the game is {size} unpacked", { size: bytes(need) }) : "") : ftpOf(p.output) ? t("On an FTP server") : "";
         msg.textContent = ""; msg.className = "msg"; go.disabled = false;
         const w = p.warnings || [];
         warn.hidden = !w.length; warn.textContent = w.map(tMsg).join(" ");
@@ -1564,8 +1582,10 @@ function renderSettings() {
       h("p", { class: "muted", style: "margin:0 0 .5rem", text: t("Games on another computer's FTP server can be converted from there, and exFAT, FFPKG, FFPFS and folder outputs saved there. FFPFSC and PKG outputs must be saved on the console first. Plain FTP: the password crosses the network unencrypted and is kept on the console.") }));
     for (const s of state.ftp || []) {
       const remove = h("button", { class: "btn sm danger", "data-key": "ftp:rm:" + s.id, text: t("Remove"), onclick: () => removeFtp(s) });
-      servers.append(h("div", { class: "facts" }, h("div", { text: s.name }), h("div", { class: "mono", text: s.user + "@" + s.host + ":" + s.port })),
-        h("div", { class: "btns" }, remove));
+      servers.append(h("div", { class: "ftprow" },
+        h("div", { class: "nm", html: ICONS.server }),
+        h("div", { style: "min-width:0;flex:1" }, h("div", { class: "ellip", text: s.name }), h("div", { class: "muted mono ellip", style: "font-size:.85rem", text: s.user + "@" + s.host + ":" + s.port })),
+        remove));
     }
     servers.append(h("div", { class: "btns" }, h("button", { class: "btn sm", "data-key": "ftp:add", text: t("Add an FTP server…"), onclick: addFtp })));
     box.append(servers);
