@@ -1200,12 +1200,15 @@ is about the USB drive's own format (shown on connect), not about the image.
   the runtime, an attach job writing a backport, a conversion adding it,
   check-then-delete of a conversion with it). Package E converted with the
   emulator: every original file unchanged, plus the emulator (pinned
-  SHA-256) and the index. **Not tried on the console yet.**
+  SHA-256) and the index.
+- **Console (owner, 2026-10-19): both games now start.** Package D's
+  existing FFPFSC with the emulator added as a backport folder, and package
+  E converted to a plain exFAT (no LZ4) with the emulator.
 
 ## Next session
 
 **Open (owner, 2026-10-19), in this order:**
-1. Games converted PKG -> FFPFSC do not start. The conversion finishes and
+1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and
    ShadowMount+ finds and installs the image, but launching it errors out
    (a small package and the ~90 GB one; CE-108264-1 for one, CE-108255-1
    for the other: the game process crashing). An earlier Alembic FFPFSC made
@@ -1253,8 +1256,9 @@ is about the USB drive's own format (shown on connect), not about the image.
      is the only path that adds ampr_emu (`fakelib/libSceAmpr.sprx`) and
      `ampr_emu.index`, so both D and E point at the same cause: without
      the emulator, a mounted image falls back to the console's own APR.
-     **Done (2026-10-19, see the entry above):** conversions add the
-     emulator, and an existing game can get it. Owner to test D and E.
+     **Solved (2026-10-19, see the entry above):** conversions add the
+     emulator, and an existing game can get it; both games start on the
+     console.
    - Side finding: `detect_engine` needs a `StreamingAssets/` folder, so
      E (Unity, no StreamingAssets) gets the scan profile, which packs its
      `level*` / `sharedassets*` files; it still ran on the console.
