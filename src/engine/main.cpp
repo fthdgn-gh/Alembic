@@ -32,6 +32,9 @@
 //   POST /api/cache/clear             delete the cached game info and icons
 //   POST /api/lang       {lang}       the language of the engine's notifications
 //   POST /api/smp/scan                ask ShadowMount+ to rescan (retry counters reset)
+//   GET  /api/ftp                     FTP servers (no passwords); their files are under /ftp/<id>/
+//   POST /api/ftp  {name, host, port, user, password}   add one (logs in first)
+//   DELETE /api/ftp/ID                forget one
 //   GET  /api/remote                  files browsers on other computers share
 //   POST /api/remote  {name, size, last_modified}   share one: {path} to use as a job input
 //   POST /api/remote/ID/want          (long poll) the pieces to send: [{offset, length}]
@@ -45,6 +48,7 @@
 #include "jobs.hpp"
 #include "json_value.hpp"
 #include "platform.hpp"
+#include "ftp.hpp"
 #include "remote.hpp"
 #include "runner.hpp"
 
@@ -166,8 +170,19 @@ public:
                                     }) {
         // Inputs under /remote/ come from a browser on another computer.
         convert::set_file_provider([this](const std::string& path) -> std::shared_ptr<const RandomAccess> {
-            return RemoteFiles::is_remote(path) ? remote_.open(path) : nullptr;
+            if (RemoteFiles::is_remote(path)) return remote_.open(path);
+            if (ftp::Servers::is_ftp(path)) return ftp_.open(path);
+            return nullptr;
         });
+        // Outputs under /ftp/ are uploads.
+        convert::OutputProvider out;
+        out.handles = [](const std::string& path) { return ftp::Servers::is_ftp(path); };
+        out.create = [this](const std::string& path, bool overwrite) { return ftp_.create(path, overwrite); };
+        out.make_directory = [this](const std::string& path) -> Status {
+            return ftp_.exists(path) ? Status{} : ftp_.make_directory(path);
+        };
+        out.exists = [this](const std::string& path) { return ftp_.exists(path); };
+        convert::set_output_provider(std::move(out));
         config_.needed_by_other_jobs = [this](const std::string& path) {
             for (const Job& j : queue_.list())
                 if ((j.state == JobState::queued || j.state == JobState::paused) && is_within(strip_slashes(j.spec.input), path))
@@ -268,6 +283,7 @@ private:
         if (r.path == "/api/inspect" && r.method == "GET") return inspect(r);
         if (r.path == "/api/plan" && r.method == "POST") return plan(r, false);
         if (r.path == "/api/remote" || r.path.rfind("/api/remote/", 0) == 0) return remote_action(r);
+        if (r.path == "/api/ftp" || r.path.rfind("/api/ftp/", 0) == 0) return ftp_action(r);
         if (r.path == "/api/smp/scan" && r.method == "POST") {
             std::string why;
             if (!shadowmount_rescan(config_, &why)) return error(503, why);
@@ -447,6 +463,38 @@ private:
                 e.set("kind", "folder");
                 entries.push(std::move(e));
             }
+            for (const ftp::Server& s : ftp_.list()) {
+                JsonValue e = JsonValue::object();
+                e.set("name", "FTP: " + s.name);
+                e.set("path", "/ftp/" + s.id);
+                e.set("kind", "folder");
+                e.set("ftp", true);
+                entries.push(std::move(e));
+            }
+            v.set("entries", std::move(entries));
+            return json(200, v);
+        }
+        if (ftp::Servers::is_ftp(path)) {
+            auto listed = ftp_.list_directory(path);
+            if (!listed.ok()) return error(502, listed.error().message);
+            std::sort(listed->begin(), listed->end(), [](const ftp::Entry& a, const ftp::Entry& b) {
+                if (a.is_directory != b.is_directory) return a.is_directory;
+                return a.name < b.name;
+            });
+            for (const ftp::Entry& f : *listed) {
+                JsonValue e = JsonValue::object();
+                e.set("name", f.name);
+                e.set("path", path + "/" + f.name);
+                e.set("kind", kind_of(f.name, f.is_directory));
+                if (!f.is_directory) e.set("size", f.size);
+                e.set("mtime", f.mtime);
+                e.set("ftp", true);
+                entries.push(std::move(e));
+            }
+            v.set("path", path);
+            std::size_t slash = path.rfind('/');
+            std::string parent = path.substr(0, slash);
+            v.set("parent", parent.size() <= 4 || parent == "/ftp" ? std::string("/") : parent);
             v.set("entries", std::move(entries));
             return json(200, v);
         }
@@ -502,6 +550,48 @@ private:
             v.set("total", s->total);
         }
         return json(200, v);
+    }
+
+    // FTP servers (ftp.hpp): the list (no passwords), add one (logs in first), remove one.
+    HttpResponse ftp_action(const HttpRequest& r) {
+        if (r.path == "/api/ftp" && r.method == "GET") {
+            JsonValue list = JsonValue::array();
+            for (const ftp::Server& s : ftp_.list()) {
+                JsonValue v = JsonValue::object();
+                v.set("id", s.id);
+                v.set("name", s.name);
+                v.set("host", s.host);
+                v.set("port", static_cast<std::int64_t>(s.port));
+                v.set("user", s.user);
+                v.set("path", "/ftp/" + s.id);
+                list.push(std::move(v));
+            }
+            return json(200, list);
+        }
+        if (r.path == "/api/ftp" && r.method == "POST") {
+            auto body = parse_json(r.body);
+            if (!body.ok()) return error(400, body.error().message);
+            ftp::Server s;
+            s.name = (*body)["name"].str();
+            s.host = (*body)["host"].str();
+            std::int64_t port = (*body)["port"].integer(21);
+            if (port <= 0 || port > 65535) return error(400, "bad port");
+            s.port = static_cast<std::uint16_t>(port);
+            s.user = (*body)["user"].str("anonymous");
+            s.password = (*body)["password"].str();
+            auto added = ftp_.add(s);
+            if (!added.ok()) return error(400, added.error().message);
+            log_line("FTP server " + added->host + " added by " + r.peer);
+            JsonValue v = JsonValue::object();
+            v.set("id", added->id);
+            v.set("path", "/ftp/" + added->id);
+            return json(200, v);
+        }
+        if (r.path.rfind("/api/ftp/", 0) == 0 && r.method == "DELETE") {
+            Status s = ftp_.remove(r.path.substr(std::string("/api/ftp/").size()));
+            return s.ok() ? json(200, JsonValue::object()) : error(500, s.error().message);
+        }
+        return error(404, "not found");
     }
 
     // Files a browser on another computer shares (remote.hpp).
@@ -627,6 +717,14 @@ private:
             e.set("exists", is_directory(l.path));
             list.push(std::move(e));
         }
+        for (const ftp::Server& s : ftp_.list()) {
+            JsonValue e = JsonValue::object();
+            e.set("label", "FTP: " + s.name);
+            e.set("path", "/ftp/" + s.id);
+            e.set("exists", true);
+            e.set("ftp", true);
+            list.push(std::move(e));
+        }
         return json(200, list);
     }
 
@@ -651,6 +749,10 @@ private:
         std::string path = strip_slashes((*body)["path"].str());
         std::string action = r.path.substr(std::string("/api/fs/").size());
         if (action == "mkdir") {
+            if (ftp::Servers::is_ftp(path)) {
+                Status s = ftp_.make_directory(path);
+                return s.ok() ? json(200, JsonValue::object()) : error(409, s.error().message);
+            }
             if (!path_allowed(path, config_.available_roots())) return error(403, "outside the allowed folders");
             Status s = make_folder(path);
             return s.ok() ? json(200, JsonValue::object()) : error(409, s.error().message);
@@ -728,8 +830,11 @@ private:
         if (!target.ok()) return error(400, target.error().message);
         auto output = resolve_output(*spec);
         if (!output.ok()) return error(400, output.error().message);
-        if (!path_allowed(strip_slashes(*output), config_.available_roots())) return error(403, "the output is outside the allowed folders");
-        if (*target != "folder" && path_exists(*output) && !spec->overwrite)
+        if (!output_allowed(strip_slashes(*output), config_.available_roots())) return error(403, "the output is outside the allowed folders");
+        if ((*target == "ffpfsc" || *target == "fpkg") && convert::is_output_provided(*output))
+            return error(400, std::string(*target == "ffpfsc" ? "FFPFSC" : "PKG") +
+                                  " output cannot go straight to an FTP server; save it on the console, then copy it there");
+        if (*target != "folder" && convert::output_exists(*output) && !spec->overwrite)
             return error(409, "the output already exists: " + *output);
         spec->to = *target;
         spec->output = *output;
@@ -810,6 +915,7 @@ private:
 
     EngineConfig config_;
     RemoteFiles remote_; // before the queue, whose jobs may read from it
+    ftp::Servers ftp_{config_.state_dir};
     GameMetaCache meta_{config_.state_dir};
     JobQueue queue_;
     HttpServer server_;

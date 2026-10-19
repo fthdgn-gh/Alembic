@@ -39,6 +39,26 @@ using FileProvider = std::function<std::shared_ptr<const RandomAccess>(const std
 void set_file_provider(FileProvider provider);
 bool is_provided(const std::string& path);
 
+// Outputs that are not files on this machine (for the engine: an FTP
+// server). An output there is written front to back as one stream, so only
+// formats written strictly in order can go there: folders, exFAT, FFPKG
+// and FFPFS (FFPFSC and FPKG go back to earlier parts of the file). Such
+// outputs are not resumable: a stopped one starts over.
+class OutputStream : public ByteSink {
+public:
+    // Makes the file final; dropping the stream before this discards it.
+    virtual Status commit() = 0;
+};
+struct OutputProvider {
+    std::function<bool(const std::string& path)> handles;
+    std::function<Result<std::unique_ptr<OutputStream>>(const std::string& path, bool overwrite)> create;
+    std::function<Status(const std::string& path)> make_directory; // fine if it exists
+    std::function<bool(const std::string& path)> exists;
+};
+void set_output_provider(OutputProvider provider);
+bool is_output_provided(const std::string& path);
+bool output_exists(const std::string& path); // provided or on disk
+
 // An opened input: always a file tree, plus the raw image when there is one.
 struct Input {
     Format format;

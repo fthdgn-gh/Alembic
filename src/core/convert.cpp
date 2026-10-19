@@ -59,6 +59,61 @@ Status copy_image(const RandomAccess& image, const std::string& output, bool ove
 
 } // namespace
 
+namespace {
+
+OutputProvider& out_provider(); // below
+
+// A stream into a provided output (an FTP upload), copying a whole source.
+Status stream_copy(const RandomAccess& source, OutputStream& out, const char* stage, const ProgressFn& progress) {
+    ALEMBIC_ASSIGN(std::uint64_t length, source.size());
+    std::vector<std::uint8_t> buffer(4 << 20);
+    for (std::uint64_t done = 0; done < length;) {
+        auto n = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), length - done));
+        ALEMBIC_TRY(source.read_at(done, MutableBytes(buffer.data(), n)));
+        ALEMBIC_TRY(out.write(Bytes(buffer.data(), n)));
+        done += n;
+        if (progress && !progress({stage, done, length})) return make_error(Errc::cancelled, "cancelled");
+    }
+    return {};
+}
+
+// A tree as a folder on a provided output: folders first made, files streamed.
+Status upload_tree(const tree::Source& source, const tree::Node& dir, const std::string& target, bool overwrite,
+                   std::uint64_t& done, std::uint64_t total, const ProgressFn& progress) {
+    ALEMBIC_TRY(out_provider().make_directory(target));
+    std::vector<std::uint8_t> buffer(4 << 20);
+    for (const tree::Node& child : dir.children) {
+        if (tree::is_os_junk(child.name)) continue;
+        std::string path = target + "/" + child.name;
+        if (child.is_directory) {
+            ALEMBIC_TRY(upload_tree(source, child, path, overwrite, done, total, progress));
+            continue;
+        }
+        ALEMBIC_ASSIGN(std::shared_ptr<const RandomAccess> in, source.open(child));
+        ALEMBIC_ASSIGN(std::unique_ptr<OutputStream> out, out_provider().create(path, overwrite));
+        for (std::uint64_t at = 0; at < child.size;) {
+            auto n = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), child.size - at));
+            ALEMBIC_TRY(in->read_at(at, MutableBytes(buffer.data(), n)));
+            ALEMBIC_TRY(out->write(Bytes(buffer.data(), n)));
+            at += n;
+            done += n;
+            if (progress && !progress({"Uploading", done, total})) return make_error(Errc::cancelled, "cancelled");
+        }
+        ALEMBIC_TRY(out->commit());
+    }
+    return {};
+}
+
+// A planned image (exFAT, UFS2 or PFS builder) streamed into a provided output.
+template <class Builder>
+Status upload_image(const Builder& builder, const std::string& output, bool overwrite, const ProgressFn& progress) {
+    ALEMBIC_ASSIGN(std::unique_ptr<OutputStream> out, out_provider().create(output, overwrite));
+    ALEMBIC_TRY(builder.write(*out, progress));
+    return out->commit();
+}
+
+} // namespace
+
 const char* name(Format format) {
     switch (format) {
     case Format::folder: return "folder";
@@ -110,6 +165,20 @@ Result<std::shared_ptr<const RandomAccess>> open_input_file(const std::string& p
 } // namespace
 
 void set_file_provider(FileProvider p) { provider() = std::move(p); }
+
+namespace {
+OutputProvider& out_provider() {
+    static OutputProvider p;
+    return p;
+}
+} // namespace
+
+void set_output_provider(OutputProvider p) { out_provider() = std::move(p); }
+bool is_output_provided(const std::string& path) { return out_provider().handles && out_provider().handles(path); }
+bool output_exists(const std::string& path) {
+    if (is_output_provided(path)) return out_provider().exists && out_provider().exists(path);
+    return path_exists(path);
+}
 
 bool is_provided(const std::string& path) { return provider() && provider()(path) != nullptr; }
 
@@ -192,7 +261,12 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     ALEMBIC_ASSIGN(std::string out_full, absolute_path(output));
     if (in_full == out_full) return make_error(Errc::invalid_argument, "the output must differ from the input");
 
-    if (to != Format::folder && !options.overwrite && path_exists(output))
+    const bool remote_out = is_output_provided(output);
+    if (remote_out && (to == Format::ffpfsc || to == Format::fpkg))
+        return make_error(Errc::unsupported, std::string(to == Format::ffpfsc ? "FFPFSC" : "PKG") +
+                                                 " output cannot be written straight to an FTP server (the writer goes "
+                                                 "back to earlier parts of the file); save it on the console, then copy it there");
+    if (to != Format::folder && !options.overwrite && output_exists(output))
         return make_error(Errc::invalid_argument, "the output file already exists: " + output);
 
     ALEMBIC_ASSIGN(Input input, open(input_path, options.passcode));
@@ -300,11 +374,20 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
                               (with_emulator ? "added the AMPR emulator and " : "");
     const char* prefix = prefix_text.c_str();
     resume::Session* session = packed ? (options.resume ? &packed_session : nullptr) : options.resume;
+    if (remote_out) session = nullptr; // an upload starts over when stopped
     report.resumable = session != nullptr;
 
     switch (to) {
     case Format::folder: {
         if (input.format == Format::folder && !transformed) return unsupported(input.format, to, "copy the folder instead");
+        if (remote_out) {
+            std::string target = output;
+            while (target.size() > 1 && target.back() == '/') target.pop_back();
+            std::uint64_t done = 0, total = tree::totals(tree.root()).bytes;
+            ALEMBIC_TRY(upload_tree(tree, tree.root(), target, options.overwrite, done, total, progress));
+            report.method = std::string(prefix) + "uploaded the file tree";
+            return report;
+        }
         ALEMBIC_TRY(tree::extract(tree, tree.root(), output, options.overwrite, progress, session));
         report.method = std::string(prefix) + "extracted the file tree";
         return report;
@@ -312,6 +395,19 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     case Format::exfat: {
         if (input.format == Format::exfat && !rebuild)
             return unsupported(input.format, to, "pass --rebuild to re-lay out the image");
+        if (remote_out) {
+            if (input.image && !input.image_is_ufs2 && !input.image_is_pfs && !rebuild) {
+                ALEMBIC_ASSIGN(std::unique_ptr<OutputStream> out, out_provider().create(output, options.overwrite));
+                ALEMBIC_TRY(stream_copy(*input.image, *out, "Copying image", progress));
+                ALEMBIC_TRY(out->commit());
+                report.method = "unwrapped the exFAT image unchanged";
+                return report;
+            }
+            ALEMBIC_ASSIGN(exfat::ImageBuilder builder, exfat::ImageBuilder::from_source(tree, tree.root(), options.exfat));
+            ALEMBIC_TRY(upload_image(builder, output, options.overwrite, progress));
+            report.method = std::string(prefix) + "built a new exFAT image from the file tree";
+            return report;
+        }
         if (input.image && !input.image_is_ufs2 && !input.image_is_pfs && !rebuild) {
             ALEMBIC_TRY(copy_image(*input.image, output, options.overwrite, progress, session));
             report.method = "unwrapped the exFAT image unchanged";
@@ -349,7 +445,13 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     case Format::ffpkg: {
         if (input.image && input.image_is_ufs2 && !rebuild) {
             if (!input.ffpfsc) return unsupported(input.format, to, "pass --rebuild to re-lay out the image");
-            ALEMBIC_TRY(copy_image(*input.image, output, options.overwrite, progress, session));
+            if (remote_out) {
+                ALEMBIC_ASSIGN(std::unique_ptr<OutputStream> out, out_provider().create(output, options.overwrite));
+                ALEMBIC_TRY(stream_copy(*input.image, *out, "Copying image", progress));
+                ALEMBIC_TRY(out->commit());
+            } else {
+                ALEMBIC_TRY(copy_image(*input.image, output, options.overwrite, progress, session));
+            }
             report.method = "unwrapped the UFS2 image unchanged";
             return report;
         }
@@ -363,14 +465,25 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
                 u.volume_name = dot == std::string::npos ? name : name.substr(0, dot);
             }
         }
-        ALEMBIC_TRY(ufs2::write_image(tree, tree.root(), output, u, options.overwrite, progress, session));
+        if (remote_out) {
+            ALEMBIC_ASSIGN(ufs2::ImageBuilder builder, ufs2::ImageBuilder::from_source(tree, tree.root(), u));
+            ALEMBIC_TRY(upload_image(builder, output, options.overwrite, progress));
+        } else {
+            ALEMBIC_TRY(ufs2::write_image(tree, tree.root(), output, u, options.overwrite, progress, session));
+        }
         report.method = std::string(prefix) + "built a new UFS2 image from the file tree";
         return report;
     }
     case Format::ffpfs: {
         if (input.image && input.image_is_pfs && !rebuild) {
             if (!input.ffpfsc) return unsupported(input.format, to, "pass --rebuild to re-lay out the image");
-            ALEMBIC_TRY(copy_image(*input.image, output, options.overwrite, progress, session));
+            if (remote_out) {
+                ALEMBIC_ASSIGN(std::unique_ptr<OutputStream> out, out_provider().create(output, options.overwrite));
+                ALEMBIC_TRY(stream_copy(*input.image, *out, "Copying image", progress));
+                ALEMBIC_TRY(out->commit());
+            } else {
+                ALEMBIC_TRY(copy_image(*input.image, output, options.overwrite, progress, session));
+            }
             report.method = "unwrapped the PFS image unchanged";
             return report;
         }
@@ -381,7 +494,12 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         p.generate_ampr_index = options.exfat.generate_ampr_index;
         p.rebuild_ampr_index = options.exfat.rebuild_ampr_index;
         p.ampr_scheme = options.exfat.ampr_scheme;
-        ALEMBIC_TRY(pfs::write_image(tree, tree.root(), output, p, options.overwrite, progress, session));
+        if (remote_out) {
+            ALEMBIC_ASSIGN(pfs::ImageBuilder builder, pfs::ImageBuilder::from_source(tree, tree.root(), p));
+            ALEMBIC_TRY(upload_image(builder, output, options.overwrite, progress));
+        } else {
+            ALEMBIC_TRY(pfs::write_image(tree, tree.root(), output, p, options.overwrite, progress, session));
+        }
         report.method = std::string(prefix) + "built a new PFS image from the file tree";
         return report;
     }

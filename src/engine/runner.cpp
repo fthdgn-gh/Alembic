@@ -184,6 +184,10 @@ bool input_allowed(const std::string& path, const std::vector<std::string>& root
     return path_allowed(path, roots) || convert::is_provided(path);
 }
 
+bool output_allowed(const std::string& path, const std::vector<std::string>& roots) {
+    return path_allowed(path, roots) || convert::is_output_provided(path);
+}
+
 namespace {
 
 std::string checkpoint_path(const std::string& output, const EngineConfig& config) {
@@ -342,7 +346,7 @@ bool shadowmount_rescan(const EngineConfig& config, std::string* why) {
 Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress) {
     ALEMBIC_ASSIGN(convert::Format to, target_format(spec));
     ALEMBIC_ASSIGN(std::string output, resolve_output(spec));
-    if (!input_allowed(strip_slashes(spec.input), config.available_roots()) || !path_allowed(strip_slashes(output), config.available_roots()))
+    if (!input_allowed(strip_slashes(spec.input), config.available_roots()) || !output_allowed(strip_slashes(output), config.available_roots()))
         return make_error(Errc::invalid_argument, "the input and output must be inside the allowed folders");
 
     convert::Options options;

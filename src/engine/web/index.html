@@ -937,6 +937,7 @@ async function loadInfo() {
   if (state.info.lang && state.info.lang !== lang) api("POST", "/api/lang", { lang }).catch(() => {});
   state.space = await api("GET", "/api/fs/space").catch(() => []);
   state.locations = await api("GET", "/api/locations").catch(() => []);
+  state.ftp = await api("GET", "/api/ftp").catch(() => []);
   renderStatus(); renderRail(); renderHints(); // the hint glyphs follow the console's Enter button
   if (state.tab === "settings") renderSettings();
 }
@@ -1288,7 +1289,7 @@ function openDest(entry, kind, start) {
     for (const f of folders) list.append(h("div", { class: "row", tabindex: "0", onclick: () => load(f.path) },
       h("div", { class: "ico folder", html: cur === "/" ? ICONS.drive : ICONS.folder }), h("div", { class: "t ellip", text: cur === "/" ? driveName(f.path) : f.name })));
     const r = cur === "/" ? null : rootOf(cur);
-    space.textContent = r ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) + (entry && entry.size ? " · " + t("needs {size}", { size: bytes(entry.size) }) : "") + "  ·  " + cur : t("Pick a drive and folder.");
+    space.textContent = !r && /^\/ftp\//.test(cur) ? t("On an FTP server") + "  ·  " + cur : r ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) + (entry && entry.size ? " · " + t("needs {size}", { size: bytes(entry.size) }) : "") + "  ·  " + cur : t("Pick a drive and folder.");
     go.disabled = cur === "/";
     if (overlays.length && !list.contains(document.activeElement)) { const f = list.querySelector(".row"); if (f) focusEl(f); }
   }
@@ -1558,6 +1559,16 @@ function renderSettings() {
     const test = h("button", { class: "frow", "data-key": "s:test", onclick: openControllerTest },
       h("div", { class: "fl" }, h("b", { text: t("Controller test") }), h("small", { text: t("Shows what each button sends to this page") })), h("span", { class: "arr", text: "›" }));
     box.append(h("div", { class: "head2" }, h("div", { class: "sect", text: t("Page") })), language, scale, test);
+    box.append(h("div", { class: "head2" }, h("div", { class: "sect", text: t("FTP servers") })));
+    const servers = h("div", { class: "card" },
+      h("p", { class: "muted", style: "margin:0 0 .5rem", text: t("Games on another computer's FTP server can be converted from there, and exFAT, FFPKG, FFPFS and folder outputs saved there. FFPFSC and PKG outputs must be saved on the console first. Plain FTP: the password crosses the network unencrypted and is kept on the console.") }));
+    for (const s of state.ftp || []) {
+      const remove = h("button", { class: "btn sm danger", "data-key": "ftp:rm:" + s.id, text: t("Remove"), onclick: () => removeFtp(s) });
+      servers.append(h("div", { class: "facts" }, h("div", { text: s.name }), h("div", { class: "mono", text: s.user + "@" + s.host + ":" + s.port })),
+        h("div", { class: "btns" }, remove));
+    }
+    servers.append(h("div", { class: "btns" }, h("button", { class: "btn sm", "data-key": "ftp:add", text: t("Add an FTP server…"), onclick: addFtp })));
+    box.append(servers);
     box.append(h("div", { class: "head2" }, h("div", { class: "sect", text: t("Engine") })));
     const facts = h("div", { class: "facts" });
     const add = (k, v, cls) => facts.append(h("div", { text: k }), h("div", { class: cls || "", text: v }));
@@ -1614,6 +1625,35 @@ function openControllerTest() {
     h("div", { class: "card", style: "min-height:16rem" }, list));
   openOverlay(sheet(t("Controller test"), body, [done], "wide"), { hints: [["x", t("Close (press it last)")]] });
   inputLog.test();
+}
+// Adds an FTP server; the engine logs in once before keeping it.
+function addFtp() {
+  const field = (label, attrs) => { const i = h("input", Object.assign({ class: "input mono", spellcheck: "false", autocapitalize: "off" }, attrs)); return [h("div", { class: "lbl", text: label }), i]; };
+  const [nl, name] = field(t("Name"), { placeholder: t("My PC") });
+  const [hl, host] = field(t("Address"), { placeholder: "192.168.1.10" });
+  const [pl, port] = field(t("Port"), { value: "21", inputmode: "numeric" });
+  const [ul, user] = field(t("User"), { value: "anonymous" });
+  const [wl, pass] = field(t("Password"), { type: "password" });
+  const msg = h("span", { class: "msg" });
+  const save = h("button", { class: "btn primary", text: t("Add"), onclick: async () => {
+    if (!host.value.trim()) { msg.textContent = t("Enter the server's address"); msg.className = "msg err"; return; }
+    save.disabled = true; msg.textContent = t("Connecting…"); msg.className = "msg";
+    try {
+      await api("POST", "/api/ftp", { name: name.value.trim() || host.value.trim(), host: host.value.trim(), port: parseInt(port.value, 10) || 21,
+        user: user.value.trim() || "anonymous", password: pass.value });
+      toast(t("FTP server added"), "ok");
+      closeOverlay(true);
+      loadInfo().catch(() => {});
+    } catch (e) { msg.textContent = tMsg(e.message); msg.className = "msg err"; save.disabled = false; }
+  } });
+  const body = h("div", {}, nl, name, hl, host, pl, port, ul, user, wl, pass);
+  openOverlay(sheet(t("Add an FTP server"), body, [msg, h("button", { class: "btn", text: t("Cancel"), onclick: () => closeOverlay(null) }), save], "narrow"),
+    { hints: [["x", t("Choose")], ["o", t("Cancel"), goBack]] });
+}
+async function removeFtp(s) {
+  if (!await ask({ title: t("Remove {name}?", { name: s.name }), body: h("p", { style: "margin-top:0", text: t("Its files stay on the server; jobs that use it will fail.") }), ok: t("Remove"), danger: true })) return;
+  try { await api("DELETE", "/api/ftp/" + encodeURIComponent(s.id)); toast(t("FTP server removed"), "ok"); } catch (e) { toast(tMsg(e.message), "bad"); }
+  loadInfo().catch(() => {});
 }
 async function quitEngine() {
   const running = state.jobs.some((j) => j.state === "running");

@@ -1336,6 +1336,41 @@ is about the USB drive's own format (shown on connect), not about the image.
   kept its partial file, and after sharing again Retry continued from the
   checkpoint (identical result). Not tried in a real browser or over Wi-Fi.
 
+### 2026-10-19: FTP servers as inputs and outputs
+
+- **Why:** the same goal as a shared file, without keeping a browser tab
+  open on the PC: the engine talks to an FTP server on the PC (or a NAS)
+  itself.
+- **Engine (`src/engine/ftp.cpp`):** plain FTP (no TLS), passive data
+  connections (EPSV, else PASV with the control connection's address),
+  binary type, MLSD (else LIST). Servers are kept in `<state>/ftp.json`
+  (password included, as text) and added only after a login works. Paths
+  are `/ftp/<id>/<path on the server>`; they show up in browse ("/" lists
+  each server) and in locations, so the page's Places and the folder picker
+  show them with no page change.
+- **Inputs:** through `convert::set_file_provider`, like shared files: one
+  download thread per open file, REST + RETR from where the reader is,
+  16 MiB read ahead, 64 MiB kept; a jump stops the download and starts
+  another. Stopping a download drops the data connection, then sends NOOP
+  and skips replies up to its 200 (ABOR left a reply unread on pyftpdlib,
+  which put every later reply one command behind).
+- **Outputs:** `convert::set_output_provider` (core): one STOR stream to
+  `<name>.alembic-part`, renamed on commit, deleted when dropped (cancel,
+  failure). Missing parent folders are made first. Only formats written
+  front to back can go there: folders (file by file), exFAT, FFPKG, FFPFS,
+  and unchanged image copies. FFPFSC and PKG seek back, so plan and run
+  refuse them ("save it on the console, then copy it there"). Uploads are
+  not resumable: a stopped job starts over.
+- **Page:** Settings > FTP servers lists them (Remove) and adds one (name,
+  address, port, user, password; the engine logs in first). The folder
+  picker says "On an FTP server" instead of the free space.
+- **Checked on the Mac** against pyftpdlib: FTP exFAT -> local FFPFSC; FTP ->
+  FTP exFAT (rebuild), FFPKG, FFPFS and folder, nested folders made; output
+  equal to local CLI builds except time stamps (two local builds differ in
+  the same bytes); an 800 MB FTP -> FTP FFPKG; cancel mid-upload
+  (server throttled to 20 MB/s) leaves no `.alembic-part`; a wrong
+  password is refused when adding. Not tried on the console or against another FTP server.
+
 ## Next session
 
 **Open (owner, 2026-10-19), in this order:**
