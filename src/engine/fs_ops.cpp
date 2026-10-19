@@ -6,7 +6,11 @@
 #include <cstring>
 #include <dirent.h>
 #include <fcntl.h>
-#include <sys/mount.h>
+#if defined(__linux__)
+#include <sys/vfs.h> // statfs
+#else
+#include <sys/mount.h> // statfs (macOS, FreeBSD, PS5)
+#endif
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
