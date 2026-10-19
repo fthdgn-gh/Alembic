@@ -32,17 +32,18 @@ jobs:
         run: cmake --build build -j 4
       - name: Unit tests
         run: ./build/alembic_tests
-      # A tarball keeps the executable bits (artifacts drop them).
+      # A tarball keeps the executable bits (zipped artifacts drop them).
       - name: Package
         run: |
           os=$(echo "${{ runner.os }}" | tr '[:upper:]' '[:lower:]'); arch=$(echo "${{ runner.arch }}" | tr '[:upper:]' '[:lower:]')
           echo "PLATFORM=$os-$arch" >> "$GITHUB_ENV"
           tar -czf "alembic-$os-$arch.tar.gz" -C build alembic alembic-engine
+      # Unzipped (archive: false): the artifact is the file, named after it.
       - name: Upload the command-line tool and the engine
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: alembic-${{ env.PLATFORM }}
           path: alembic-${{ env.PLATFORM }}.tar.gz
+          archive: false
           if-no-files-found: error
 
   ps5:
@@ -65,11 +66,12 @@ jobs:
         env:
           LLVM_CONFIG: llvm-config-18
         run: PS5_PAYLOAD_SDK="$RUNNER_TEMP/ps5-payload-sdk" tools/ps5/build.sh
+      # Its own artifact, unzipped, so alembic.elf downloads as it is.
       - name: Upload the payload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: alembic-ps5
           path: build-ps5/alembic.elf
+          archive: false
           if-no-files-found: error
 
   # Everything in one archive: the payload, the PC builds and the license
@@ -82,8 +84,17 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
+          name: alembic.elf
+          path: artifacts
+      - uses: actions/download-artifact@v8
+        with:
+          name: alembic-linux-x64.tar.gz
+          path: artifacts
+      - uses: actions/download-artifact@v8
+        with:
+          name: alembic-macos-arm64.tar.gz
           path: artifacts
       - name: Assemble
         run: |
@@ -92,22 +103,25 @@ jobs:
           name="alembic-$version"
           echo "BUNDLE=$name" >> "$GITHUB_ENV"
           mkdir -p "dist/$name/ps5"
-          cp artifacts/alembic-ps5/alembic.elf "dist/$name/ps5/"
-          for t in artifacts/alembic-*/alembic-*.tar.gz; do
+          ls -la artifacts
+          cp artifacts/alembic.elf "dist/$name/ps5/"
+          for t in artifacts/alembic-*.tar.gz; do
             platform=$(basename "$t" .tar.gz); platform=${platform#alembic-}
             mkdir -p "dist/$name/$platform"
             tar -xzf "$t" -C "dist/$name/$platform"
           done
           cp README.md LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
           (cd dist && zip -qr "$name.zip" "$name")
-          cp artifacts/alembic-ps5/alembic.elf dist/
+          cp artifacts/alembic.elf dist/
           (cd dist && sha256sum "$name.zip" alembic.elf > SHA256SUMS)
           (cd dist && find "$name" -type f | sort && cat SHA256SUMS)
+      # The zip itself (archive: false), not a zip inside a zip; it keeps the
+      # executable bits.
       - name: Upload the bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.BUNDLE }}
-          path: dist/${{ env.BUNDLE }}.zip # the zip keeps the executable bits
+          path: dist/${{ env.BUNDLE }}.zip
+          archive: false
           if-no-files-found: error
       - name: Publish the release
         if: startsWith(github.ref, 'refs/tags/v')
