@@ -12,7 +12,8 @@
 //   GET  /api/inspect?path=P          format, title ID, file count and size of an input
 //   POST /api/plan                    a job's resolved target and output, not queued
 //   GET  /api/jobs                    every job, oldest first
-//   POST /api/jobs                    queue a job (JobSpec as JSON)
+//   POST /api/jobs                    queue a job (JobSpec as JSON; kind convert, copy, move,
+//                                     install, or ampr_emu: add ampr_emu to an existing game)
 //   GET  /api/jobs/ID                 one job
 //   POST /api/jobs/ID/cancel | /retry | /pause | /resume
 //   POST /api/jobs/ID/move    {direction: -1 | 1}   run earlier or later
@@ -215,7 +216,8 @@ private:
         switch (job.state) {
         case JobState::done:
             platform::notify(l10n::t(job.spec.kind == "copy" ? "Copied {name}" : job.spec.kind == "move" ? "Moved {name}"
-                                     : job.spec.kind == "install" ? "Installing {name}" : "Converted {name}",
+                                     : job.spec.kind == "install" ? "Installing {name}"
+                                     : job.spec.kind == "ampr_emu" ? "Added the AMPR emulator to {name}" : "Converted {name}",
                                      {{"name", name}}));
             break;
         case JobState::failed:
@@ -621,6 +623,26 @@ private:
         spec->input = strip_slashes(spec->input);
         if (!path_allowed(spec->input, config_.available_roots())) return error(403, "the input is outside the allowed folders");
         if (!path_exists(spec->input)) return error(400, "the input does not exist: " + spec->input);
+        if (spec->kind == "ampr_emu") {
+            JsonValue needs = JsonValue::array();
+            for (const std::string& id : missing_dependencies(*spec, config_))
+                if (const Dependency* d = find_dependency(id)) needs.push(dependency_json(*d, config_.state_dir));
+            bool missing = !needs.items().empty();
+            if (!queue || missing) {
+                JsonValue v = spec->to_json();
+                if (auto a = ampr_state(spec->input, spec->passcode.empty() ? std::string(32, '0') : spec->passcode)) {
+                    v.set("imports_ampr", a->imports);
+                    v.set("ships_emulator", a->ships);
+                }
+                v.set("needs", std::move(needs));
+                if (missing && queue) v.set("error", std::string("this needs the AMPR emulator; get it in Components first"));
+                return json(missing && queue ? 409 : 200, v);
+            }
+            auto job = queue_.add(std::move(*spec));
+            if (!job.ok()) return error(500, job.error().message);
+            log_line("job " + std::to_string(job->id) + " (ampr_emu) queued by " + r.peer + ": " + job->spec.input);
+            return json(201, job->to_json());
+        }
         if (spec->kind == "install") {
             if (!queue) return json(200, spec->to_json());
             auto job = queue_.add(std::move(*spec));
@@ -664,6 +686,12 @@ private:
         if (!queue) {
             JsonValue v = spec->to_json();
             v.set("needs", std::move(needs));
+            // Whether the AMPR emulator goes in (the page says so).
+            if (*target != "fpkg" && !spec->lz4)
+                if (auto a = ampr_state(spec->input, spec->passcode.empty() ? std::string(32, '0') : spec->passcode)) {
+                    v.set("ampr_needed", a->needed());
+                    v.set("ships_emulator", a->ships);
+                }
             JsonValue warnings = JsonValue::array();
             if (std::string w = mount_name_warning(*output); !w.empty()) warnings.push(w);
             v.set("warnings", std::move(warnings));
@@ -771,6 +799,7 @@ int main(int argc, char** argv) {
     }
     config.roots = roots.empty() ? platform::default_roots() : roots;
     config.runtime_path = runtime.empty() ? config.state_dir + "/runtime/libSceAmpr.sprx" : runtime;
+    config.backports_root = std::string(platform::name()) == "ps5" ? "/data/homebrew/backports" : config.state_dir + "/backports";
 
     alembic::Status dirs = alembic::make_parent_directories(config.state_dir + "/engine.log");
     if (dirs.ok()) g_log_path = config.state_dir + "/engine.log";

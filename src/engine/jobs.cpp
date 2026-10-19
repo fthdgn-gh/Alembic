@@ -92,6 +92,7 @@ JsonValue JobSpec::to_json() const {
     j.set("lz4_level", lz4_level);
     j.set("lz4_runtime", lz4_runtime);
     j.set("lz4_unpack", lz4_unpack);
+    j.set("ampr_emu", ampr_emu);
     j.set("delete_source", delete_source);
     j.set("verify", verify);
     return j;
@@ -101,8 +102,8 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
     if (!j.is_object()) return make_error(Errc::invalid_argument, "a job must be a JSON object");
     JobSpec s;
     s.kind = j["kind"].str("convert");
-    if (s.kind != "convert" && s.kind != "copy" && s.kind != "move" && s.kind != "install")
-        return make_error(Errc::invalid_argument, "kind must be convert, copy, move or install");
+    if (s.kind != "convert" && s.kind != "copy" && s.kind != "move" && s.kind != "install" && s.kind != "ampr_emu")
+        return make_error(Errc::invalid_argument, "kind must be convert, copy, move, install or ampr_emu");
     s.input = j["input"].str();
     s.output = j["output"].str();
     s.output_dir = j["output_dir"].str();
@@ -120,6 +121,9 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
     s.lz4_level = static_cast<int>(j["lz4_level"].integer(9));
     s.lz4_runtime = j["lz4_runtime"].str();
     s.lz4_unpack = j["lz4_unpack"].boolean();
+    s.ampr_emu = j["ampr_emu"].str("auto");
+    if (s.ampr_emu != "auto" && s.ampr_emu != "always" && s.ampr_emu != "off")
+        return make_error(Errc::invalid_argument, "ampr_emu must be auto, always or off");
     s.delete_source = j["delete_source"].boolean();
     s.verify = j["verify"].boolean(true);
     if ((s.kind == "copy" || s.kind == "move") && s.output.empty())

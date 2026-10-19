@@ -40,9 +40,9 @@ const std::vector<Dependency>& dependencies() {
     static const std::vector<Dependency> list = {
         {
             "ampr_runtime",
-            "ampr_emu PackedStdio runtime",
-            "Lets LZ4-packed games read their packs (fakelib/libSceAmpr.sprx). Needed to pack games that do not "
-            "ship ampr_emu themselves.",
+            "AMPR emulator (ampr_emu)",
+            "Stands in for the console's APR file reader (fakelib/libSceAmpr.sprx), so games that use it start from "
+            "an image or folder; also reads LZ4 packs. Added to such games when converting, or to an existing game.",
             "drakmor/ampr_emu release 0.4.2.1 (official release asset)",
             "GPL-3.0",
             {{"https://github.com/drakmor/ampr_emu/releases/download/0.4.2.1/libSceAmpr.sprx",

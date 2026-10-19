@@ -14,7 +14,11 @@ namespace alembic::engine {
 struct EngineConfig {
     std::string state_dir;
     std::vector<std::string> roots; // inputs, outputs and browsing stay below these
-    std::string runtime_path;       // default PackedStdio libSceAmpr.sprx
+    std::string runtime_path;       // ampr_emu's PackedStdio libSceAmpr.sprx (LZ4 packs and the AMPR emulator)
+    // Where "ampr_emu" jobs put ShadowMount+ backport folders for images:
+    // /data/homebrew/backports on the console (ShadowMount+'s fallback,
+    // checked whatever its scan paths are).
+    std::string backports_root;
     unsigned threads = 0;           // compression threads, 0 = all cores
     // True when a queued job other than the running one reads `path`; the
     // source is then kept even with delete_source.
@@ -62,8 +66,22 @@ std::optional<CheckpointInfo> checkpoint_info(const JobSpec& spec, const EngineC
 // Deletes the checkpoint and the partial output.
 void discard_checkpoint(const JobSpec& spec, const EngineConfig& config);
 // The ids of the components (deps.hpp) a job needs that are not installed:
-// the ampr_emu runtime for LZ4 packing when the game ships none.
+// the ampr_emu runtime for LZ4 packing when the game ships none, for a
+// conversion that adds the AMPR emulator, and for an "ampr_emu" job.
 std::vector<std::string> missing_dependencies(const JobSpec& spec, const EngineConfig& config);
+// Whether a game needs ampr_emu (ampr_emu::check, kept per path, size and
+// mtime); nullopt when it cannot be read.
+struct AmprState {
+    bool imports = false;        // eboot.bin uses the console's APR
+    bool ships = false;          // its selected fakelib holds libSceAmpr.sprx
+    bool ships_in_fakelib = false; // fakelib/libSceAmpr.sprx itself (what LZ4 packing uses)
+    bool needed() const { return imports && !ships; }
+};
+std::optional<AmprState> ampr_state(const std::string& path, const std::string& passcode);
+// The folder an "ampr_emu" job writes the backport into for this image:
+// <scan path>/backports when a backport for the title is already there (it
+// would win over the fallback), else config.backports_root.
+std::string backports_root_for(const std::string& image, const std::string& title_id, const EngineConfig& config);
 
 // Copy and move jobs.
 Result<JsonValue> run_transfer(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress);

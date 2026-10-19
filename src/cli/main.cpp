@@ -63,6 +63,14 @@ void usage() {
         "        --lz4-config-out DIR  also write the pack configuration (pack.toml) and the\n"
         "                              forced-loose list (excludes.txt) for ampr_pack.py\n"
         "        --lz4-unpack          turn LZ4-packed files back into ordinary files\n"
+        "        --ampr-emu FILE       ampr_emu's libSceAmpr.sprx: added to fakelib/ when eboot.bin\n"
+        "                              uses the console's APR and the game ships none (a game\n"
+        "                              run from an image or folder needs it; not for .pkg)\n"
+        "        --ampr-emu-always     add it even when the game does not seem to need it\n"
+        "  ampr-emu <input> [--ampr-emu FILE] [--backports DIR] [--passcode P]\n"
+        "        tell whether a game needs ampr_emu; with --ampr-emu, add it: into a game\n"
+        "        folder directly, or for an image as a ShadowMount+ backport folder\n"
+        "        DIR/<TITLE_ID>/ (on the console DIR is /data/homebrew/backports)\n"
         "  fpkg-build <input> <out.pkg> --keys DIR [--seed HEX32] [--package-passcode P] [--overwrite]\n"
         "        build a stored debug FPKG from a game folder or image; DIR holds ProsperoPkgTool's\n"
         "        passcode.bin and mount_image.bin; a fixed --seed makes it reproducible\n"
@@ -341,6 +349,14 @@ int cmd_convert(const Args& args) {
     if (auto passcode = args.get("--passcode")) options.passcode = *passcode;
     options.overwrite = args.get("--overwrite").has_value();
     options.lz4_unpack = args.get("--lz4-unpack").has_value();
+    if (auto path = args.get("--ampr-emu")) {
+        auto file = File::open(*path, File::Mode::read);
+        if (!file.ok()) return fail(file.error());
+        options.ampr_emulator = std::make_shared<File>(std::move(*file));
+    }
+    options.ampr_emulator_always = args.get("--ampr-emu-always").has_value();
+    if (options.ampr_emulator_always && !options.ampr_emulator)
+        return std::fputs("error: --ampr-emu-always needs --ampr-emu FILE\n", stderr), 2;
     // FFPKG (UFS2): fixed time stamp and process ID for reproducible images.
     if (auto text = args.get("--ufs2-timestamp")) {
         auto value = parse_number(text->c_str());
@@ -408,6 +424,7 @@ int cmd_convert(const Args& args) {
     std::printf("%s -> %s: %s\n", convert::name(report->from), convert::name(report->to), report->method.c_str());
     if (!report->detail.empty())
         std::printf("%s: %s\n", report->to == convert::Format::fpkg ? "content ID" : "inner name", report->detail.c_str());
+    if (report->ampr_emulator_added) std::printf("AMPR emulator: added as %s\n", report->ampr_emulator_path.c_str());
     for (const std::string& w : report->warnings) std::fprintf(stderr, "warning: %s\n", w.c_str());
     if (report->lz4) {
         const lz4pack::PackStats& st = *report->lz4;
@@ -758,6 +775,42 @@ int cmd_pfsc_decode(const Args& args) {
     return 0;
 }
 
+int cmd_ampr_emu(const Args& args) {
+    if (args.positional.size() != 1) return usage(), 2;
+    const std::string& path = args.positional[0];
+    auto input = convert::open(path, args.get("--passcode").value_or(std::string(32, '0')));
+    if (!input.ok()) return fail(input.error());
+    auto emulator_path = args.get("--ampr-emu");
+    if (!emulator_path) {
+        auto check = ampr_emu::check(*input->tree);
+        if (!check.ok()) return fail(check.error());
+        std::printf("imports libSceAmpr: %s\n", check->imports_ampr ? "yes" : "no");
+        std::printf("fakelib folder:     %s%s\n", check->fakelib.c_str(), check->has_fakelib ? "" : " (none yet)");
+        std::printf("ships ampr_emu:     %s\n", check->ships_emulator ? "yes" : "no");
+        std::printf("needs the emulator: %s\n", check->needed() ? "yes" : "no");
+        return 0;
+    }
+    auto file = File::open(*emulator_path, File::Mode::read);
+    if (!file.ok()) return fail(file.error());
+    Result<ampr_emu::AttachResult> r = make_error(Errc::invalid_argument, "");
+    if (input->format == convert::Format::folder) {
+        input->tree.reset();
+        r = ampr_emu::attach_to_folder(path, *file);
+    } else {
+        auto backports = args.get("--backports");
+        if (!backports)
+            return std::fputs("error: an image cannot be changed in place; pass --backports DIR to write a "
+                              "ShadowMount+ backport folder (or convert it again with --ampr-emu)\n", stderr), 2;
+        r = ampr_emu::attach_backport(*input->tree, *backports, *file);
+    }
+    if (!r.ok()) return fail(r.error());
+    for (const std::string& n : r->notes) std::printf("note: %s\n", n.c_str());
+    if (r->already_there) return std::printf("nothing to do\n"), 0;
+    std::printf("wrote to %s:\n", r->folder.c_str());
+    for (const std::string& w : r->written) std::printf("  %s\n", w.c_str());
+    return 0;
+}
+
 int cmd_pfsc_info(const Args& args) {
     if (args.positional.size() != 1) return usage(), 2;
     auto input = File::open(args.positional[0], File::Mode::read);
@@ -789,7 +842,9 @@ int main(int argc, char** argv) {
     if (argc < 2) return usage(), 2;
     if (command == "convert")
         return cmd_convert(
-            parse(argc, argv, {"--no-ampr", "--case-sensitive", "--overwrite", "--rebuild", "--lz4", "--lz4-unpack"}));
+            parse(argc, argv, {"--no-ampr", "--case-sensitive", "--overwrite", "--rebuild", "--lz4", "--lz4-unpack",
+                                    "--ampr-emu-always"}));
+    if (command == "ampr-emu") return cmd_ampr_emu(parse(argc, argv, {}));
     if (command == "lz4-verify") return cmd_lz4_verify(parse(argc, argv, {}));
     if (command == "lz4-info") return cmd_lz4_info(parse(argc, argv, {}));
     if (command == "same") return cmd_same(parse(argc, argv, {}));

@@ -362,7 +362,7 @@ function placeLabel(s) {
 // How the engine did a conversion ("LZ4-packed and built a new exFAT image ...").
 function tMethod(m) {
   if (!m) return "";
-  const p = /^(LZ4-packed|LZ4-unpacked) and (.*)$/.exec(m);
+  const p = /^(LZ4-packed|LZ4-unpacked|added the AMPR emulator) and (.*)$/.exec(m);
   if (p) return t(p[1] + " and {rest}", { rest: tMethod(p[2]) });
   const c = /^(re)?compressed the (exFAT|UFS2|PFS) image unchanged$/.exec(m);
   if (c) return t(c[1] ? "recompressed the {kind} image unchanged" : "compressed the {kind} image unchanged", { kind: c[2] });
@@ -1100,6 +1100,7 @@ async function openActions(e) {
   if (e.kind === "folder") items.push({ label: t("Open"), value: () => browse(e.path) });
   if (conv) items.push({ label: t("Convert…"), sub: t("To FFPFSC, FFPKG, exFAT or a folder"), value: () => openConvert(e) });
   if (e.kind === "fpkg") items.push({ label: t("Install"), sub: t("Hand it to the console's installer"), value: () => installPkg(e) });
+  if (conv && e.kind !== "fpkg") items.push({ label: t("Add the AMPR emulator…"), sub: t("For games that stop at start from an image or folder"), value: () => addAmpr(e) });
   items.push({ label: t("Copy to…"), value: () => openDest(e, "copy") }, { label: t("Move to…"), value: () => openDest(e, "move") },
     { label: t("Rename…"), value: () => renameEntry(e) }, { label: t("Delete…"), danger: true, value: () => deleteEntry(e) });
   const fn = await choose(e.name, items);
@@ -1119,6 +1120,41 @@ async function installPkg(e) {
   if (!await ask({ title: t("Install this package?"), body, ok: t("Install") })) return;
   try { await api("POST", "/api/jobs", { kind: "install", input: e.path }); toast(t("Install queued"), "ok"); refreshJobs(); }
   catch (err) { toast(tMsg(err.message), "bad"); }
+}
+// Downloads the components a planned job needs, after asking. False when declined.
+async function getNeeds(plan, intro) {
+  for (const dep of plan.needs || []) {
+    const body = h("div", {}, h("p", { style: "margin-top:0", text: t(intro, { name: t(dep.label) }) }),
+      h("div", { class: "facts" }, h("div", { text: t("Why") }), h("div", { text: t(dep.purpose) }), h("div", { text: t("Source") }), h("div", { text: dep.source }),
+        h("div", { text: t("Size") }), h("div", { text: bytes(dep.bytes) })),
+      h("p", { class: "muted", text: t("It's checked against a pinned SHA-256 before it's saved.") }));
+    if (!await ask({ title: t("Download {name}?", { name: t(dep.label) }), body, ok: t("Download and continue") })) return false;
+    toast(t("Downloading {name}…", { name: t(dep.label) }));
+    await api("POST", "/api/deps/" + dep.id + "/install");
+    toast(t("{name} downloaded", { name: t(dep.label) }), "ok");
+    loadInfo().catch(() => {});
+  }
+  return true;
+}
+// ampr_emu into an existing game: a folder gets it in place, an image a
+// ShadowMount+ backport folder (the image is not changed).
+async function addAmpr(e) {
+  const isFolder = e.kind === "folder";
+  let plan;
+  try { plan = await api("POST", "/api/plan", { kind: "ampr_emu", input: e.path }); }
+  catch (err) { toast(tMsg(err.message), "bad"); return; }
+  if (plan.ships_emulator) { toast(t("This game already has the AMPR emulator"), "ok"); return; }
+  const body = h("div", {}, h("div", { class: "mono", text: e.path }),
+    h("p", { text: plan.imports_ampr === false ? t("This game does not seem to use the console's APR, so it may not need the emulator. It does no harm to add it.")
+      : t("This game reads its files through the console's APR, which doesn't work when it runs from an image or folder. ampr_emu's libSceAmpr.sprx stands in for it.") }),
+    h("p", { class: "muted", text: isFolder ? t("It goes into the game folder's fakelib (and ampr_emu.index, if the game has none).")
+      : t("The image is not changed: ShadowMount+ gets a backport folder for this title (the game's fakelib files plus the emulator), which it lays over the game when it starts.") }));
+  if (!await ask({ title: t("Add the AMPR emulator?"), body, ok: t("Add") })) return;
+  try {
+    if (!await getNeeds(plan, "This needs {name}, which isn't downloaded yet.")) return;
+    await api("POST", "/api/jobs", { kind: "ampr_emu", input: e.path });
+    toast(t("Queued: {name}", { name: e.name }), "ok"); refreshJobs();
+  } catch (err) { toast(tMsg(err.message), "bad"); }
 }
 async function renameEntry(e) {
   const name = await ask({ title: t("Rename"), input: e.name, ok: t("Rename") });
@@ -1230,6 +1266,9 @@ async function openConvert(entry) {
   else if (rt && !rt.pinned) rtNote.textContent = t("The runtime file is not the pinned ampr_emu 0.4.2.1 build.");
   const lz4Opts = h("div", { class: "indent" }, profile, lz4level, rtNote.childNodes.length || rtNote.textContent ? rtNote : null);
   const lz4 = switchRow(t("Pack into LZ4 asset packs"), t("For ampr_emu games"), false, () => sync());
+  // ampr_emu for games that use the console's APR (not packages: installed, they have the real one).
+  const ampr = switchRow(t("Add the AMPR emulator when the game needs it"), t("Games that use the console's APR stop at start from an image or folder without it"), true, () => sync());
+  const amprNote = h("div", { class: "note", hidden: true });
   // Shown instead of the pack switch for a game that is already packed.
   const unpack = switchRow(t("Unpack LZ4 asset packs"), t("Turns the packs back into ordinary files; ampr_emu's runtime stays in fakelib"), false, () => sync());
   unpack.hidden = true;
@@ -1244,7 +1283,7 @@ async function openConvert(entry) {
   const over = switchRow(t("Replace the output if it exists"), null, false, () => sync());
   const form = h("div", {},
     h("div", { class: "lbl", text: t("Convert to") }), fmts,
-    h("div", { class: "lbl", text: t("Options") }), level, lz4, lz4Opts, unpack, lz4Note, del, delOpts,
+    h("div", { class: "lbl", text: t("Options") }), level, lz4, lz4Opts, unpack, lz4Note, ampr, del, delOpts,
     h("div", { class: "lbl", text: t("Output") }), destRow, h("div", { style: "margin-bottom:.5rem" }, name), over);
   // Right column: what it is and where it goes.
   const facts = h("div", { class: "facts" }, h("div", { text: t("Reading") }), h("div", { class: "muted", text: "…" }));
@@ -1253,13 +1292,14 @@ async function openConvert(entry) {
   const outPath = h("div", { class: "mono" }), outSpace = h("div", { class: "muted" }), needs = h("div", { class: "note", hidden: true }), warn = h("div", { class: "note", hidden: true });
   const side = h("div", { class: "side" },
     h("div", { class: "head" }, headIco, h("div", { style: "min-width:0" }, h("b", { text: m && m.title ? m.title : entry.name }), h("div", { class: "muted mono", text: m && m.title ? entry.name : "" }))),
-    facts, h("div", { class: "out" }, h("div", { class: "lbl", style: "margin-top:.4rem", text: t("Output") }), outPath, outSpace), needs, warn);
+    facts, h("div", { class: "out" }, h("div", { class: "lbl", style: "margin-top:.4rem", text: t("Output") }), outPath, outSpace), amprNote, needs, warn);
   const msg = h("span", { class: "msg" });
   const go = h("button", { class: "btn primary", text: t("Add to queue") });
   const cancel = h("button", { class: "btn", text: t("Cancel"), onclick: () => closeOverlay(null) });
   function spec() {
     return { input: entry.path, to: cv.to, output_dir: cv.dest, output_name: name.value.trim(), level: level.getValue(), lz4: lz4.isOn(), lz4_unpack: unpack.isOn(),
-      lz4_profile: profile.getValue(), lz4_level: lz4level.getValue(), delete_source: del.isOn(), verify: verify.isOn(), overwrite: over.isOn() };
+      lz4_profile: profile.getValue(), lz4_level: lz4level.getValue(), delete_source: del.isOn(), verify: verify.isOn(), overwrite: over.isOn(),
+      ampr_emu: ampr.isOn() ? "auto" : "off" };
   }
   function sync() {
     // An LZ4-packed game can't be packed again, only unpacked.
@@ -1270,6 +1310,7 @@ async function openConvert(entry) {
     const changesTree = lz4.isOn() || unpack.isOn();
     if (changesTree !== lz4On) { lz4On = changesTree; renderFormats(); }
     level.hidden = cv.to !== "ffpfsc";
+    ampr.hidden = cv.to === "fpkg" || lz4.isOn(); // packing adds its runtime anyway
     lz4Opts.hidden = !lz4.isOn(); delOpts.hidden = !del.isOn();
     lz4Note.hidden = !(cv.to === "ffpfsc" && (lz4.isOn() || (packedSrc && !unpack.isOn())));
     lz4Note.textContent = (packedSrc ? t("This game is already LZ4-packed.") + " " : "") +
@@ -1286,6 +1327,10 @@ async function openConvert(entry) {
         msg.textContent = ""; msg.className = "msg"; go.disabled = false;
         const w = p.warnings || [];
         warn.hidden = !w.length; warn.textContent = w.map(tMsg).join(" ");
+        const amprShown = !ampr.hidden && p.ampr_needed;
+        amprNote.hidden = !amprShown;
+        amprNote.textContent = !amprShown ? "" : ampr.isOn() ? t("This game uses the console's APR and ships no emulator: ampr_emu goes into its fakelib.")
+          : t("This game uses the console's APR and ships no emulator: without it, it will likely stop at start.");
         const n = p.needs || [];
         needs.hidden = !n.length;
         needs.textContent = n.length ? t("Needs {list}. You'll be asked to download it when you add this to the queue.", { list: n.map((d) => t(d.label) + " (" + bytes(d.bytes) + ")").join(", ") }) : "";
@@ -1311,16 +1356,8 @@ async function openConvert(entry) {
     const s = spec();
     try {
       const plan = await api("POST", "/api/plan", s);
-      for (const dep of plan.needs || []) {
-        const body = h("div", {}, h("p", { style: "margin-top:0", text: t("This conversion needs {name}, which isn't downloaded yet.", { name: t(dep.label) }) }),
-          h("div", { class: "facts" }, h("div", { text: t("Why") }), h("div", { text: t(dep.purpose) }), h("div", { text: t("Source") }), h("div", { text: dep.source }),
-            h("div", { text: t("Size") }), h("div", { text: bytes(dep.bytes) })),
-          h("p", { class: "muted", text: t("It's checked against a pinned SHA-256 before it's saved.") }));
-        if (!await ask({ title: t("Download {name}?", { name: t(dep.label) }), body, ok: t("Download and continue") })) { msg.className = "msg"; msg.textContent = t("Not queued: {name} is needed.", { name: t(dep.label) }); return; }
-        msg.className = "msg"; msg.textContent = t("Downloading {name}…", { name: t(dep.label) });
-        await api("POST", "/api/deps/" + dep.id + "/install");
-        toast(t("{name} downloaded", { name: t(dep.label) }), "ok");
-        loadInfo().catch(() => {});
+      if (!await getNeeds(plan, "This conversion needs {name}, which isn't downloaded yet.")) {
+        msg.className = "msg"; msg.textContent = t("Not queued: a component is needed."); return;
       }
       const job = await api("POST", "/api/jobs", s);
       store.set("dest", s.output_dir);
@@ -1492,6 +1529,7 @@ function jobText(j) {
   const s = j.spec;
   if (s.kind === "copy" || s.kind === "move") return { title: base(s.input), to: t(s.kind === "copy" ? "Copy to {path}" : "Move to {path}", { path: s.output }) };
   if (s.kind === "install") return { title: base(s.input), to: t("Install on this console") };
+  if (s.kind === "ampr_emu") return { title: base(s.input), to: (j.result && j.result.output) ? t("AMPR emulator into {path}", { path: j.result.output }) : t("Add the AMPR emulator") };
   return { title: base(s.input), to: "→ " + s.output };
 }
 const cards = new Map();
@@ -1590,6 +1628,7 @@ function fillJob(c, j) {
     j.state === "running" ? h("div", { class: "pbar" + (j.total ? "" : " indet") }, h("div", { style: "width:" + pct + "%" }))
       : cpText(j) && isActive(j) ? h("div", { class: "pbar", style: "opacity:.5" }, h("div", { style: "width:" + cpPct(j) + "%" })) : null,
     h("div", { class: "line" }, h("span", { text: detail }), h("span", {}, tags.map((x) => h("span", { class: "tag", text: x })))),
+    r.ampr_emulator ? h("div", { class: "line", text: t("AMPR emulator added: {path}", { path: r.ampr_emulator }) }) : null,
     r.lz4 ? h("div", { class: "line", text: t("LZ4: {a} of {b} files packed", { a: r.lz4.files_packed, b: r.lz4.files_total }) + " · " + bytes(r.lz4.packed_bytes) + " → " + bytes(r.lz4.volume_bytes) }) : null,
     r.source_kept ? h("div", { class: "note", text: t("Source kept: {why}", { why: t(r.source_kept) }) }) : null,
     notes.length ? h("div", { class: "note", text: notes.map(tMsg).join(" ") }) : null,

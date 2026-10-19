@@ -24,7 +24,9 @@
 namespace alembic::engine {
 
 // What to do. "convert" mirrors the CLI's `convert` options; "copy" and
-// "move" take `input` to `output` (the new path) for the file manager.
+// "move" take `input` to `output` (the new path) for the file manager;
+// "install" hands a package to the system; "ampr_emu" adds ampr_emu to an
+// existing game (a folder in place, an image through a backport folder).
 struct JobSpec {
     std::string kind = "convert";
     std::string input;
@@ -42,6 +44,10 @@ struct JobSpec {
     int lz4_level = 9;
     std::string lz4_runtime; // empty: the engine's runtime file
     bool lz4_unpack = false;
+    // ampr_emu's libSceAmpr.sprx (the engine's runtime file): "auto" adds it
+    // when eboot.bin uses the console's APR and the game ships none,
+    // "always" whenever the game ships none, "off" never. Not for FPKG output.
+    std::string ampr_emu = "auto";
     // After a successful conversion: compare the output with the input file
     // by file, then delete the input (only if they match).
     bool delete_source = false;

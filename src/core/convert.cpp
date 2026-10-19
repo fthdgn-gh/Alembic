@@ -175,7 +175,9 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         return make_error(Errc::invalid_argument, "the output file already exists: " + output);
 
     ALEMBIC_ASSIGN(Input input, open(input_path, options.passcode));
-    Report report{input.format, to, "", "", std::nullopt, "", {}, {}, false};
+    Report report;
+    report.from = input.format;
+    report.to = to;
     const tree::Source* tree_ptr = input.tree.get();
     std::unique_ptr<lz4pack::PackedTree> packed;
     std::unique_ptr<tree::Source> unpacked;
@@ -193,11 +195,33 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         report.lz4_forced_loose = packed->forced_loose_patterns();
         tree_ptr = packed.get();
     }
+    // The AMPR emulator: not for packages (installed, they have the console's
+    // APR) nor when packing (the packer adds its runtime).
+    std::unique_ptr<tree::Source> with_emulator;
+    if (to != Format::fpkg && !packed) {
+        if (progress && !progress({"Checking eboot.bin", 0, 0})) return make_error(Errc::cancelled, "cancelled");
+        // A stage without a byte count: its bytes are not the conversion's.
+        ProgressFn stage_only = [&](const ProgressEvent& e) { return !progress || progress({e.stage, 0, 0}); };
+        ALEMBIC_ASSIGN(ampr_emu::Check check, ampr_emu::check(*tree_ptr, stage_only));
+        report.ampr_needed = check.needed();
+        bool add = options.ampr_emulator && (check.needed() || (options.ampr_emulator_always && !check.ships_emulator));
+        if (add) {
+            ALEMBIC_ASSIGN(with_emulator, ampr_emu::add(*tree_ptr, check, options.ampr_emulator, tree_ptr->root().mtime));
+            tree_ptr = with_emulator.get();
+            report.ampr_emulator_added = true;
+            report.ampr_emulator_path = check.fakelib + "/" + ampr_emu::kFileName;
+        } else if (check.needed()) {
+            report.warnings.push_back("eboot.bin uses the console's APR (libSceAmpr) and the game ships no ampr_emu: "
+                                      "it will likely not start from an image or folder (add the emulator)");
+        }
+    }
     const tree::Source& tree = *tree_ptr;
     // A transformed tree no longer matches the input image byte for byte.
     bool transformed = tree_ptr != input.tree.get();
     bool rebuild = options.rebuild || transformed;
-    const char* prefix = packed ? "LZ4-packed and " : unpacked ? "LZ4-unpacked and " : "";
+    std::string prefix_text = std::string(packed ? "LZ4-packed and " : unpacked ? "LZ4-unpacked and " : "") +
+                              (with_emulator ? "added the AMPR emulator and " : "");
+    const char* prefix = prefix_text.c_str();
     // LZ4 packing stamps the time it runs, so it cannot continue a checkpoint;
     // neither can the FPKG writer yet.
     resume::Session* session = packed || to == Format::fpkg ? nullptr : options.resume;

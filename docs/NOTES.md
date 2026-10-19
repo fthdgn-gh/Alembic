@@ -1143,6 +1143,65 @@ is about the USB drive's own format (shown on connect), not about the image.
   engine message that users can see needs a pattern and its translations in
   i18n.js; `tools/i18n_keys.py --check` also covers the notification texts.
 
+### 2026-10-19: the AMPR emulator for games that use APR
+
+- **Why:** games whose eboot.bin imports libSceAmpr read through the
+  console's APR, which fails when they run from a mounted image or folder
+  (package D: `APR_FATAL_ERROR_ASYNC`; package E: an abort in eboot.bin).
+  ampr_emu's `libSceAmpr.sprx` in fakelib/ replaces it; ShadowMount+ never
+  adds it (its `emulators_path` only replaces a copy the game ships). Owner:
+  E runs as an LZ4 exFAT (the only path that added it) and not as a plain one.
+- **Core** (`ampr_emu.hpp`): `check` scans eboot.bin for `libSceAmpr` (a
+  plain string in the dynamic string table of a fake-signed SELF or ELF;
+  found in the first MiBs on the samples, 0.5 s on the 95 MB eboot of D) and
+  picks the fakelib ShadowMount+ mounts (fakelib2 first, used alone, else
+  fakelib). Samples: A, B, D and E import it and ship none; C ships one.
+  `add` lays the emulator over any tree, plus `ampr_emu.index` when the game
+  has none: ampr_emu otherwise builds one at start and saves it to /app0,
+  which fails on a read-only image. The index equals what the exFAT/PFS
+  writers generate (they only add one when fakelib/libSceAmpr.sprx exists,
+  PS5PKGTool's rule), and now `.ffpkg` gets one too (the UFS2 writer never
+  made one).
+- **Convert:** `convert::Options::ampr_emulator` (+ `_always`): added for
+  every output but FPKG (installed packages have the real APR) and not when
+  LZ4 packing (the packer adds its runtime). Images are then rebuilt, not
+  copied. Without the file the report warns that the game will likely not
+  start. CLI: `convert ... --ampr-emu FILE [--ampr-emu-always]`.
+- **Existing games** (`attach_to_folder`, `attach_backport`; CLI
+  `alembic ampr-emu <in> [--ampr-emu FILE] [--backports DIR]`, without the
+  file it only reports): a game folder gets fakelib/libSceAmpr.sprx (and an
+  index) in place. An image is left alone; a ShadowMount+ backport folder
+  `<root>/<TITLE_ID>/` gets the game's fakelib files (minus libkernel.sprx,
+  which SMP drops) plus the emulator, and an index when the image has none.
+  SMP lays a backport over an image game with unionfs, and a backport's
+  fakelib replaces the game's (`resolve_game_fakelib_source_for_path`:
+  backport fakelib2, backport fakelib, game fakelib2, game fakelib). An
+  existing backport folder only gets the emulator in its own fakelib. Note:
+  for an installed PPR package of the same title SMP deletes libSceAmpr.sprx
+  from /data/homebrew/backports/<TITLE_ID>/fakelib before launch.
+- **Engine:** `JobSpec::ampr_emu` = auto (default) | always | off, uses the
+  runtime component (`<state>/runtime/libSceAmpr.sprx`, the pinned 0.4.2.1
+  PackedStdio build, which also serves loose files); `/api/plan` returns
+  `ampr_needed` and lists the component under `needs` when the game needs it
+  and it is missing. New job kind `ampr_emu` (input: a game folder or image):
+  backports go to `/data/homebrew/backports` (SMP's fallback, always
+  checked), or to `<scan path>/backports` when a backport for the title is
+  already there (the image's folder or the one above). "Check, then delete"
+  accepts the added emulator. The component is now "AMPR emulator
+  (ampr_emu)".
+- **Page:** Convert has "Add the AMPR emulator when the game needs it" (on;
+  hidden for FPKG and LZ4) and says when the game needs it; Files → ⋯ →
+  "Add the AMPR emulator…" on images and game folders explains what will be
+  written and downloads the component first if needed. Texts in all six
+  languages (`i18n_keys.py --check`: 0 problems). The page was not opened in
+  a browser after these changes (its script parses with node).
+- Checked: 65 unit tests (5 new), the PS5PKGTool/MkPFS oracle (69 same),
+  PS5 build without warnings, the engine on the Mac (plan without and with
+  the runtime, an attach job writing a backport, a conversion adding it,
+  check-then-delete of a conversion with it). Package E converted with the
+  emulator: every original file unchanged, plus the emulator (pinned
+  SHA-256) and the index. **Not tried on the console yet.**
+
 ## Next session
 
 **Open (owner, 2026-10-19), in this order:**
@@ -1155,6 +1214,54 @@ is about the USB drive's own format (shown on connect), not about the image.
    compared with a dump: the CNT entries Alembic exposes as files
    (licence, PlayGo, param.json), sce_sys contents, the kept ampr_emu.index.
    Compare `alembic ls` of the FFPFSC with a working dump of the same game.
+   **Owner's codes (2026-10-19):** the ~90 GB one (package D) gives
+   `APR_FATAL_ERROR_ASYNC` (…2c502); the 350 MB one (package E, a Unity
+   title from the same packager as B) gives
+   `SYSTEM_ABNORMAL_TERMINATION_REQUEST` (…20318) in eboot.bin, the code
+   B gave when Unity's data files were LZ4-packed.
+   **Findings:**
+   - Package D: its eboot imports libSceAmpr, and neither the package nor
+     its fakelib/ has ampr_emu's `libSceAmpr.sprx`. ShadowMount+ never adds
+     one: `emulators_path` only replaces a same-named file already in the
+     game's fakelib (`copy_emulator_files_to_cache` skips it when the
+     source file is missing), so a mounted image runs the console's own
+     APR, which fails. D's earlier LZ4 exFAT (runtime added by Alembic)
+     got past start-up to the game's own "pack missing" message. Likely
+     fix: an option to put ampr_emu's runtime in fakelib/ for image
+     outputs of games that import libSceAmpr and ship none.
+   - Package E: built on the Mac today, its FFPFSC holds the same 321
+     files as the package, every block decodes, and its layout matches B's
+     (same fakelib files and param.json flags; B imports libSceAmpr too).
+     Package B rebuilt with today's code has the same files as the FFPFSC
+     that ran, so the writer has not regressed. The owner's failing image
+     was made by the engine on the console (in `.refs/samples/` with a
+     `-borked` suffix): structure ok, every block decodes, and its exFAT
+     payload has the same SHA-256 as the Mac build; only 45 header bytes
+     (time stamps, offset table) and the zlib output differ. E's and B's
+     eboots import the same 70 libraries. So the conversion is not the
+     cause; next: does E run as .ffpkg or .exfat, with ampr_emu in a
+     backport fakelib, and what does SMP's debug.log say.
+   - Owner: an earlier Alembic FFPFSC of E did run. B's image that ran
+     (17 Oct) and B rebuilt today have the same payload SHA-256 and differ
+     only in time stamps, so the writer's output for these packages has
+     not changed. The console image uses zlib level 9 (`78da`, as
+     PS5PKGTool), the Mac default level 6 (`789c`); both decode cleanly,
+     no trailing bytes. Suspect the console side instead: SMP version or
+     config, its per-title fakelib cache, save data from earlier runs,
+     internal vs USB storage.
+   - **Owner: E runs as an LZ4 exFAT, crashes as a plain one.** LZ4 mode
+     is the only path that adds ampr_emu (`fakelib/libSceAmpr.sprx`) and
+     `ampr_emu.index`, so both D and E point at the same cause: without
+     the emulator, a mounted image falls back to the console's own APR.
+     **Done (2026-10-19, see the entry above):** conversions add the
+     emulator, and an existing game can get it. Owner to test D and E.
+   - Side finding: `detect_engine` needs a `StreamingAssets/` folder, so
+     E (Unity, no StreamingAssets) gets the scan profile, which packs its
+     `level*` / `sharedassets*` files; it still ran on the console.
+   - Quick test without rebuilding: `/data/homebrew/backports/<TITLE_ID>/
+     fakelib/` with the game's own fakelib files plus `libSceAmpr.sprx`
+     (a backport fakelib replaces the game's whole fakelib, it is not
+     merged).
 2. Holding Back is "not working properly" yet; ask what exactly (leaves
    only after release, steps back first, never triggers, or false
    triggers) and the Controller test's timing of the repeated Escapes.

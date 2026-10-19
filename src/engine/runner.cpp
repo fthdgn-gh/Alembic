@@ -10,7 +10,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "alembic/ampr_emu.hpp"
 #include "alembic/convert.hpp"
+#include "alembic/ffpfsc.hpp"
 #include "alembic/lz4pack.hpp"
 #include "alembic/resume.hpp"
 
@@ -202,6 +204,7 @@ std::string fingerprint(const JobSpec& spec, const std::string& output) {
     v.set("cluster_size", spec.cluster_size);
     v.set("lz4_unpack", spec.lz4_unpack);
     v.set("passcode", spec.passcode);
+    v.set("ampr_emu", spec.ampr_emu);
     return v.dump();
 }
 
@@ -272,6 +275,14 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     options.ffpfsc.compression.threads = config.threads;
     options.lz4_unpack = spec.lz4_unpack;
     options.fpkg.keys_folder = config.state_dir + "/keys"; // the fpkg_keys component
+
+    // The AMPR emulator, from the runtime component (missing_dependencies
+    // asks for it when the game needs it).
+    if (!spec.lz4 && spec.ampr_emu != "off" && to != convert::Format::fpkg && is_regular_file(config.runtime_path)) {
+        ALEMBIC_ASSIGN(File file, File::open(config.runtime_path, File::Mode::read));
+        options.ampr_emulator = std::make_shared<File>(std::move(file));
+        options.ampr_emulator_always = spec.ampr_emu == "always";
+    }
 
     JsonValue profile_json;
     if (spec.lz4) {
@@ -367,6 +378,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     r.set("method", report.method);
     if (resumed) r.set("resumed", true);
     if (!report.detail.empty()) r.set("detail", report.detail);
+    if (report.ampr_emulator_added) r.set("ampr_emulator", report.ampr_emulator_path);
     if (!report.warnings.empty()) {
         JsonValue warnings = JsonValue::array();
         for (const std::string& w : report.warnings) warnings.push(w);
@@ -402,7 +414,8 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
             // Packing adds the runtime when the game had none.
             std::vector<std::string> extra;
             for (const std::string& p : cmp.only_in_b)
-                if (!(spec.lz4 && p == lz4pack::kRuntimeRelativePath)) extra.push_back(p);
+                if (!(spec.lz4 && p == lz4pack::kRuntimeRelativePath) && p != report.ampr_emulator_path)
+                    extra.push_back(p);
             // A package build writes its own sce_sys/playgo-chunk.dat (as ProsperoPkgTool does).
             if (to == convert::Format::fpkg)
                 cmp.different.erase(std::remove_if(cmp.different.begin(), cmp.different.end(),
@@ -432,46 +445,105 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     return r;
 }
 
-namespace {
-
-// Whether the game at `path` ships fakelib/libSceAmpr.sprx. Opening a large
-// package takes a moment, so answers are kept per path, size and mtime.
-bool ships_ampr_runtime(const std::string& path, const std::string& passcode) {
+std::optional<AmprState> ampr_state(const std::string& path, const std::string& passcode) {
     struct stat st{};
-    if (::stat(path.c_str(), &st) != 0) return false;
+    if (::stat(path.c_str(), &st) != 0) return std::nullopt;
+    // Opening a large package and reading its eboot.bin takes a moment.
     std::string key = path + "|" + std::to_string(st.st_size) + "|" + std::to_string(st.st_mtime);
     static std::mutex mutex;
-    static std::map<std::string, bool> cache;
+    static std::map<std::string, std::optional<AmprState>> cache;
     {
         std::lock_guard<std::mutex> lock(mutex);
         if (auto it = cache.find(key); it != cache.end()) return it->second;
     }
-    bool ships = false;
+    std::optional<AmprState> state;
     if (auto input = convert::open(path, passcode); input.ok()) {
-        const tree::Node* fakelib = tree::find_child_icase(input->tree->root(), "fakelib");
-        const tree::Node* sprx = fakelib && fakelib->is_directory ? tree::find_child_icase(*fakelib, "libSceAmpr.sprx") : nullptr;
-        ships = sprx && !sprx->is_directory;
+        if (auto c = ampr_emu::check(*input->tree); c.ok()) {
+            AmprState a;
+            a.imports = c->imports_ampr;
+            a.ships = c->ships_emulator;
+            const tree::Node* fakelib = tree::find_child_icase(input->tree->root(), "fakelib");
+            const tree::Node* sprx =
+                fakelib && fakelib->is_directory ? tree::find_child_icase(*fakelib, ampr_emu::kFileName) : nullptr;
+            a.ships_in_fakelib = sprx && !sprx->is_directory;
+            state = a;
+        }
     }
     std::lock_guard<std::mutex> lock(mutex);
     if (cache.size() > 256) cache.clear();
-    cache[key] = ships;
-    return ships;
+    cache[key] = state;
+    return state;
 }
-
-} // namespace
 
 std::vector<std::string> missing_dependencies(const JobSpec& spec, const EngineConfig& config) {
     std::vector<std::string> out;
-    if (spec.kind == "convert" && spec.lz4 && spec.lz4_runtime.empty() && !is_regular_file(config.runtime_path) &&
-        !ships_ampr_runtime(strip_slashes(spec.input), spec.passcode.empty() ? std::string(32, '0') : spec.passcode))
-        out.push_back("ampr_runtime");
+    const std::string passcode = spec.passcode.empty() ? std::string(32, '0') : spec.passcode;
+    const std::string input = strip_slashes(spec.input);
+    const bool have_runtime = is_regular_file(config.runtime_path);
+    if (spec.kind == "ampr_emu" && !have_runtime) out.push_back("ampr_runtime");
     if (spec.kind == "convert") {
         auto to = target_format(spec);
+        if (!have_runtime) {
+            if (spec.lz4 && spec.lz4_runtime.empty()) {
+                auto a = ampr_state(input, passcode);
+                if (!a || !a->ships_in_fakelib) out.push_back("ampr_runtime");
+            } else if (!spec.lz4 && spec.ampr_emu != "off" && to.ok() && *to != convert::Format::fpkg) {
+                auto a = ampr_state(input, passcode);
+                if (a && (spec.ampr_emu == "always" ? !a->ships : a->needed())) out.push_back("ampr_runtime");
+            }
+        }
         const Dependency* keys = find_dependency("fpkg_keys");
         if (to.ok() && *to == convert::Format::fpkg && keys && dependency_state(*keys, config.state_dir) != "installed")
             out.push_back("fpkg_keys");
     }
     return out;
+}
+
+std::string backports_root_for(const std::string& image, const std::string& title_id, const EngineConfig& config) {
+    // ShadowMount+ prefers <scan path>/backports/<TITLE_ID>; the image sits
+    // in a scan path or one folder below it.
+    std::string dir = image.substr(0, image.rfind('/'));
+    for (int up = 0; up < 2 && !dir.empty(); ++up) {
+        if (is_directory(dir + "/backports/" + title_id)) return dir + "/backports";
+        dir = dir.substr(0, dir.rfind('/'));
+    }
+    return config.backports_root;
+}
+
+Result<JsonValue> run_ampr_emu(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress) {
+    std::string input = strip_slashes(spec.input);
+    if (!path_allowed(input, config.available_roots())) return make_error(Errc::invalid_argument, "outside the allowed folders");
+    if (!is_regular_file(config.runtime_path))
+        return make_error(Errc::invalid_argument, "the AMPR emulator is not downloaded; get it in Components first");
+    ALEMBIC_ASSIGN(File emulator, File::open(config.runtime_path, File::Mode::read));
+    if (progress) progress({"Checking eboot.bin", 0, 0});
+    ampr_emu::AttachResult result;
+    if (is_directory(input)) {
+        ALEMBIC_ASSIGN(result, ampr_emu::attach_to_folder(input, emulator));
+    } else {
+        const std::string passcode = spec.passcode.empty() ? std::string(32, '0') : spec.passcode;
+        ALEMBIC_ASSIGN(convert::Input game, convert::open(input, passcode));
+        if (game.format == convert::Format::fpkg)
+            return make_error(Errc::invalid_argument,
+                              "a package does not need it: installed, it uses the console's own APR");
+        std::optional<std::string> title_id = ffpfsc::read_title_id(*game.tree, game.tree->root());
+        if (!title_id) return make_error(Errc::invalid_argument, "the game has no title ID in sce_sys/param.json");
+        std::string root = backports_root_for(input, *title_id, config);
+        if (root.empty()) return make_error(Errc::invalid_argument, "no backports folder is set");
+        ALEMBIC_ASSIGN(result, ampr_emu::attach_backport(*game.tree, root, emulator));
+    }
+    JsonValue r = JsonValue::object();
+    r.set("method", result.already_there ? "nothing to do: the emulator is already in place"
+                    : is_directory(input) ? "added the AMPR emulator to the game folder"
+                                          : "added the AMPR emulator as a ShadowMount+ backport");
+    r.set("output", result.folder);
+    JsonValue written = JsonValue::array();
+    for (const std::string& w : result.written) written.push(w);
+    r.set("written", std::move(written));
+    JsonValue notes = JsonValue::array();
+    for (const std::string& n : result.notes) notes.push(n);
+    r.set("warnings", std::move(notes));
+    return r;
 }
 
 Result<JsonValue> run_transfer(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress) {
@@ -506,6 +578,7 @@ Result<JsonValue> run_install(const JobSpec& spec, const EngineConfig& config, c
 
 Result<JsonValue> run_job(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress) {
     if (spec.kind == "install") return run_install(spec, config, progress);
+    if (spec.kind == "ampr_emu") return run_ampr_emu(spec, config, progress);
     if (spec.kind == "copy" || spec.kind == "move") return run_transfer(spec, config, progress);
     return run_conversion(spec, config, progress);
 }

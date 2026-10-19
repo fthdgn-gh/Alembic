@@ -25,17 +25,19 @@ ENGINE = [
     "Paused; starts over when resumed", "Building exFAT", "Building the inner image", "Checking the package",
     "Choosing LZ4 profile", "Comparing", "Compressing PFSC", "Compressing", "Packing dump", "Copying image", "Copying",
     "Decoding PFSC", "Deleting the source", "Extracting", "Handing it to the system installer", "LZ4 pass 1",
-    "LZ4 planning", "Measuring", "Verifying LZ4 packs", "Verifying", "Writing PFS image", "Writing UFS2 image",
+    "LZ4 planning", "Measuring", "Checking eboot.bin", "Writing the emulator", "Verifying LZ4 packs", "Verifying", "Writing PFS image", "Writing UFS2 image",
     # how a conversion was done
-    "LZ4-packed and {rest}", "LZ4-unpacked and {rest}",
+    "LZ4-packed and {rest}", "LZ4-unpacked and {rest}", "added the AMPR emulator and {rest}",
+    "added the AMPR emulator to the game folder", "added the AMPR emulator as a ShadowMount+ backport",
+    "nothing to do: the emulator is already in place",
     "built a debug package from the file tree", "built a new exFAT image from the file tree",
     "built a new exFAT image from the file tree and compressed it", "built a new exFAT image from the folder and compressed it",
     "built a new PFS image from the file tree", "built a new UFS2 image from the file tree", "extracted the file tree",
     "unwrapped the exFAT image unchanged", "unwrapped the PFS image unchanged", "unwrapped the UFS2 image unchanged",
     "another queued job uses it",
     # components (deps.cpp)
-    "ampr_emu PackedStdio runtime", "FPKG key files",
-    "Lets LZ4-packed games read their packs (fakelib/libSceAmpr.sprx). Needed to pack games that do not ship ampr_emu themselves.",
+    "AMPR emulator (ampr_emu)", "FPKG key files",
+    "Stands in for the console's APR file reader (fakelib/libSceAmpr.sprx), so games that use it start from an image or folder; also reads LZ4 packs. Added to such games when converting, or to an existing game.",
     "The public RSA-3072 moduli a debug FPKG is built with (passcode key wraps, image key wrap, metadata header). Needed for PKG output.",
     # shortcut status (main.cpp), the simple ones
     "not tried", "registering…", "registered", "removed", "turned off in Settings", "not available",

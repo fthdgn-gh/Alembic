@@ -3,6 +3,7 @@
 // supported input can become any supported output without a temporary copy.
 #pragma once
 
+#include "alembic/ampr_emu.hpp"
 #include "alembic/exfat.hpp"
 #include "alembic/ffpfsc.hpp"
 #include "alembic/fpkg_build.hpp"
@@ -66,11 +67,17 @@ struct Options {
     resume::Session* resume = nullptr;
     // Serve LZ4-packed files as ordinary files again (drops the packs).
     bool lz4_unpack = false;
+    // ampr_emu's libSceAmpr.sprx (ampr_emu.hpp), added to the game's fakelib
+    // folder when eboot.bin imports libSceAmpr and the game ships none. Every
+    // output but FPKG (an installed package has the console's own APR); LZ4
+    // packing adds its runtime by itself. Images are then rebuilt.
+    std::shared_ptr<const RandomAccess> ampr_emulator;
+    bool ampr_emulator_always = false; // add it even when the game does not seem to need it
 };
 
 struct Report {
-    Format from;
-    Format to;
+    Format from = Format::folder;
+    Format to = Format::folder;
     std::string method; // what was done, for the user
     std::string detail; // e.g. FFPFSC inner name
     std::optional<lz4pack::PackStats> lz4; // set when packing
@@ -78,6 +85,9 @@ struct Report {
     std::vector<std::string> lz4_forced_loose;
     std::vector<std::string> warnings;
     bool resumable = false; // the session was used
+    bool ampr_needed = false;       // the game imports libSceAmpr and ships no emulator
+    bool ampr_emulator_added = false;
+    std::string ampr_emulator_path; // where it went, e.g. "fakelib/libSceAmpr.sprx"
 };
 
 Result<Report> run(const std::string& input, const std::string& output, Format to, const Options& options = {},

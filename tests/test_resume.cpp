@@ -196,7 +196,7 @@ TEST_CASE(resume_image_to_folder) {
     session.from = saved.back();
     std::uint64_t first_done = ~std::uint64_t{0};
     REQUIRE_OK(convert::run(image, out, convert::Format::folder, o, [&](const ProgressEvent& e) {
-        if (first_done == ~std::uint64_t{0}) first_done = e.done;
+        if (first_done == ~std::uint64_t{0} && e.total) first_done = e.done;
         return true;
     }));
     CHECK(first_done != ~std::uint64_t{0} && first_done > session.interval); // the kept files were not written again

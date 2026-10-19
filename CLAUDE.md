@@ -56,6 +56,12 @@ environment in `.refs/mkpfs-venv`).
   drakmor's `ampr_pack.py`, byte-identical to it (build ID included). The
   runtime `libSceAmpr.sprx` is never committed: the CLI takes it with
   `--lz4-runtime` (official ampr_emu release, SHA-256 pinned in NOTES.md).
+- **AMPR emulator:** games whose eboot.bin imports libSceAmpr need
+  ampr_emu's `libSceAmpr.sprx` in fakelib/ to start from an image or folder.
+  Conversions add it (engine: on by default; CLI: `--ampr-emu FILE`) with an
+  `ampr_emu.index`; `alembic ampr-emu` / the page's "Add the AMPR emulator"
+  add it to an existing game (in place for a folder, as a ShadowMount+
+  backport folder for an image). Never for FPKG output.
 - **Language rules:** C++20 with no exceptions and no RTTI (the PS5 build
   forbids them), so errors are returned as values.
 - **License:** GPL-3.0-or-later, compatible with every source we port from.
