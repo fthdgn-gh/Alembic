@@ -34,6 +34,8 @@
 //   POST /api/smp/scan                ask ShadowMount+ to rescan (retry counters reset)
 //   GET  /api/ftp                     FTP servers (no passwords); their files are under /ftp/<id>/
 //   POST /api/ftp  {name, host, port, user, password}   add one (logs in first)
+//   PUT  /api/ftp/ID  {name, host, port, user[, password]}   change one (keeps its id;
+//                                     no password: keeps the saved one)
 //   DELETE /api/ftp/ID                forget one
 //   GET  /api/remote                  files browsers on other computers share
 //   POST /api/remote  {name, size, last_modified}   share one: {path} to use as a job input
@@ -588,6 +590,24 @@ private:
             v.set("id", added->id);
             v.set("path", "/ftp/" + added->id);
             return json(200, v);
+        }
+        if (r.path.rfind("/api/ftp/", 0) == 0 && r.method == "PUT") {
+            auto body = parse_json(r.body);
+            if (!body.ok()) return error(400, body.error().message);
+            ftp::Server s;
+            s.name = (*body)["name"].str();
+            s.host = (*body)["host"].str();
+            std::int64_t port = (*body)["port"].integer(21);
+            if (port <= 0 || port > 65535) return error(400, "bad port");
+            s.port = static_cast<std::uint16_t>(port);
+            s.user = (*body)["user"].str("anonymous");
+            // No "password": keep the saved one.
+            const bool keep = !(*body).has("password");
+            s.password = (*body)["password"].str();
+            auto updated = ftp_.update(r.path.substr(std::string("/api/ftp/").size()), s, keep);
+            if (!updated.ok()) return error(400, updated.error().message);
+            log_line("FTP server " + updated->host + " changed by " + r.peer);
+            return json(200, JsonValue::object());
         }
         if (r.path.rfind("/api/ftp/", 0) == 0 && r.method == "DELETE") {
             Status s = ftp_.remove(r.path.substr(std::string("/api/ftp/").size()));

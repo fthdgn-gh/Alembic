@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ftp.hpp"
 
+#include <algorithm>
 #include <arpa/inet.h>
 #include <cerrno>
 #include <condition_variable>
@@ -614,10 +615,40 @@ Result<Server> Servers::add(Server server) {
         base += (std::isalnum(static_cast<unsigned char>(c)) ? c : '-');
     if (base.size() > 40) base.resize(40);
     std::lock_guard<std::mutex> lock(mutex_);
-    std::erase_if(servers_, [&](const Server& s) { return s.id == base; });
-    server.id = base;
+    // The same server and user again replaces it; another server that took
+    // this id (one edited since) keeps it, and this one gets "-2", "-3", ...
+    auto same = [&](const Server& s) { return s.host == server.host && s.port == server.port && s.user == server.user; };
+    std::string id = base;
+    for (int n = 2;; ++n) {
+        auto it = std::find_if(servers_.begin(), servers_.end(), [&](const Server& s) { return s.id == id; });
+        if (it == servers_.end() || same(*it)) break;
+        id = base + "-" + std::to_string(n);
+    }
+    std::erase_if(servers_, [&](const Server& s) { return s.id == id; });
+    server.id = id;
     if (server.name.empty()) server.name = server.host;
     servers_.push_back(server);
+    ALEMBIC_TRY(save());
+    return server;
+}
+
+Result<Server> Servers::update(const std::string& id, Server server, bool keep_password) {
+    if (server.host.empty()) return make_error(Errc::invalid_argument, "the FTP server needs an address");
+    if (server.user.empty()) server.user = "anonymous";
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = std::find_if(servers_.begin(), servers_.end(), [&](const Server& s) { return s.id == id; });
+        if (it == servers_.end()) return make_error(Errc::invalid_argument, "no such FTP server: " + id);
+        if (keep_password) server.password = it->password;
+    }
+    ALEMBIC_ASSIGN(auto conn, Connection::open(server)); // check the login
+    (void)conn;
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = std::find_if(servers_.begin(), servers_.end(), [&](const Server& s) { return s.id == id; });
+    if (it == servers_.end()) return make_error(Errc::invalid_argument, "no such FTP server: " + id);
+    server.id = id;
+    if (server.name.empty()) server.name = server.host;
+    *it = server;
     ALEMBIC_TRY(save());
     return server;
 }

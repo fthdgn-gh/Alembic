@@ -88,6 +88,10 @@ public:
     std::vector<Server> list() const;
     // Logs in once to check, then saves; returns the server with its id.
     Result<Server> add(Server server);
+    // Changes a server's name, address, port and login (logs in first). It
+    // keeps its id, so paths to it (queued jobs, remembered folders) still
+    // work; `keep_password` keeps the saved password.
+    Result<Server> update(const std::string& id, Server server, bool keep_password);
     Status remove(const std::string& id);
 
     static bool is_ftp(const std::string& path);

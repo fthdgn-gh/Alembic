@@ -1377,6 +1377,13 @@ is about the USB drive's own format (shown on connect), not about the image.
   port), not under Places; breadcrumbs start at the server's name; the
   folder list, picker and Convert dialog say "On an FTP server" instead
   of the free space. Owner asked for Drives (2026-10-19).
+- **Editing a server** (owner, 2026-10-19): Settings > Edit opens the add
+  dialog filled in; `PUT /api/ftp/ID` logs in first and keeps the id (so
+  queued jobs, remembered folders and the meta cache still point at it);
+  an empty password field keeps the saved password. Adding a server whose
+  id another (edited) server already holds gives it "-2", "-3", ... Closing
+  a dialog whose opener was re-rendered focuses the element with the same
+  data-key.
 - **Checked on the Mac** against pyftpdlib: FTP exFAT -> local FFPFSC; FTP ->
   FTP exFAT (rebuild), FFPKG, FFPFS and folder, nested folders made; output
   equal to local CLI builds except time stamps (two local builds differ in
