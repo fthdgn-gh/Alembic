@@ -173,6 +173,8 @@ public:
             if (RemoteFiles::is_remote(path)) return remote_.open(path);
             if (ftp::Servers::is_ftp(path)) return ftp_.open(path);
             return nullptr;
+        }, [this](const std::string& path) {
+            return RemoteFiles::is_remote(path) ? remote_.open(path) != nullptr : ftp::Servers::is_ftp(path);
         });
         // Outputs under /ftp/ are uploads.
         convert::OutputProvider out;
@@ -776,6 +778,8 @@ private:
         const bool shared = convert::is_provided(spec->input);
         if (!shared && !path_allowed(spec->input, config_.available_roots())) return error(403, "the input is outside the allowed folders");
         if (!shared && !path_exists(spec->input)) return error(400, "the input does not exist: " + spec->input);
+        if (shared && ftp::Servers::is_ftp(spec->input) && !ftp_.exists(spec->input))
+            return error(400, "the input does not exist: " + spec->input);
         if (shared) {
             // A file on another computer: converted only, into a folder here.
             if (spec->kind != "convert") return error(400, "a file shared from a computer can only be converted");

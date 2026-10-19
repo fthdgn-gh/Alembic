@@ -1351,9 +1351,19 @@ is about the USB drive's own format (shown on connect), not about the image.
 - **Inputs:** through `convert::set_file_provider`, like shared files: one
   download thread per open file, REST + RETR from where the reader is,
   16 MiB read ahead, 64 MiB kept; a jump stops the download and starts
-  another. Stopping a download drops the data connection, then sends NOOP
-  and skips replies up to its 200 (ABOR left a reply unread on pyftpdlib,
-  which put every later reply one command behind).
+  another. Stopping a download drops the data connection and reads the
+  transfer's one final reply (426 or 226), sending nothing else first:
+  servers answer ABOR or NOOP during a transfer, in either order with that
+  reply (first ABOR, then NOOP failed on the console: "passive mode
+  refused: Entering extended passive mode", every reply one command
+  behind). A connection whose stop or end reply fails is dropped.
+- **No traffic without reads:** `set_file_provider` takes a `handles`
+  predicate, so `is_provided` (fingerprints, meta keys, plan) recognises
+  an FTP path by its name; it used to open the file, and a failed job's
+  checkpoint check on the page's 1 s job poll made a new FTP session and a
+  1 MiB download every second. An opened file downloads nothing until it
+  is read. Server ids include the port unless it is 21. Caveat: an FTP
+  input's fingerprint and meta key are the path only (no size or time).
 - **Outputs:** `convert::set_output_provider` (core): one STOR stream to
   `<name>.alembic-part`, renamed on commit, deleted when dropped (cancel,
   failure). Missing parent folders are made first. Only formats written
@@ -1369,7 +1379,10 @@ is about the USB drive's own format (shown on connect), not about the image.
   equal to local CLI builds except time stamps (two local builds differ in
   the same bytes); an 800 MB FTP -> FTP FFPKG; cancel mid-upload
   (server throttled to 20 MB/s) leaves no `.alembic-part`; a wrong
-  password is refused when adding. Not tried on the console or against another FTP server.
+  password is refused when adding. A ~1.4 GB package over FTP -> exFAT,
+  straight and paused/resumed on a throttled server: identical to a
+  direct conversion. Console: the first try failed with the reply bug
+  above; not tried against another FTP server.
 
 ## Next session
 

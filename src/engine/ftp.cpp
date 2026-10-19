@@ -345,19 +345,16 @@ Result<std::size_t> Connection::read(MutableBytes out) {
 
 Status Connection::stop_download() {
     if (data_ < 0) return {};
-    // Dropping the data connection ends the transfer; the server then sends
-    // 426, or 226 if it had already sent everything. Servers differ in what
-    // they send (and how many replies) around an abort, so instead of ABOR a
-    // NOOP follows, and every reply up to the NOOP's 200 is skipped: the
-    // next command then reads its own reply.
+    // Dropping the data connection ends the transfer. The server then sends
+    // its one final reply for it: 426, or 226 if it had already sent
+    // everything. Nothing else is sent until that reply is read: servers
+    // answer other commands (ABOR, NOOP) during a transfer, in either order
+    // with that reply, which put every later reply one command behind.
     ::close(data_);
     data_ = -1;
-    ALEMBIC_TRY(send_all(control_, "NOOP\r\n", 6));
-    for (int i = 0; i < 8; ++i) {
-        ALEMBIC_ASSIGN(Reply r, reply());
-        if (r.code == 200) return {};
-    }
-    return net_error("the server did not answer after a stopped download");
+    ALEMBIC_ASSIGN(Reply r, reply()); // fails after the receive timeout
+    (void)r;
+    return {};
 }
 
 Status Connection::start_upload(const std::string& path) {
@@ -408,6 +405,7 @@ struct Servers::File final : RandomAccess {
     mutable std::uint64_t target = 0; // read up to this piece (inclusive)
     mutable std::uint64_t last = ~std::uint64_t{0};
     mutable std::optional<Error> failed;
+    mutable bool wanted = false; // nothing is downloaded before the first read
     bool stop = false;
     std::thread thread;
 
@@ -429,7 +427,7 @@ struct Servers::File final : RandomAccess {
         std::vector<std::uint8_t> buffer;
         std::unique_lock<std::mutex> lock(mutex);
         for (;;) {
-            changed.wait(lock, [&] { return stop || (next <= target && next < count() && !failed); });
+            changed.wait(lock, [&] { return stop || (wanted && next <= target && next < count() && !failed); });
             if (stop) return;
             std::uint64_t k = next;
             if (pieces.count(k)) { // already here
@@ -444,8 +442,14 @@ struct Servers::File final : RandomAccess {
                 else s = c.error();
             }
             if (s.ok() && at != k) {
-                if (at != ~std::uint64_t{0}) (void)conn->stop_download();
-                s = conn->start_download(path, k * kPiece);
+                // A connection whose replies may be out of step is not reused.
+                if (at != ~std::uint64_t{0} && !conn->stop_download().ok()) {
+                    conn.reset();
+                    auto c = Connection::open(server);
+                    if (c.ok()) conn = std::move(*c);
+                    else s = c.error();
+                }
+                if (s.ok()) s = conn->start_download(path, k * kPiece);
                 at = s.ok() ? k : ~std::uint64_t{0};
             }
             std::uint64_t want = std::min(kPiece, length - k * kPiece);
@@ -467,7 +471,9 @@ struct Servers::File final : RandomAccess {
             at = k + 1;
             if (at >= count()) {
                 lock.unlock();
-                (void)conn->read(MutableBytes(buffer.data(), 1)); // the end and its 226
+                // The end and its 226; without them the connection is dropped.
+                auto end = conn->read(MutableBytes(buffer.data(), 1));
+                if (!end.ok() || *end != 0) conn.reset();
                 lock.lock();
                 at = ~std::uint64_t{0};
             }
@@ -485,6 +491,7 @@ struct Servers::File final : RandomAccess {
     Result<std::shared_ptr<const std::vector<std::uint8_t>>> piece(std::uint64_t k) const {
         std::unique_lock<std::mutex> lock(mutex);
         failed.reset();
+        wanted = true;
         const bool forward = last != ~std::uint64_t{0} && (k == last || k == last + 1);
         last = k;
         // Not here and not coming next: the download moves there.
@@ -600,9 +607,10 @@ Result<Server> Servers::add(Server server) {
     if (server.user.empty()) server.user = "anonymous";
     ALEMBIC_ASSIGN(auto conn, Connection::open(server)); // check the login
     (void)conn;
-    // An id that stays the same for the same host and user, so paths last.
+    // An id that stays the same for the same server and user, so paths last.
     std::string base;
-    for (char c : server.host + "-" + server.user)
+    // The port is part of it unless it is 21, so two servers on one host differ.
+    for (char c : server.host + (server.port == 21 ? "" : "-" + std::to_string(server.port)) + "-" + server.user)
         base += (std::isalnum(static_cast<unsigned char>(c)) ? c : '-');
     if (base.size() > 40) base.resize(40);
     std::lock_guard<std::mutex> lock(mutex_);

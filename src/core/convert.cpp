@@ -164,7 +164,15 @@ Result<std::shared_ptr<const RandomAccess>> open_input_file(const std::string& p
 
 } // namespace
 
-void set_file_provider(FileProvider p) { provider() = std::move(p); }
+std::function<bool(const std::string&)>& provider_handles() {
+    static std::function<bool(const std::string&)> h;
+    return h;
+}
+
+void set_file_provider(FileProvider p, std::function<bool(const std::string&)> handles) {
+    provider() = std::move(p);
+    provider_handles() = std::move(handles);
+}
 
 namespace {
 OutputProvider& out_provider() {
@@ -180,7 +188,10 @@ bool output_exists(const std::string& path) {
     return path_exists(path);
 }
 
-bool is_provided(const std::string& path) { return provider() && provider()(path) != nullptr; }
+bool is_provided(const std::string& path) {
+    if (provider_handles()) return provider_handles()(path);
+    return provider() && provider()(path) != nullptr;
+}
 
 Result<Format> detect(const std::string& path) {
     const bool provided = is_provided(path);

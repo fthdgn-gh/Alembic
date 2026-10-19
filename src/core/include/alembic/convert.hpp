@@ -36,7 +36,9 @@ Result<Format> detect(const std::string& path);
 // such a path, else null; detect(), open() and run() then read it like a
 // file on disk. Only file inputs (packages and images), not folders.
 using FileProvider = std::function<std::shared_ptr<const RandomAccess>(const std::string& path)>;
-void set_file_provider(FileProvider provider);
+// `handles` answers is_provided() by the path alone (an FTP path must not
+// open a connection just to be recognised); without it the provider is asked.
+void set_file_provider(FileProvider provider, std::function<bool(const std::string& path)> handles = {});
 bool is_provided(const std::string& path);
 
 // Outputs that are not files on this machine (for the engine: an FTP
