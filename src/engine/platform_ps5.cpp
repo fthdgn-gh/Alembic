@@ -395,13 +395,13 @@ std::string launcher_param(std::uint16_t port) {
            "    \"en-US\": {\n      \"titleName\": \"Alembic\"\n    }\n  }\n}\n";
 }
 
-bool read_small_file(const std::string& path, std::string& out) {
+bool read_small_file(const std::string& path, std::string& out, std::size_t max = 1 << 20) {
     std::FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) return false;
     char buf[4096];
     std::size_t n;
     out.clear();
-    while ((n = std::fread(buf, 1, sizeof buf, f)) > 0 && out.size() < 65536) out.append(buf, n);
+    while ((n = std::fread(buf, 1, sizeof buf, f)) > 0 && out.size() <= max) out.append(buf, n);
     std::fclose(f);
     return true;
 }
@@ -456,6 +456,13 @@ bool launcher_recorded() {
     return ::stat(kMetaParam.c_str(), &st) == 0;
 }
 
+bool launcher_current(std::uint16_t port, const std::uint8_t* icon_png, std::size_t icon_size) {
+    std::string param, icon;
+    return read_small_file(kAppDir + "/sce_sys/param.json", param) && param == launcher_param(port) &&
+           read_small_file(kAppDir + "/sce_sys/icon0.png", icon) &&
+           icon == std::string(reinterpret_cast<const char*>(icon_png), icon_size);
+}
+
 std::string launcher_record_note() {
     std::string dir = std::string("/user/appmeta/") + kLauncherTitleId;
     DIR* d = ::opendir(dir.c_str());
@@ -473,9 +480,10 @@ std::string launcher_record_note() {
 Status install_launcher(std::uint16_t port, const std::uint8_t* icon_png, std::size_t icon_size, bool again) {
     std::lock_guard<std::mutex> lock(g_launcher_mutex);
     if (!launcher_supported()) return make_error(Errc::unsupported, "the system installer is not available");
-    std::string param = launcher_param(port), current;
+    // /user/appmeta/<id> is no sign of success: some firmwares never write it.
+    if (!again && launcher_current(port, icon_png, icon_size)) return {};
+    std::string param = launcher_param(port);
     std::string param_path = kAppDir + "/sce_sys/param.json";
-    if (!again && launcher_recorded() && read_small_file(param_path, current) && current == param) return {};
     if (int rc = appinst_init(); rc != 0) return make_error(Errc::io, "sceAppInstUtilInitialize failed: " + hex_code(rc));
     // Registering again: drop the old registration first, as
     // PS5-LZ4-Compression's src/lzc_app_installer.c does.
@@ -493,7 +501,10 @@ Status install_launcher(std::uint16_t port, const std::uint8_t* icon_png, std::s
     int rc = appinst().install_title_dir ? appinst().install_title_dir(kLauncherTitleId, "/user/app/", nullptr)
                                          : appinst().install_all(nullptr);
     std::string how = " (auth ID " + hex64(auth.saved()) + (auth.changed() ? ", raised for the call)" : ", could not be raised)");
-    if (rc != 0) return make_error(Errc::io, std::string(call) + " failed: " + hex_code(rc) + how);
+    if (rc != 0) {
+        ::unlink(param_path.c_str()); // so the next start tries again
+        return make_error(Errc::io, std::string(call) + " failed: " + hex_code(rc) + how);
+    }
     // The system may write its copy a moment later, or (on some firmwares)
     // elsewhere: the shortcut can show in Media without it, so this is no error.
     for (int i = 0; i < 50 && !launcher_recorded(); ++i) ::usleep(100 * 1000);

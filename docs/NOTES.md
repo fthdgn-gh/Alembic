@@ -1394,6 +1394,21 @@ is about the USB drive's own format (shown on connect), not about the image.
   direct conversion. Console: the first try failed with the reply bug
   above; not tried against another FTP server.
 
+### 2026-10-19: games crashing with the engine idle
+
+The owner saw games crash some time after starting them with the engine
+loaded and idle (page never opened, empty queue). The engine re-registered the
+Media shortcut at every start: it took the shortcut as unregistered while
+`/user/appmeta/ALEM00001` was missing, and that firmware never writes it. On
+that firmware AppInstallTitleDir is missing too, so the fallback,
+`sceAppInstUtilAppInstallAll`, re-registered every app in `/user/app` with
+ShellCore's auth ID, here while a game was starting. Now the engine leaves the
+installer alone at start when `/user/app/ALEM00001/sce_sys` already holds the
+same param.json and icon0.png (`launcher_current`), and a failed registration
+removes param.json so the next start tries again. Not yet confirmed on the
+console; the owner's test is the same session again (payload, then a game).
+Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
+
 ## Next session
 
 **Open (owner, 2026-10-19), in this order:**

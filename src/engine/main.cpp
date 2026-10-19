@@ -221,6 +221,14 @@ public:
 
     // The Media-tab shortcut, unless the user removed it (launcher.off).
     void start_launcher() {
+        // Already in place: leave the system installer alone. Registering
+        // again can re-register every app (AppInstallAll), which has crashed
+        // a game that was starting at the time.
+        if (!path_exists(launcher_off_path()) &&
+            platform::launcher_current(port(), reinterpret_cast<const std::uint8_t*>(kIcon0Png), kIcon0PngSize)) {
+            set_launcher_status("registered earlier");
+            return;
+        }
         if (!platform::launcher_supported()) {
             set_launcher_status("not available: " + platform::launcher_problem());
             if (std::string(platform::name()) == "ps5")

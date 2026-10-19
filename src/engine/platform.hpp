@@ -57,10 +57,14 @@ bool launcher_installed();
 bool launcher_recorded();
 // What /user/appmeta/<id> holds, for Settings ("no folder", or its files).
 std::string launcher_record_note();
+// Whether /user/app/<id>/sce_sys holds exactly the files install_launcher
+// would write for this port and icon (it removes them when registering fails).
+bool launcher_current(std::uint16_t port, const std::uint8_t* icon_png, std::size_t icon_size);
 // Writes /user/app/<id>/sce_sys/{param.json,icon0.png} pointing at
-// http://127.0.0.1:<port>/ and registers it. Does nothing when it is already
-// registered with the same param.json, unless `again` (then it unregisters
-// and registers it anew).
+// http://127.0.0.1:<port>/ and registers it. Does nothing when those files are
+// already current, unless `again` (then it unregisters and registers it anew):
+// on firmwares without AppInstallTitleDir, registering re-registers every app
+// in /user/app, which has crashed a game that was starting at the time.
 Status install_launcher(std::uint16_t port, const std::uint8_t* icon_png, std::size_t icon_size, bool again = false);
 // Unregisters the shortcut and deletes its files.
 Status remove_launcher();
