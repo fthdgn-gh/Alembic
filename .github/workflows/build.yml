@@ -140,6 +140,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
+        # The notes are the tag's message; the checkout may hold the tag
+        # without its annotation, so fetch it first.
         run: |
+          git fetch --force origin "$GITHUB_REF:$GITHUB_REF"
           gh release create "$GITHUB_REF_NAME" "dist/$BUNDLE.zip" "dist/alembic-$VERSION.elf" dist/SHA256SUMS \
-            --repo "$GITHUB_REPOSITORY" --title "Alembic $GITHUB_REF_NAME" --generate-notes
+            --repo "$GITHUB_REPOSITORY" --title "Alembic $GITHUB_REF_NAME" --notes-from-tag
