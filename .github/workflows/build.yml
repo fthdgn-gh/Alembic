@@ -62,15 +62,23 @@ jobs:
           curl -fsSL -o "$RUNNER_TEMP/sdk.zip" "$SDK_URL"
           echo "$SDK_SHA256  $RUNNER_TEMP/sdk.zip" | sha256sum -c -
           unzip -q "$RUNNER_TEMP/sdk.zip" -d "$RUNNER_TEMP"
-      - name: Build alembic.elf
+      - name: Build the payload
         env:
           LLVM_CONFIG: llvm-config-18
         run: PS5_PAYLOAD_SDK="$RUNNER_TEMP/ps5-payload-sdk" tools/ps5/build.sh
-      # Its own artifact, unzipped, so alembic.elf downloads as it is.
+      # The version in file names: the tag (v0.1.0), else branch-commit (main-a2fab12).
+      - name: Version
+        run: |
+          version="${GITHUB_REF_NAME//\//-}"
+          [[ $GITHUB_REF == refs/tags/* ]] || version="$version-${GITHUB_SHA::7}"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Name it alembic-<version>.elf
+        run: mkdir -p dist && cp build-ps5/alembic.elf "dist/alembic-$VERSION.elf"
+      # Its own artifact, unzipped, so the payload downloads as it is.
       - name: Upload the payload
         uses: actions/upload-artifact@v7
         with:
-          path: build-ps5/alembic.elf
+          path: dist/alembic-${{ env.VERSION }}.elf
           archive: false
           if-no-files-found: error
 
@@ -84,9 +92,15 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      # The version in file names: the tag (v0.1.0), else branch-commit (main-a2fab12).
+      - name: Version
+        run: |
+          version="${GITHUB_REF_NAME//\//-}"
+          [[ $GITHUB_REF == refs/tags/* ]] || version="$version-${GITHUB_SHA::7}"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v8
         with:
-          name: alembic.elf
+          name: alembic-${{ env.VERSION }}.elf
           path: artifacts
       - uses: actions/download-artifact@v8
         with:
@@ -98,13 +112,12 @@ jobs:
           path: artifacts
       - name: Assemble
         run: |
-          version="${GITHUB_REF_NAME//\//-}"
-          [[ $GITHUB_REF == refs/tags/* ]] || version="$version-${GITHUB_SHA::7}"
-          name="alembic-$version"
+          name="alembic-$VERSION"
+          elf="alembic-$VERSION.elf"
           echo "BUNDLE=$name" >> "$GITHUB_ENV"
           mkdir -p "dist/$name/ps5"
           ls -la artifacts
-          cp artifacts/alembic.elf "dist/$name/ps5/"
+          cp "artifacts/$elf" "dist/$name/ps5/"
           for t in artifacts/alembic-*.tar.gz; do
             platform=$(basename "$t" .tar.gz); platform=${platform#alembic-}
             mkdir -p "dist/$name/$platform"
@@ -112,8 +125,8 @@ jobs:
           done
           cp README.md LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
           (cd dist && zip -qr "$name.zip" "$name")
-          cp artifacts/alembic.elf dist/
-          (cd dist && sha256sum "$name.zip" alembic.elf > SHA256SUMS)
+          cp "artifacts/$elf" dist/
+          (cd dist && sha256sum "$name.zip" "$elf" > SHA256SUMS)
           (cd dist && find "$name" -type f | sort && cat SHA256SUMS)
       # The zip itself (archive: false), not a zip inside a zip; it keeps the
       # executable bits.
@@ -128,5 +141,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "dist/$BUNDLE.zip" dist/alembic.elf dist/SHA256SUMS \
+          gh release create "$GITHUB_REF_NAME" "dist/$BUNDLE.zip" "dist/alembic-$VERSION.elf" dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --title "Alembic $GITHUB_REF_NAME" --generate-notes

@@ -45,7 +45,7 @@ close the browser. Its page opens in the console's browser, from a shortcut
 it adds to the Media tab, or from any browser on your network at
 `http://<console-ip>:5940`.
 
-1. Send `alembic.elf` to your console's ELF loader.
+1. Send `alembic-<version>.elf` (from the releases) to your console's ELF loader.
 2. Open Alembic from the Media tab (or the address above).
 3. In **Files**, pick a game on internal storage, USB or an FTP server, then
    **Convert**, **Install** (packages), **Copy** or **Move**.
@@ -105,11 +105,13 @@ tools/ps5/build.sh                                # → build-ps5/alembic.elf
 ```
 
 GitHub Actions builds and tests everything on every push (see
-[.github/workflows/build.yml](.github/workflows/build.yml)). Each run has
-`alembic.elf` as a download of its own, and a bundle zip: `ps5/alembic.elf`, `linux-x64/` and `macos-arm64/` (`alembic`
-and `alembic-engine`), with the README and license files. A `v*` tag
-publishes that zip as a release, with `alembic.elf` on its own and
-`SHA256SUMS`.
+[.github/workflows/build.yml](.github/workflows/build.yml)). Each run has the
+payload as a download of its own, `alembic-<version>.elf`, and a bundle,
+`alembic-<version>.zip`: the payload in `ps5/`, `alembic` and
+`alembic-engine` in `linux-x64/` and `macos-arm64/`, with the README and
+license files. The version is the tag (`v0.1.0`), else the branch and commit
+(`main-a2fab12`). A `v*` tag publishes the payload, the bundle and
+`SHA256SUMS` as a release.
 
 ### Checking against the reference tools
 
