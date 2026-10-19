@@ -996,11 +996,12 @@ function renderRail() {
         h("div", { class: "nm", html: ICONS.server }, h("span", { class: "ellip", text: s.name })),
         h("div", { class: "free ellip", text: "FTP · " + s.host + (s.port === 21 ? "" : ":" + s.port) })));
     }
-    const places = state.locations.filter((l) => l.exists && !l.ftp && !state.space.some((s) => s.root === l.path));
+    // Drive roots are already under Drives; internal storage (/data) is listed in both.
+    const places = state.locations.filter((l) => l.exists && !l.ftp && (l.path === "/data" || !state.space.some((s) => s.root === l.path)));
     const recent = (store.get("recent") || []).filter((p) => rootOf(p) && !places.some((l) => l.path === p)).slice(0, 4);
     if (places.length || recent.length) box.append(h("h3", { text: t("Places") }));
     for (const l of places) box.append(h("button", { class: "ritem" + (state.cwd === l.path ? " on" : ""), "data-key": "p:" + l.path, title: l.path, onclick: () => browse(l.path) },
-      h("div", { class: "nm", html: ICONS.place }, h("span", { class: "ellip", text: placeLabel(l.label.replace(/ · homebrew.*$/, " · homebrew").replace(/^Internal storage$/, "Internal")) }))));
+      h("div", { class: "nm", html: ICONS.place }, h("span", { class: "ellip", text: l.path === "/data" ? "/data" : placeLabel(l.label.replace(/ · homebrew.*$/, " · homebrew").replace(/^Internal storage$/, "Internal")) }))));
     for (const p of recent) box.append(h("button", { class: "ritem" + (state.cwd === p ? " on" : ""), "data-key": "c:" + p, title: p, onclick: () => browse(p) },
       h("div", { class: "nm", html: ICONS.clock }, h("span", { class: "ellip", text: base(p) }))));
   });
