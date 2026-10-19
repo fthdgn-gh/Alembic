@@ -141,7 +141,11 @@ GameMetaCache::GameMetaCache(std::string state_dir) : dir_(std::move(state_dir) 
 
 Result<std::string> GameMetaCache::key_for(const std::string& path) const {
     struct stat st{};
-    if (::stat(path.c_str(), &st) != 0) return make_error(Errc::invalid_argument, "no such file or folder: " + path);
+    if (::stat(path.c_str(), &st) != 0) {
+        // A file a browser shares: its path already names its size and time.
+        if (!convert::is_provided(path)) return make_error(Errc::invalid_argument, "no such file or folder: " + path);
+        st = {};
+    }
     char buf[32];
     std::snprintf(buf, sizeof buf, "%016llx",
                   static_cast<unsigned long long>(fnv1a64(path + "|" + std::to_string(st.st_size) + "|" +

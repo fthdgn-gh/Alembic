@@ -32,6 +32,10 @@
 //   POST /api/cache/clear             delete the cached game info and icons
 //   POST /api/lang       {lang}       the language of the engine's notifications
 //   POST /api/smp/scan                ask ShadowMount+ to rescan (retry counters reset)
+//   GET  /api/remote                  files browsers on other computers share
+//   POST /api/remote  {name, size, last_modified}   share one: {path} to use as a job input
+//   POST /api/remote/ID/want          (long poll) the pieces to send: [{offset, length}]
+//   POST /api/remote/ID/data?offset=N one piece, as the raw body
 //   POST /api/quit                    stop the engine (cancels a running job)
 #include "deps.hpp"
 #include "l10n.hpp"
@@ -41,6 +45,7 @@
 #include "jobs.hpp"
 #include "json_value.hpp"
 #include "platform.hpp"
+#include "remote.hpp"
 #include "runner.hpp"
 
 #include "alembic/convert.hpp"
@@ -159,6 +164,10 @@ public:
                                         [this](const JobSpec& s) { return checkpoint_info(s, config_).has_value(); },
                                         [this](const JobSpec& s) { discard_checkpoint(s, config_); },
                                     }) {
+        // Inputs under /remote/ come from a browser on another computer.
+        convert::set_file_provider([this](const std::string& path) -> std::shared_ptr<const RandomAccess> {
+            return RemoteFiles::is_remote(path) ? remote_.open(path) : nullptr;
+        });
         config_.needed_by_other_jobs = [this](const std::string& path) {
             for (const Job& j : queue_.list())
                 if ((j.state == JobState::queued || j.state == JobState::paused) && is_within(strip_slashes(j.spec.input), path))
@@ -258,6 +267,7 @@ private:
         if (r.path == "/api/browse" && r.method == "GET") return browse(r);
         if (r.path == "/api/inspect" && r.method == "GET") return inspect(r);
         if (r.path == "/api/plan" && r.method == "POST") return plan(r, false);
+        if (r.path == "/api/remote" || r.path.rfind("/api/remote/", 0) == 0) return remote_action(r);
         if (r.path == "/api/smp/scan" && r.method == "POST") {
             std::string why;
             if (!shadowmount_rescan(config_, &why)) return error(503, why);
@@ -494,10 +504,42 @@ private:
         return json(200, v);
     }
 
+    // Files a browser on another computer shares (remote.hpp).
+    HttpResponse remote_action(const HttpRequest& r) {
+        if (r.path == "/api/remote") {
+            if (r.method == "GET") return json(200, remote_.list());
+            if (r.method != "POST") return error(405, "use GET or POST");
+            auto body = parse_json(r.body);
+            if (!body.ok()) return error(400, body.error().message);
+            auto path = remote_.add((*body)["name"].str(), static_cast<std::uint64_t>((*body)["size"].integer()),
+                                    (*body)["last_modified"].integer());
+            if (!path.ok()) return error(400, path.error().message);
+            log_line("sharing " + *path + " from " + r.peer);
+            JsonValue v = JsonValue::object();
+            v.set("path", *path);
+            return json(200, v);
+        }
+        std::string rest = r.path.substr(std::string("/api/remote/").size());
+        std::size_t slash = rest.find('/');
+        if (slash == std::string::npos || r.method != "POST") return error(404, "not found");
+        std::string id = rest.substr(0, slash), action = rest.substr(slash + 1);
+        if (action == "want") return json(200, remote_.want(id, 8000));
+        if (action == "data") {
+            auto it = r.query.find("offset");
+            std::uint64_t offset = 0;
+            if (it == r.query.end() ||
+                std::from_chars(it->second.data(), it->second.data() + it->second.size(), offset).ec != std::errc())
+                return error(400, "offset is missing");
+            Status s = remote_.data(id, offset, r.body);
+            return s.ok() ? json(200, JsonValue::object()) : error(400, s.error().message);
+        }
+        return error(404, "not found");
+    }
+
     HttpResponse inspect(const HttpRequest& r) {
         auto it = r.query.find("path");
         std::string path = it == r.query.end() ? "" : strip_slashes(it->second);
-        if (!path_allowed(path, config_.available_roots())) return error(403, "outside the allowed folders");
+        if (!input_allowed(path, config_.available_roots())) return error(403, "outside the allowed folders");
         auto input = convert::open(path, r.query.count("passcode") ? r.query.at("passcode") : std::string(32, '0'));
         if (!input.ok()) return error(400, input.error().message);
         tree::Totals totals = tree::totals(input->tree->root());
@@ -550,7 +592,7 @@ private:
     HttpResponse game_meta(const HttpRequest& r) {
         auto it = r.query.find("path");
         std::string path = it == r.query.end() ? "" : strip_slashes(it->second);
-        if (!path_allowed(path, config_.available_roots())) return error(403, "outside the allowed folders");
+        if (!input_allowed(path, config_.available_roots())) return error(403, "outside the allowed folders");
         if (r.path == "/api/icon") {
             auto png = meta_.icon(path);
             if (!png.ok()) return error(404, png.error().message);
@@ -629,8 +671,17 @@ private:
         auto spec = JobSpec::from_json(*body);
         if (!spec.ok()) return error(400, spec.error().message);
         spec->input = strip_slashes(spec->input);
-        if (!path_allowed(spec->input, config_.available_roots())) return error(403, "the input is outside the allowed folders");
-        if (!path_exists(spec->input)) return error(400, "the input does not exist: " + spec->input);
+        const bool shared = convert::is_provided(spec->input);
+        if (!shared && !path_allowed(spec->input, config_.available_roots())) return error(403, "the input is outside the allowed folders");
+        if (!shared && !path_exists(spec->input)) return error(400, "the input does not exist: " + spec->input);
+        if (shared) {
+            // A file on another computer: converted only, into a folder here.
+            if (spec->kind != "convert") return error(400, "a file shared from a computer can only be converted");
+            if (spec->delete_source) return error(400, "a file shared from a computer cannot be deleted from here");
+            spec->hide_source = false;
+            if (spec->output.empty() && spec->output_dir.empty())
+                return error(400, "choose where to save it on the console");
+        }
         if (spec->kind == "ampr_emu") {
             JsonValue needs = JsonValue::array();
             for (const std::string& id : missing_dependencies(*spec, config_))
@@ -758,6 +809,7 @@ private:
     }
 
     EngineConfig config_;
+    RemoteFiles remote_; // before the queue, whose jobs may read from it
     GameMetaCache meta_{config_.state_dir};
     JobQueue queue_;
     HttpServer server_;

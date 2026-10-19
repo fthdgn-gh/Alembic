@@ -92,10 +92,33 @@ std::optional<Format> guess_output_format(const std::string& path) {
     return std::nullopt;
 }
 
-Result<Format> detect(const std::string& path) {
-    if (is_directory(path)) return Format::folder;
-    if (!is_regular_file(path)) return make_error(Errc::invalid_argument, "no such file or folder: " + path);
+namespace {
+
+FileProvider& provider() {
+    static FileProvider p;
+    return p;
+}
+
+// A file input: one the provider has for this path, else the file on disk.
+Result<std::shared_ptr<const RandomAccess>> open_input_file(const std::string& path) {
+    if (provider())
+        if (std::shared_ptr<const RandomAccess> f = provider()(path)) return f;
     ALEMBIC_ASSIGN(File file, File::open(path, File::Mode::read));
+    return std::shared_ptr<const RandomAccess>(std::make_shared<File>(std::move(file)));
+}
+
+} // namespace
+
+void set_file_provider(FileProvider p) { provider() = std::move(p); }
+
+bool is_provided(const std::string& path) { return provider() && provider()(path) != nullptr; }
+
+Result<Format> detect(const std::string& path) {
+    const bool provided = is_provided(path);
+    if (!provided && is_directory(path)) return Format::folder;
+    if (!provided && !is_regular_file(path)) return make_error(Errc::invalid_argument, "no such file or folder: " + path);
+    ALEMBIC_ASSIGN(std::shared_ptr<const RandomAccess> opened, open_input_file(path));
+    const RandomAccess& file = *opened;
     ALEMBIC_ASSIGN(std::uint64_t size, file.size());
     std::uint8_t head[512] = {};
     ALEMBIC_TRY(file.read_at(0, MutableBytes(head, static_cast<std::size_t>(std::min<std::uint64_t>(size, sizeof head)))));
@@ -119,14 +142,13 @@ Result<Input> open(const std::string& path, const std::string& passcode) {
         return input;
     }
     case Format::exfat: {
-        ALEMBIC_ASSIGN(File file, File::open(path, File::Mode::read));
-        input.image = std::make_shared<File>(std::move(file));
+        ALEMBIC_ASSIGN(input.image, open_input_file(path));
         ALEMBIC_ASSIGN(input.tree, exfat::open_image(input.image, base_name(path)));
         return input;
     }
     case Format::ffpfsc: {
-        ALEMBIC_ASSIGN(File file, File::open(path, File::Mode::read));
-        ALEMBIC_ASSIGN(ffpfsc::Payload payload, ffpfsc::open_payload(std::make_shared<File>(std::move(file))));
+        ALEMBIC_ASSIGN(std::shared_ptr<const RandomAccess> file, open_input_file(path));
+        ALEMBIC_ASSIGN(ffpfsc::Payload payload, ffpfsc::open_payload(std::move(file)));
         input.ffpfsc = payload.info;
         input.image = payload.image;
         if (exfat::looks_like_exfat(*input.image)) {
@@ -144,22 +166,20 @@ Result<Input> open(const std::string& path, const std::string& passcode) {
         return input;
     }
     case Format::ffpkg: {
-        ALEMBIC_ASSIGN(File file, File::open(path, File::Mode::read));
-        input.image = std::make_shared<File>(std::move(file));
+        ALEMBIC_ASSIGN(input.image, open_input_file(path));
         input.image_is_ufs2 = true;
         ALEMBIC_ASSIGN(input.tree, ufs2::open_image(input.image, stem(path)));
         return input;
     }
     case Format::ffpfs: {
-        ALEMBIC_ASSIGN(File file, File::open(path, File::Mode::read));
-        input.image = std::make_shared<File>(std::move(file));
+        ALEMBIC_ASSIGN(input.image, open_input_file(path));
         input.image_is_pfs = true;
         ALEMBIC_ASSIGN(input.tree, pfs::open_image(input.image, stem(path)));
         return input;
     }
     case Format::fpkg: {
-        ALEMBIC_ASSIGN(File file, File::open(path, File::Mode::read));
-        ALEMBIC_ASSIGN(input.tree, fpkg::open_tree(std::make_shared<File>(std::move(file)), stem(path), passcode));
+        ALEMBIC_ASSIGN(std::shared_ptr<const RandomAccess> file, open_input_file(path));
+        ALEMBIC_ASSIGN(input.tree, fpkg::open_tree(std::move(file), stem(path), passcode));
         return input;
     }
     }

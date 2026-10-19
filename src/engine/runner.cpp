@@ -180,6 +180,10 @@ bool path_allowed(const std::string& path, const std::vector<std::string>& roots
     return false;
 }
 
+bool input_allowed(const std::string& path, const std::vector<std::string>& roots) {
+    return path_allowed(path, roots) || convert::is_provided(path);
+}
+
 namespace {
 
 std::string checkpoint_path(const std::string& output, const EngineConfig& config) {
@@ -194,7 +198,8 @@ std::string checkpoint_path(const std::string& output, const EngineConfig& confi
 std::string fingerprint(const JobSpec& spec, const std::string& output, const EngineConfig& config) {
     struct stat st{};
     std::string input = strip_slashes(spec.input);
-    if (::stat(input.c_str(), &st) != 0) return "";
+    // A shared file's path names its size and time already.
+    if (::stat(input.c_str(), &st) != 0 && !convert::is_provided(input)) return "";
     JsonValue v = JsonValue::object();
     v.set("layout", static_cast<std::int64_t>(resume::kLayoutVersion));
     v.set("input", input);
@@ -337,7 +342,7 @@ bool shadowmount_rescan(const EngineConfig& config, std::string* why) {
 Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress) {
     ALEMBIC_ASSIGN(convert::Format to, target_format(spec));
     ALEMBIC_ASSIGN(std::string output, resolve_output(spec));
-    if (!path_allowed(strip_slashes(spec.input), config.available_roots()) || !path_allowed(strip_slashes(output), config.available_roots()))
+    if (!input_allowed(strip_slashes(spec.input), config.available_roots()) || !path_allowed(strip_slashes(output), config.available_roots()))
         return make_error(Errc::invalid_argument, "the input and output must be inside the allowed folders");
 
     convert::Options options;
@@ -537,7 +542,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
 
 std::optional<AmprState> ampr_state(const std::string& path, const std::string& passcode) {
     struct stat st{};
-    if (::stat(path.c_str(), &st) != 0) return std::nullopt;
+    if (::stat(path.c_str(), &st) != 0 && !convert::is_provided(path)) return std::nullopt;
     // Opening a large package and reading its eboot.bin takes a moment.
     std::string key = path + "|" + std::to_string(st.st_size) + "|" + std::to_string(st.st_mtime);
     static std::mutex mutex;

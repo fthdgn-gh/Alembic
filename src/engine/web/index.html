@@ -170,6 +170,7 @@ body.covered .view.scroll, body.covered .view .scroll, .overlay.under .scroll { 
 .state.failed, .state.interrupted { background: rgba(240,106,98,.14); color: var(--bad); }
 .tag { display: inline-block; font-size: .72rem; color: var(--muted); border: 1px solid var(--line2); border-radius: .4rem; padding: .05rem .45rem; margin: .15rem 0 0 .35rem; }
 .note { color: var(--warn); font-size: .88rem; margin-top: .5rem; }
+.sharebar { margin: 0 0 .5rem; }
 .card .err { font-size: .88rem; margin-top: .5rem; word-break: break-word; }
 
 /* ---------- overlays ---------- */
@@ -292,10 +293,13 @@ body.covered .view.scroll, body.covered .view .scroll, .overlay.under .scroll { 
     <div class="bar1">
       <div class="where"><div class="crumbs" id="crumbs" data-zone="crumbs"></div><div class="summary" id="summary"></div></div>
       <div class="tools" data-zone="tools">
+        <button class="btn sm" id="btn-share" data-i18n="From this computer…" hidden>From this computer…</button>
+        <input type="file" id="share-pick" accept=".pkg,.exfat,.ffpfsc,.ffpkg,.ffpfs" hidden>
         <button class="btn sm" id="btn-mkdir" data-i18n="New folder">New folder</button>
         <button class="btn sm ghost" id="btn-refresh" data-i18n="Refresh" data-i18n-title="Refresh">Refresh</button>
       </div>
     </div>
+    <div class="note sharebar" id="sharebar" hidden></div>
     <div class="list scroll" id="list" data-zone="list" data-column></div>
   </div>
 </section>
@@ -1120,6 +1124,72 @@ $("#btn-mkdir").addEventListener("click", async () => {
   try { await api("POST", "/api/fs/mkdir", { path: state.cwd + "/" + name }); browse(state.cwd, false, state.cwd + "/" + name); }
   catch (e) { toast(tMsg(e.message), "bad"); }
 });
+/* ---------- files shared from this computer (not on the console) ---------- */
+// The console reads a picked file through this page: it asks for pieces
+// (want, a long poll) and the page posts them. The page must stay open.
+const shares = new Map(); // engine path -> {file, sent, loops}
+function kindOfName(name) {
+  const n = name.toLowerCase();
+  for (const [ext, kind] of [[".pkg", "fpkg"], [".exfat", "exfat"], [".ffpfsc", "ffpfsc"], [".ffpkg", "ffpkg"], [".ffpfs", "ffpfs"]])
+    if (n.endsWith(ext)) return kind;
+  return "file";
+}
+function isShared(path) { return typeof path === "string" && path.startsWith("/remote/"); }
+async function relay(share, id) {
+  for (;;) {
+    let want;
+    try { want = await api("POST", "/api/remote/" + id + "/want"); }
+    catch (e) { await new Promise((r) => setTimeout(r, 2000)); continue; }
+    for (const p of want.pieces || []) {
+      const blob = share.file.slice(p.offset, p.offset + p.length);
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const r = await fetch("/api/remote/" + id + "/data?offset=" + p.offset, { method: "POST", body: blob });
+          if (r.ok) { share.sent += p.length; break; }
+        } catch (e) { await new Promise((res) => setTimeout(res, 1000)); }
+      }
+    }
+    renderShareBar();
+  }
+}
+function renderShareBar() {
+  const bar = $("#sharebar");
+  if (!shares.size) { bar.hidden = true; return; }
+  bar.hidden = false;
+  bar.textContent = [...shares.values()].map((s) => t("Sharing {name} with the console ({sent} sent). Keep this page open until its job is done.",
+    { name: s.file.name, sent: bytes(s.sent) })).join(" ");
+}
+async function shareFile(file) {
+  const r = await api("POST", "/api/remote", { name: file.name, size: file.size, last_modified: file.lastModified });
+  if (!shares.has(r.path)) {
+    const share = { file, sent: 0 };
+    shares.set(r.path, share);
+    const id = r.path.split("/")[2];
+    for (let i = 0; i < 3; i++) relay(share, id); // three pieces in flight
+  } else {
+    shares.get(r.path).file = file;
+  }
+  renderShareBar();
+  return r.path;
+}
+if (!IS_PS5) {
+  $("#btn-share").hidden = false;
+  $("#btn-share").addEventListener("click", () => $("#share-pick").click());
+  $("#share-pick").addEventListener("change", async (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    ev.target.value = "";
+    if (!file) return;
+    try {
+      const path = await shareFile(file);
+      openConvert({ name: file.name, path, kind: kindOfName(file.name), size: file.size, shared: true });
+    } catch (err) { toast(tMsg(err.message), "bad"); }
+  });
+  window.addEventListener("beforeunload", (ev) => {
+    const busy = state.jobs.some((j) => isActive(j) && isShared(j.spec.input) && shares.has(j.spec.input));
+    if (busy) { ev.preventDefault(); ev.returnValue = ""; }
+  });
+}
+
 async function installPkg(e) {
   if (state.info && state.info.platform !== "ps5") { toast(t("Installing needs the engine running on a PS5"), "bad"); return; }
   const body = h("div", {}, h("div", { class: "mono", text: e.path }),
@@ -1260,6 +1330,8 @@ function destLabel(v) {
 }
 async function openConvert(entry) {
   const cv = { to: entry.kind === "ffpfsc" ? "ffpkg" : "ffpfsc", dest: store.get("dest") || "", inspect: null, timer: 0 };
+  // A shared file has no folder on the console: it goes to a place here.
+  if (entry.shared && !cv.dest) cv.dest = (state.locations[0] || {}).path || "";
   if (cv.dest && !rootOf(cv.dest)) cv.dest = "";
   const m = meta.cache.get(metaKey(entry));
   const rt = state.info ? state.info.lz4_runtime : null;
@@ -1323,7 +1395,7 @@ async function openConvert(entry) {
   const cancel = h("button", { class: "btn", text: t("Cancel"), onclick: () => closeOverlay(null) });
   function spec() {
     return { input: entry.path, to: cv.to, output_dir: cv.dest, output_name: name.value.trim(), level: level.getValue(), lz4: lz4.isOn(), lz4_unpack: unpack.isOn(),
-      lz4_profile: profile.getValue(), lz4_level: lz4level.getValue(), delete_source: del.isOn(), verify: verify.isOn(), overwrite: over.isOn(),
+      lz4_profile: profile.getValue(), lz4_level: lz4level.getValue(), delete_source: !entry.shared && del.isOn(), verify: verify.isOn(), overwrite: over.isOn(),
       ampr_emu: ampr.isOn() ? "auto" : "off", hide_source: !hide.hidden && hide.isOn() && !del.isOn() };
   }
   function sync() {
@@ -1337,7 +1409,8 @@ async function openConvert(entry) {
     level.hidden = cv.to !== "ffpfsc";
     ampr.hidden = cv.to === "fpkg" || lz4.isOn(); // packing adds its runtime anyway
     lz4Opts.hidden = !lz4.isOn(); delOpts.hidden = !del.isOn();
-    hide.hidden = entry.kind === "fpkg" || isHiddenName(entry.name) || del.isOn() || cv.to === "fpkg";
+    hide.hidden = entry.kind === "fpkg" || isHiddenName(entry.name) || del.isOn() || cv.to === "fpkg" || entry.shared;
+    del.hidden = !!entry.shared; // the file is on another computer
     lz4Note.hidden = !(cv.to === "ffpfsc" && (lz4.isOn() || (packedSrc && !unpack.isOn())));
     lz4Note.textContent = (packedSrc ? t("This game is already LZ4-packed.") + " " : "") +
       t("FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data.");
@@ -1364,7 +1437,7 @@ async function openConvert(entry) {
     }, 150);
   }
   destRow.addEventListener("click", async () => {
-    const items = [{ label: t("Next to the source"), value: "", selected: cv.dest === "" }];
+    const items = entry.shared ? [] : [{ label: t("Next to the source"), value: "", selected: cv.dest === "" }];
     for (const l of state.locations) items.push({ label: placeLabel(l.label), sub: l.path, value: l.path, selected: cv.dest === l.path });
     for (const p of (store.get("recent") || []).filter((p) => rootOf(p) && !state.locations.some((l) => l.path === p))) items.push({ label: base(p), sub: p, value: p, selected: cv.dest === p });
     items.push({ label: t("Choose a folder…"), value: "__pick" });
@@ -1656,6 +1729,8 @@ function fillJob(c, j) {
     h("div", { class: "line" }, h("span", { text: detail }), h("span", {}, tags.map((x) => h("span", { class: "tag", text: x })))),
     r.ampr_emulator ? h("div", { class: "line", text: t("AMPR emulator added: {path}", { path: r.ampr_emulator }) }) : null,
     r.source_hidden ? h("div", { class: "line", text: t("Source hidden from ShadowMount+ as {name}", { name: base(r.source_hidden) }) }) : null,
+    isShared(s.input) && isActive(j) && !shares.has(s.input)
+      ? h("div", { class: "note", text: t("Reads {name} from a computer: keep Alembic open there, or pick the file again with From this computer…", { name: base(s.input) }) }) : null,
     r.smp_source ? h("div", { class: "note", text: t("ShadowMount+ still uses {path} for this game. Hide it (⋯ on this job) to switch to the new one.", { path: r.smp_source }) }) : null,
     r.lz4 ? h("div", { class: "line", text: t("LZ4: {a} of {b} files packed", { a: r.lz4.files_packed, b: r.lz4.files_total }) + " · " + bytes(r.lz4.packed_bytes) + " → " + bytes(r.lz4.volume_bytes) }) : null,
     r.source_kept ? h("div", { class: "note", text: t("Source kept: {why}", { why: t(r.source_kept) }) }) : null,

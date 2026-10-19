@@ -54,6 +54,8 @@ std::string shorten_name(const std::string& name, std::size_t limit);
 
 // Absolute, no "." / ".." parts, and below one of `roots`.
 bool path_allowed(const std::string& path, const std::vector<std::string>& roots);
+// An input: allowed as above, or a file a browser shares (remote.hpp).
+bool input_allowed(const std::string& path, const std::vector<std::string>& roots);
 
 Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress);
 // Asks ShadowMount+ for a rescan (retry counters reset); false with the

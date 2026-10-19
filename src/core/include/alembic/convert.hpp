@@ -13,6 +13,7 @@
 #include "alembic/tree.hpp"
 #include "alembic/ufs2.hpp"
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -29,6 +30,14 @@ std::optional<Format> parse_format(const std::string& text);
 std::optional<Format> guess_output_format(const std::string& path);
 // From the input's contents (or that it is a folder).
 Result<Format> detect(const std::string& path);
+
+// Inputs that are not files on this machine (for the engine: a file a
+// browser on another computer shares). The provider returns the file for
+// such a path, else null; detect(), open() and run() then read it like a
+// file on disk. Only file inputs (packages and images), not folders.
+using FileProvider = std::function<std::shared_ptr<const RandomAccess>(const std::string& path)>;
+void set_file_provider(FileProvider provider);
+bool is_provided(const std::string& path);
 
 // An opened input: always a file tree, plus the raw image when there is one.
 struct Input {

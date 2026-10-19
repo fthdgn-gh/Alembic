@@ -1304,6 +1304,38 @@ is about the USB drive's own format (shown on connect), not about the image.
   StreamingAssets too; such a game then packs nothing (with a note), rather
   than the scan profile packing Unity's own data files (what crashed B).
 
+### 2026-10-19: converting a file on a PC without copying it to the console
+
+- **Owner:** the slow part of the ~90 GB package was the USB drive (about
+  30 MB/s while converting), and copying a package to USB first is a step of
+  its own. The engine should do the work, nothing should run on the PC.
+- **Design:** the page opened in a PC browser shares a file it picked; the
+  console engine reads it through the page (`src/engine/remote.cpp`). The
+  page registers {name, size, last_modified} and gets `/remote/<id>/<name>`
+  (id = hash of those, so picking the same file again gives the same path;
+  a stopped job continues from its checkpoint). Engine reads ask for 1 MiB
+  pieces (the HTTP body limit); the page long-polls `want` (8 s) on three
+  loops and posts each piece as a raw body (`file.slice`). A 128 MiB cache;
+  read-ahead grows 2/4/8/16 pieces on forward reads and is dropped on a
+  jump (writers read file by file, which jumps inside a package). No want
+  for 45 s fails the read: "the computer sharing X stopped answering".
+- **Core:** `convert::set_file_provider` lets detect/open/run read such
+  paths like files on disk (packages and images; not folders).
+- **Engine:** shared inputs are allowed as job inputs, inspect and meta; only
+  convert jobs, never delete_source/hide_source; the output needs a folder
+  on the console. Fingerprints and the meta cache key use the path.
+- **Page:** "From this computer…" in Files (not in the console's browser);
+  the Convert dialog picks a console location; a bar shows what is shared
+  and how much was sent; leaving the page with a job reading it asks first;
+  a queue card says when a job reads a file this tab does not share.
+- **Checked on the Mac:** the page's own relay code run in node against the
+  engine (package B -> exFAT: identical to a direct conversion; 1472 MiB
+  sent for 1318 MiB: the package header and eboot.bin are read again by the
+  plan's AMPR check, the job's check and the conversion, a fixed cost);
+  the page killed mid-job: the job failed after 45 s with the message,
+  kept its partial file, and after sharing again Retry continued from the
+  checkpoint (identical result). Not tried in a real browser or over Wi-Fi.
+
 ## Next session
 
 **Open (owner, 2026-10-19), in this order:**

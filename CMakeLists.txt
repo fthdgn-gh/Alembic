@@ -161,6 +161,7 @@ if(ALEMBIC_BUILD_ENGINE)
         src/engine/jobs.cpp
         src/engine/json_value.cpp
         src/engine/l10n.cpp
+        src/engine/remote.cpp
         src/engine/runner.cpp
         src/engine/smp.cpp
         ${ALEMBIC_ENGINE_PLATFORM}
