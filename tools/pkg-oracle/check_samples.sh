@@ -14,6 +14,9 @@
 #   - FFPKG -> FFPFSC -> FFPKG is byte-identical; FFPKG -> exFAT -> folder keeps every file.
 # For *.ffpfsc:
 #   - the SHA-256 of the decoded payload equals PS5PKGTool's verifier.
+# Samples larger than ALEMBIC_SAMPLES_MAX_GB GiB (default 20) are skipped,
+# and each step's output is deleted once it is compared, so the disk holds
+# about two copies of one game at a time.
 #   tools/pkg-oracle/check_samples.sh [passcode]
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -28,15 +31,28 @@ dotnet build "$repo/tools/oracle/Oracle.csproj" -c Release -nologo -v q -p:PS5PK
     -o "$work/oracle" >/dev/null
 oracle() { dotnet "$work/oracle/Oracle.dll" "$@"; }
 
+max_gb="${ALEMBIC_SAMPLES_MAX_GB:-20}"
+# True (and says so) when the sample is over the size limit.
+too_big() {
+    local size; size=$(wc -c < "$1" | tr -d ' ')
+    if (( size > max_gb * 1024 * 1024 * 1024 )); then
+        echo "== $(basename "$1")"; echo "skip  $((size / 1024 / 1024 / 1024)) GiB, over the ${max_gb} GiB limit (ALEMBIC_SAMPLES_MAX_GB)"
+        return 0
+    fi
+    return 1
+}
+
 fail=0
 shopt -s nullglob
 for pkg in "$repo"/.refs/samples/*.pkg; do
+    too_big "$pkg" && continue
     name="$(basename "$pkg")"; w="$work/x"; rm -rf "$w"; mkdir -p "$w"
     echo "== $name"
     "$alembic" convert "$pkg" "$w/alembic/" --passcode "$passcode" >/dev/null 2>&1
     ppt img_extract "$pkg" "$w/ppt" --passcode "$passcode" >/dev/null
     if python3 -I "$here/../oracle/same_tree.py" "$w/ppt" "$w/alembic" --subset; then echo "same  every inner file"
     else echo "DIFF  inner files"; fail=1; fi
+    rm -rf "$w/ppt"
     "$alembic" fpkg-dump "$pkg" mount "$w/mount.img" --passcode "$passcode" | sed 's/^/      /'
     ppt img_extract "$pkg" "$w/pptm" --mount --passcode "$passcode" >/dev/null
     if cmp -s "$w/mount.img" "$(find "$w/pptm" -maxdepth 1 -type f | head -1)"; then echo "same  whole decoded inner image"
@@ -62,39 +78,52 @@ PY
     set -e
     "$alembic" convert "$pkg" "$w/x.exfat" --passcode "$passcode" >/dev/null 2>&1
     "$alembic" convert "$w/x.exfat" "$w/from-exfat/" >/dev/null 2>&1
+    rm -f "$w/x.exfat"
     if python3 -I "$here/../oracle/same_tree.py" "$w/alembic" "$w/from-exfat" --skip ampr_emu.index; then echo "same  FPKG -> exFAT -> folder"
     else echo "DIFF  FPKG -> exFAT -> folder"; fail=1; fi
+    rm -rf "$w"
 done
 for image in "$repo"/.refs/samples/*.exfat; do
+    too_big "$image" && continue
     name="$(basename "$image")"; w="$work/x"; rm -rf "$w"; mkdir -p "$w"
     echo "== $name"
     "$alembic" convert "$image" "$w/alembic/" >/dev/null 2>&1
     oracle exfat-extract "$image" "$w/ps5pkgtool"
     if python3 -I "$here/../oracle/same_tree.py" "$w/ps5pkgtool" "$w/alembic"; then echo "same  extraction vs PS5PKGTool"
     else echo "DIFF  extraction vs PS5PKGTool"; fail=1; fi
+    rm -rf "$w/ps5pkgtool" "$w/alembic"
     "$alembic" convert "$image" "$w/w.ffpfsc" --level 1 >/dev/null 2>&1
     "$alembic" convert "$w/w.ffpfsc" "$w/back.exfat" >/dev/null 2>&1
+    rm -f "$w/w.ffpfsc"
     if cmp -s "$image" "$w/back.exfat"; then echo "same  exFAT -> FFPFSC -> exFAT"
     else echo "DIFF  exFAT -> FFPFSC -> exFAT"; fail=1; fi
+    rm -rf "$w"
 done
 for image in "$repo"/.refs/samples/*.ffpkg; do
+    too_big "$image" && continue
     w="$work/x"; rm -rf "$w"; mkdir -p "$w"
     echo "== $(basename "$image")"
     "$alembic" convert "$image" "$w/alembic/" >/dev/null 2>&1
     oracle ufs2-extract "$image" "$w/ps5pkgtool"
     if python3 -I "$here/../oracle/same_tree.py" "$w/ps5pkgtool" "$w/alembic"; then echo "same  extraction vs PS5PKGTool"
     else echo "DIFF  extraction vs PS5PKGTool"; fail=1; fi
+    rm -rf "$w/ps5pkgtool"
     "$alembic" convert "$image" "$w/w.ffpfsc" --level 1 >/dev/null 2>&1
     "$alembic" convert "$w/w.ffpfsc" "$w/back.ffpkg" >/dev/null 2>&1
+    rm -f "$w/w.ffpfsc"
     if cmp -s "$image" "$w/back.ffpkg"; then echo "same  FFPKG -> FFPFSC -> FFPKG"
     else echo "DIFF  FFPKG -> FFPFSC -> FFPKG"; fail=1; fi
+    rm -f "$w/back.ffpkg"
     "$alembic" convert "$image" "$w/x.exfat" >/dev/null 2>&1
     "$alembic" convert "$w/x.exfat" "$w/from-exfat/" >/dev/null 2>&1
+    rm -f "$w/x.exfat"
     if python3 -I "$here/../oracle/same_tree.py" "$w/alembic" "$w/from-exfat" --skip ampr_emu.index; then
         echo "same  FFPKG -> exFAT -> folder"
     else echo "DIFF  FFPKG -> exFAT -> folder"; fail=1; fi
+    rm -rf "$w"
 done
 for container in "$repo"/.refs/samples/*.ffpfsc; do
+    too_big "$container" && continue
     echo "== $(basename "$container")"
     ours="$("$alembic" ffpfsc-verify "$container" 2>/dev/null | awk '/payload sha256/ {print $3}')"
     theirs="$(oracle ffpfsc-verify "$container")"

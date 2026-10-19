@@ -40,7 +40,8 @@ byte-identical to MkPFS (see the 2026-10-18 FFPFS entry).
 cmake -S . -B build && cmake --build build && ./build/alembic_tests   # 51 unit tests
 tools/oracle/compare.sh             # 69 byte-for-byte checks vs PS5PKGTool, MkPFS (.ffpfs) + ampr_emu builder
 tools/pkg-oracle/compare.sh         # FPKG reading vs packages built by ProsperoPkgTool/LibProsperoPKG
-tools/pkg-oracle/check_samples.sh   # owner's real files in .refs/samples/ (~5 min)
+tools/pkg-oracle/check_samples.sh   # owner's real files in .refs/samples/ (~4 min; skips files over
+                                    # ALEMBIC_SAMPLES_MAX_GB GiB, default 20; cleans up after each step)
 tools/lz4-oracle/compare.sh         # LZ4 packs vs ampr_pack.py (needs .refs/venv, Homebrew lz4)
 ```
 
