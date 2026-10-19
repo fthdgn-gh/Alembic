@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Builds and tests Alembic on a PC (Linux, macOS) and cross-builds the PS5
-# payload (alembic.elf). A tag "v*" also publishes a release with the payload.
+# payload (alembic.elf), and bundles them all; a tag "v*" publishes a release.
 name: Build
 
 on:
@@ -32,13 +32,17 @@ jobs:
         run: cmake --build build -j 4
       - name: Unit tests
         run: ./build/alembic_tests
+      # A tarball keeps the executable bits (artifacts drop them).
+      - name: Package
+        run: |
+          os=$(echo "${{ runner.os }}" | tr '[:upper:]' '[:lower:]'); arch=$(echo "${{ runner.arch }}" | tr '[:upper:]' '[:lower:]')
+          echo "PLATFORM=$os-$arch" >> "$GITHUB_ENV"
+          tar -czf "alembic-$os-$arch.tar.gz" -C build alembic alembic-engine
       - name: Upload the command-line tool and the engine
         uses: actions/upload-artifact@v4
         with:
-          name: alembic-${{ runner.os }}
-          path: |
-            build/alembic
-            build/alembic-engine
+          name: alembic-${{ env.PLATFORM }}
+          path: alembic-${{ env.PLATFORM }}.tar.gz
           if-no-files-found: error
 
   ps5:
@@ -68,21 +72,47 @@ jobs:
           path: build-ps5/alembic.elf
           if-no-files-found: error
 
-  release:
-    name: Release
-    if: startsWith(github.ref, 'refs/tags/v')
+  # Everything in one archive: the payload, the PC builds and the license
+  # files. Every run uploads it; a "v*" tag also publishes it as a release.
+  bundle:
+    name: Bundle
     needs: [pc, ps5]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: alembic-ps5
-      - name: Publish
+          path: artifacts
+      - name: Assemble
+        run: |
+          version="${GITHUB_REF_NAME//\//-}"
+          [[ $GITHUB_REF == refs/tags/* ]] || version="$version-${GITHUB_SHA::7}"
+          name="alembic-$version"
+          echo "BUNDLE=$name" >> "$GITHUB_ENV"
+          mkdir -p "dist/$name/ps5"
+          cp artifacts/alembic-ps5/alembic.elf "dist/$name/ps5/"
+          for t in artifacts/alembic-*/alembic-*.tar.gz; do
+            platform=$(basename "$t" .tar.gz); platform=${platform#alembic-}
+            mkdir -p "dist/$name/$platform"
+            tar -xzf "$t" -C "dist/$name/$platform"
+          done
+          cp README.md LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
+          (cd dist && zip -qr "$name.zip" "$name")
+          cp artifacts/alembic-ps5/alembic.elf dist/
+          (cd dist && sha256sum "$name.zip" alembic.elf > SHA256SUMS)
+          (cd dist && find "$name" -type f | sort && cat SHA256SUMS)
+      - name: Upload the bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BUNDLE }}
+          path: dist/${{ env.BUNDLE }}.zip # the zip keeps the executable bits
+          if-no-files-found: error
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          sha256sum alembic.elf > alembic.elf.sha256
-          gh release create "$GITHUB_REF_NAME" alembic.elf alembic.elf.sha256 \
+          gh release create "$GITHUB_REF_NAME" "dist/$BUNDLE.zip" dist/alembic.elf dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --title "Alembic $GITHUB_REF_NAME" --generate-notes

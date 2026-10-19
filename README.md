@@ -104,9 +104,12 @@ export PS5_PAYLOAD_SDK=/path/to/ps5-payload-sdk   # default: .refs/ps5-payload-s
 tools/ps5/build.sh                                # → build-ps5/alembic.elf
 ```
 
-GitHub Actions builds both on every push (see
-[.github/workflows/build.yml](.github/workflows/build.yml)); tagged versions
-publish `alembic.elf` as a release.
+GitHub Actions builds and tests everything on every push (see
+[.github/workflows/build.yml](.github/workflows/build.yml)) and bundles it
+into one zip: `ps5/alembic.elf`, `linux-x64/` and `macos-arm64/` (`alembic`
+and `alembic-engine`), with the README and license files. A `v*` tag
+publishes that zip as a release, with `alembic.elf` on its own and
+`SHA256SUMS`.
 
 ### Checking against the reference tools
 
