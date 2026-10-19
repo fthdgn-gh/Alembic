@@ -202,7 +202,11 @@ Result<std::unique_ptr<Connection>> Connection::open(const Server& server, int t
     if (hello.code != 220) return net_error("the server refused the connection: " + hello.text);
     ALEMBIC_ASSIGN(Reply user, c->command("USER " + server.user));
     if (user.code == 331 || user.code == 332) {
-        ALEMBIC_ASSIGN(Reply pass, c->command("PASS " + server.password));
+        // Anonymous logins conventionally give an e-mail-like password; some
+        // servers refuse an empty one.
+        std::string password = server.password;
+        if (password.empty() && (server.user == "anonymous" || server.user == "ftp")) password = "anonymous@";
+        ALEMBIC_ASSIGN(Reply pass, c->command("PASS " + password));
         if (pass.code != 230 && pass.code != 202) return net_error("login failed: " + pass.text);
     } else if (user.code != 230) {
         return net_error("login failed: " + user.text);
