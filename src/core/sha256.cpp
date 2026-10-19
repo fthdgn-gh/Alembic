@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "alembic/sha256.hpp"
 
+#include <algorithm>
 #include <cstring>
 
 namespace alembic {

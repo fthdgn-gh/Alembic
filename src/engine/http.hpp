@@ -11,6 +11,7 @@
 #include <functional>
 #include <map>
 #include <string>
+#include <string_view>
 #include <thread>
 
 namespace alembic::engine {

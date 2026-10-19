@@ -9,6 +9,7 @@
 #include "alembic/ufs2.hpp"
 #include "alembic/unicode.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <ctime>
 

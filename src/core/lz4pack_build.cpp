@@ -20,16 +20,17 @@
 
 #include <algorithm>
 #include <condition_variable>
+#include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <deque>
 #include <functional>
 #include <map>
-#include <set>
 #include <mutex>
+#include <set>
 #include <thread>
-#include <unordered_map>
 #include <unistd.h>
+#include <unordered_map>
 
 namespace alembic::lz4pack {
 

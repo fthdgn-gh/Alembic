@@ -7,6 +7,7 @@
 #include <cstring>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <string_view>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>

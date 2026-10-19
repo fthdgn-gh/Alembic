@@ -10,6 +10,7 @@
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <system_error>
 #include <unistd.h>
 
 namespace alembic::engine::smp {

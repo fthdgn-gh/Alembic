@@ -11,6 +11,7 @@
 #include "alembic/fpkg.hpp"
 #include "alembic/sha256.hpp"
 
+#include <algorithm>
 #include <cstring>
 
 namespace alembic::fpkg::build {

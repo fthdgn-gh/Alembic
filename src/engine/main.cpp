@@ -69,6 +69,7 @@
 #include <dirent.h>
 #include <mutex>
 #include <sys/stat.h>
+#include <system_error>
 #include <thread>
 #include <unistd.h>
 

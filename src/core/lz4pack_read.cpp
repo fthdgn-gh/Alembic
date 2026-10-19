@@ -11,6 +11,7 @@
 #include <map>
 #include <mutex>
 #include <set>
+#include <tuple>
 
 namespace alembic::lz4pack {
 

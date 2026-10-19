@@ -12,8 +12,10 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cstdio>
 #include <cstring>
 #include <set>
+#include <system_error>
 #include <zlib.h>
 
 namespace alembic::lz4pack {

@@ -17,6 +17,8 @@
 #include "alembic/json.hpp"
 #include "alembic/thread_pool.hpp"
 
+#include <cctype>
+#include <tuple>
 #include <zlib.h>
 
 #include <algorithm>
