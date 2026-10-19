@@ -1205,6 +1205,46 @@ is about the USB drive's own format (shown on connect), not about the image.
   existing FFPFSC with the emulator added as a backport folder, and package
   E converted to a plain exFAT (no LZ4) with the emulator.
 
+### 2026-10-19: ShadowMount+ picks up new images without uninstalling
+
+- **Owner:** to make ShadowMount+ run a new image of a game, the game had to
+  be deleted from the home screen; and an unconverted source stays in use.
+- **How SMP chooses** (`sm_scan.c` `handle_existing_directory_candidate`,
+  `sm_filesystem.c` `cleanup_mount_links_entry`): one source per title, in
+  `/user/app/<TITLE_ID>/mount.lnk`. While that source exists and the title is
+  installed and mounted, any other source of the title is set aside ("duplicate
+  ignored"). When it is gone, the pre-scan cleanup drops the link and
+  unmounts the old stack (the game stays installed) and the scan remounts the
+  title from what is left (`mount_and_install(..., is_remount)`). A title
+  whose mounts failed `MAX_FAILED_MOUNT_ATTEMPTS` times is skipped until the
+  counters are reset. Its scanner skips every name starting with '.', finds
+  images by extension only (`.ffpkg .exfat .ffpfs .ffpfsc`) and never scans
+  `.pkg` files (so for a package source, the image SMP keeps is an earlier
+  conversion).
+- **SMP's HTTP API** (`127.0.0.1:10101`, `api_enabled`/`api_bind_address`/
+  `api_port` in `/data/shadowmount/config.ini`; POST JSON, `status` 0 = ok):
+  `src/engine/smp.cpp` uses `/api/v1/games` (each game's physical `path`)
+  and `/api/v1/scan {"reset_attempts": true}`.
+- **Engine:** after a conversion to anything but FPKG it asks SMP which source
+  the title uses (`smp_source` in the result when that is another existing
+  file), and requests a rescan with the counters reset (`smp_rescan`).
+  `JobSpec::hide_source` (when the source is kept) renames the source to
+  `.name` (`source_hidden`); skipped with a warning when another queued job
+  uses it or the name is taken. `POST /api/smp/scan`; `--shadowmount
+  HOST:PORT` points a PC engine at a test server. On the console the
+  endpoint comes from SMP's config.ini.
+- **Page:** Convert → "Hide the source from ShadowMount+" (remembered; not for
+  packages, nor with "Delete the source"); Files → ⋯ → "Hide from
+  ShadowMount+" / "Show to ShadowMount+ again" on images and game folders
+  (rename + rescan); a finished job shows "ShadowMount+ still uses <path>"
+  with ⋯ → "Hide <name> from ShadowMount+", and "Show the source again".
+- Checked on the Mac with a stand-in SMP server (Python): the source became
+  `.src.ffpfsc`, the older image SMP used was reported, the rescan went out
+  with `reset_attempts: true`; without SMP, `/api/smp/scan` answers 503.
+  66 unit tests, PS5 build clean, i18n 0 problems.
+- **Console (owner, 2026-10-19): works**: the new image is picked up without
+  deleting the game from the home screen.
+
 ## Next session
 
 **Open (owner, 2026-10-19), in this order:**
@@ -1266,9 +1306,15 @@ is about the USB drive's own format (shown on connect), not about the image.
      fakelib/` with the game's own fakelib files plus `libSceAmpr.sprx`
      (a backport fakelib replaces the game's whole fakelib, it is not
      merged).
-2. Holding Back is "not working properly" yet; ask what exactly (leaves
-   only after release, steps back first, never triggers, or false
-   triggers) and the Controller test's timing of the repeated Escapes.
+2. ✓ Leaving moved off ○ (owner, 2026-10-19): **L2 + R2 together** close
+   everything and return to the first screen (one more ○ then leaves the
+   browser; a page cannot close it). L2 or R2 alone still pages; a press
+   waits 120 ms for the other trigger so a chord never pages first, held
+   triggers keep paging every ~120 ms, and while both keep coming the chord
+   fires once (checked in node with simulated presses). A held ○ is one
+   step back, however long (its stream of Escapes is swallowed). The hint
+   bar shows "L2 R2 Leave". Console (owner): works; it lands on the first
+   screen and one more ○ leaves, acceptable though not convenient.
 3. Then: checkpoints for FPKG output and LZ4 packing; FPKG speed.
 
 **First (owner, 2026-10-18): the web page on the console.** Load the

@@ -3,10 +3,13 @@
 #include "json_value.hpp"
 #include "l10n.hpp"
 #include "runner.hpp"
+#include "smp.hpp"
 #include "test.hpp"
 
 using namespace alembic;
 using namespace alembic::engine;
+
+#include <cstring>
 
 TEST_CASE(engine_json_round_trips) {
     auto v = parse_json(R"({"a":[1,-2,3.5,true,null],"s":"x\"\u00e9\ud83d\ude00","big":159723618304,"o":{}})");
@@ -119,4 +122,28 @@ TEST_CASE(engine_l10n_messages) {
     CHECK(l10n::message("something nobody translated") == "something nobody translated");
     l10n::set_language("xx");
     CHECK(l10n::language() == "en");
+}
+
+TEST_CASE(shadowmount_hidden_names_and_config) {
+    using namespace alembic::engine;
+    CHECK(smp::hidden_path("/data/games/A.ffpfsc") == "/data/games/.A.ffpfsc");
+    CHECK(smp::hidden_path("/data/games/.A.ffpfsc") == "/data/games/A.ffpfsc");
+    CHECK(smp::is_hidden("/data/games/.A.ffpfsc"));
+    CHECK(!smp::is_hidden("/data/games/A.ffpfsc"));
+
+    std::string tmp = test::make_temp_dir();
+    CHECK(!smp::read_endpoint(tmp + "/missing.ini").enabled);
+    const char* ini = "# comment\napi_bind_address = 0.0.0.0\napi_port=12345\n";
+    test::write_file(tmp + "/config.ini", std::vector<std::uint8_t>(ini, ini + std::strlen(ini)));
+    smp::Endpoint e = smp::read_endpoint(tmp + "/config.ini");
+    CHECK(e.enabled);
+    CHECK(e.address == "127.0.0.1");
+    CHECK_EQ(e.port, std::uint16_t(12345));
+    const char* off = "api_enabled=0\n";
+    test::write_file(tmp + "/off.ini", std::vector<std::uint8_t>(off, off + std::strlen(off)));
+    CHECK(!smp::read_endpoint(tmp + "/off.ini").enabled);
+    CHECK(!smp::post(smp::read_endpoint(tmp + "/off.ini"), "/api/v1/scan", JsonValue::object()).ok());
+    auto parsed = smp::parse_endpoint("192.168.1.5:10101");
+    CHECK(parsed.has_value() && parsed->address == "192.168.1.5" && parsed->port == 10101);
+    CHECK(!smp::parse_endpoint("nonsense").has_value());
 }

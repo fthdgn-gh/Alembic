@@ -162,6 +162,7 @@ if(ALEMBIC_BUILD_ENGINE)
         src/engine/json_value.cpp
         src/engine/l10n.cpp
         src/engine/runner.cpp
+        src/engine/smp.cpp
         ${ALEMBIC_ENGINE_PLATFORM}
     )
     target_include_directories(alembic_engine_lib PUBLIC src/engine)

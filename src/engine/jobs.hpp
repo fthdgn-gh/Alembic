@@ -52,6 +52,9 @@ struct JobSpec {
     // by file, then delete the input (only if they match).
     bool delete_source = false;
     bool verify = true; // the comparison before delete_source
+    // After a successful conversion that keeps the source: rename it to
+    // ".name", which ShadowMount+ does not scan, so it switches to the output.
+    bool hide_source = false;
 
     JsonValue to_json() const;
     static Result<JobSpec> from_json(const JsonValue& json);

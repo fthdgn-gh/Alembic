@@ -88,6 +88,7 @@ struct Report {
     bool ampr_needed = false;       // the game imports libSceAmpr and ships no emulator
     bool ampr_emulator_added = false;
     std::string ampr_emulator_path; // where it went, e.g. "fakelib/libSceAmpr.sprx"
+    std::string title_id;           // from sce_sys/param.json, when it has one
 };
 
 Result<Report> run(const std::string& input, const std::string& output, Format to, const Options& options = {},

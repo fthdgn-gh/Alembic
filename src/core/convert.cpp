@@ -216,6 +216,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         }
     }
     const tree::Source& tree = *tree_ptr;
+    report.title_id = ffpfsc::read_title_id(tree, tree.root()).value_or("");
     // A transformed tree no longer matches the input image byte for byte.
     bool transformed = tree_ptr != input.tree.get();
     bool rebuild = options.rebuild || transformed;

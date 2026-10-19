@@ -19,6 +19,10 @@ struct EngineConfig {
     // /data/homebrew/backports on the console (ShadowMount+'s fallback,
     // checked whatever its scan paths are).
     std::string backports_root;
+    // ShadowMount+'s API: from its config.ini (the console), or "HOST:PORT"
+    // (tests); neither set = no ShadowMount+ follow-up.
+    std::string shadowmount_config;
+    std::string shadowmount_address;
     unsigned threads = 0;           // compression threads, 0 = all cores
     // True when a queued job other than the running one reads `path`; the
     // source is then kept even with delete_source.
@@ -50,6 +54,9 @@ std::string shorten_name(const std::string& name, std::size_t limit);
 bool path_allowed(const std::string& path, const std::vector<std::string>& roots);
 
 Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress);
+// Asks ShadowMount+ for a rescan (retry counters reset); false with the
+// reason when its API is not there.
+bool shadowmount_rescan(const EngineConfig& config, std::string* why = nullptr);
 
 // Checkpoints of interrupted conversions, in <state>/resume/<hash of the
 // output>.json, with the partial output at "<output>.alembic-partial". A

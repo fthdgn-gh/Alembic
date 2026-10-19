@@ -4,7 +4,7 @@
 // running after the app that queued a job is closed.
 //
 //   alembic-engine [--port N] [--listen ADDR] [--state DIR] [--root DIR]...
-//                  [--runtime libSceAmpr.sprx]
+//                  [--runtime libSceAmpr.sprx] [--shadowmount HOST:PORT]
 //
 // API (JSON):
 //   GET  /api/info                    engine, folders, LZ4 runtime state
@@ -31,6 +31,7 @@
 //   POST /api/launcher   {enabled}    add or remove the Media-tab shortcut (PS5)
 //   POST /api/cache/clear             delete the cached game info and icons
 //   POST /api/lang       {lang}       the language of the engine's notifications
+//   POST /api/smp/scan                ask ShadowMount+ to rescan (retry counters reset)
 //   POST /api/quit                    stop the engine (cancels a running job)
 #include "deps.hpp"
 #include "l10n.hpp"
@@ -257,6 +258,13 @@ private:
         if (r.path == "/api/browse" && r.method == "GET") return browse(r);
         if (r.path == "/api/inspect" && r.method == "GET") return inspect(r);
         if (r.path == "/api/plan" && r.method == "POST") return plan(r, false);
+        if (r.path == "/api/smp/scan" && r.method == "POST") {
+            std::string why;
+            if (!shadowmount_rescan(config_, &why)) return error(503, why);
+            JsonValue v = JsonValue::object();
+            v.set("queued", true);
+            return json(200, v);
+        }
         if (r.path == "/api/jobs" && r.method == "GET") {
             // Times come from the console's clock; "elapsed" saves the page
             // from comparing them with its own.
@@ -773,7 +781,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> roots;
     std::string address = "0.0.0.0";
     std::uint16_t port = kDefaultPort;
-    std::string runtime;
+    std::string runtime, shadowmount;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
@@ -791,8 +799,10 @@ int main(int argc, char** argv) {
             roots.push_back(next());
         } else if (a == "--runtime") {
             runtime = next();
+        } else if (a == "--shadowmount") {
+            shadowmount = next();
         } else {
-            std::fprintf(stderr, "usage: %s [--port N] [--listen ADDR] [--state DIR] [--root DIR]... [--runtime FILE]\n",
+            std::fprintf(stderr, "usage: %s [--port N] [--listen ADDR] [--state DIR] [--root DIR]... [--runtime FILE] [--shadowmount HOST:PORT]\n",
                          argv[0]);
             return 2;
         }
@@ -800,6 +810,8 @@ int main(int argc, char** argv) {
     config.roots = roots.empty() ? platform::default_roots() : roots;
     config.runtime_path = runtime.empty() ? config.state_dir + "/runtime/libSceAmpr.sprx" : runtime;
     config.backports_root = std::string(platform::name()) == "ps5" ? "/data/homebrew/backports" : config.state_dir + "/backports";
+    if (std::string(platform::name()) == "ps5") config.shadowmount_config = "/data/shadowmount/config.ini";
+    config.shadowmount_address = shadowmount;
 
     alembic::Status dirs = alembic::make_parent_directories(config.state_dir + "/engine.log");
     if (dirs.ok()) g_log_path = config.state_dir + "/engine.log";

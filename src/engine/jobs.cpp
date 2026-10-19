@@ -95,6 +95,7 @@ JsonValue JobSpec::to_json() const {
     j.set("ampr_emu", ampr_emu);
     j.set("delete_source", delete_source);
     j.set("verify", verify);
+    if (hide_source) j.set("hide_source", true);
     return j;
 }
 
@@ -126,6 +127,7 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
         return make_error(Errc::invalid_argument, "ampr_emu must be auto, always or off");
     s.delete_source = j["delete_source"].boolean();
     s.verify = j["verify"].boolean(true);
+    s.hide_source = j["hide_source"].boolean();
     if ((s.kind == "copy" || s.kind == "move") && s.output.empty())
         return make_error(Errc::invalid_argument, "copy and move need an output");
     if (s.input.empty()) return make_error(Errc::invalid_argument, "the job has no input");

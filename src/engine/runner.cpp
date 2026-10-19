@@ -3,8 +3,11 @@
 #include "deps.hpp"
 #include "fs_ops.hpp"
 #include "platform.hpp"
+#include "smp.hpp"
 
 #include <algorithm>
+#include <cerrno>
+#include <cstdio>
 #include <map>
 #include <mutex>
 #include <sys/stat.h>
@@ -260,6 +263,55 @@ void discard_checkpoint(const JobSpec& spec, const EngineConfig& config) {
     ::unlink(checkpoint_path(*output, config).c_str());
 }
 
+namespace {
+
+smp::Endpoint shadowmount_endpoint(const EngineConfig& config) {
+    if (!config.shadowmount_address.empty())
+        if (auto e = smp::parse_endpoint(config.shadowmount_address)) return *e;
+    if (!config.shadowmount_config.empty()) return smp::read_endpoint(config.shadowmount_config);
+    return smp::Endpoint{};
+}
+
+// After a conversion into something ShadowMount+ mounts: hide the source when
+// asked, tell ShadowMount+ to rescan, and say when it keeps another source
+// of the title (which it prefers while that one exists).
+void shadowmount_follow_up(const JobSpec& spec, const EngineConfig& config, const std::string& title_id,
+                           const std::string& output, JsonValue& r, std::vector<std::string>& warnings) {
+    if (spec.hide_source && !spec.delete_source) {
+        std::string input = strip_slashes(spec.input);
+        std::string hidden = smp::hidden_path(input);
+        if (smp::is_hidden(input)) {
+            // Already hidden.
+        } else if (config.needed_by_other_jobs && config.needed_by_other_jobs(input)) {
+            warnings.push_back("the source was not hidden: another queued job uses it");
+        } else if (path_exists(hidden)) {
+            warnings.push_back("the source was not hidden: " + hidden + " already exists");
+        } else if (::rename(input.c_str(), hidden.c_str()) != 0) {
+            warnings.push_back("the source was not hidden: " + os_error_message(errno));
+        } else {
+            r.set("source_hidden", hidden);
+        }
+    }
+    smp::Endpoint endpoint = shadowmount_endpoint(config);
+    if (!endpoint.enabled) return;
+    if (!title_id.empty()) {
+        auto source = smp::game_source(endpoint, title_id);
+        if (source.ok() && *source && strip_slashes(**source) != strip_slashes(output) && path_exists(**source))
+            r.set("smp_source", **source);
+    }
+    // Retry counters reset: earlier images of the title may have failed.
+    r.set("smp_rescan", smp::rescan(endpoint, true).ok());
+}
+
+} // namespace
+
+bool shadowmount_rescan(const EngineConfig& config, std::string* why) {
+    smp::Endpoint endpoint = shadowmount_endpoint(config);
+    Status s = endpoint.enabled ? smp::rescan(endpoint, true) : Status(make_error(Errc::unsupported, "ShadowMount+ API is not available"));
+    if (!s.ok() && why) *why = s.error().message;
+    return s.ok();
+}
+
 Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress) {
     ALEMBIC_ASSIGN(convert::Format to, target_format(spec));
     ALEMBIC_ASSIGN(std::string output, resolve_output(spec));
@@ -379,6 +431,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     if (resumed) r.set("resumed", true);
     if (!report.detail.empty()) r.set("detail", report.detail);
     if (report.ampr_emulator_added) r.set("ampr_emulator", report.ampr_emulator_path);
+    if (!report.title_id.empty()) r.set("title_id", report.title_id);
     if (!report.warnings.empty()) {
         JsonValue warnings = JsonValue::array();
         for (const std::string& w : report.warnings) warnings.push(w);
@@ -440,6 +493,15 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
             if (progress) progress({"Deleting the source", 0, 0});
             ALEMBIC_TRY(remove_tree(input));
             r.set("source_deleted", true);
+        }
+    }
+    if (to != convert::Format::fpkg) {
+        std::vector<std::string> more;
+        shadowmount_follow_up(spec, config, report.title_id, output, r, more);
+        if (!more.empty()) {
+            JsonValue warnings = r["warnings"].is_null() ? JsonValue::array() : r["warnings"];
+            for (const std::string& w : more) warnings.push(w);
+            r.set("warnings", std::move(warnings));
         }
     }
     return r;
