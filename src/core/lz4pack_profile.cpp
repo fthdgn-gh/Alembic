@@ -466,18 +466,19 @@ std::string detect_engine(const tree::Node& root) {
     // PS5-LZ4-Compression: StreamingAssets at the top or under Media/, next to
     // Unity's Data/ files. PS5 Unity builds may also keep those files right in
     // Media/ (globalgamemanagers, Metadata/global-metadata.dat), which Alembic
-    // accepts too.
+    // accepts too, with or without StreamingAssets.
     static const char* const bases[] = {"", "Media/"};
     static const char* const markers[] = {
         "Data/globalgamemanagers", "Data/data.unity3d", "Data/Managed/Metadata/global-metadata.dat",
         "globalgamemanagers",      "data.unity3d",      "Metadata/global-metadata.dat",
     };
-    for (const char* base : bases) {
-        if (!is_dir(root, std::string(base) + "StreamingAssets")) continue;
-        for (const char* marker_base : bases)
-            for (const char* marker : markers)
-                if (is_file(root, std::string(marker_base) + marker)) return "unity";
-    }
+    // Unity's own data files (levels, sharedassets, globalgamemanagers) must
+    // stay loose, so a Unity game without StreamingAssets is still matched:
+    // the Unity profile then packs nothing rather than the scan profile
+    // packing those files (which made a game abort at start on a console).
+    for (const char* marker_base : bases)
+        for (const char* marker : markers)
+            if (is_file(root, std::string(marker_base) + marker)) return "unity";
     return "";
 }
 
@@ -553,6 +554,10 @@ Result<ProfileChoice> choose_profile(const tree::Source& source, const ProfileRe
         profile = m.profile;
         choice.description = std::string(profile->label) + " profile, picked by " +
                              (m.by_title ? "title ID" : "file layout") + "; tested on " + profile->tested;
+        if (m.engine == "unity" && !is_dir(source.root(), "StreamingAssets") && !is_dir(source.root(), "Media/StreamingAssets"))
+            choice.notes.push_back("this Unity game has no StreamingAssets folder, the only data the tested Unity "
+                                   "profile packs: nothing is packed (LZ4 adds only ampr_emu); its own data files "
+                                   "must stay loose");
     } else {
         for (const BundledProfile& p : bundled_profiles())
             if (p.id == selector) profile = &p;

@@ -15,12 +15,15 @@
 #include "alembic/bytes.hpp"
 #include "alembic/fpkg.hpp"
 #include "alembic/json.hpp"
+#include "alembic/thread_pool.hpp"
 
 #include <zlib.h>
 
 #include <algorithm>
 #include <cstring>
+#include <optional>
 #include <random>
+#include <unistd.h>
 
 namespace alembic::fpkg::build {
 
@@ -145,22 +148,6 @@ std::vector<std::uint8_t> fih_header(const FihFields& f) {
     }
     std::memcpy(&h[0xB0], f.nested_digest.data(), 32);
     return h;
-}
-
-// CRC-32C (Castagnoli, reflected 0x82F63B78).
-std::uint32_t crc32c(const std::uint8_t* p, std::size_t n) {
-    static const auto table = [] {
-        std::array<std::uint32_t, 256> t{};
-        for (std::uint32_t i = 0; i < 256; ++i) {
-            std::uint32_t c = i;
-            for (int k = 0; k < 8; ++k) c = (c & 1) ? 0x82F63B78u ^ (c >> 1) : c >> 1;
-            t[i] = c;
-        }
-        return t;
-    }();
-    std::uint32_t c = ~0u;
-    for (std::size_t i = 0; i < n; ++i) c = table[(c ^ p[i]) & 0xFF] ^ (c >> 8);
-    return ~c;
 }
 
 void record(std::vector<std::uint8_t>& out, const char* tag, const std::vector<std::uint8_t>& payload, std::uint8_t version = 1) {
@@ -423,8 +410,61 @@ std::vector<std::uint8_t> write_zip(const std::vector<std::pair<std::string, std
 
 } // namespace
 
+namespace {
+
+// The checkpoint side file (.state): what the inner image had written and
+// the open outer block. Little-endian fields after the magic "ALFS".
+std::vector<std::uint8_t> encode_checkpoint(const InnerProgress& p, Bytes pending) {
+    std::vector<std::uint8_t> out(4 + 8 * 5);
+    std::memcpy(out.data(), "ALFS", 4);
+    put_u64(&out[4], p.written);
+    put_u64(&out[12], p.file);
+    put_u64(&out[20], p.file_offset);
+    put_u64(&out[28], p.source_block);
+    put_u64(&out[36], pending.size());
+    for (const crypto::Digest& d : p.finished) out.insert(out.end(), d.begin(), d.end());
+    out.insert(out.end(), p.hash.begin(), p.hash.end());
+    out.insert(out.end(), pending.begin(), pending.end());
+    return out;
+}
+
+Status decode_checkpoint(const std::vector<std::uint8_t>& in, InnerProgress& p, std::vector<std::uint8_t>& pending) {
+    auto bad = [] { return make_error(Errc::invalid_data, "the package checkpoint side file is damaged"); };
+    if (in.size() < 44 || std::memcmp(in.data(), "ALFS", 4) != 0) return bad();
+    p.written = get_u64(&in[4]);
+    std::uint64_t files = get_u64(&in[12]);
+    p.file = static_cast<std::size_t>(files);
+    p.file_offset = get_u64(&in[20]);
+    p.source_block = static_cast<std::uint32_t>(get_u64(&in[28]));
+    std::uint64_t pending_size = get_u64(&in[36]);
+    if (files > (1u << 24) || pending_size >= kInnerBlock ||
+        in.size() != 44 + files * 32 + crypto::Sha3_256::kStateBytes + pending_size)
+        return bad();
+    const std::uint8_t* q = in.data() + 44;
+    p.finished.resize(p.file);
+    for (crypto::Digest& d : p.finished) {
+        std::memcpy(d.data(), q, 32);
+        q += 32;
+    }
+    std::memcpy(p.hash.data(), q, crypto::Sha3_256::kStateBytes);
+    q += crypto::Sha3_256::kStateBytes;
+    pending.assign(q, q + pending_size);
+    return {};
+}
+
+Result<std::vector<std::uint8_t>> read_whole(const std::string& path, std::uint64_t length) {
+    ALEMBIC_ASSIGN(File f, File::open(path, File::Mode::read));
+    ALEMBIC_ASSIGN(std::uint64_t size, f.size());
+    if (size < length) return make_error(Errc::invalid_data, "a package checkpoint side file is short: " + path);
+    std::vector<std::uint8_t> data(static_cast<std::size_t>(length));
+    if (!data.empty()) ALEMBIC_TRY(f.read_at(0, data));
+    return data;
+}
+
+} // namespace
+
 Result<PackageResult> write_package(const tree::Source& source, const tree::Node& root, const std::string& output_path,
-                                    const PackageOptions& options, const ProgressFn& progress) {
+                                    const PackageOptions& options, const ProgressFn& progress, resume::Session* session) {
     PackageResult result;
     if (options.passcode.size() != 32) return make_error(Errc::invalid_argument, "the passcode must be 32 characters");
     if (options.compression != Compression::stored)
@@ -546,25 +586,105 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
         else result.warnings.push_back("sce_sys/playgo-chunk.dat could not be parsed (" + parsed.error().message + "); using the default PlayGo project");
     }
 
+    // ---- A checkpoint to continue from. ----
+    // State: format, written (inner bytes), blocks (outer blocks written),
+    // seed (two halves), state_size and state_crc of the .state side file.
+    std::optional<InnerProgress> resume_point;
+    std::vector<crypto::Digest> resume_digests;
+    std::vector<std::uint8_t> resume_pending;
+    std::optional<std::array<std::uint8_t, 16>> resume_seed;
+    if (session && session->from) {
+        const resume::State& st = *session->from;
+        auto invalid = [](const std::string& why) { return make_error(Errc::invalid_data, "cannot continue from the checkpoint: " + why); };
+        if (resume::get(st, "format") != resume::kFpkgFormat) return invalid("it is not a package checkpoint");
+        std::uint64_t blocks = resume::get(st, "blocks"), state_size = resume::get(st, "state_size");
+        if (blocks > 0x7FFFFFFF || state_size > (1u << 30)) return invalid("bad values");
+        auto blob = read_whole(resume::sidecar_path(*session, ".state"), state_size);
+        if (!blob.ok()) return invalid(blob.error().message);
+        if (crypto::crc32c(*blob) != resume::get(st, "state_crc")) return invalid("its side file does not match");
+        InnerProgress p;
+        if (Status s = decode_checkpoint(*blob, p, resume_pending); !s.ok()) return invalid(s.error().message);
+        if (p.written != blocks * kInnerBlock + resume_pending.size() || p.written != resume::get(st, "written"))
+            return invalid("inconsistent positions");
+        auto digests = read_whole(resume::sidecar_path(*session, ".digests"), blocks * 32);
+        if (!digests.ok()) return invalid(digests.error().message);
+        resume_digests.resize(static_cast<std::size_t>(blocks));
+        for (std::size_t i = 0; i < resume_digests.size(); ++i) std::memcpy(resume_digests[i].data(), digests->data() + i * 32, 32);
+        std::array<std::uint8_t, 16> seed{};
+        put_u64(seed.data(), resume::get(st, "seed_lo"));
+        put_u64(seed.data() + 8, resume::get(st, "seed_hi"));
+        resume_seed = seed;
+        resume_point = std::move(p);
+    }
+
     // ---- The outer PFS, with the inner image streamed through it. ----
     OuterOptions outer_options;
     outer_options.content_id = param.content_id;
     outer_options.passcode = options.passcode;
-    if (options.seed) outer_options.seed = *options.seed;
+    if (resume_seed) outer_options.seed = *resume_seed;
+    else if (options.seed) outer_options.seed = *options.seed;
     else {
         std::random_device rd;
         for (auto& b : outer_options.seed) b = static_cast<std::uint8_t>(rd());
     }
     outer_options.time_seconds = options.time_seconds;
     outer_options.time_nanoseconds = options.time_nanoseconds;
-    ALEMBIC_ASSIGN(AtomicOutput output, AtomicOutput::create(output_path, options.overwrite));
+    outer_options.threads = options.threads;
+    ALEMBIC_ASSIGN(AtomicOutput output, session ? AtomicOutput::create_partial(output_path, session->partial_path,
+                                                                                session->from.has_value(), options.overwrite)
+                                                : AtomicOutput::create(output_path, options.overwrite));
     File& file = output.file();
-    FileSink outer_sink(file, kHeaderRegion);
+    const std::uint64_t outer_start = kHeaderRegion + resume_digests.size() * static_cast<std::uint64_t>(kInnerBlock);
+    if (resume_point) ALEMBIC_TRY(file.truncate(outer_start)); // drop what came after the checkpoint
+    FileSink outer_sink(file, outer_start);
     OuterPfsWriter outer(outer_sink, outer_options);
     ALEMBIC_TRY(outer.begin_file("pfs_image.dat", false));
+    if (resume_point) ALEMBIC_TRY(outer.resume(std::move(resume_digests), resume_pending, resume_point->written));
     InnerOptions inner_options;
     inner_options.time_seconds = options.time_seconds;
     inner_options.time_nanoseconds = options.time_nanoseconds;
+    inner_options.threads = options.threads;
+    if (resume_point) inner_options.resume_from = &*resume_point;
+    std::uint64_t digests_saved = resume_point ? resume_point->written / kInnerBlock : 0;
+    if (session && session->save) {
+        inner_options.checkpoint_interval = session->interval;
+        inner_options.checkpoint = [&](const InnerProgress& p) -> Status {
+            // Everything up to here on disk first, then the side files, then the State.
+            ALEMBIC_TRY(outer.flush());
+            ALEMBIC_TRY(file.sync());
+            const std::vector<crypto::Digest>& digests = outer.digests();
+            {
+                const std::string path = resume::sidecar_path(*session, ".digests");
+                auto f = digests_saved ? File::open(path, File::Mode::read_write) : File::open(path, File::Mode::create_new);
+                if (!f.ok() && !digests_saved) {
+                    ::unlink(path.c_str());
+                    f = File::open(path, File::Mode::create_new);
+                }
+                if (!f.ok()) return f.error();
+                std::vector<std::uint8_t> add;
+                add.reserve((digests.size() - digests_saved) * 32);
+                for (std::size_t i = digests_saved; i < digests.size(); ++i) add.insert(add.end(), digests[i].begin(), digests[i].end());
+                ALEMBIC_TRY(f->write_at(digests_saved * 32, add));
+                ALEMBIC_TRY(f->sync());
+                digests_saved = digests.size();
+            }
+            std::vector<std::uint8_t> blob = encode_checkpoint(p, outer.pending());
+            {
+                ALEMBIC_ASSIGN(AtomicOutput side, AtomicOutput::create(resume::sidecar_path(*session, ".state"), true));
+                ALEMBIC_TRY(side.file().write_at(0, blob));
+                ALEMBIC_TRY(side.commit());
+            }
+            resume::State st;
+            st["format"] = resume::kFpkgFormat;
+            st["written"] = p.written;
+            st["blocks"] = digests.size();
+            st["seed_lo"] = get_u64(outer_options.seed.data());
+            st["seed_hi"] = get_u64(outer_options.seed.data() + 8);
+            st["state_size"] = blob.size();
+            st["state_crc"] = crypto::crc32c(blob);
+            return session->save(st);
+        };
+    }
     ALEMBIC_ASSIGN(InnerImage inner, write_inner_image(files, inner_options, outer, progress));
     ALEMBIC_TRY(outer.end_file(inner.ndblock * kInnerBlock));
     ALEMBIC_ASSIGN(Naps naps, build_naps(inner, Compression::stored));
@@ -638,14 +758,17 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
     crypto::Sha3_256 image_hash;
     std::vector<std::uint8_t> crc(static_cast<std::size_t>(div_round_up(mount_length, kInnerBlock) * 4));
     {
+        // The SHA3 (the slow part) runs on a helper thread while the next block is read.
+        crypto::BackgroundSha3 hasher(worker_count(options.threads) > 1, kInnerBlock);
         std::vector<std::uint8_t> buffer(kInnerBlock);
         for (std::uint64_t off = 0, i = 0; off < mount_length; off += kInnerBlock, ++i) {
             auto n = static_cast<std::size_t>(std::min<std::uint64_t>(kInnerBlock, mount_length - off));
             ALEMBIC_TRY(file.read_at(off, MutableBytes(buffer.data(), n)));
-            image_hash.update(Bytes(buffer.data(), n));
-            put_u32(&crc[i * 4], crc32c(buffer.data(), n));
+            hasher.update(image_hash, Bytes(buffer.data(), n));
+            put_u32(&crc[i * 4], crypto::crc32c(Bytes(buffer.data(), n)));
             if (progress && !progress({"Checking the package", off + n, mount_length})) return make_error(Errc::cancelled, "cancelled");
         }
+        hasher.wait();
     }
     crypto::Digest image_digest = image_hash.finish();
 
@@ -662,6 +785,7 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
     ALEMBIC_TRY(file.write_at(mount_length, si));
     result.package_length = mount_length + si.size();
     ALEMBIC_TRY(output.commit());
+    if (session) for (const char* suffix : resume::kSidecarSuffixes) ::unlink(resume::sidecar_path(*session, suffix).c_str());
     return result;
 }
 

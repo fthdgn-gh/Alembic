@@ -10,6 +10,7 @@
 // folder's dirents) describes the logical mount, whose data region the NAPS
 // table maps onto the physical payloads.
 #include "alembic/fpkg_build.hpp"
+#include "alembic/thread_pool.hpp"
 
 #include "alembic/bytes.hpp"
 #include "alembic/crypto.hpp"
@@ -223,6 +224,8 @@ class Writer {
 public:
     explicit Writer(ByteSink& sink) : sink_(sink) {}
     std::uint64_t pos() const { return pos_; }
+    // Resuming: the sink already holds this many bytes.
+    void skip_to(std::uint64_t pos) { pos_ = pos; }
     Status zeros_to(std::uint64_t target) {
         if (target < pos_) return make_error(Errc::invalid_data, "inner image layout error: writing backwards");
         static const std::vector<std::uint8_t> zeros(1 << 16, 0);
@@ -476,30 +479,56 @@ Result<InnerImage> write_inner_image(const std::vector<InnerFile>& files, const 
     }
 
     // ---- 4. Payloads, in afid order. ----
+    // Resuming, files and chunks before the checkpoint are only booked: their
+    // bytes are already in the sink and their hashes come from the checkpoint.
     InnerImage result;
     Writer out(sink);
+    const InnerProgress* from = options.resume_from;
+    if (from) {
+        if (from->file > afid_order.size() || from->finished.size() != from->file)
+            return make_error(Errc::invalid_data, "the package checkpoint does not match the game's files");
+        out.skip_to(from->written);
+    }
     std::uint64_t pos = 0;
     std::uint32_t source_block = 0;
-    std::uint64_t payload_total = 0, payload_done = 0;
+    std::uint64_t payload_total = 0, payload_done = 0, next_checkpoint = options.checkpoint_interval;
     for (FileNode* f : afid_order) payload_total += f->length;
     std::vector<std::uint8_t> buffer(kChunk);
-    for (FileNode* f : afid_order) {
+    // The files' SHA3 runs beside the reading (the hasher copies each piece).
+    crypto::BackgroundSha3 hasher(worker_count(options.threads) > 1, kChunk);
+    for (std::size_t index = 0; index < afid_order.size(); ++index) {
+        FileNode* f = afid_order[index];
         f->store_raw = true; // stored mode (Kraken would leave non-raw files compressible)
         bool align_before = f->whole_block_raw ||
                             (f->store_raw && pos % kBs != 0 && f->length > kBs - pos % kBs);
         if (align_before) pos = round_up(pos, kBs);
         f->on_disk = pos;
-        ALEMBIC_TRY(out.zeros_to(pos));
-        ALEMBIC_ASSIGN(std::shared_ptr<const RandomAccess> in, open_input(*f->in));
-        ALEMBIC_ASSIGN(std::uint64_t actual, in->size());
-        if (actual != f->length) return make_error(Errc::invalid_data, "a file changed size: " + f->full_path);
+        const bool done_before = from && index < from->file;
+        const bool current = from && index == from->file;
+        const std::uint64_t skip = done_before ? f->length : current ? from->file_offset : 0;
+        if (current && (skip > f->length || (skip % kChunk != 0 && skip != f->length) || from->written != pos + skip))
+            return make_error(Errc::invalid_data, "the package checkpoint does not match the game's files");
+        std::shared_ptr<const RandomAccess> in;
+        if (skip < f->length) {
+            if (skip == 0) ALEMBIC_TRY(out.zeros_to(pos)); // continuing mid-file, the padding is written already
+            ALEMBIC_ASSIGN(in, open_input(*f->in));
+            ALEMBIC_ASSIGN(std::uint64_t actual, in->size());
+            if (actual != f->length) return make_error(Errc::invalid_data, "a file changed size: " + f->full_path);
+        }
         std::uint64_t physical = pos;
-        crypto::Sha3_256 hash;
+        crypto::Sha3_256 hash = current ? crypto::Sha3_256::restore(from->hash.data()) : crypto::Sha3_256();
+        // On an early return the helper must be done with `hash` before it goes.
+        struct WaitFirst {
+            crypto::BackgroundSha3& h;
+            ~WaitFirst() { h.wait(); }
+        } wait_first{hasher};
         for (std::uint64_t off = 0; off < f->length;) {
             auto n = static_cast<std::uint32_t>(std::min<std::uint64_t>(kChunk, f->length - off));
-            ALEMBIC_TRY(in->read_at(off, MutableBytes(buffer.data(), n)));
-            ALEMBIC_TRY(out.write(Bytes(buffer.data(), n)));
-            hash.update(Bytes(buffer.data(), n));
+            if (off >= skip) {
+                ALEMBIC_TRY(in->read_at(off, MutableBytes(buffer.data(), n)));
+                ALEMBIC_TRY(out.write(Bytes(buffer.data(), n)));
+                hasher.update(hash, Bytes(buffer.data(), n));
+            }
             EncodedBlock e;
             e.source_block_index = source_block++;
             e.logical_offset = f->logical + off;
@@ -511,14 +540,36 @@ Result<InnerImage> write_inner_image(const std::vector<InnerFile>& files, const 
             result.encoded_blocks.push_back(e);
             off += n;
             payload_done += n;
-            if (progress && !progress({"Building the inner image", payload_done, payload_total}))
-                return make_error(Errc::cancelled, "cancelled");
+            if (off <= skip) continue;
+            // A stop (pause or cancel) saves a checkpoint at this very point too.
+            const bool stop = progress && !progress({"Building the inner image", payload_done, payload_total});
+            if (options.checkpoint && (stop || (options.checkpoint_interval && payload_done >= next_checkpoint))) {
+                next_checkpoint = payload_done + options.checkpoint_interval;
+                hasher.wait();
+                InnerProgress p;
+                p.written = out.pos();
+                p.file = index;
+                p.file_offset = off;
+                p.source_block = source_block;
+                p.finished.reserve(index);
+                for (std::size_t k = 0; k < index; ++k) p.finished.push_back(afid_order[k]->sha3);
+                p.hash = hash.save();
+                ALEMBIC_TRY(options.checkpoint(p));
+            }
+            if (stop) return make_error(Errc::cancelled, "cancelled");
         }
         f->encoded = f->length;
-        f->sha3 = hash.finish();
+        if (done_before) {
+            f->sha3 = from->finished[index];
+        } else {
+            hasher.wait();
+            f->sha3 = hash.finish();
+        }
         pos += f->encoded;
         if (f->whole_block_raw) pos = round_up(pos, kBs);
     }
+    if (from && from->file >= afid_order.size() && out.pos() < from->written)
+        return make_error(Errc::invalid_data, "the package checkpoint does not match the game's files");
     result.raw_bytes = payload_total;
     result.encoded_bytes = payload_total;
 

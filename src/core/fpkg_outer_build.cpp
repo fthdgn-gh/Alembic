@@ -12,9 +12,13 @@
 
 #include "alembic/bytes.hpp"
 #include "alembic/fpkg.hpp"
+#include "alembic/thread_pool.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <condition_variable>
 #include <cstring>
+#include <mutex>
 #include <functional>
 #include <memory>
 
@@ -98,24 +102,115 @@ std::pair<std::array<std::uint8_t, 16>, std::array<std::uint8_t, 16>> outer_xts_
     return out;
 }
 
+// Blocks are hashed and encrypted in batches of kBatchBlocks; a few batches
+// are in flight at a time, so the workers keep busy while the caller fills
+// the next one.
+constexpr std::size_t kBatchBlocks = 64; // 4 MiB
+constexpr std::size_t kBatchesInFlight = 3;
+
+struct OuterPfsWriter::Batch {
+    std::vector<std::uint8_t> data = std::vector<std::uint8_t>(kBatchBlocks * kBs);
+    std::uint64_t sectors[kBatchBlocks] = {};
+    crypto::Digest digests[kBatchBlocks] = {};
+    std::size_t count = 0;
+    bool in_flight = false;
+    std::mutex mutex;
+    std::condition_variable done;
+    std::size_t remaining = 0;
+};
+
 OuterPfsWriter::OuterPfsWriter(ByteSink& out, const OuterOptions& options)
     : out_(out), options_(options), block_(kBs), scratch_(kBs) {
     auto keys = outer_xts_keys(options.content_id, options.passcode, options.seed.data());
     tweak_ = std::make_unique<crypto::Aes128>(keys.first.data());
     data_ = std::make_unique<crypto::Aes128>(keys.second.data());
+    unsigned threads = worker_count(options.threads);
+    if (threads > 1) {
+        for (std::size_t i = 0; i < kBatchesInFlight; ++i) batches_.push_back(std::make_unique<Batch>());
+        pool_ = std::make_unique<Pool>(threads);
+    }
 }
 
-OuterPfsWriter::~OuterPfsWriter() = default;
+// The pool is declared last, so it finishes queued jobs before the batches go.
+OuterPfsWriter::~OuterPfsWriter() { pool_.reset(); }
 
 Status OuterPfsWriter::emit_block(const std::uint8_t* plain, Kind kind) {
-    if (blocks_.size() >= 0x7FFFFFFF) return make_error(Errc::too_large, "the outer PFS has too many blocks");
-    auto index = static_cast<std::uint32_t>(blocks_.size());
+    if (next_index_ >= 0x7FFFFFFF) return make_error(Errc::too_large, "the outer PFS has too many blocks");
+    const std::uint32_t index = next_index_++;
+    const std::uint64_t sector = kind == Kind::signed_block ? (index | kSignedSector) : index;
+    if (pool_ && kind != Kind::plaintext) {
+        Batch& b = *batches_[filling_];
+        std::memcpy(b.data.data() + b.count * kBs, plain, kBs);
+        b.sectors[b.count++] = sector;
+        return b.count == kBatchBlocks ? dispatch() : Status{};
+    }
+    // In order: anything batched goes out first.
+    ALEMBIC_TRY(drain());
     blocks_.push_back(crypto::sha3_256(Bytes(plain, kBs)));
     if (kind == Kind::plaintext) return out_.write(Bytes(plain, kBs));
     std::memcpy(scratch_.data(), plain, kBs);
-    std::uint64_t sector = kind == Kind::signed_block ? (index | kSignedSector) : index;
     crypto::xts_encrypt(*data_, *tweak_, sector, MutableBytes(scratch_.data(), kBs));
     return out_.write(Bytes(scratch_.data(), kBs));
+}
+
+Status OuterPfsWriter::dispatch() {
+    Batch& b = *batches_[filling_];
+    if (b.count == 0) return {};
+    {
+        std::lock_guard<std::mutex> lock(b.mutex);
+        b.remaining = b.count;
+        b.in_flight = true;
+    }
+    for (std::size_t j = 0; j < b.count; ++j)
+        pool_->submit([this, &b, j](unsigned) {
+            std::uint8_t* p = b.data.data() + j * kBs;
+            b.digests[j] = crypto::sha3_256(Bytes(p, kBs)); // of the plaintext
+            crypto::xts_encrypt(*data_, *tweak_, b.sectors[j], MutableBytes(p, kBs));
+            std::lock_guard<std::mutex> lock(b.mutex);
+            if (--b.remaining == 0) b.done.notify_all();
+        });
+    // The next batch to fill is the oldest one: written out first if still in flight.
+    filling_ = (filling_ + 1) % batches_.size();
+    return complete(*batches_[filling_]);
+}
+
+Status OuterPfsWriter::complete(Batch& b) {
+    if (!b.in_flight) return {};
+    {
+        std::unique_lock<std::mutex> lock(b.mutex);
+        b.done.wait(lock, [&] { return b.remaining == 0; });
+        b.in_flight = false;
+    }
+    blocks_.insert(blocks_.end(), b.digests, b.digests + b.count);
+    Status s = failed_.ok() ? out_.write(Bytes(b.data.data(), b.count * kBs)) : failed_;
+    if (!s.ok() && failed_.ok()) failed_ = s;
+    b.count = 0;
+    return s;
+}
+
+Status OuterPfsWriter::drain() {
+    if (!pool_) return {};
+    // The partly filled batch joins the ones in flight, then all go out oldest first.
+    if (batches_[filling_]->count) ALEMBIC_TRY(dispatch());
+    for (std::size_t i = 0; i < batches_.size(); ++i) {
+        filling_ = (filling_ + 1) % batches_.size();
+        ALEMBIC_TRY(complete(*batches_[filling_]));
+    }
+    return failed_;
+}
+
+Status OuterPfsWriter::flush() { return drain(); }
+
+Status OuterPfsWriter::resume(std::vector<crypto::Digest> digests, Bytes pending, std::uint64_t size) {
+    if (!open_ || files_.size() != 1 || next_index_ != 0 || pending.size() >= kBs ||
+        size != digests.size() * static_cast<std::uint64_t>(kBs) + pending.size())
+        return make_error(Errc::invalid_argument, "outer PFS: cannot resume here");
+    blocks_ = std::move(digests);
+    next_index_ = static_cast<std::uint32_t>(blocks_.size());
+    files_.back().size = size;
+    std::memcpy(block_.data(), pending.data(), pending.size());
+    fill_ = pending.size();
+    return {};
 }
 
 Status OuterPfsWriter::begin_file(const std::string& name, bool signed_blocks) {
@@ -125,7 +220,7 @@ Status OuterPfsWriter::begin_file(const std::string& name, bool signed_blocks) {
     File f;
     f.name = name;
     f.signed_blocks = signed_blocks;
-    f.first_block = static_cast<std::uint32_t>(blocks_.size());
+    f.first_block = next_index_;
     files_.push_back(f);
     fill_ = 0;
     open_ = true;
@@ -157,7 +252,7 @@ Status OuterPfsWriter::end_file(std::uint64_t size_compressed) {
         ALEMBIC_TRY(emit_block(block_.data(), f.signed_blocks ? Kind::signed_block : Kind::data));
         fill_ = 0;
     }
-    f.block_count = static_cast<std::uint32_t>(blocks_.size()) - f.first_block;
+    f.block_count = next_index_ - f.first_block;
     f.size_compressed = size_compressed;
     open_ = false;
     return {};
@@ -165,6 +260,7 @@ Status OuterPfsWriter::end_file(std::uint64_t size_compressed) {
 
 Result<OuterPfs> OuterPfsWriter::finish() {
     if (open_ || files_.empty()) return make_error(Errc::invalid_argument, "outer PFS: nothing to finish");
+    ALEMBIC_TRY(drain()); // every data block written and its digest known
     const auto data_blocks = static_cast<std::uint32_t>(blocks_.size());
     const std::uint32_t superblock = data_blocks, inode_table = data_blocks + 1, super_root = data_blocks + 2,
                         flt = data_blocks + 3;
@@ -337,6 +433,7 @@ Result<OuterPfs> OuterPfsWriter::finish() {
         Kind kind = index == superblock ? Kind::plaintext : Kind::signed_block;
         ALEMBIC_TRY(emit_block(block_at(index).data(), kind));
     }
+    ALEMBIC_TRY(drain()); // the signed metadata blocks are batched too
     result.block_count = total;
     result.superblock_index = superblock;
     result.block_digests = std::move(blocks_);

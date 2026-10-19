@@ -4,6 +4,8 @@
 
 #include "jobs.hpp"
 
+#include "alembic/resume.hpp"
+
 #include <functional>
 #include <optional>
 #include <string>
@@ -66,8 +68,8 @@ struct CheckpointInfo {
     std::uint64_t done = 0;  // progress when it was saved
     std::uint64_t total = 0;
 };
-inline constexpr const char* kPartialSuffix = ".alembic-partial";
-// Whether this job keeps its progress when stopped (every output but FPKG; no LZ4 packing).
+inline constexpr const char* kPartialSuffix = resume::kPartialSuffix;
+// Whether this job keeps its progress when stopped (every output; not LZ4 packing).
 bool keeps_progress(const JobSpec& spec);
 std::optional<CheckpointInfo> checkpoint_info(const JobSpec& spec, const EngineConfig& config);
 // Deletes the checkpoint and the partial output.

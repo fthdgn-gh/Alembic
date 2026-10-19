@@ -10,6 +10,7 @@
 #include "alembic/unicode.hpp"
 
 #include <cstring>
+#include <ctime>
 
 namespace alembic::convert {
 
@@ -181,6 +182,17 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     const tree::Source* tree_ptr = input.tree.get();
     std::unique_ptr<lz4pack::PackedTree> packed;
     std::unique_ptr<tree::Source> unpacked;
+    // Packing with checkpoints: pass 1 saves its own (format kLz4Format);
+    // afterwards the output writer's carry the LZ4 keys too, so a run can
+    // replay pass 1 from its side file and continue the output.
+    resume::Session packed_session;
+    std::int64_t lz4_stamp = 0;
+    std::uint64_t lz4_chunks = 0;
+    auto add_lz4_keys = [&](resume::State& st, bool done) {
+        st["lz4_timestamp"] = static_cast<std::uint64_t>(lz4_stamp);
+        st["lz4_chunks"] = lz4_chunks;
+        st["lz4_done"] = done ? 1 : 0;
+    };
     if (options.lz4 && options.lz4_unpack)
         return make_error(Errc::invalid_argument, "choose either LZ4 packing or unpacking");
     if (options.lz4_unpack) {
@@ -189,7 +201,51 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         ALEMBIC_ASSIGN(unpacked, lz4pack::unpack(*tree_ptr));
         tree_ptr = unpacked.get();
     } else if (options.lz4) {
-        ALEMBIC_ASSIGN(packed, lz4pack::pack(*tree_ptr, *options.lz4, progress));
+        lz4pack::PackOptions pack = *options.lz4;
+        if (resume::Session* s = options.resume) {
+            std::string base = s->partial_path;
+            if (base.empty()) {
+                base = output;
+                while (base.size() > 1 && base.back() == '/') base.pop_back();
+                base += resume::kPartialSuffix;
+            }
+            std::optional<resume::State> from = s->from;
+            if (from && resume::get(*from, "lz4_timestamp") == ~std::uint64_t{0}) from.reset();
+            bool done = false;
+            if (from) {
+                lz4_stamp = static_cast<std::int64_t>(resume::get(*from, "lz4_timestamp"));
+                lz4_chunks = resume::get(*from, "lz4_chunks");
+                done = resume::get(*from, "lz4_done") == 1;
+            } else {
+                lz4_stamp = pack.timestamp.value_or(static_cast<std::int64_t>(std::time(nullptr)));
+            }
+            pack.timestamp = lz4_stamp;
+            lz4pack::PackCheckpoints cp;
+            cp.sidecar_path = base + ".lz4";
+            cp.resume_chunks = lz4_chunks;
+            cp.interval = s->interval;
+            cp.save = [s, &lz4_chunks, &add_lz4_keys](std::uint64_t chunks, bool finished) -> Status {
+                lz4_chunks = chunks;
+                resume::State st;
+                st["format"] = resume::kLz4Format;
+                add_lz4_keys(st, finished);
+                return s->save ? s->save(st) : Status{};
+            };
+            pack.checkpoints = std::move(cp);
+            packed_session.partial_path = s->partial_path;
+            packed_session.interval = s->interval;
+            if (from && done && resume::get(*from, "format") != resume::kLz4Format) {
+                resume::State w = *from;
+                for (const char* k : {"lz4_timestamp", "lz4_chunks", "lz4_done"}) w.erase(k);
+                packed_session.from = std::move(w);
+            }
+            packed_session.save = [s, &add_lz4_keys](const resume::State& w) -> Status {
+                resume::State st = w;
+                add_lz4_keys(st, true);
+                return s->save ? s->save(st) : Status{};
+            };
+        }
+        ALEMBIC_ASSIGN(packed, lz4pack::pack(*tree_ptr, pack, progress));
         report.lz4 = packed->stats();
         report.lz4_config_toml = lz4pack::to_toml(packed->config());
         report.lz4_forced_loose = packed->forced_loose_patterns();
@@ -223,9 +279,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     std::string prefix_text = std::string(packed ? "LZ4-packed and " : unpacked ? "LZ4-unpacked and " : "") +
                               (with_emulator ? "added the AMPR emulator and " : "");
     const char* prefix = prefix_text.c_str();
-    // LZ4 packing stamps the time it runs, so it cannot continue a checkpoint;
-    // neither can the FPKG writer yet.
-    resume::Session* session = packed || to == Format::fpkg ? nullptr : options.resume;
+    resume::Session* session = packed ? (options.resume ? &packed_session : nullptr) : options.resume;
     report.resumable = session != nullptr;
 
     switch (to) {
@@ -315,7 +369,8 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         if (input.format == Format::fpkg && !rebuild) return unsupported(input.format, to, "pass --rebuild to build it again");
         fpkg::build::PackageOptions o = options.fpkg;
         o.overwrite = options.overwrite;
-        ALEMBIC_ASSIGN(fpkg::build::PackageResult r, fpkg::build::write_package(tree, tree.root(), output, o, progress));
+        if (!o.threads) o.threads = options.ffpfsc.compression.threads;
+        ALEMBIC_ASSIGN(fpkg::build::PackageResult r, fpkg::build::write_package(tree, tree.root(), output, o, progress, session));
         report.method = std::string(prefix) + "built a debug package from the file tree";
         report.detail = r.content_id;
         report.warnings = std::move(r.warnings);

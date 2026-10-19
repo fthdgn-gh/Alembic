@@ -82,8 +82,8 @@ tools/lz4-oracle/compare.sh         # LZ4 packs vs ampr_pack.py (needs .refs/ven
   inode and fragmented PFS images are refused.
 - FPKG: retail and patch (LIH) packages are not opened; NAPS "shuffle"
   layouts (current LibProsperoPKG output) are refused.
-- Reading (inflate, Kraken, SHA-256, AES) is single-threaded and uses no
-  CPU crypto instructions.
+- Reading (inflate, Kraken, SHA-256) is single-threaded; AES and CRC32C use
+  the CPU's instructions (2026-10-19), SHA-256 does not yet.
 - No PS5 build yet; the core uses only POSIX + std::thread, no exceptions/RTTI.
 
 ## Reference repositories
@@ -1082,8 +1082,8 @@ is about the USB drive's own format (shown on connect), not about the image.
   at each checkpoint everything is flushed (`sync()`, not an fsync per file)
   and {files finished in tree order, bytes of the current file} is saved; a
   continued run keeps those files when their size matches, continues the
-  current one from its saved length, and rewrites anything after it. Still
-  starting over: FPKG output and LZ4 packing.
+  current one from its saved length, and rewrites anything after it. FPKG
+  output and LZ4 packing followed later the same day (see below).
 - **Engine:** the checkpoint lives in `<state>/resume/<hash of output>.json`
   with a fingerprint (job options, input size and mtime, layout version);
   anything else is discarded and the job starts over, as it does when the
@@ -1245,6 +1245,64 @@ is about the USB drive's own format (shown on connect), not about the image.
 - **Console (owner, 2026-10-19): works**: the new image is picked up without
   deleting the game from the home screen.
 
+### 2026-10-19: FPKG speed, checkpoints for packages and LZ4 packing
+
+- **Crypto primitives** (`crypto.cpp`): SHA3-256 absorbs whole blocks with
+  64-bit loads and an unrollable round (333 -> 900 MB/s on the Mac); AES-128
+  uses AES-NI (x86-64, the PS5 target enables it: `__AES__`, `__SSE4_2__`,
+  `__SHA__`, AVX2) or ARMv8 AES, eight blocks in flight; XTS whitens 32 blocks
+  per call; CBC decrypt runs in parallel (415 MB/s -> 12-13 GB/s for XTS);
+  `crypto::crc32c` uses SSE4.2 / ARM CRC32. The instruction paths run only
+  after a self-test at first use (FIPS-197 C.1 over nine blocks both ways;
+  the CRC32C check value), else the table code; a test compares both on
+  random data. The x86 paths are in the PS5 build (231 AES/CRC instructions)
+  but have not run yet (no Rosetta on the Mac): the self-test guards them.
+- **Package writer:** outer blocks are SHA3-hashed and XTS-encrypted in
+  batches of 64 on worker threads (`OuterPfsWriter`, three batches in
+  flight, written in order); the per-file inner SHA3 and the read-back
+  SHA3 run on a helper thread (`crypto::BackgroundSha3`). The thread pool
+  moved to `alembic/thread_pool.hpp` (shared with LZ4). Package B (2.8 GB):
+  30.8 s -> 9.5 s from its package (Kraken decode is now the main cost),
+  7.5 s from its FFPFSC, 6.5 s from an exFAT; byte-identical every time
+  (fixed seed). What is left is the read-back SHA3, which cannot be split:
+  the header comes first in the package and depends on every data block.
+  A test builds an outer PFS with 1 and 4 threads and compares (it caught a
+  missing final flush during the work).
+- **FPKG checkpoints** (`kFpkgFormat`): every interval of game data and when
+  stopped, at a chunk boundary: outer batches flushed, file synced, then
+  `<partial>.digests` (outer block digests, appended) and `<partial>.state`
+  (inner progress, finished files' SHA3, the current file's SHA3 state, the
+  open outer block; CRC in the State), then the State {written, blocks,
+  seed, state_size, state_crc}. A run given it replays the layout without
+  reading, restores the hashes and the outer writer (`resume`), cuts the
+  partial file and continues with the same seed. Test: stopped, damaged,
+  continued (older checkpoint refused, its side file replaced), 1 and 3
+  threads, byte-identical. Engine: kill -9 at 1.7 GB of package B, restart:
+  continued from 1 GiB, same size, `same` passes (only playgo-chunk.dat
+  differs, as between any two builds).
+- **LZ4 checkpoints** (`kLz4Format`): pass 1 depends only on each chunk's
+  compression result {stored size, codec, raw and stored CRC, two dedupe
+  hashes}, so those 32 bytes per chunk are appended to `<partial>.lz4`; a
+  run replays them through the same code (placement, dedupe, stats) without
+  reading or compressing. convert keeps lz4_timestamp/lz4_chunks/lz4_done in
+  the State beside the output writer's own; during the output phase the
+  writer's checkpoint is used as before (volumes are produced from any
+  offset). Test: stopped in pass 1 and in the exFAT phase, continued,
+  byte-identical. Engine: package B, scan profile, kill -9 in pass 1 and
+  in the exFAT phase: both continued; `lz4-verify` and `same` pass. The
+  engine's fingerprint now includes the LZ4 options and the runtime file's
+  size and mtime; a checkpoint with only the .lz4 side file counts.
+- **Package reading:** `InnerMount` decodes Kraken blocks ahead on worker
+  threads once reads move forward block by block (three per worker; the
+  compressed bytes are still read on the calling thread, since the
+  decrypting reader under it is not thread-safe; a jump drops the window).
+  Package B -> exFAT 5.1 s -> 1.7 s (identical image); -> FFPFSC 7.1 s ->
+  5.5 s (now bound by zlib on all cores; same payload hash).
+- **Unity detection:** Unity's markers (Data/ or Media/ globalgamemanagers,
+  global-metadata.dat, data.unity3d) select the Unity profile without
+  StreamingAssets too; such a game then packs nothing (with a note), rather
+  than the scan profile packing Unity's own data files (what crashed B).
+
 ## Next session
 
 **Open (owner, 2026-10-19), in this order:**
@@ -1315,7 +1373,10 @@ is about the USB drive's own format (shown on connect), not about the image.
    step back, however long (its stream of Escapes is swallowed). The hint
    bar shows "L2 R2 Leave". Console (owner): works; it lands on the first
    screen and one more ○ leaves, acceptable though not convenient.
-3. Then: checkpoints for FPKG output and LZ4 packing; FPKG speed.
+3. ✓ Checkpoints for FPKG output and LZ4 packing; FPKG speed; Kraken
+   read-ahead for package inputs (2026-10-19 entry). Left: zlib read-ahead
+   for FFPFSC inputs, SHA-NI/ARM SHA-256. Owner: the ~90 GB package took
+   1.5 h to become an image on the console before this; time it again.
 
 **First (owner, 2026-10-18): the web page on the console.** Load the
 payload, check the Media tab shows "Alembic" and opens the page, then try the

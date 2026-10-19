@@ -3,6 +3,7 @@
 #include "alembic/crypto.hpp"
 #include "test.hpp"
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -97,4 +98,89 @@ TEST_CASE(hmac_sha256_rfc4231) {
     std::string msg = "Test Using Larger Than Block-Size Key - Hash Key First";
     auto mac6 = crypto::hmac_sha256(long_key, Bytes(reinterpret_cast<const std::uint8_t*>(msg.data()), msg.size()));
     CHECK(to_hex(mac6.data(), 32) == "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54");
+}
+
+// The AES instructions (several blocks at a time) against the table code,
+// and XTS / CBC in pieces against a block-by-block reference.
+TEST_CASE(aes128_fast_paths_match_reference) {
+#if (defined(__ARM_FEATURE_AES) && defined(__aarch64__)) || (defined(__AES__) && defined(__x86_64__))
+    CHECK(crypto::Aes128::hardware()); // the self-test passed, so the comparison below covers the instructions
+#endif
+    std::vector<std::uint8_t> data(16 * 300);
+    std::uint32_t x = 12345;
+    for (auto& b : data) b = static_cast<std::uint8_t>((x = x * 1103515245u + 12345u) >> 16);
+    std::uint8_t key[16], key2[16];
+    for (int i = 0; i < 16; ++i) key[i] = static_cast<std::uint8_t>(i * 17 + 3), key2[i] = static_cast<std::uint8_t>(250 - i * 7);
+    crypto::Aes128 aes(key), tweak(key2);
+    for (std::size_t count : {1u, 7u, 8u, 9u, 16u, 31u, 32u, 33u, 300u}) {
+        std::vector<std::uint8_t> fast(data.begin(), data.begin() + 16 * count), slow = fast;
+        aes.encrypt_blocks(fast.data(), fast.data(), count);
+        for (std::size_t j = 0; j < count; ++j) aes.portable_encrypt(slow.data() + 16 * j, slow.data() + 16 * j);
+        CHECK(fast == slow);
+        aes.decrypt_blocks(fast.data(), fast.data(), count);
+        for (std::size_t j = 0; j < count; ++j) aes.portable_decrypt(slow.data() + 16 * j, slow.data() + 16 * j);
+        CHECK(fast == slow);
+        CHECK(std::equal(fast.begin(), fast.end(), data.begin()));
+    }
+    // XTS reference: one block at a time, tweak doubled byte by byte.
+    auto reference_xts = [&](std::vector<std::uint8_t> v, std::uint64_t sector) {
+        std::uint8_t t[16] = {};
+        for (int i = 0; i < 8; ++i) t[i] = static_cast<std::uint8_t>(sector >> (8 * i));
+        tweak.portable_encrypt(t, t);
+        for (std::size_t off = 0; off < v.size(); off += 16) {
+            std::uint8_t b[16];
+            for (int i = 0; i < 16; ++i) b[i] = v[off + i] ^ t[i];
+            aes.portable_encrypt(b, b);
+            for (int i = 0; i < 16; ++i) v[off + i] = b[i] ^ t[i];
+            std::uint8_t carry = 0;
+            for (int i = 0; i < 16; ++i) {
+                std::uint8_t next = t[i] >> 7;
+                t[i] = static_cast<std::uint8_t>((t[i] << 1) | carry);
+                carry = next;
+            }
+            if (carry) t[0] ^= 0x87;
+        }
+        return v;
+    };
+    std::vector<std::uint8_t> xts = data;
+    crypto::xts_encrypt(aes, tweak, 0x123456789ull, xts);
+    CHECK(xts == reference_xts(data, 0x123456789ull));
+    crypto::xts_decrypt(aes, tweak, 0x123456789ull, xts);
+    CHECK(xts == data);
+    // CBC: encrypt (sequential) then the piecewise decrypt gives the data back.
+    std::uint8_t iv[16] = {9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5, 6};
+    std::vector<std::uint8_t> cbc = data;
+    crypto::cbc_encrypt(aes, iv, cbc);
+    std::vector<std::uint8_t> manual = data;
+    const std::uint8_t* prev = iv;
+    for (std::size_t off = 0; off < manual.size(); off += 16) {
+        for (int i = 0; i < 16; ++i) manual[off + i] ^= prev[i];
+        aes.portable_encrypt(manual.data() + off, manual.data() + off);
+        prev = manual.data() + off;
+    }
+    CHECK(cbc == manual);
+    crypto::cbc_decrypt(aes, iv, cbc);
+    CHECK(cbc == data);
+}
+
+TEST_CASE(crc32c_check_value) {
+    const char* text = "123456789";
+    CHECK_EQ(crypto::crc32c(Bytes(reinterpret_cast<const std::uint8_t*>(text), 9)), 0xE3069283u);
+    // In two parts, and across the 8-byte steps.
+    std::uint32_t part = crypto::crc32c(Bytes(reinterpret_cast<const std::uint8_t*>(text), 4));
+    CHECK_EQ(crypto::crc32c(Bytes(reinterpret_cast<const std::uint8_t*>(text) + 4, 5), part), 0xE3069283u);
+    std::vector<std::uint8_t> zeros(32, 0);
+    CHECK_EQ(crypto::crc32c(zeros), 0x8A9136AAu); // RFC 3720 B.4
+}
+
+TEST_CASE(sha3_256_state_round_trips) {
+    std::string text(1000, 'z');
+    const auto* p = reinterpret_cast<const std::uint8_t*>(text.data());
+    crypto::Sha3_256 a;
+    a.update(Bytes(p, 300)); // two blocks and part of a third
+    auto saved = a.save();
+    crypto::Sha3_256 b = crypto::Sha3_256::restore(saved.data());
+    a.update(Bytes(p + 300, 700));
+    b.update(Bytes(p + 300, 700));
+    CHECK(a.finish() == b.finish());
 }

@@ -62,8 +62,7 @@ struct Options {
     std::optional<lz4pack::PackOptions> lz4;
     // FPKG output: keys_folder is required; `overwrite` comes from above.
     fpkg::build::PackageOptions fpkg;
-    // Resumable output (every target but FPKG; see resume.hpp). FPKG output
-    // and LZ4 packing ignore it and start over.
+    // Resumable output (every target, LZ4 packing included; see resume.hpp).
     resume::Session* resume = nullptr;
     // Serve LZ4-packed files as ordinary files again (drops the packs).
     bool lz4_unpack = false;

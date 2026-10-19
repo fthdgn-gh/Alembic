@@ -3,6 +3,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <ftw.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -24,6 +25,12 @@ void fail(const char* file, int line, const std::string& message) {
     ++failures();
 }
 
+// Folders made by make_temp_dir(), removed when the run ends.
+static std::vector<std::string>& temp_dirs() {
+    static std::vector<std::string> dirs;
+    return dirs;
+}
+
 std::string make_temp_dir() {
     const char* base = std::getenv("TMPDIR");
     std::string pattern = std::string(base && *base ? base : "/tmp") + "/alembic-test-XXXXXX";
@@ -33,6 +40,7 @@ std::string make_temp_dir() {
         std::perror("mkdtemp");
         std::abort();
     }
+    temp_dirs().push_back(buffer.data());
     return buffer.data();
 }
 
@@ -82,5 +90,10 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "%s %s\n", test::failures() == before ? "ok  " : "FAIL", c.name);
     }
     std::fprintf(stderr, "%d tests, %d failed checks\n", run, test::failures());
+    // ALEMBIC_KEEP_TEST_DIRS=1 keeps them for a look after a failure.
+    if (!std::getenv("ALEMBIC_KEEP_TEST_DIRS"))
+        for (const std::string& dir : test::temp_dirs())
+            ::nftw(dir.c_str(), [](const char* path, const struct stat*, int, struct FTW*) { return ::remove(path); }, 16,
+                   FTW_DEPTH | FTW_PHYS);
     return test::failures() == 0 ? 0 : 1;
 }

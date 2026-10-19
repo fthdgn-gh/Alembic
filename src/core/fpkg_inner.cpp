@@ -3,6 +3,7 @@
 // ProsperoPs5InnerImageReader.cs, NapsDialectRegistry.cs, NapsIndexedLogicalMap.cs,
 // NapsSparseFidxDialect.cs, ProsperoInnerMountStream.cs, ProsperoInnerPfsReader.cs.
 #include "alembic/fpkg_inner.hpp"
+#include "alembic/thread_pool.hpp"
 
 #include "alembic/bytes.hpp"
 #include "alembic/kraken.hpp"
@@ -10,6 +11,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <mutex>
+#include <condition_variable>
 #include <map>
 #include <optional>
 #include <set>
@@ -641,11 +644,82 @@ Result<BlockPlan> plan_blocks(const std::vector<std::uint8_t>& naps, std::uint64
     return plan;
 }
 
+struct InnerMount::Ahead {
+    std::size_t index = 0;
+    std::vector<std::uint8_t> compressed;
+    std::vector<std::uint8_t> decoded;
+    kraken::DecodeStatus status = kraken::DecodeStatus::success;
+    bool done = false;
+    std::mutex mutex;
+    std::condition_variable cv;
+};
+
 InnerMount::InnerMount(std::shared_ptr<const RandomAccess> inner_image, std::vector<InnerBlock> blocks,
                        std::uint64_t mount_size)
     : image_(std::move(inner_image)), blocks_(std::move(blocks)), mount_size_(mount_size) {
     auto size = image_->size();
     image_size_ = size.ok() ? *size : 0;
+}
+
+// Jobs hold their Ahead; the pool finishes them before it goes.
+InnerMount::~InnerMount() { pool_.reset(); }
+
+namespace {
+// Blocks decoded ahead per worker: enough to keep them busy, ~0.5 MiB each.
+constexpr std::size_t kAheadPerWorker = 3;
+} // namespace
+
+Status InnerMount::fill_ahead(std::size_t after) const {
+    if (!pool_) {
+        unsigned n = worker_count(threads_);
+        if (n <= 1) return {};
+        pool_ = std::make_unique<Pool>(n);
+    }
+    const std::size_t window = pool_->size() * kAheadPerWorker;
+    std::size_t next = std::max(queued_up_to_, after + 1);
+    while (ahead_.size() < window && next < blocks_.size()) {
+        const InnerBlock& b = blocks_[next];
+        // Only Kraken blocks are worth a thread; the others are decoded when read.
+        if (b.kraken && !b.alias && !b.zero_hole && b.length > 0 && b.compressed_length > 0 &&
+            b.compressed_offset <= image_size_ && b.compressed_length <= image_size_ - b.compressed_offset) {
+            auto a = std::make_shared<Ahead>();
+            a->index = next;
+            a->compressed.resize(b.compressed_length);
+            ALEMBIC_TRY(image_->read_at(b.compressed_offset, a->compressed));
+            a->decoded.resize(b.length);
+            const int flags = b.kraken_flags;
+            const std::size_t first = b.length > kChunk128K ? b.even_length : 0;
+            pool_->submit([a, flags, first](unsigned) {
+                kraken::DecodeStatus st = kraken::decode_block(a->compressed, flags, first, a->decoded);
+                std::lock_guard<std::mutex> lock(a->mutex);
+                a->status = st;
+                a->done = true;
+                a->cv.notify_all();
+            });
+            ahead_.push_back(std::move(a));
+        }
+        ++next;
+    }
+    queued_up_to_ = next;
+    return {};
+}
+
+Status InnerMount::take_ahead(std::size_t index) const {
+    while (!ahead_.empty() && ahead_.front()->index < index) ahead_.pop_front();
+    if (ahead_.empty() || ahead_.front()->index != index) return make_error(Errc::invalid_argument, "not ahead");
+    std::shared_ptr<Ahead> a = ahead_.front();
+    ahead_.pop_front();
+    {
+        std::unique_lock<std::mutex> lock(a->mutex);
+        a->cv.wait(lock, [&] { return a->done; });
+    }
+    const InnerBlock& b = blocks_[index];
+    if (a->status != kraken::DecodeStatus::success)
+        return invalid("Kraken decode failed for the inner block at mount offset " + std::to_string(b.offset) +
+                       (a->status == kraken::DecodeStatus::unsupported_entropy ? " (unsupported entropy type)" : ""));
+    cache_.resize(kPage);
+    std::memcpy(cache_.data(), a->decoded.data(), b.length);
+    return {};
 }
 
 Status InnerMount::decode_block(std::size_t index, MutableBytes out, int depth) const {
@@ -703,9 +777,21 @@ Status InnerMount::read_at(std::uint64_t offset, MutableBytes out) const {
             continue;
         }
         if (cached_ != index) {
-            cache_.resize(kPage);
-            ALEMBIC_TRY(decode_block(index, cache_));
+            // Moving forward: the block may be decoded already, and the next
+            // ones are queued. Anything else (a jump) drops the read-ahead.
+            bool forward = last_ != SIZE_MAX && index > last_ && index <= last_ + 1 + ahead_.size() + 1;
+            if (!forward) {
+                ahead_.clear();
+                queued_up_to_ = 0;
+            }
+            cached_ = SIZE_MAX;
+            if (!(forward && take_ahead(index).ok())) {
+                cache_.resize(kPage);
+                ALEMBIC_TRY(decode_block(index, cache_));
+            }
             cached_ = index;
+            last_ = index;
+            if (forward || index == 0) ALEMBIC_TRY(fill_ahead(index));
         }
         std::size_t within = static_cast<std::size_t>(at - b.offset);
         std::size_t n = std::min<std::size_t>(out.size() - done, b.length - within);

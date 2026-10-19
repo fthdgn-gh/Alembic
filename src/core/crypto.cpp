@@ -3,7 +3,28 @@
 
 #include "alembic/sha256.hpp"
 
+#include <algorithm>
+#include <bit>
+#include <condition_variable>
 #include <cstring>
+#include <mutex>
+#include <thread>
+#include <vector>
+
+#if defined(__AES__) && defined(__SSE2__) && (defined(__x86_64__) || defined(__i386__))
+#define ALEMBIC_AES_X86 1
+#include <wmmintrin.h>
+#elif defined(__ARM_FEATURE_AES) && defined(__aarch64__)
+#define ALEMBIC_AES_ARM 1
+#include <arm_neon.h>
+#endif
+#if defined(__SSE4_2__) && defined(__x86_64__)
+#define ALEMBIC_CRC_X86 1
+#include <nmmintrin.h>
+#elif defined(__ARM_FEATURE_CRC32) && defined(__aarch64__)
+#define ALEMBIC_CRC_ARM 1
+#include <arm_acle.h>
+#endif
 
 namespace alembic::crypto {
 
@@ -19,52 +40,101 @@ constexpr std::uint64_t kRoundConstants[24] = {
     0x8000000000008002ull, 0x8000000000000080ull, 0x000000000000800Aull, 0x800000008000000Aull,
     0x8000000080008081ull, 0x8000000000008080ull, 0x0000000080000001ull, 0x8000000080008008ull,
 };
-// Rotation offsets and lane order of the combined rho and pi steps.
-constexpr int kRho[24] = {1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 2, 14, 27, 41, 56, 8, 25, 43, 62, 18, 39, 61, 20, 44};
-constexpr int kPi[24] = {10, 7, 11, 17, 18, 3, 5, 16, 8, 21, 24, 4, 15, 23, 19, 13, 12, 2, 20, 14, 22, 9, 6, 1};
+// Rotation offsets r[x + 5y] (FIPS-202 rho).
+constexpr int kRho[25] = {0, 1, 62, 28, 27, 36, 44, 6, 55, 20, 3, 10, 43, 25, 39, 41, 45, 15, 21, 8, 18, 2, 61, 56, 14};
+// Where pi moves lane x + 5y: to y + 5((2x + 3y) mod 5).
+constexpr int pi_target(int i) { return i / 5 + 5 * ((2 * (i % 5) + 3 * (i / 5)) % 5); }
 
-inline std::uint64_t rotl64(std::uint64_t x, int n) { return (x << n) | (x >> (64 - n)); }
+template <int N>
+inline std::uint64_t rotl64(std::uint64_t x) {
+    if constexpr (N == 0) return x;
+    else return (x << N) | (x >> (64 - N));
+}
+
+// One round, written with constant indices only so the compiler keeps the
+// 25 lanes in registers.
+template <int I>
+inline void rho_pi(const std::uint64_t* a, const std::uint64_t* d, std::uint64_t* b) {
+    b[pi_target(I)] = rotl64<kRho[I]>(a[I] ^ d[I % 5]);
+    if constexpr (I + 1 < 25) rho_pi<I + 1>(a, d, b);
+}
+
+inline void keccak_round(std::uint64_t* a, std::uint64_t rc) {
+    std::uint64_t c[5], d[5], b[25];
+    for (int x = 0; x < 5; ++x) c[x] = a[x] ^ a[x + 5] ^ a[x + 10] ^ a[x + 15] ^ a[x + 20];
+    d[0] = c[4] ^ rotl64<1>(c[1]);
+    d[1] = c[0] ^ rotl64<1>(c[2]);
+    d[2] = c[1] ^ rotl64<1>(c[3]);
+    d[3] = c[2] ^ rotl64<1>(c[4]);
+    d[4] = c[3] ^ rotl64<1>(c[0]);
+    rho_pi<0>(a, d, b);
+    for (int y = 0; y < 25; y += 5) {
+        a[y + 0] = b[y + 0] ^ (~b[y + 1] & b[y + 2]);
+        a[y + 1] = b[y + 1] ^ (~b[y + 2] & b[y + 3]);
+        a[y + 2] = b[y + 2] ^ (~b[y + 3] & b[y + 4]);
+        a[y + 3] = b[y + 3] ^ (~b[y + 4] & b[y + 0]);
+        a[y + 4] = b[y + 4] ^ (~b[y + 0] & b[y + 1]);
+    }
+    a[0] ^= rc;
+}
 
 void keccak_f1600(std::uint64_t a[25]) {
-    for (int round = 0; round < 24; ++round) {
-        std::uint64_t c[5];
-        for (int x = 0; x < 5; ++x) c[x] = a[x] ^ a[x + 5] ^ a[x + 10] ^ a[x + 15] ^ a[x + 20];
-        for (int x = 0; x < 5; ++x) {
-            std::uint64_t d = c[(x + 4) % 5] ^ rotl64(c[(x + 1) % 5], 1);
-            for (int y = 0; y < 25; y += 5) a[y + x] ^= d;
-        }
-        std::uint64_t t = a[1];
-        for (int i = 0; i < 24; ++i) {
-            std::uint64_t next = a[kPi[i]];
-            a[kPi[i]] = rotl64(t, kRho[i]);
-            t = next;
-        }
-        for (int y = 0; y < 25; y += 5) {
-            std::uint64_t row[5];
-            for (int x = 0; x < 5; ++x) row[x] = a[y + x];
-            for (int x = 0; x < 5; ++x) a[y + x] = row[x] ^ (~row[(x + 1) % 5] & row[(x + 2) % 5]);
-        }
-        a[0] ^= kRoundConstants[round];
-    }
+    for (int round = 0; round < 24; ++round) keccak_round(a, kRoundConstants[round]);
+}
+
+inline std::uint64_t load_le64(const std::uint8_t* p) {
+    std::uint64_t v;
+    std::memcpy(&v, p, 8);
+    if constexpr (std::endian::native == std::endian::big) v = __builtin_bswap64(v);
+    return v;
 }
 
 } // namespace
 
-void Sha3_256::absorb_block() {
-    for (int i = 0; i < 17; ++i) {
-        std::uint64_t lane = 0;
-        for (int b = 7; b >= 0; --b) lane = (lane << 8) | buffer_[i * 8 + b];
-        state_[i] ^= lane;
-    }
+void Sha3_256::absorb(const std::uint8_t* block) {
+    for (int i = 0; i < 17; ++i) state_[i] ^= load_le64(block + i * 8);
     keccak_f1600(state_);
+}
+
+void Sha3_256::absorb_block() {
+    absorb(buffer_);
     fill_ = 0;
 }
 
 void Sha3_256::update(Bytes data) {
-    for (std::uint8_t byte : data) {
-        buffer_[fill_++] = byte;
-        if (fill_ == sizeof buffer_) absorb_block();
+    const std::uint8_t* p = data.data();
+    std::size_t n = data.size();
+    if (fill_) {
+        std::size_t take = std::min(n, sizeof buffer_ - fill_);
+        std::memcpy(buffer_ + fill_, p, take);
+        fill_ += take;
+        p += take;
+        n -= take;
+        if (fill_ < sizeof buffer_) return;
+        absorb_block();
     }
+    for (; n >= sizeof buffer_; p += sizeof buffer_, n -= sizeof buffer_) absorb(p);
+    if (n) {
+        std::memcpy(buffer_, p, n);
+        fill_ = n;
+    }
+}
+
+std::array<std::uint8_t, Sha3_256::kStateBytes> Sha3_256::save() const {
+    std::array<std::uint8_t, kStateBytes> out{};
+    for (int i = 0; i < 25; ++i)
+        for (int b = 0; b < 8; ++b) out[i * 8 + b] = static_cast<std::uint8_t>(state_[i] >> (8 * b));
+    std::memcpy(out.data() + 200, buffer_, 136);
+    for (int b = 0; b < 8; ++b) out[336 + b] = static_cast<std::uint8_t>(static_cast<std::uint64_t>(fill_) >> (8 * b));
+    return out;
+}
+
+Sha3_256 Sha3_256::restore(const std::uint8_t* state) {
+    Sha3_256 h;
+    for (int i = 0; i < 25; ++i) h.state_[i] = load_le64(state + i * 8);
+    std::memcpy(h.buffer_, state + 200, 136);
+    h.fill_ = static_cast<std::size_t>(load_le64(state + 336) % 136);
+    return h;
 }
 
 Digest Sha3_256::finish() {
@@ -75,6 +145,76 @@ Digest Sha3_256::finish() {
     Digest digest;
     for (int i = 0; i < 32; ++i) digest[i] = static_cast<std::uint8_t>(state_[i / 8] >> (8 * (i % 8)));
     return digest;
+}
+
+struct BackgroundSha3::Impl {
+    static constexpr std::size_t kSlots = 4;
+    std::vector<std::uint8_t> slots[kSlots];
+    std::size_t used[kSlots] = {};
+    Sha3_256* target[kSlots] = {};
+    std::size_t head = 0, tail = 0, queued = 0; // ring of filled slots
+    bool stop = false;
+    std::mutex mutex;
+    std::condition_variable changed;
+    std::thread thread;
+
+    explicit Impl(std::size_t piece) {
+        for (auto& s : slots) s.resize(piece);
+        thread = std::thread([this] { run(); });
+    }
+    ~Impl() {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            stop = true;
+        }
+        changed.notify_all();
+        thread.join();
+    }
+    void run() {
+        std::unique_lock<std::mutex> lock(mutex);
+        for (;;) {
+            changed.wait(lock, [&] { return stop || queued > 0; });
+            if (queued == 0) return;
+            std::size_t slot = tail;
+            lock.unlock();
+            target[slot]->update(Bytes(slots[slot].data(), used[slot]));
+            lock.lock();
+            tail = (tail + 1) % kSlots;
+            --queued;
+            changed.notify_all();
+        }
+    }
+};
+
+BackgroundSha3::BackgroundSha3(bool background, std::size_t piece) {
+    if (background) impl_ = new Impl(piece);
+}
+
+BackgroundSha3::~BackgroundSha3() { delete impl_; }
+
+void BackgroundSha3::update(Sha3_256& hash, Bytes data) {
+    if (!impl_) return hash.update(data);
+    while (!data.empty()) {
+        std::size_t n = std::min(data.size(), impl_->slots[0].size());
+        std::unique_lock<std::mutex> lock(impl_->mutex);
+        impl_->changed.wait(lock, [&] { return impl_->queued < Impl::kSlots; });
+        std::size_t slot = impl_->head;
+        lock.unlock();
+        std::memcpy(impl_->slots[slot].data(), data.data(), n);
+        impl_->used[slot] = n;
+        impl_->target[slot] = &hash;
+        lock.lock();
+        impl_->head = (impl_->head + 1) % Impl::kSlots;
+        ++impl_->queued;
+        impl_->changed.notify_all();
+        data = data.subspan(n);
+    }
+}
+
+void BackgroundSha3::wait() {
+    if (!impl_) return;
+    std::unique_lock<std::mutex> lock(impl_->mutex);
+    impl_->changed.wait(lock, [&] { return impl_->queued == 0; });
 }
 
 Digest sha3_256(Bytes data) {
@@ -206,9 +346,134 @@ Aes128::Aes128(const std::uint8_t key[16]) {
         dec_[i] = kT.td[0][kT.sbox[w >> 24]] ^ kT.td[1][kT.sbox[(w >> 16) & 0xFF]] ^
                   kT.td[2][kT.sbox[(w >> 8) & 0xFF]] ^ kT.td[3][kT.sbox[w & 0xFF]];
     }
+    // The same schedules as bytes, as the AES instructions take them.
+    for (int i = 0; i < 44; ++i) {
+        store_be(ek_ + 4 * i, enc_[i]);
+        store_be(dk_ + 4 * i, dec_[i]);
+    }
 }
 
-void Aes128::encrypt_block(const std::uint8_t in[16], std::uint8_t out[16]) const {
+// ---- AES instructions: AES-NI (x86-64, the PS5) or ARMv8 AES. Eight blocks
+// are in flight at a time so the units stay busy.
+#if defined(ALEMBIC_AES_X86)
+namespace {
+inline __m128i k128(const std::uint8_t* p) { return _mm_load_si128(reinterpret_cast<const __m128i*>(p)); }
+}
+void Aes128::hw_encrypt(const std::uint8_t* in, std::uint8_t* out, std::size_t count) const {
+    __m128i k[11];
+    for (int r = 0; r < 11; ++r) k[r] = k128(ek_ + 16 * r);
+    for (; count >= 8; count -= 8, in += 128, out += 128) {
+        __m128i b[8];
+        for (int j = 0; j < 8; ++j) b[j] = _mm_xor_si128(_mm_loadu_si128(reinterpret_cast<const __m128i*>(in + 16 * j)), k[0]);
+        for (int r = 1; r < 10; ++r)
+            for (int j = 0; j < 8; ++j) b[j] = _mm_aesenc_si128(b[j], k[r]);
+        for (int j = 0; j < 8; ++j) _mm_storeu_si128(reinterpret_cast<__m128i*>(out + 16 * j), _mm_aesenclast_si128(b[j], k[10]));
+    }
+    for (; count; --count, in += 16, out += 16) {
+        __m128i b = _mm_xor_si128(_mm_loadu_si128(reinterpret_cast<const __m128i*>(in)), k[0]);
+        for (int r = 1; r < 10; ++r) b = _mm_aesenc_si128(b, k[r]);
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(out), _mm_aesenclast_si128(b, k[10]));
+    }
+}
+void Aes128::hw_decrypt(const std::uint8_t* in, std::uint8_t* out, std::size_t count) const {
+    __m128i k[11];
+    for (int r = 0; r < 11; ++r) k[r] = k128(dk_ + 16 * r);
+    for (; count >= 8; count -= 8, in += 128, out += 128) {
+        __m128i b[8];
+        for (int j = 0; j < 8; ++j) b[j] = _mm_xor_si128(_mm_loadu_si128(reinterpret_cast<const __m128i*>(in + 16 * j)), k[0]);
+        for (int r = 1; r < 10; ++r)
+            for (int j = 0; j < 8; ++j) b[j] = _mm_aesdec_si128(b[j], k[r]);
+        for (int j = 0; j < 8; ++j) _mm_storeu_si128(reinterpret_cast<__m128i*>(out + 16 * j), _mm_aesdeclast_si128(b[j], k[10]));
+    }
+    for (; count; --count, in += 16, out += 16) {
+        __m128i b = _mm_xor_si128(_mm_loadu_si128(reinterpret_cast<const __m128i*>(in)), k[0]);
+        for (int r = 1; r < 10; ++r) b = _mm_aesdec_si128(b, k[r]);
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(out), _mm_aesdeclast_si128(b, k[10]));
+    }
+}
+#elif defined(ALEMBIC_AES_ARM)
+// AESE/AESD add the round key first, so the last key is a plain XOR.
+void Aes128::hw_encrypt(const std::uint8_t* in, std::uint8_t* out, std::size_t count) const {
+    uint8x16_t k[11];
+    for (int r = 0; r < 11; ++r) k[r] = vld1q_u8(ek_ + 16 * r);
+    for (; count >= 8; count -= 8, in += 128, out += 128) {
+        uint8x16_t b[8];
+        for (int j = 0; j < 8; ++j) b[j] = vld1q_u8(in + 16 * j);
+        for (int r = 0; r < 9; ++r)
+            for (int j = 0; j < 8; ++j) b[j] = vaesmcq_u8(vaeseq_u8(b[j], k[r]));
+        for (int j = 0; j < 8; ++j) vst1q_u8(out + 16 * j, veorq_u8(vaeseq_u8(b[j], k[9]), k[10]));
+    }
+    for (; count; --count, in += 16, out += 16) {
+        uint8x16_t b = vld1q_u8(in);
+        for (int r = 0; r < 9; ++r) b = vaesmcq_u8(vaeseq_u8(b, k[r]));
+        vst1q_u8(out, veorq_u8(vaeseq_u8(b, k[9]), k[10]));
+    }
+}
+void Aes128::hw_decrypt(const std::uint8_t* in, std::uint8_t* out, std::size_t count) const {
+    uint8x16_t k[11];
+    for (int r = 0; r < 11; ++r) k[r] = vld1q_u8(dk_ + 16 * r);
+    for (; count >= 8; count -= 8, in += 128, out += 128) {
+        uint8x16_t b[8];
+        for (int j = 0; j < 8; ++j) b[j] = vld1q_u8(in + 16 * j);
+        for (int r = 0; r < 9; ++r)
+            for (int j = 0; j < 8; ++j) b[j] = vaesimcq_u8(vaesdq_u8(b[j], k[r]));
+        for (int j = 0; j < 8; ++j) vst1q_u8(out + 16 * j, veorq_u8(vaesdq_u8(b[j], k[9]), k[10]));
+    }
+    for (; count; --count, in += 16, out += 16) {
+        uint8x16_t b = vld1q_u8(in);
+        for (int r = 0; r < 9; ++r) b = vaesimcq_u8(vaesdq_u8(b, k[r]));
+        vst1q_u8(out, veorq_u8(vaesdq_u8(b, k[9]), k[10]));
+    }
+}
+#else
+void Aes128::hw_encrypt(const std::uint8_t* in, std::uint8_t* out, std::size_t count) const {
+    for (; count; --count, in += 16, out += 16) portable_encrypt(in, out);
+}
+void Aes128::hw_decrypt(const std::uint8_t* in, std::uint8_t* out, std::size_t count) const {
+    for (; count; --count, in += 16, out += 16) portable_decrypt(in, out);
+}
+#endif
+
+// The AES instructions are used only after they pass the FIPS-197 example
+// (and a multi-block round trip) once; otherwise the table code runs.
+bool Aes128::hardware() {
+#if defined(ALEMBIC_AES_X86) || defined(ALEMBIC_AES_ARM)
+    static const bool ok = [] {
+        const std::uint8_t key[16] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+                                      0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f};
+        const std::uint8_t expect[16] = {0x69, 0xc4, 0xe0, 0xd8, 0x6a, 0x7b, 0x04, 0x30,
+                                         0xd8, 0xcd, 0xb7, 0x80, 0x70, 0xb4, 0xc5, 0x5a};
+        Aes128 aes(key);
+        std::uint8_t blocks[16 * 9];
+        for (int j = 0; j < 9; ++j)
+            for (int i = 0; i < 16; ++i) blocks[16 * j + i] = static_cast<std::uint8_t>(i * 0x11);
+        std::uint8_t out[16 * 9];
+        aes.hw_encrypt(blocks, out, 9);
+        for (int j = 0; j < 9; ++j)
+            if (std::memcmp(out + 16 * j, expect, 16) != 0) return false;
+        aes.hw_decrypt(out, out, 9);
+        return std::memcmp(out, blocks, sizeof out) == 0;
+    }();
+    return ok;
+#else
+    return false;
+#endif
+}
+
+void Aes128::encrypt_blocks(const std::uint8_t* in, std::uint8_t* out, std::size_t count) const {
+    if (hardware()) return hw_encrypt(in, out, count);
+    for (; count; --count, in += 16, out += 16) portable_encrypt(in, out);
+}
+
+void Aes128::decrypt_blocks(const std::uint8_t* in, std::uint8_t* out, std::size_t count) const {
+    if (hardware()) return hw_decrypt(in, out, count);
+    for (; count; --count, in += 16, out += 16) portable_decrypt(in, out);
+}
+
+void Aes128::encrypt_block(const std::uint8_t in[16], std::uint8_t out[16]) const { encrypt_blocks(in, out, 1); }
+void Aes128::decrypt_block(const std::uint8_t in[16], std::uint8_t out[16]) const { decrypt_blocks(in, out, 1); }
+
+void Aes128::portable_encrypt(const std::uint8_t in[16], std::uint8_t out[16]) const {
     const std::uint32_t* rk = enc_;
     std::uint32_t s0 = load_be(in) ^ rk[0], s1 = load_be(in + 4) ^ rk[1];
     std::uint32_t s2 = load_be(in + 8) ^ rk[2], s3 = load_be(in + 12) ^ rk[3];
@@ -231,7 +496,7 @@ void Aes128::encrypt_block(const std::uint8_t in[16], std::uint8_t out[16]) cons
     store_be(out + 12, last(s3, s0, s1, s2, rk[3]));
 }
 
-void Aes128::decrypt_block(const std::uint8_t in[16], std::uint8_t out[16]) const {
+void Aes128::portable_decrypt(const std::uint8_t in[16], std::uint8_t out[16]) const {
     const std::uint32_t* rk = dec_;
     std::uint32_t s0 = load_be(in) ^ rk[0], s1 = load_be(in + 4) ^ rk[1];
     std::uint32_t s2 = load_be(in + 8) ^ rk[2], s3 = load_be(in + 12) ^ rk[3];
@@ -258,29 +523,43 @@ void Aes128::decrypt_block(const std::uint8_t in[16], std::uint8_t out[16]) cons
 
 namespace {
 
-// Multiplies the little-endian 128-bit tweak by x in GF(2^128).
-void tweak_times_x(std::uint8_t t[16]) {
-    std::uint8_t carry = 0;
-    for (int i = 0; i < 16; ++i) {
-        std::uint8_t next = t[i] >> 7;
-        t[i] = static_cast<std::uint8_t>((t[i] << 1) | carry);
-        carry = next;
-    }
-    if (carry) t[0] ^= 0x87;
-}
-
+// XTS in pieces of up to 32 blocks: the tweaks of a piece are made first
+// (each is the previous one times x in GF(2^128), little-endian), then the
+// piece is whitened, run through the cipher in one call and whitened again.
 void xts(const Aes128& data_key, const Aes128& tweak_key, std::uint64_t sector, MutableBytes data, bool decrypt) {
-    std::uint8_t tweak[16] = {};
-    for (int i = 0; i < 8; ++i) tweak[i] = static_cast<std::uint8_t>(sector >> (8 * i));
-    tweak_key.encrypt_block(tweak, tweak);
-    std::uint8_t block[16];
-    for (std::size_t off = 0; off + 16 <= data.size(); off += 16) {
-        std::uint8_t* p = data.data() + off;
-        for (int i = 0; i < 16; ++i) block[i] = p[i] ^ tweak[i];
-        if (decrypt) data_key.decrypt_block(block, block);
-        else data_key.encrypt_block(block, block);
-        for (int i = 0; i < 16; ++i) p[i] = block[i] ^ tweak[i];
-        tweak_times_x(tweak);
+    static_assert(std::endian::native == std::endian::little, "the tweak words are XORed as host integers");
+    std::uint8_t first[16] = {};
+    for (int i = 0; i < 8; ++i) first[i] = static_cast<std::uint8_t>(sector >> (8 * i));
+    tweak_key.encrypt_block(first, first);
+    std::uint64_t lo = load_le64(first), hi = load_le64(first + 8);
+    constexpr std::size_t kPiece = 32;
+    alignas(16) std::uint64_t tweaks[kPiece * 2];
+    std::uint8_t* p = data.data();
+    std::size_t blocks = data.size() / 16;
+    while (blocks) {
+        std::size_t n = std::min(blocks, kPiece);
+        for (std::size_t j = 0; j < n; ++j) {
+            tweaks[2 * j] = lo;
+            tweaks[2 * j + 1] = hi;
+            std::uint64_t carry = hi >> 63;
+            hi = (hi << 1) | (lo >> 63);
+            lo = (lo << 1) ^ (carry * 0x87);
+        }
+        auto whiten = [&] {
+            for (std::size_t j = 0; j < n; ++j) {
+                std::uint64_t w[2];
+                std::memcpy(w, p + 16 * j, 16);
+                w[0] ^= tweaks[2 * j];
+                w[1] ^= tweaks[2 * j + 1];
+                std::memcpy(p + 16 * j, w, 16);
+            }
+        };
+        whiten();
+        if (decrypt) data_key.decrypt_blocks(p, p, n);
+        else data_key.encrypt_blocks(p, p, n);
+        whiten();
+        p += 16 * n;
+        blocks -= n;
     }
 }
 
@@ -295,14 +574,22 @@ void xts_encrypt(const Aes128& data_key, const Aes128& tweak_key, std::uint64_t 
 }
 
 void cbc_decrypt(const Aes128& key, const std::uint8_t iv[16], MutableBytes data) {
-    std::uint8_t previous[16], saved[16];
+    // Blocks decrypt independently; each is then XORed with the ciphertext before it.
+    constexpr std::size_t kPiece = 32;
+    std::uint8_t previous[16], saved[kPiece * 16];
     std::memcpy(previous, iv, 16);
-    for (std::size_t off = 0; off + 16 <= data.size(); off += 16) {
-        std::uint8_t* p = data.data() + off;
-        std::memcpy(saved, p, 16);
-        key.decrypt_block(p, p);
-        for (int i = 0; i < 16; ++i) p[i] ^= previous[i];
-        std::memcpy(previous, saved, 16);
+    std::uint8_t* p = data.data();
+    for (std::size_t blocks = data.size() / 16; blocks;) {
+        std::size_t n = std::min(blocks, kPiece);
+        std::memcpy(saved, p, 16 * n);
+        key.decrypt_blocks(p, p, n);
+        for (std::size_t j = 0; j < n; ++j) {
+            const std::uint8_t* x = j == 0 ? previous : saved + 16 * (j - 1);
+            for (int i = 0; i < 16; ++i) p[16 * j + i] ^= x[i];
+        }
+        std::memcpy(previous, saved + 16 * (n - 1), 16);
+        p += 16 * n;
+        blocks -= n;
     }
 }
 
@@ -314,6 +601,59 @@ void cbc_encrypt(const Aes128& key, const std::uint8_t iv[16], MutableBytes data
         key.encrypt_block(p, p);
         previous = p;
     }
+}
+
+// ---------------------------------------------------------------- CRC-32C
+
+namespace {
+
+std::uint32_t crc32c_table(const std::uint8_t* p, std::size_t n, std::uint32_t c) {
+    static const auto table = [] {
+        std::array<std::uint32_t, 256> t{};
+        for (std::uint32_t i = 0; i < 256; ++i) {
+            std::uint32_t v = i;
+            for (int k = 0; k < 8; ++k) v = (v & 1) ? 0x82F63B78u ^ (v >> 1) : v >> 1;
+            t[i] = v;
+        }
+        return t;
+    }();
+    for (; n; --n, ++p) c = table[(c ^ *p) & 0xFF] ^ (c >> 8);
+    return c;
+}
+
+#if defined(ALEMBIC_CRC_X86) || defined(ALEMBIC_CRC_ARM)
+std::uint32_t crc32c_hw(const std::uint8_t* p, std::size_t n, std::uint32_t c) {
+    for (; n >= 8; n -= 8, p += 8) {
+        std::uint64_t v;
+        std::memcpy(&v, p, 8);
+#if defined(ALEMBIC_CRC_X86)
+        c = static_cast<std::uint32_t>(_mm_crc32_u64(c, v));
+#else
+        c = __crc32cd(c, v);
+#endif
+    }
+    for (; n; --n, ++p)
+#if defined(ALEMBIC_CRC_X86)
+        c = _mm_crc32_u8(c, *p);
+#else
+        c = __crc32cb(c, *p);
+#endif
+    return c;
+}
+#endif
+
+} // namespace
+
+// The CRC32 instructions are used only after they give the check value once.
+std::uint32_t crc32c(Bytes data, std::uint32_t crc) {
+#if defined(ALEMBIC_CRC_X86) || defined(ALEMBIC_CRC_ARM)
+    static const bool hw_ok = [] {
+        const char* check = "123456789";
+        return ~crc32c_hw(reinterpret_cast<const std::uint8_t*>(check), 9, ~0u) == 0xE3069283u;
+    }();
+    if (hw_ok) return ~crc32c_hw(data.data(), data.size(), ~crc);
+#endif
+    return ~crc32c_table(data.data(), data.size(), ~crc);
 }
 
 } // namespace alembic::crypto

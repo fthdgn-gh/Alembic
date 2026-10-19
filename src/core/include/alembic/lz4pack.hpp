@@ -297,8 +297,22 @@ std::string canonical_config_json(const Config& config);
 
 // ---------------------------------------------------------------- packing
 
+// Checkpoints of pass 1, the long part of packing: what compressing each
+// chunk gave (32 bytes per chunk, appended to `sidecar_path`). Everything
+// else pass 1 decides follows from those, in order, so a run given them
+// replays them without reading or compressing and goes on from there.
+struct PackCheckpoints {
+    std::string sidecar_path;
+    std::uint64_t resume_chunks = 0;    // results in the side file to replay
+    std::uint64_t interval = 1ull << 30; // input bytes between checkpoints
+    // Called once the side file holds `chunks` results on disk; `done` at the
+    // end of pass 1. Also called when stopped.
+    std::function<Status(std::uint64_t chunks, bool done)> save;
+};
+
 struct PackOptions {
     Config config;
+    std::optional<PackCheckpoints> checkpoints;
     // The PackedStdio runtime to place at fakelib/libSceAmpr.sprx (replacing
     // any existing one). Without it the console cannot read packed files.
     std::shared_ptr<const RandomAccess> runtime_module;

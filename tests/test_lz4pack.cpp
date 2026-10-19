@@ -189,3 +189,70 @@ TEST_CASE(lz4_pack_needs_a_runtime) {
     options.config = automatic_profile((*folder)->root());
     CHECK(!pack(**folder, options).ok());
 }
+
+// ---- checkpoints: stopped in pass 1 or while the output is written, a run
+// continues and gives the same bytes as an uninterrupted one.
+#include "alembic/convert.hpp"
+#include "alembic/resume.hpp"
+
+TEST_CASE(lz4_pack_resumes_in_both_passes) {
+    auto dir = test::make_temp_dir();
+    std::string game = make_game(dir);
+    auto folder = tree::open_folder(game);
+    REQUIRE_OK(folder);
+    convert::Options base;
+    PackOptions pack;
+    pack.config = automatic_profile((*folder)->root());
+    pack.config.workers = 3;
+    pack.timestamp = 1700000000;
+    base.lz4 = pack;
+    std::string reference = dir + "/ref.exfat";
+    REQUIRE_OK(convert::run(game, reference, convert::Format::exfat, base));
+
+    for (bool in_pass_one : {true, false}) {
+        std::string output = dir + (in_pass_one ? "/a.exfat" : "/b.exfat");
+        std::vector<resume::State> saved;
+        resume::Session session;
+        session.partial_path = output + resume::kPartialSuffix;
+        session.interval = 64 * 1024;
+        session.save = [&](const resume::State& s) {
+            saved.push_back(s);
+            return Status{};
+        };
+        convert::Options o = base;
+        o.resume = &session;
+        auto writer_saves = [&] {
+            std::size_t n = 0;
+            for (const auto& s : saved) n += resume::get(s, "format") != resume::kLz4Format;
+            return n;
+        };
+        auto stopped = convert::run(game, output, convert::Format::exfat, o, [&](const ProgressEvent& e) {
+            if (in_pass_one) return !(e.stage == std::string_view("LZ4 pass 1") && saved.size() >= 3);
+            return writer_saves() < 2;
+        });
+        CHECK(!stopped.ok());
+        CHECK(!saved.empty());
+        if (saved.empty()) continue;
+        const resume::State& last = saved.back();
+        CHECK(resume::get(last, "lz4_timestamp") == 1700000000u);
+        if (in_pass_one) {
+            CHECK(resume::get(last, "format") == resume::kLz4Format);
+            CHECK(resume::get(last, "lz4_done") == 0u);
+        } else {
+            CHECK(resume::get(last, "format") != resume::kLz4Format);
+            CHECK(resume::get(last, "lz4_done") == 1u);
+        }
+        CHECK(is_regular_file(session.partial_path + ".lz4"));
+        session.from = last;
+        std::uint64_t first_pass_one = ~std::uint64_t{0};
+        auto resumed = convert::run(game, output, convert::Format::exfat, o, [&](const ProgressEvent& e) {
+            if (e.stage == std::string_view("LZ4 pass 1") && first_pass_one == ~std::uint64_t{0}) first_pass_one = e.done;
+            return true;
+        });
+        REQUIRE_OK(resumed);
+        CHECK(test::read_file(output) == test::read_file(reference));
+        // Pass 1 replayed what it had: its first progress is past the checkpoint.
+        if (in_pass_one) CHECK(first_pass_one != ~std::uint64_t{0} && first_pass_one > 64 * 1024);
+        else CHECK(first_pass_one == ~std::uint64_t{0}); // nothing left to compress in pass 1
+    }
+}

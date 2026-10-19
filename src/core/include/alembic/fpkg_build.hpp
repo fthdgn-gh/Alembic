@@ -14,6 +14,7 @@
 
 #include "alembic/crypto.hpp"
 #include "alembic/io.hpp"
+#include "alembic/resume.hpp"
 #include "alembic/result.hpp"
 #include "alembic/tree.hpp"
 
@@ -24,6 +25,10 @@
 #include <optional>
 #include <string>
 #include <vector>
+
+namespace alembic {
+class Pool; // thread_pool.hpp
+}
 
 namespace alembic::fpkg::build {
 
@@ -117,8 +122,26 @@ struct InnerImage {
     std::uint64_t encoded_bytes = 0; // payload as stored
 };
 
+// Where the data part of an inner image stands, for checkpoints: files are
+// written in afid order (empty ones have no data), each in kChunk pieces.
+struct InnerProgress {
+    std::uint64_t written = 0;     // inner image bytes in the sink
+    std::size_t file = 0;          // the file in progress, by data order
+    std::uint64_t file_offset = 0; // its bytes already written (a multiple of kChunk, or its length)
+    std::uint32_t source_block = 0;
+    std::vector<crypto::Digest> finished; // SHA3 of the files before it
+    std::array<std::uint8_t, crypto::Sha3_256::kStateBytes> hash{}; // of the file in progress
+};
+
 struct InnerOptions {
     Compression compression = Compression::stored;
+    unsigned threads = 0; // > 1 (or 0, every core): file hashes on a helper thread
+    // Continue a build whose sink already holds resume_from->written bytes.
+    const InnerProgress* resume_from = nullptr;
+    // Called after a chunk, every checkpoint_interval payload bytes, while the
+    // data is streamed (not for the metadata after it).
+    std::function<Status(const InnerProgress&)> checkpoint;
+    std::uint64_t checkpoint_interval = 0;
     int kraken_level = 7; // recorded in the container header
     std::int64_t time_seconds = 0x6A31A5B9;
     std::uint32_t time_nanoseconds = 0x14DC9380;
@@ -141,6 +164,7 @@ struct OuterOptions {
     std::string content_id; // 36 characters
     std::string passcode;   // 32 characters
     std::array<std::uint8_t, 16> seed{};
+    unsigned threads = 0; // hashing and encryption workers; 0 = every core
     std::int64_t time_seconds = 0x6A31A5B9;
     std::uint32_t time_nanoseconds = 0x14DC9380;
 };
@@ -161,7 +185,8 @@ struct OuterPfs {
 
 // Streams the outer PFS into `out`: begin_file, write the file's bytes (this
 // is a ByteSink), end_file, ..., then finish() for the metadata blocks. Data
-// blocks are hashed and encrypted on the way.
+// blocks are hashed and encrypted on the way, in batches spread over worker
+// threads while the caller produces the next ones; `out` gets them in order.
 class OuterPfsWriter final : public ByteSink {
 public:
     OuterPfsWriter(ByteSink& out, const OuterOptions& options);
@@ -173,9 +198,23 @@ public:
     Status end_file(std::uint64_t size_compressed);
     Result<OuterPfs> finish();
 
+    // Checkpoints: writes out every whole block emitted so far; then the
+    // digests of the blocks written and the open file's last partial block.
+    Status flush();
+    const std::vector<crypto::Digest>& digests() const { return blocks_; }
+    Bytes pending() const { return Bytes(block_.data(), fill_); }
+    // Continues a stream inside the first file (after begin_file): `out`
+    // already holds digests.size() blocks, the file has `size` bytes so far
+    // and `pending` is its last partial block.
+    Status resume(std::vector<crypto::Digest> digests, Bytes pending, std::uint64_t size);
+
 private:
     enum class Kind { data, signed_block, plaintext };
     Status emit_block(const std::uint8_t* plain, Kind kind);
+    struct Batch;
+    Status dispatch();               // hand the filling batch to the workers
+    Status complete(Batch& batch);   // wait for it, then write it out
+    Status drain();                  // complete every batch in flight
     struct File {
         std::string name;
         bool signed_blocks = false;
@@ -189,7 +228,12 @@ private:
     std::size_t fill_ = 0;
     bool open_ = false;
     std::vector<File> files_;
-    std::vector<crypto::Digest> blocks_;
+    std::vector<crypto::Digest> blocks_; // digests of the blocks written so far
+    std::uint32_t next_index_ = 0;        // blocks emitted, batched ones included
+    std::vector<std::unique_ptr<Batch>> batches_;
+    std::size_t filling_ = 0;             // the batch taking blocks
+    Status failed_;                       // first error of a batch write
+    std::unique_ptr<alembic::Pool> pool_; // last: joined before the batches go
 };
 
 // The outer AES-XTS keys from the content ID, passcode and seed: {tweak, data}.
@@ -295,6 +339,7 @@ struct PackageOptions {
     std::int64_t time_seconds = 0x6A31A5B9;
     std::uint32_t time_nanoseconds = 0x14DC9380;
     bool overwrite = false;
+    unsigned threads = 0; // hashing and encryption workers; 0 = every core
 };
 struct PackageResult {
     std::string content_id;
@@ -304,9 +349,13 @@ struct PackageResult {
 };
 // Builds a debug package from a game tree (the folder layout of a dump:
 // eboot.bin, sce_sys/param.json, ...), byte-identical to ProsperoPkgTool
-// img_create with the same seed and --no_right_sprx.
+// img_create with the same seed and --no_right_sprx. With a session
+// (resume.hpp) it writes into the partial file and saves a checkpoint every
+// interval bytes of game data and when stopped; one continues there (with
+// the seed it started with). The checkpoint's bulk lives in side files.
 Result<PackageResult> write_package(const tree::Source& source, const tree::Node& root, const std::string& output_path,
-                                    const PackageOptions& options, const ProgressFn& progress = {});
+                                    const PackageOptions& options, const ProgressFn& progress = {},
+                                    resume::Session* session = nullptr);
 
 // ---- sce_sys files that become outer CNT entries (fpkg_media.cpp) ----
 

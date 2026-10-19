@@ -151,5 +151,8 @@ TEST_CASE(lz4_detects_engines_from_the_layout) {
     CHECK(lz4pack::detect_engine(make({"Data/globalgamemanagers"}, {"StreamingAssets"})) == "unity");
     CHECK(lz4pack::detect_engine(make({"Media/globalgamemanagers"}, {"Media/StreamingAssets"})) == "unity");
     CHECK(lz4pack::detect_engine(make({"Media/Metadata/global-metadata.dat"}, {"Media/StreamingAssets"})) == "unity");
-    CHECK(lz4pack::detect_engine(make({"Media/globalgamemanagers"}, {"Media/Other"})).empty());
+    // Unity without StreamingAssets is still Unity: its data files must stay
+    // loose, so the Unity profile (packing nothing) beats the scan profile.
+    CHECK(lz4pack::detect_engine(make({"Media/globalgamemanagers"}, {"Media/Other"})) == "unity");
+    CHECK(lz4pack::detect_engine(make({"Media/level0"}, {"Media/Other"})).empty());
 }

@@ -190,6 +190,7 @@ if(ALEMBIC_BUILD_TESTS)
         tests/test_crypto.cpp
         tests/test_exfat.cpp
         tests/test_ffpfsc.cpp
+        tests/test_fpkg_build.cpp
         tests/test_json.cpp
         tests/test_lz4pack.cpp
         tests/test_pfs.cpp
@@ -200,6 +201,8 @@ if(ALEMBIC_BUILD_TESTS)
         tests/test_unicode.cpp
     )
     target_compile_options(alembic_tests PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
+    # Tests that need reference files from .refs/ skip themselves when absent.
+    target_compile_definitions(alembic_tests PRIVATE ALEMBIC_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
     if(ALEMBIC_BUILD_ENGINE)
         target_sources(alembic_tests PRIVATE tests/test_engine.cpp)
         target_link_libraries(alembic_tests PRIVATE alembic_engine_lib) # includes alembic_core

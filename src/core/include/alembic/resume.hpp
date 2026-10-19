@@ -39,6 +39,18 @@ inline constexpr std::uint64_t kSequentialFormat = 2; // exFAT images and image 
 inline constexpr std::uint64_t kUfs2Format = 3;       // + timestamp, pid
 inline constexpr std::uint64_t kPfsFormat = 4;        // + timestamp
 inline constexpr std::uint64_t kFolderFormat = 5;     // done (files already written are kept)
+inline constexpr std::uint64_t kFpkgFormat = 6;       // + side files (sidecar_path)
+inline constexpr std::uint64_t kLz4Format = 7;        // LZ4 packing (see lz4pack.hpp)
+
+// Side files a writer keeps next to the partial output when a State is too
+// small for its checkpoint; they go with it.
+inline constexpr const char* kSidecarSuffixes[] = {".state", ".digests", ".lz4"};
+// The partial output's name: "<output>" + this (a folder output has none,
+// but its side files use the same name).
+inline constexpr const char* kPartialSuffix = ".alembic-partial";
+inline std::string sidecar_path(const Session& session, const char* suffix) { return session.partial_path + suffix; }
+// Deletes a partial output and its side files.
+void remove_partial(const std::string& partial_path);
 
 // A value of a State, or ~0 when it is missing.
 inline std::uint64_t get(const State& s, const char* key) {

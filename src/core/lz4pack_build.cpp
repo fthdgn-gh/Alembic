@@ -11,6 +11,7 @@
 #include "alembic/bytes.hpp"
 #include "alembic/exfat.hpp"
 #include "alembic/sha256.hpp"
+#include "alembic/thread_pool.hpp"
 #include "alembic/unicode.hpp"
 
 #include "lz4.h"
@@ -28,6 +29,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+#include <unistd.h>
 
 namespace alembic::lz4pack {
 
@@ -39,55 +41,7 @@ constexpr std::uint64_t kMiB = 1024 * 1024;
 
 // ---------------------------------------------------------------- workers
 
-// A fixed set of threads running jobs in any order. Jobs get their worker
-// index so each thread can keep its own LZ4 state.
-class Pool {
-public:
-    explicit Pool(unsigned threads) {
-        if (threads == 0) threads = 1;
-        for (unsigned i = 0; i < threads; ++i) threads_.emplace_back([this, i] { run(i); });
-    }
-    ~Pool() {
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            stop_ = true;
-        }
-        work_.notify_all();
-        for (std::thread& t : threads_) t.join();
-    }
-    unsigned size() const { return static_cast<unsigned>(threads_.size()); }
-
-    void submit(std::function<void(unsigned)> job) {
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            queue_.push_back(std::move(job));
-        }
-        work_.notify_one();
-    }
-
-private:
-    void run(unsigned index) {
-        for (;;) {
-            std::function<void(unsigned)> job;
-            {
-                std::unique_lock<std::mutex> lock(mutex_);
-                work_.wait(lock, [&] { return stop_ || !queue_.empty(); });
-                if (stop_ && queue_.empty()) return;
-                job = std::move(queue_.front());
-                queue_.pop_front();
-            }
-            job(index);
-        }
-    }
-
-    std::vector<std::thread> threads_;
-    std::deque<std::function<void(unsigned)>> queue_;
-    std::mutex mutex_;
-    std::condition_variable work_;
-    bool stop_ = false;
-};
-
-// Per-worker LZ4 state, allocated once.
+// Per-worker LZ4 state, allocated once (Pool jobs get their worker index).
 struct Lz4States {
     std::vector<std::vector<char>> hc, fast;
     explicit Lz4States(unsigned n) : hc(n), fast(n) {
@@ -505,7 +459,7 @@ public:
 private:
     Status make_deployed_tree(const PackOptions& options, std::int64_t now);
     Status plan(const ProgressFn& progress);
-    Status pass_one(const ProgressFn& progress);
+    Status pass_one(const PackOptions& options, const ProgressFn& progress);
     Status sample(Item& item, bool& use_loose, std::string& note);
     Status finish(std::int64_t now);
 
@@ -847,7 +801,75 @@ private:
     }
 };
 
-Status PackedTreeImpl::pass_one(const ProgressFn& progress) {
+// What compressing one chunk gave, as pass 1 checkpoints keep it (32 bytes).
+struct ChunkResult {
+    std::uint32_t stored_size = 0;
+    std::uint32_t codec = 0;
+    std::uint32_t raw_crc = 0, stored_crc = 0;
+    std::uint64_t h1 = 0, h2 = 0;
+};
+constexpr std::size_t kChunkResultBytes = 32;
+
+void append_result(std::vector<std::uint8_t>& out, const ChunkResult& r) {
+    std::uint8_t b[kChunkResultBytes] = {};
+    put_u32(b, r.stored_size);
+    b[4] = static_cast<std::uint8_t>(r.codec);
+    put_u32(b + 8, r.raw_crc);
+    put_u32(b + 12, r.stored_crc);
+    put_u64(b + 16, r.h1);
+    put_u64(b + 24, r.h2);
+    out.insert(out.end(), b, b + kChunkResultBytes);
+}
+
+Result<std::vector<ChunkResult>> read_results(const std::string& path, std::uint64_t count) {
+    if (count == 0) return std::vector<ChunkResult>();
+    if (count > (1ull << 32)) return make_error(Errc::invalid_data, "the LZ4 checkpoint is damaged");
+    ALEMBIC_ASSIGN(File f, File::open(path, File::Mode::read));
+    ALEMBIC_ASSIGN(std::uint64_t size, f.size());
+    if (size < count * kChunkResultBytes) return make_error(Errc::invalid_data, "the LZ4 checkpoint side file is short");
+    std::vector<std::uint8_t> data(static_cast<std::size_t>(count * kChunkResultBytes));
+    ALEMBIC_TRY(f.read_at(0, data));
+    std::vector<ChunkResult> out(static_cast<std::size_t>(count));
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        const std::uint8_t* b = data.data() + i * kChunkResultBytes;
+        out[i] = {get_u32(b), b[4], get_u32(b + 8), get_u32(b + 12), get_u64(b + 16), get_u64(b + 24)};
+        if ((out[i].codec != kCodecRaw && out[i].codec != kCodecLz4) || out[i].stored_size == 0)
+            return make_error(Errc::invalid_data, "the LZ4 checkpoint side file is damaged");
+    }
+    return out;
+}
+
+Status PackedTreeImpl::pass_one(const PackOptions& options, const ProgressFn& progress) {
+    // Checkpoints: results from the side file are replayed first, without
+    // reading or compressing; new ones are appended to it.
+    const PackCheckpoints* cp = options.checkpoints ? &*options.checkpoints : nullptr;
+    std::vector<ChunkResult> replay;
+    if (cp && cp->resume_chunks) {
+        auto loaded = read_results(cp->sidecar_path, cp->resume_chunks);
+        if (!loaded.ok()) return make_error(Errc::invalid_data, "cannot continue from the checkpoint: " + loaded.error().message);
+        replay = std::move(*loaded);
+    }
+    std::vector<std::uint8_t> unsaved; // encoded results not in the side file yet
+    std::uint64_t saved_chunks = replay.size();
+    auto save_checkpoint = [&](bool done) -> Status {
+        if (!cp || !cp->save) return {};
+        if (!unsaved.empty() || saved_chunks == 0) {
+            auto f = saved_chunks ? File::open(cp->sidecar_path, File::Mode::read_write)
+                                  : Result<File>(make_error(Errc::io, "new"));
+            if (!f.ok()) {
+                ::unlink(cp->sidecar_path.c_str());
+                f = File::open(cp->sidecar_path, File::Mode::create_new);
+            }
+            if (!f.ok()) return f.error();
+            ALEMBIC_TRY(f->write_at(saved_chunks * kChunkResultBytes, unsaved));
+            ALEMBIC_TRY(f->sync());
+            saved_chunks += unsaved.size() / kChunkResultBytes;
+            unsaved.clear();
+        }
+        return cp->save(saved_chunks, done);
+    };
+    std::uint64_t next_checkpoint = cp ? cp->interval : 0;
+
     std::uint64_t total_bytes = 0;
     for (const Item& item : items_)
         if (item.packed()) total_bytes += item.node->size;
@@ -923,34 +945,47 @@ Status PackedTreeImpl::pass_one(const ProgressFn& progress) {
         std::uint64_t total_blocks = div_round_up(size, block_size);
         std::deque<std::shared_ptr<Block>> pending;
         std::size_t window = std::max<std::size_t>(4, pool_->size() * 4);
-        std::uint64_t next_read = 0;
+        // Chunks of this item that come from the checkpoint are not read.
+        std::uint64_t replayed_here = replay.size() > item.first_chunk
+                                          ? std::min<std::uint64_t>(total_blocks, replay.size() - item.first_chunk)
+                                          : 0;
+        std::uint64_t next_read = replayed_here;
         for (std::uint64_t chunk_index = 0; chunk_index < total_blocks; ++chunk_index) {
-            while (next_read < total_blocks && pending.size() < window) {
-                auto b = std::make_shared<Block>();
-                std::uint64_t offset = next_read * block_size;
-                b->raw.resize(static_cast<std::size_t>(std::min(block_size, size - offset)));
-                ALEMBIC_TRY(file->read_at(offset, b->raw));
-                compressor.submit(b, params, allow_dedupe);
-                pending.push_back(b);
-                ++next_read;
+            const bool replayed = chunk_index < replayed_here;
+            const std::uint32_t raw_size =
+                static_cast<std::uint32_t>(std::min<std::uint64_t>(block_size, size - chunk_index * block_size));
+            ChunkResult r;
+            if (replayed) {
+                r = replay[item.first_chunk + chunk_index];
+            } else {
+                while (next_read < total_blocks && pending.size() < window) {
+                    auto b = std::make_shared<Block>();
+                    std::uint64_t offset = next_read * block_size;
+                    b->raw.resize(static_cast<std::size_t>(std::min(block_size, size - offset)));
+                    ALEMBIC_TRY(file->read_at(offset, b->raw));
+                    compressor.submit(b, params, allow_dedupe);
+                    pending.push_back(b);
+                    ++next_read;
+                }
+                std::shared_ptr<Block> block = pending.front();
+                pending.pop_front();
+                compressor.wait(*block);
+                r = {block->stored_size, block->codec, block->raw_crc, block->stored_crc, block->h1, block->h2};
+                append_result(unsaved, r);
             }
-            std::shared_ptr<Block> block = pending.front();
-            pending.pop_front();
-            compressor.wait(*block);
 
             std::uint32_t lane = item.lane;
             if (striped) lane = static_cast<std::uint32_t>((item.lane + chunk_index / group.stripe_group_blocks) % group.pack_count);
-            std::uint32_t raw_size = static_cast<std::uint32_t>(block->raw.size());
             ChunkRecord record;
             bool shared = false;
             if (allow_dedupe) {
-                std::uint32_t prior = dedupe.find(block->h1, block->h2, block->raw_crc, [&](std::uint32_t idx) {
+                std::uint32_t prior = dedupe.find(r.h1, r.h2, r.raw_crc, [&](std::uint32_t idx) {
                     const ChunkRecord& p = manifest_.chunks[idx];
                     const VolumePlan& pv = volumes_[p.pack_id];
                     bool same_domain = config_.deduplicate_group_scope ? pv.group == item.group
                                                                        : (pv.group == item.group && pv.lane == lane);
                     bool prior_streaming = p.flags & kChunkStreaming;
-                    return same_domain && prior_streaming == streaming && p.codec == block->codec &&
+                    return same_domain && prior_streaming == streaming && p.codec == r.codec &&
                            p.raw_size == raw_size;
                 });
                 if (prior != UINT32_MAX) {
@@ -965,41 +1000,50 @@ Status PackedTreeImpl::pass_one(const ProgressFn& progress) {
             }
             if (!shared) {
                 bool extent_start = streaming && (chunk_index == 0 || (striped && chunk_index % group.stripe_group_blocks == 0));
-                ALEMBIC_ASSIGN(std::size_t w, writer_for(item.group, lane, block->stored_size, striped, streaming, extent_start));
+                ALEMBIC_ASSIGN(std::size_t w, writer_for(item.group, lane, r.stored_size, striped, streaming, extent_start));
                 VolumePlan& v = volumes_[w];
-                auto [offset, placement] = v.placement_for(block->stored_size, streaming, extent_start);
+                auto [offset, placement] = v.placement_for(r.stored_size, streaming, extent_start);
                 v.padding_bytes += offset - v.position;
-                v.position = offset + block->stored_size;
+                v.position = offset + r.stored_size;
                 std::uint32_t flags = placement | (streaming ? kChunkStreaming : 0);
-                bool page_safe = block->stored_size <= v.io_page_size ? (placement & kChunkPageContained)
-                                                                      : (placement & kChunkPageAligned);
+                bool page_safe = r.stored_size <= v.io_page_size ? (placement & kChunkPageContained)
+                                                                 : (placement & kChunkPageAligned);
                 if (!streaming && !page_safe) return make_error(Errc::invalid_data, "a chunk was not placed page-safely");
                 record.offset = offset;
-                record.stored_size = block->stored_size;
+                record.stored_size = r.stored_size;
                 record.raw_size = raw_size;
                 record.pack_id = v.pack_id;
-                record.codec = static_cast<std::uint8_t>(block->codec);
+                record.codec = static_cast<std::uint8_t>(r.codec);
                 record.flags = static_cast<std::uint8_t>(flags);
                 v.placed.push_back(static_cast<std::uint32_t>(manifest_.chunks.size()));
                 if (allow_dedupe)
-                    dedupe.insert(block->h1, block->h2, block->raw_crc, static_cast<std::uint32_t>(manifest_.chunks.size()));
-                stats_.stored_bytes += block->stored_size;
-                stored_crcs_.push_back(block->stored_crc);
+                    dedupe.insert(r.h1, r.h2, r.raw_crc, static_cast<std::uint32_t>(manifest_.chunks.size()));
+                stats_.stored_bytes += r.stored_size;
+                stored_crcs_.push_back(r.stored_crc);
             }
             manifest_.chunks.push_back(record);
-            raw_crcs_.push_back(block->raw_crc);
+            raw_crcs_.push_back(r.raw_crc);
             chunk_item_.push_back(static_cast<std::uint32_t>(i));
             ++stats_.chunks;
             stats_.logical_bytes += raw_size;
             if (record.codec == kCodecLz4) ++stats_.chunks_lz4;
             else ++stats_.chunks_raw;
             done_bytes += raw_size;
-            if (progress && !progress({"LZ4 pass 1", done_bytes, total_bytes})) return make_error(Errc::cancelled, "cancelled");
+            if (replayed) continue;
+            // A stop (pause or cancel) saves a checkpoint at this very point too.
+            const bool stop = progress && !progress({"LZ4 pass 1", done_bytes, total_bytes});
+            if (cp && (stop || done_bytes >= next_checkpoint)) {
+                next_checkpoint = done_bytes + cp->interval;
+                ALEMBIC_TRY(save_checkpoint(false));
+            }
+            if (stop) return make_error(Errc::cancelled, "cancelled");
         }
         item.chunk_count = static_cast<std::uint32_t>(manifest_.chunks.size() - item.first_chunk);
         ++stats_.files_packed;
     }
-    return {};
+    if (replay.size() > manifest_.chunks.size())
+        return make_error(Errc::invalid_data, "cannot continue from the checkpoint: it has more chunks than the game");
+    return save_checkpoint(true);
 }
 
 // ---------------------------------------------------------------- finish
@@ -1161,7 +1205,7 @@ Status PackedTreeImpl::build(const tree::Source& source, const PackOptions& opti
 
     ALEMBIC_TRY(make_deployed_tree(options, now));
     ALEMBIC_TRY(plan(progress));
-    ALEMBIC_TRY(pass_one(progress));
+    ALEMBIC_TRY(pass_one(options, progress));
     ALEMBIC_TRY(finish(now));
     return {};
 }

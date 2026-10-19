@@ -191,7 +191,7 @@ std::string checkpoint_path(const std::string& output, const EngineConfig& confi
 }
 
 // What must not change between a checkpoint and the run that continues it.
-std::string fingerprint(const JobSpec& spec, const std::string& output) {
+std::string fingerprint(const JobSpec& spec, const std::string& output, const EngineConfig& config) {
     struct stat st{};
     std::string input = strip_slashes(spec.input);
     if (::stat(input.c_str(), &st) != 0) return "";
@@ -208,13 +208,30 @@ std::string fingerprint(const JobSpec& spec, const std::string& output) {
     v.set("lz4_unpack", spec.lz4_unpack);
     v.set("passcode", spec.passcode);
     v.set("ampr_emu", spec.ampr_emu);
+    if (spec.lz4) {
+        // Packing: its settings, and the runtime file it puts in the game.
+        v.set("lz4_profile", spec.lz4_profile);
+        v.set("lz4_level", spec.lz4_level);
+        std::string runtime = spec.lz4_runtime.empty() ? config.runtime_path : spec.lz4_runtime;
+        struct stat rs{};
+        v.set("lz4_runtime", runtime);
+        if (::stat(runtime.c_str(), &rs) == 0) {
+            v.set("lz4_runtime_size", static_cast<std::int64_t>(rs.st_size));
+            v.set("lz4_runtime_mtime", static_cast<std::int64_t>(rs.st_mtime));
+        }
+    }
     return v.dump();
 }
 
 bool is_folder_output(const std::string& output) { return !output.empty() && output.back() == '/'; }
 
-// What a checkpoint continues: the partial file, or for a folder the folder itself.
+// The partial output's name, also for a folder (its side files use it).
+std::string partial_name(const std::string& output) { return strip_slashes(output) + kPartialSuffix; }
+
+// What a checkpoint continues: the partial file, or for a folder the folder
+// itself; while packing LZ4 (pass 1) only its side file exists.
 bool has_partial(const std::string& output) {
+    if (is_regular_file(partial_name(output) + ".lz4")) return true;
     return is_folder_output(output) ? is_directory(output) : is_regular_file(output + kPartialSuffix);
 }
 
@@ -238,9 +255,9 @@ Status write_json_file(const std::string& path, const JsonValue& v) {
 } // namespace
 
 bool keeps_progress(const JobSpec& spec) {
-    if (spec.kind != "convert" || spec.lz4) return false;
+    if (spec.kind != "convert") return false;
     auto to = target_format(spec);
-    return to.ok() && *to != convert::Format::fpkg;
+    return to.ok();
 }
 
 std::optional<CheckpointInfo> checkpoint_info(const JobSpec& spec, const EngineConfig& config) {
@@ -248,7 +265,7 @@ std::optional<CheckpointInfo> checkpoint_info(const JobSpec& spec, const EngineC
     auto output = resolve_output(spec);
     if (!output.ok() || !has_partial(*output)) return std::nullopt;
     auto v = read_json_file(checkpoint_path(*output, config));
-    if (!v.ok() || (*v)["fingerprint"].str() != fingerprint(spec, *output)) return std::nullopt;
+    if (!v.ok() || (*v)["fingerprint"].str() != fingerprint(spec, *output, config)) return std::nullopt;
     CheckpointInfo info;
     info.done = static_cast<std::uint64_t>((*v)["done"].integer());
     info.total = static_cast<std::uint64_t>((*v)["total"].integer());
@@ -259,7 +276,12 @@ void discard_checkpoint(const JobSpec& spec, const EngineConfig& config) {
     if (spec.kind != "convert") return;
     auto output = resolve_output(spec);
     if (!output.ok()) return;
-    if (!is_folder_output(*output)) ::unlink((*output + kPartialSuffix).c_str()); // a folder keeps what it has
+    // A folder keeps what it has; only side files go.
+    if (is_folder_output(*output)) {
+        for (const char* suffix : resume::kSidecarSuffixes) ::unlink((partial_name(*output) + suffix).c_str());
+    } else {
+        resume::remove_partial(*output + kPartialSuffix);
+    }
     ::unlink(checkpoint_path(*output, config).c_str());
 }
 
@@ -374,8 +396,14 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
         return !progress || progress(e);
     };
     const std::string cp_path = checkpoint_path(output, config);
-    const std::string fp = fingerprint(spec, output);
-    if (spec.kind == "convert" && !spec.lz4 && !fp.empty()) {
+    const std::string fp = fingerprint(spec, output, config);
+    // The partial output and its side files (a folder output has only the latter).
+    auto drop_partial = [&] {
+        resume::remove_partial(session.partial_path);
+        if (is_folder_output(output))
+            for (const char* suffix : resume::kSidecarSuffixes) ::unlink((partial_name(output) + suffix).c_str());
+    };
+    if (spec.kind == "convert" && !fp.empty()) {
         if (!is_folder_output(output)) session.partial_path = output + kPartialSuffix;
         auto saved = read_json_file(cp_path);
         if (saved.ok() && (*saved)["fingerprint"].str() == fp && has_partial(output)) {
@@ -383,7 +411,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
             for (const auto& [k, v] : (*saved)["state"].fields()) state[k] = static_cast<std::uint64_t>(v.integer());
             session.from = std::move(state);
         } else {
-            if (!session.partial_path.empty()) ::unlink(session.partial_path.c_str());
+            drop_partial();
             ::unlink(cp_path.c_str());
         }
         session.save = [&](const resume::State& state) -> Status {
@@ -406,7 +434,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     if (!result->ok() && resumed && result->error().code == Errc::invalid_data &&
         result->error().message.find("checkpoint") != std::string::npos) {
         // The partial file or checkpoint is unusable: start over.
-        ::unlink(session.partial_path.c_str());
+        drop_partial();
         ::unlink(cp_path.c_str());
         session.from.reset();
         resumed = false;
@@ -417,7 +445,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
         // Done, or failed for good: a retry starts from a clean slate unless
         // it failed after a checkpoint (a full disk, a pulled drive).
         if (ran.ok() || !is_regular_file(cp_path)) {
-            ::unlink(session.partial_path.c_str());
+            drop_partial();
             ::unlink(cp_path.c_str());
         }
     }
