@@ -1,5 +1,7 @@
 # Alembic
 
+![Alembic's page in the PS5 browser: a library of games in several formats, with drives and an FTP server on the left](docs/screenshot.png)
+
 Alembic converts PS5 games between the formats homebrew loaders use: debug
 packages (FPKG), dump folders, exFAT images, FFPKG (UFS2), FFPFS (PFS) and
 FFPFSC (compressed PFS). It runs **on the console** as a payload with a web
@@ -132,6 +134,38 @@ tools/lz4-oracle/compare.sh    # LZ4 packs vs ampr_emu's ampr_pack.py
   downloads on request.
 - No third-party binaries: ampr_emu's `libSceAmpr.sprx` is downloaded from its
   official release, pinned by SHA-256.
+
+## Credits
+
+Alembic stands on the work of the PS5 homebrew scene. Thank you to:
+
+- **pearlxcore** for [PS5PKGTool](https://github.com/pearlxcore/PS5PKGTool)
+  (exFAT, PFSC and FFPFSC; the reference Alembic matches byte for byte) and
+  [ProsperoPkgTool](https://github.com/pearlxcore/ProsperoPkgTool) (reading
+  and writing debug packages, and its key files).
+- **SvenGDK** for [UFS2Tool](https://github.com/SvenGDK/UFS2Tool) (the FFPKG
+  reader and writer) and [LibProsperoPKG](https://github.com/SvenGDK/LibProsperoPKG)
+  (test packages).
+- **drakmor** for [ampr_emu](https://github.com/drakmor/ampr_emu) (the AMPR
+  index, LZ4 asset packs and the runtime that reads them) and
+  [ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus) (the loader
+  Alembic's images are made for, and its HTTPS download code).
+- **PSBrew** for [MkPFS](https://github.com/PSBrew/MkPFS) (the PFS writer).
+- **theghostonline** for
+  [PS5-LZ4-Compression](https://github.com/theghostonline/PS5-LZ4-Compression)
+  (LZ4 pack profiles and the engine-and-page idea).
+- **danthespal** for the LZ4 game profiles posted with
+  [MkPFS.CSharp](https://github.com/danthespal/MkPFS.CSharp).
+- **ps5-payload-dev** for the [PS5 payload SDK](https://github.com/ps5-payload-dev/sdk),
+  [shsrv](https://github.com/ps5-payload-dev/shsrv) (package installs) and
+  [websrv](https://github.com/ps5-payload-dev/websrv) (the Media-tab shortcut),
+  with [owendswang/ps5-web-file-manager](https://github.com/owendswang/ps5-web-file-manager)
+  and [itsPLK/ps5-payload-manager](https://github.com/itsPLK/ps5-payload-manager).
+- **blackbearreloaded** for [ps5-homebrew-ui](https://github.com/blackbearreloaded/ps5-homebrew-ui),
+  the design the page follows.
+- [zlib](https://zlib.net) and [LZ4](https://github.com/lz4/lz4), bundled.
+
+The games in the screenshot are made up.
 
 ## License
 
