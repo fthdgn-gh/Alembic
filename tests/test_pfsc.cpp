@@ -3,6 +3,7 @@
 #include "alembic/pfsc.hpp"
 #include "test.hpp"
 
+#include <cstring>
 #include <random>
 
 using namespace alembic;
@@ -122,4 +123,87 @@ TEST_CASE(pfsc_inspect_rejects_corruption) {
     put_u64(offset, 1ull << 40);
     REQUIRE_OK(out->write_at(pfsc::kOffsetTableOffset + 8, Bytes(offset, 8)));
     CHECK(!pfsc::inspect(*out).ok());
+}
+
+TEST_CASE(pfsc_reader_read_ahead) {
+    std::string dir = test::make_temp_dir();
+    const std::uint32_t blocks = 600; // more than the read-ahead window
+    std::vector<std::uint8_t> data = sample(std::size_t(blocks) * pfsc::kBlockSize - 777);
+    test::write_file(dir + "/in.bin", data);
+    {
+        auto in = File::open(dir + "/in.bin", File::Mode::read);
+        REQUIRE_OK(in);
+        auto out = File::open(dir + "/out.pfsc", File::Mode::create_new);
+        REQUIRE_OK(out);
+        REQUIRE_OK(pfsc::encode_file(*in, *out, 0));
+    }
+    auto open = [&](bool ahead) -> std::shared_ptr<pfsc::Reader> {
+        auto f = File::open(dir + "/out.pfsc", File::Mode::read);
+        if (!f.ok()) return nullptr;
+        auto r = pfsc::Reader::open(std::make_shared<File>(std::move(*f)), 0, std::nullopt, data.size());
+        if (!r.ok()) return nullptr;
+        (*r)->set_read_ahead(ahead);
+        return *r;
+    };
+
+    for (bool ahead : {true, false}) {
+        auto reader = open(ahead);
+        CHECK(reader);
+        if (!(reader)) return;
+        // Front to back in odd-sized pieces that straddle blocks.
+        std::vector<std::uint8_t> got(data.size());
+        for (std::size_t at = 0; at < data.size();) {
+            std::size_t n = std::min<std::size_t>(100003, data.size() - at);
+            REQUIRE_OK(reader->read_at(at, MutableBytes(got.data() + at, n)));
+            at += n;
+        }
+        CHECK(got == data);
+        // Jumps back and forth, then forward again from the middle.
+        std::mt19937 rng(7);
+        for (int i = 0; i < 200; ++i) {
+            std::size_t at = rng() % (data.size() - 4096);
+            std::uint8_t piece[4096];
+            REQUIRE_OK(reader->read_at(at, MutableBytes(piece, sizeof piece)));
+            CHECK(std::memcmp(piece, data.data() + at, sizeof piece) == 0);
+        }
+        std::size_t middle = 250 * pfsc::kBlockSize + 5;
+        std::vector<std::uint8_t> tail(data.size() - middle);
+        REQUIRE_OK(reader->read_at(middle, tail));
+        CHECK(std::memcmp(tail.data(), data.data() + middle, tail.size()) == 0);
+    }
+
+    // A damaged block fails with its own index; the blocks before it read.
+    auto raw = File::open(dir + "/out.pfsc", File::Mode::read);
+    REQUIRE_OK(raw);
+    auto info = pfsc::inspect(*raw);
+    REQUIRE_OK(info);
+    const std::uint32_t bad = 300; // text: compressed
+    CHECK(info->block_offsets[bad + 1] - info->block_offsets[bad] < pfsc::kBlockSize);
+        if (!(info->block_offsets[bad + 1] - info->block_offsets[bad] < pfsc::kBlockSize)) return;
+    {
+        auto f = File::open(dir + "/out.pfsc", File::Mode::read_write);
+        REQUIRE_OK(f);
+        std::uint8_t junk[16];
+        std::memset(junk, 0xA5, sizeof junk);
+        REQUIRE_OK(f->write_at(info->block_offsets[bad] + 4, Bytes(junk, sizeof junk)));
+    }
+    std::string messages[2];
+    for (bool ahead : {true, false}) {
+        auto reader = open(ahead);
+        CHECK(reader);
+        if (!(reader)) return;
+        std::vector<std::uint8_t> block(pfsc::kBlockSize);
+        std::uint32_t i = 0;
+        Status status;
+        for (; i < blocks; ++i) {
+            status = reader->read_at(std::uint64_t(i) * pfsc::kBlockSize, MutableBytes(block.data(), 4096));
+            if (!status.ok()) break;
+        }
+        CHECK_EQ(i, bad);
+        CHECK(!status.ok());
+        if (!(!status.ok())) return;
+        messages[ahead] = status.error().message;
+    }
+    CHECK(messages[0] == messages[1]);
+    CHECK(messages[1].find("block 300") != std::string::npos);
 }

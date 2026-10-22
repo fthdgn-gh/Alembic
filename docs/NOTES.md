@@ -88,9 +88,9 @@ tools/lz4-oracle/compare.sh         # LZ4 packs vs ampr_pack.py (needs .refs/ven
   inode and fragmented PFS images are refused.
 - FPKG: retail and patch (LIH) packages are not opened; NAPS "shuffle"
   layouts (current LibProsperoPKG output) are refused.
-- Inflate (FFPFSC inputs) and SHA-256 are single-threaded and SHA-256 has
-  no CPU-instruction path; Kraken decode reads ahead on worker threads, AES
-  and CRC32C use the CPU's instructions.
+- SHA-256 is single-threaded with no CPU-instruction path (verify is bound
+  by it); inflate and Kraken decode read ahead on worker threads, AES and
+  CRC32C use the CPU's instructions.
 - FTP outputs cannot take FFPFSC or PKG (they seek back), and uploads do
   not resume.
 
@@ -1416,6 +1416,22 @@ removes param.json so the next start tries again. Not yet confirmed on the
 console; the owner's test is the same session again (payload, then a game).
 Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
 
+### 2026-10-22: FFPFSC read-ahead
+
+- `pfsc::Reader` decodes ahead once two blocks in a row are read: runs of
+  8 blocks (512 KiB), two runs per worker, on one pool shared by every
+  Reader (a PFS image opens a Reader per compressed file, so no threads per
+  Reader). Stored bytes are read on the calling thread, one read per run.
+  A jump drops what was queued; a failed read or decode ahead is not an
+  error until that block is wanted (same message as without read-ahead).
+  `pfsc::decode` (`ffpfsc-extract`, verify) now goes through a Reader.
+  Memory: at most 2 MiB per worker (decoded and stored bytes).
+- The 13 GB FFPFSC sample on the Mac: → exFAT 37.4 s → 7.8 s, extract
+  39.4 s → 7.8 s, both byte-identical to the previous build.
+- ThreadSanitizer run of the unit tests: clean, after fixing a race in the
+  LZ4 packer's volume reader (it read a block's `done` flag without the
+  compressor's lock).
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and
@@ -1501,9 +1517,8 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
 
 **Open:**
 1. Owner's console test: install an Alembic-made FPKG.
-2. zlib read-ahead for FFPFSC inputs (decode upcoming PFSC blocks on worker
-   threads, as `fpkg::InnerMount` does for Kraken); hardware SHA-256
-   (SHA-NI on the PS5, ARMv8 SHA2 on the Mac) for verify.
+2. ✓ zlib read-ahead for FFPFSC inputs (2026-10-22). Left: hardware
+   SHA-256 (SHA-NI on the PS5, ARMv8 SHA2 on the Mac) for verify.
 3. Next big item (owner): a **PC companion app**, so a PC can do the heavy
    work (and read the PC's disk at full speed) instead of the console.
 4. Smaller: retail/patch packages, NAPS shuffle layouts, Kraken-compressed

@@ -15,6 +15,7 @@
 #include "alembic/io.hpp"
 
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -139,16 +140,22 @@ Status decode(const RandomAccess& source, ByteSink& destination, std::optional<s
               const ProgressFn& progress = {});
 
 // Random access to a PFSC payload, decoding 64 KiB blocks on demand with a
-// small LRU cache. Not thread-safe.
+// small LRU cache. Once reads move forward block by block, the next blocks
+// are decoded ahead on a shared pool of worker threads (their stored bytes
+// are still read on the calling thread, so `source` need not be
+// thread-safe). Not thread-safe itself.
 class Reader final : public RandomAccess {
 public:
     // `content_length` trims the padded final block (default: padded length).
     static Result<std::shared_ptr<Reader>> open(std::shared_ptr<const RandomAccess> source, std::uint64_t base_offset = 0,
                                                 std::optional<std::uint64_t> stored_length = std::nullopt,
                                                 std::optional<std::uint64_t> content_length = std::nullopt);
+    ~Reader() override;
     Result<std::uint64_t> size() const override { return length_; }
     Status read_at(std::uint64_t offset, MutableBytes out) const override;
     const Info& info() const { return info_; }
+    // Read-ahead on (default) or off.
+    void set_read_ahead(bool on) { read_ahead_ = on; }
 
 private:
     struct CachedBlock {
@@ -156,8 +163,11 @@ private:
         std::uint64_t last_used;
         std::vector<std::uint8_t> data;
     };
+    struct Run; // a few consecutive blocks decoded on a worker
     Reader() = default;
     Result<const std::uint8_t*> block(std::uint32_t index) const;
+    Result<const std::uint8_t*> from_run(const Run& run, std::uint32_t index) const;
+    void fill_ahead(std::uint32_t from) const;
 
     std::shared_ptr<const RandomAccess> source_;
     std::uint64_t base_offset_ = 0;
@@ -165,6 +175,12 @@ private:
     Info info_;
     mutable std::vector<CachedBlock> cache_;
     mutable std::uint64_t clock_ = 0;
+
+    bool read_ahead_ = true;
+    mutable std::uint32_t last_ = UINT32_MAX;   // the block read last
+    mutable std::uint32_t queued_up_to_ = 0;    // blocks below this are queued
+    mutable std::shared_ptr<Run> current_;      // the run being read from
+    mutable std::deque<std::shared_ptr<Run>> ahead_;
 };
 
 } // namespace alembic::pfsc

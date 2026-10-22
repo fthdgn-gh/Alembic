@@ -1302,7 +1302,9 @@ Status VolumeFile::read_at(std::uint64_t offset, MutableBytes out) const {
         if (c.offset >= end) break;
         ALEMBIC_TRY(fill(pos));
         Pending& p = window_.front();
-        if (!p.block->done) compressor_->wait(*p.block);
+        // `done` is only read under the compressor's lock (blocks made
+        // without one, stored raw, are done on this thread).
+        if (compressor_) compressor_->wait(*p.block);
         ALEMBIC_TRY(check(pos, *p.block));
         const std::vector<std::uint8_t>& bytes = p.block->codec == kCodecRaw ? p.block->raw : p.block->stored;
         std::uint64_t from = std::max(offset, c.offset), to = std::min(end, c.offset + c.stored_size);

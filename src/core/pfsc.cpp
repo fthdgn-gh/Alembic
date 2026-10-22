@@ -3,6 +3,7 @@
 #include "alembic/pfsc.hpp"
 
 #include "alembic/bytes.hpp"
+#include "alembic/thread_pool.hpp"
 
 #include <algorithm>
 #include <condition_variable>
@@ -396,21 +397,17 @@ Result<Info> inspect(const RandomAccess& source, std::uint64_t base_offset, std:
     return info;
 }
 
-Status read_block(const RandomAccess& source, const Info& info, std::uint32_t index, std::uint64_t base_offset,
-                  MutableBytes out) {
-    if (index >= info.block_count()) return make_error(Errc::invalid_argument, "PFSC block index out of range");
-    if (out.size() < kBlockSize) return make_error(Errc::invalid_argument, "PFSC block buffer too small");
-    std::uint64_t first = info.block_offsets[index];
-    std::uint64_t stored_size = info.block_offsets[index + 1] - first;
-    if (stored_size == 0 || stored_size > kBlockSize)
-        return invalid("PFSC block " + std::to_string(index) + " has an invalid stored size");
-    if (stored_size == kBlockSize) return source.read_at(base_offset + first, out.first(kBlockSize));
+namespace {
 
-    std::vector<std::uint8_t> stored(static_cast<std::size_t>(stored_size));
-    ALEMBIC_TRY(source.read_at(base_offset + first, stored));
+// Turns one block's stored bytes into its 64 KiB.
+Status decode_stored(Bytes stored, std::uint32_t index, MutableBytes out) {
+    if (stored.size() == kBlockSize) {
+        std::memcpy(out.data(), stored.data(), kBlockSize);
+        return {};
+    }
     z_stream z{};
     if (inflateInit(&z) != Z_OK) return make_error(Errc::io, "zlib inflateInit failed");
-    z.next_in = stored.data();
+    z.next_in = const_cast<Bytef*>(stored.data());
     z.avail_in = static_cast<uInt>(stored.size());
     z.next_out = out.data();
     z.avail_out = kBlockSize;
@@ -422,19 +419,43 @@ Status read_block(const RandomAccess& source, const Info& info, std::uint32_t in
     return {};
 }
 
+Status check_stored_size(const Info& info, std::uint32_t index) {
+    std::uint64_t stored_size = info.block_offsets[index + 1] - info.block_offsets[index];
+    if (stored_size == 0 || stored_size > kBlockSize)
+        return invalid("PFSC block " + std::to_string(index) + " has an invalid stored size");
+    return {};
+}
+
+} // namespace
+
+Status read_block(const RandomAccess& source, const Info& info, std::uint32_t index, std::uint64_t base_offset,
+                  MutableBytes out) {
+    if (index >= info.block_count()) return make_error(Errc::invalid_argument, "PFSC block index out of range");
+    if (out.size() < kBlockSize) return make_error(Errc::invalid_argument, "PFSC block buffer too small");
+    ALEMBIC_TRY(check_stored_size(info, index));
+    std::uint64_t first = info.block_offsets[index];
+    std::uint64_t stored_size = info.block_offsets[index + 1] - first;
+    if (stored_size == kBlockSize) return source.read_at(base_offset + first, out.first(kBlockSize));
+    std::vector<std::uint8_t> stored(static_cast<std::size_t>(stored_size));
+    ALEMBIC_TRY(source.read_at(base_offset + first, stored));
+    return decode_stored(stored, index, out);
+}
+
 Status decode(const RandomAccess& source, ByteSink& destination, std::optional<std::uint64_t> content_length,
               std::uint64_t base_offset, std::optional<std::uint64_t> stored_length, const ProgressFn& progress) {
-    ALEMBIC_ASSIGN(Info info, inspect(source, base_offset, stored_length));
-    std::uint64_t output_length = content_length.value_or(info.padded_logical_length);
-    if (output_length > info.padded_logical_length)
+    // Not owned: the reader lives only inside this call.
+    std::shared_ptr<const RandomAccess> borrowed(std::shared_ptr<const RandomAccess>(), &source);
+    ALEMBIC_ASSIGN(std::shared_ptr<Reader> reader, Reader::open(borrowed, base_offset, stored_length));
+    std::uint64_t output_length = content_length.value_or(reader->info().padded_logical_length);
+    if (output_length > reader->info().padded_logical_length)
         return make_error(Errc::invalid_argument, "requested length exceeds the PFSC payload");
 
     std::vector<std::uint8_t> block(kBlockSize);
     std::uint64_t written = 0;
     std::uint64_t last_progress = 0;
-    for (std::uint32_t i = 0; i < info.block_count() && written < output_length; ++i) {
-        ALEMBIC_TRY(read_block(source, info, i, base_offset, block));
+    while (written < output_length) {
         std::size_t count = static_cast<std::size_t>(std::min<std::uint64_t>(kBlockSize, output_length - written));
+        ALEMBIC_TRY(reader->read_at(written, MutableBytes(block.data(), count)));
         ALEMBIC_TRY(destination.write(Bytes(block.data(), count)));
         written += count;
         if (progress && (written - last_progress >= kProgressStep || written == output_length)) {
@@ -442,7 +463,6 @@ Status decode(const RandomAccess& source, ByteSink& destination, std::optional<s
             if (!progress({"Decoding PFSC", written, output_length})) return make_error(Errc::cancelled, "cancelled");
         }
     }
-    if (written != output_length) return invalid("PFSC output length does not match the requested length");
     return {};
 }
 
@@ -461,13 +481,119 @@ Result<std::shared_ptr<Reader>> Reader::open(std::shared_ptr<const RandomAccess>
     return reader;
 }
 
+namespace {
+
+// Blocks per worker job (512 KiB) and jobs queued per worker.
+constexpr std::uint32_t kRunBlocks = 8;
+constexpr std::size_t kRunsPerWorker = 2;
+
+// One pool for every Reader: an image can hold thousands of small
+// compressed files, each with its own Reader.
+Pool* shared_pool() {
+    static unsigned workers = worker_count(0);
+    if (workers <= 1) return nullptr;
+    static Pool pool(workers);
+    return &pool;
+}
+
+} // namespace
+
+struct Reader::Run {
+    std::uint32_t first = 0;
+    std::uint32_t count = 0;
+    std::vector<std::uint8_t> stored;  // the blocks' stored bytes, back to back
+    std::vector<std::uint8_t> decoded; // count * kBlockSize
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool done = false;
+    std::uint32_t good = 0; // blocks decoded before `error`
+    Status error;
+};
+
+// Jobs own their Run, so they need nothing from the Reader.
+Reader::~Reader() = default;
+
+void Reader::fill_ahead(std::uint32_t from) const {
+    Pool* pool = shared_pool();
+    if (!pool) return;
+    const std::size_t window = pool->size() * kRunsPerWorker;
+    std::uint32_t next = std::max(queued_up_to_, from);
+    const std::uint32_t total = info_.block_count();
+    while (ahead_.size() < window && next < total) {
+        auto run = std::make_shared<Run>();
+        run->first = next;
+        run->count = std::min(kRunBlocks, total - next);
+        std::uint64_t begin = info_.block_offsets[next];
+        std::uint64_t end = info_.block_offsets[next + run->count];
+        run->stored.resize(static_cast<std::size_t>(end - begin));
+        // A failed read stops here; the block is read again when it is wanted.
+        if (!source_->read_at(base_offset_ + begin, run->stored).ok()) break;
+        run->decoded.resize(static_cast<std::size_t>(run->count) * kBlockSize);
+        std::vector<std::uint64_t> offsets(info_.block_offsets.begin() + next,
+                                           info_.block_offsets.begin() + next + run->count + 1);
+        pool->submit([run, offsets = std::move(offsets)](unsigned) {
+            Status status;
+            std::uint32_t good = 0;
+            for (; good < run->count; ++good) {
+                std::uint64_t size = offsets[good + 1] - offsets[good];
+                std::uint32_t index = run->first + good;
+                if (size == 0 || size > kBlockSize) {
+                    status = invalid("PFSC block " + std::to_string(index) + " has an invalid stored size");
+                    break;
+                }
+                status = decode_stored(Bytes(run->stored.data() + (offsets[good] - offsets[0]), size), index,
+                                       MutableBytes(run->decoded.data() + std::size_t(good) * kBlockSize, kBlockSize));
+                if (!status.ok()) break;
+            }
+            run->stored = {};
+            std::lock_guard<std::mutex> lock(run->mutex);
+            run->good = good;
+            run->error = std::move(status);
+            run->done = true;
+            run->cv.notify_all();
+        });
+        ahead_.push_back(std::move(run));
+        next += kRunBlocks;
+    }
+    queued_up_to_ = std::min(next, total);
+}
+
+Result<const std::uint8_t*> Reader::from_run(const Run& run, std::uint32_t index) const {
+    std::uint32_t at = index - run.first;
+    if (at >= run.good) return Error(run.error.error());
+    return static_cast<const std::uint8_t*>(run.decoded.data() + std::size_t(at) * kBlockSize);
+}
+
 Result<const std::uint8_t*> Reader::block(std::uint32_t index) const {
+    if (current_ && index >= current_->first && index - current_->first < current_->count) {
+        last_ = index;
+        return from_run(*current_, index);
+    }
     constexpr std::size_t kCapacity = 16;
     for (CachedBlock& cached : cache_) {
         if (cached.index != index) continue;
         cached.last_used = ++clock_;
         return static_cast<const std::uint8_t*>(cached.data.data());
     }
+
+    // Read ahead: the block may be on its way already.
+    while (!ahead_.empty() && ahead_.front()->first + ahead_.front()->count <= index) ahead_.pop_front();
+    if (!ahead_.empty() && ahead_.front()->first <= index) {
+        current_ = ahead_.front();
+        ahead_.pop_front();
+        {
+            std::unique_lock<std::mutex> lock(current_->mutex);
+            current_->cv.wait(lock, [&] { return current_->done; });
+        }
+        last_ = index;
+        fill_ahead(current_->first + current_->count);
+        return from_run(*current_, index);
+    }
+    // Anything else is a jump: what was queued is of no use.
+    bool next_in_line = last_ != UINT32_MAX && index == last_ + 1;
+    ahead_.clear();
+    queued_up_to_ = 0;
+
     CachedBlock* slot;
     if (cache_.size() < kCapacity) {
         cache_.push_back({index, 0, std::vector<std::uint8_t>(kBlockSize)});
@@ -480,6 +606,10 @@ Result<const std::uint8_t*> Reader::block(std::uint32_t index) const {
     ALEMBIC_TRY(read_block(*source_, info_, index, base_offset_, slot->data));
     slot->index = index;
     slot->last_used = ++clock_;
+    last_ = index;
+    // Two blocks in a row start the read-ahead; a payload with only a few
+    // blocks left is not worth it.
+    if (read_ahead_ && next_in_line && info_.block_count() - index > kRunBlocks) fill_ahead(index + 1);
     return static_cast<const std::uint8_t*>(slot->data.data());
 }
 
