@@ -234,6 +234,7 @@ a.btn { text-decoration: none; }
 .chip { display: inline-block; font-size: .85rem; padding: .3rem .8rem; border-radius: 99px; border: 1px solid var(--line2); background: #121825; margin: 0 .35rem .4rem 0; }
 .chip.on { border-color: var(--accent); color: var(--accent); }
 .chipgroup { display: block; margin-bottom: .15rem; }
+.menu-head { font-size: .78rem; color: var(--muted); font-weight: 600; letter-spacing: .04em; padding: .7rem 1rem .25rem; }
 .chipgroup > .who { display: inline-block; font-size: .78rem; color: var(--muted); font-weight: 600; margin-right: .5rem; min-width: 5rem; }
 .picker { border: 1px solid var(--line); border-radius: .8rem; max-height: 18rem; padding: .3rem; }
 .picker .row { grid-template-columns: 2.4rem minmax(0, 1fr); padding: .4rem .6rem; }
@@ -923,9 +924,12 @@ function ask(o) {
   return p;
 }
 // A list of choices; resolves with the chosen item's value.
+// `items`: {label, sub, value, selected, danger}, or {heading} for a title
+// between groups (not a choice: the D-pad passes over it).
 function choose(title, items, sub) {
-  const list = h("div", { class: "menu-list" }, items.map((it, i) =>
-    h("button", { class: it.danger ? "danger" : "", "data-autofocus": it.selected || (i === 0 && !items.some((x) => x.selected)) ? true : null,
+  const firstChoice = items.findIndex((x) => !x.heading);
+  const list = h("div", { class: "menu-list" }, items.map((it, i) => it.heading ? h("div", { class: "menu-head", text: it.heading }) :
+    h("button", { class: it.danger ? "danger" : "", "data-autofocus": it.selected || (i === firstChoice && !items.some((x) => x.selected)) ? true : null,
       onclick: () => closeOverlay(it.value) }, it.label, it.sub ? h("small", { text: it.sub }) : null)));
   return openOverlay(h("div", { class: "sheet narrow" }, h("div", { class: "sh-head", text: title }), sub ? h("div", { class: "sh-sub mono", text: sub }) : null,
     h("div", { class: "sh-body scroll" }, list)), { hints: [["x", t("Choose")], ["o", t("Cancel"), goBack]] });
@@ -1545,8 +1549,21 @@ async function openConvert(entry) {
   }
   destRow.addEventListener("click", async () => {
     const items = entry.shared ? [] : [{ label: t("Next to the source"), value: "", selected: cv.dest === "" }];
-    for (const l of state.locations) items.push({ label: placeLabel(l.label), sub: shownPath(l.path), value: l.path, selected: cv.dest === l.path });
-    for (const p of (store.get("recent") || []).filter((p) => rootOf(p) && !state.locations.some((l) => l.path === p))) items.push({ label: base(p), sub: shownPath(p), value: p, selected: cv.dest === p });
+    // This engine's places and recent folders, then each paired engine's under its name.
+    const here = state.info && state.info.platform === "ps5" ? "PS5" : (state.info && state.info.host_name) || t("This engine");
+    const groups = [{ who: here, list: [] }];
+    const groupOf = (who) => groups.find((g) => g.who === who) || (groups.push({ who, list: [] }), groups[groups.length - 1]);
+    const onEngine = (p) => { const s = shownPath(p); const i = s.indexOf(": "); return p.indexOf("/peer/") === 0 && i > 0 ? s.slice(i + 2) : s; };
+    for (const l of state.locations) groupOf(l.peer ? l.engine : here).list.push({ label: placeLabel((l.peer ? l.place : l.label).replace(/ · homebrew.*$/, " · homebrew")), sub: onEngine(l.path), value: l.path, selected: cv.dest === l.path });
+    for (const p of (store.get("recent") || []).filter((p) => rootOf(p) && !state.locations.some((l) => l.path === p))) {
+      const pd = peerDriveOf(p);
+      groupOf(pd ? pd.engine : here).list.push({ label: base(p), sub: onEngine(p), value: p, selected: cv.dest === p });
+    }
+    const shown = groups.filter((g) => g.list.length);
+    for (const g of shown) {
+      if (shown.length > 1) items.push({ heading: g.who });
+      items.push(...g.list);
+    }
     items.push({ label: t("Choose a folder…"), value: "__pick" });
     let v = await choose(t("Save to"), items);
     if (v === "__pick") v = await openDest(null, "pick", cv.dest || dir(entry.path));
