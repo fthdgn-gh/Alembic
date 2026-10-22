@@ -11,6 +11,9 @@
 namespace alembic::engine::platform {
 
 const char* name(); // "ps5" or "host"
+// The system it runs on, for people: "macOS 15.4 (arm64)", "Windows 11
+// (build 26100, x64)", "Ubuntu 24.04 LTS (x86_64)", "PS5".
+std::string os_description();
 // A system notification on the PS5; a line on stderr elsewhere.
 void notify(const std::string& message);
 // Keeps the console out of rest mode while a job runs; call every few seconds.
@@ -40,6 +43,10 @@ Status install_package(const std::string& path);
 // `max_bytes`. On the PS5 the trust anchors are the GitHub CA certificates in
 // github_ca.inc; on a PC it runs curl.
 Result<std::vector<std::uint8_t>> http_get(const std::string& url, std::size_t max_bytes);
+// Windows: when the engine has a console window of its own (started by a
+// double-click), waits for Enter so an error at start stays readable.
+// Elsewhere it does nothing.
+void pause_before_exit();
 // Where the engine keeps its queue and log.
 std::string default_state_dir();
 

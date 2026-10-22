@@ -5,9 +5,12 @@
 #include <cstring>
 
 #ifdef _WIN32
+#include <iphlpapi.h>
 #include <mutex>
+#include <vector>
 #else
 #include <fcntl.h>
+#include <ifaddrs.h>
 #include <netinet/tcp.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -134,6 +137,40 @@ Socket connect(const sockaddr_in& address, int timeout_ms, bool nonblocking, std
     return s;
 }
 
+std::string host_name() {
+    wchar_t name[256];
+    DWORD size = 256;
+    if (!GetComputerNameExW(ComputerNameDnsHostname, name, &size)) return "";
+    int n = WideCharToMultiByte(CP_UTF8, 0, name, static_cast<int>(size), nullptr, 0, nullptr, nullptr);
+    std::string out(static_cast<std::size_t>(n), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, name, static_cast<int>(size), out.data(), n, nullptr, nullptr);
+    return out;
+}
+
+std::vector<std::string> local_addresses() {
+    std::vector<std::string> out;
+    ULONG size = 16 * 1024;
+    std::vector<unsigned char> buffer;
+    ULONG rc = ERROR_BUFFER_OVERFLOW;
+    for (int i = 0; i < 3 && rc == ERROR_BUFFER_OVERFLOW; ++i) {
+        buffer.resize(size);
+        rc = GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
+                                  nullptr, reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data()), &size);
+    }
+    if (rc != NO_ERROR) return out;
+    for (auto* a = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data()); a; a = a->Next) {
+        if (a->OperStatus != IfOperStatusUp || a->IfType == IF_TYPE_SOFTWARE_LOOPBACK) continue;
+        for (auto* u = a->FirstUnicastAddress; u; u = u->Next) {
+            const auto* in = reinterpret_cast<const sockaddr_in*>(u->Address.lpSockaddr);
+            unsigned first = in->sin_addr.s_addr & 0xff, second = (in->sin_addr.s_addr >> 8) & 0xff;
+            if (first == 127 || (first == 169 && second == 254)) continue;
+            char text[INET_ADDRSTRLEN] = {};
+            if (::inet_ntop(AF_INET, &in->sin_addr, text, sizeof text)) out.push_back(text);
+        }
+    }
+    return out;
+}
+
 #else // POSIX
 
 namespace {
@@ -229,6 +266,28 @@ Socket connect(const sockaddr_in& address, int timeout_ms, bool nonblocking, std
     }
     if (!nonblocking) set_blocking(s, true);
     return s;
+}
+
+std::string host_name() {
+    char name[256] = {};
+    if (::gethostname(name, sizeof name - 1) != 0) return "";
+    return name;
+}
+
+std::vector<std::string> local_addresses() {
+    std::vector<std::string> out;
+    ifaddrs* list = nullptr;
+    if (::getifaddrs(&list) != 0) return out;
+    for (ifaddrs* a = list; a; a = a->ifa_next) {
+        if (!a->ifa_addr || a->ifa_addr->sa_family != AF_INET) continue;
+        const auto* in = reinterpret_cast<const sockaddr_in*>(a->ifa_addr);
+        std::uint32_t ip = ntohl(in->sin_addr.s_addr);
+        if ((ip >> 24) == 127 || (ip >> 16) == 0xA9FE) continue; // loopback, link-local
+        char text[INET_ADDRSTRLEN] = {};
+        if (::inet_ntop(AF_INET, &in->sin_addr, text, sizeof text)) out.push_back(text);
+    }
+    ::freeifaddrs(list);
+    return out;
 }
 
 #endif

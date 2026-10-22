@@ -10,11 +10,58 @@
 #include <windows.h>
 #define popen _popen
 #define pclose _pclose
+#else
+#include <sys/utsname.h>
+#endif
+#ifdef __APPLE__
+#include <sys/sysctl.h>
 #endif
 
 namespace alembic::engine::platform {
 
 const char* name() { return "host"; }
+
+std::string os_description() {
+#ifdef _WIN32
+    // GetVersionEx answers what the program's manifest asks for; ntdll tells the truth.
+    RTL_OSVERSIONINFOW v{};
+    v.dwOSVersionInfoSize = sizeof v;
+    using Fn = LONG(WINAPI*)(RTL_OSVERSIONINFOW*);
+    auto fn = reinterpret_cast<Fn>(reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion")));
+    if (!fn || fn(&v) != 0) return "Windows";
+    std::string name = v.dwMajorVersion == 10 ? (v.dwBuildNumber >= 22000 ? "Windows 11" : "Windows 10")
+                                              : "Windows " + std::to_string(v.dwMajorVersion) + "." + std::to_string(v.dwMinorVersion);
+    SYSTEM_INFO si;
+    GetNativeSystemInfo(&si);
+    const char* arch = si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64 ? "ARM64" : "x64";
+    return name + " (build " + std::to_string(v.dwBuildNumber) + ", " + arch + ")";
+#else
+    utsname u{};
+    std::string arch = ::uname(&u) == 0 ? u.machine : "";
+    std::string name;
+#ifdef __APPLE__
+    char version[64] = {};
+    std::size_t size = sizeof version;
+    name = ::sysctlbyname("kern.osproductversion", version, &size, nullptr, 0) == 0 ? std::string("macOS ") + version : "macOS";
+#else
+    // Linux: the distribution's own name, else the kernel's.
+    if (std::FILE* f = std::fopen("/etc/os-release", "r")) {
+        char line[512];
+        while (std::fgets(line, sizeof line, f)) {
+            std::string l = line;
+            if (l.rfind("PRETTY_NAME=", 0) != 0) continue;
+            l = l.substr(12);
+            while (!l.empty() && (l.back() == '\n' || l.back() == '"')) l.pop_back();
+            if (!l.empty() && l.front() == '"') l.erase(l.begin());
+            name = l;
+        }
+        std::fclose(f);
+    }
+    if (name.empty()) name = std::string(u.sysname) + " " + u.release;
+#endif
+    return arch.empty() ? name : name + " (" + arch + ")";
+#endif
+}
 
 void notify(const std::string& message) { std::fprintf(stderr, "[notify] %s\n", message.c_str()); }
 
@@ -93,6 +140,16 @@ Status install_launcher(std::uint16_t, const std::uint8_t*, std::size_t, bool) {
     return make_error(Errc::unsupported, "the home-screen shortcut needs a PS5");
 }
 Status remove_launcher() { return make_error(Errc::unsupported, "the home-screen shortcut needs a PS5"); }
+
+void pause_before_exit() {
+#ifdef _WIN32
+    DWORD pids[2];
+    if (GetConsoleProcessList(pids, 2) == 1) { // only us: nobody else will show the text
+        std::fprintf(stderr, "\nPress Enter to close this window.\n");
+        std::getchar();
+    }
+#endif
+}
 
 std::string default_state_dir() {
 #ifdef _WIN32

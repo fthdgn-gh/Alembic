@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -59,5 +60,11 @@ std::uint16_t local_port(Socket s);
 // Connects with a time-out; the socket comes back blocking unless
 // `nonblocking`. kNone on failure, with the reason in `error`.
 Socket connect(const sockaddr_in& address, int timeout_ms, bool nonblocking, std::string* error);
+
+// This computer's name ("" when unknown).
+std::string host_name();
+// Its IPv4 addresses that other devices can reach: not loopback (127.x) or
+// link-local (169.254.x); best effort, empty when they cannot be read.
+std::vector<std::string> local_addresses();
 
 } // namespace alembic::engine::net

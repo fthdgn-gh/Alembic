@@ -131,7 +131,7 @@ body.covered .view.scroll, body.covered .view .scroll, .overlay.under .scroll { 
 .facts { display: grid; grid-template-columns: auto minmax(0, 1fr); font-size: .88rem; }
 .facts > div { padding: .4rem 0; border-top: 1px solid var(--line); }
 .facts > div:nth-child(odd) { color: var(--muted); padding-right: 1rem; }
-.facts > div:nth-child(even) { text-align: right; word-break: break-all; }
+.facts > div:nth-child(even) { text-align: right; word-break: break-all; white-space: pre-line; }
 
 /* buttons */
 .btn { background: var(--panel2); border: 1px solid var(--line2); border-radius: .65rem; padding: .55rem 1.05rem; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; color: var(--text); }
@@ -1597,8 +1597,12 @@ function renderSettings() {
     const facts = h("div", { class: "facts" });
     const add = (k, v, cls) => facts.append(h("div", { text: k }), h("div", { class: cls || "", text: v }));
     if (i) {
-      add(t("Version"), i.version); add(t("Running on"), i.platform === "ps5" ? t("PS5 (payload)") : t("PC"));
-      add(t("Address"), location.host, "mono"); add(t("State folder"), i.state_dir, "mono");
+      add(t("Version"), i.version); add(t("Running on"), i.platform === "ps5" ? t("PS5 (payload)") : i.os || t("PC"));
+      if (i.host_name && i.platform !== "ps5") add(t("Computer"), i.host_name);
+      add(t("Address"), location.host, "mono");
+      add(t("From other devices"), i.network_urls && i.network_urls.length ? i.network_urls.join("\n") : i.open_to_network ? "–" : t("This computer only"), "mono");
+      if (i.roots && i.roots.length) add(t("Shared folders"), i.roots.join("\n"), "mono");
+      add(t("State folder"), i.state_dir, "mono");
       add(t("LZ4 runtime"), i.lz4_runtime && i.lz4_runtime.present ? (i.lz4_runtime.pinned ? "ampr_emu 0.4.2.1" : t("present, not the pinned build")) : t("not downloaded"));
     } else add(t("Engine"), t("not connected"));
     box.append(h("div", { class: "card" }, facts,

@@ -104,6 +104,10 @@ constexpr int kSystemUser = 0xFE; // SCE_NOTIFICATION_LOCAL_USER_ID_SYSTEM
 
 const char* name() { return "ps5"; }
 
+std::string os_description() { return "PS5"; }
+
+void pause_before_exit() {}
+
 void notify(const std::string& message) {
     std::fprintf(stderr, "[notify] %s\n", message.c_str());
     if (!sceNotificationSend) return;

@@ -41,7 +41,10 @@ state="$work/state"
 "$bin/alembic-engine.exe" --listen 127.0.0.1 --port 5941 --state "$(win "$state")" --root "$(win "$work")" &
 engine=$!
 for _ in $(seq 50); do curl -sf http://127.0.0.1:5941/api/info >/dev/null && break; sleep 0.2; done
-curl -sf http://127.0.0.1:5941/api/info | grep -q '"version"'
+info=$(curl -sf http://127.0.0.1:5941/api/info)
+echo "$info" | grep -q '"os":"Windows 1[01] (build '
+echo "$info" | grep -q '"host_name":"[^"]'
+echo "$info" | grep -q '"local_url":"http://localhost:5941/"'
 root="$(win "$work")"
 curl -sf --get --data-urlencode "path=$root" http://127.0.0.1:5941/api/browse | grep -q 'out.ffpfsc'
 curl -sf --get --data-urlencode "path=$root/in" http://127.0.0.1:5941/api/browse | grep -q 'Ünïcode dir'

@@ -1487,6 +1487,25 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   the target enables them (the PS5 does): runtime CPU detection with
   `target` attributes would speed up packages on PCs.
 
+### 2026-10-22: the engine says where it runs
+
+- Owner asked what the engine shows when it starts. It printed only the
+  listen address ("0.0.0.0:5940"). Now, after "listening on", it logs the
+  system ("macOS 27.0 (arm64)", "Windows 11 (build 26100, x64)", the Linux
+  distribution's PRETTY_NAME; "PS5"), the computer's name, the page's URL
+  on this computer and from other devices (each IPv4 address that is not
+  loopback or link-local: getifaddrs, GetAdaptersAddresses), the shared
+  folders, the state folder, a note that anyone on the network can use it
+  (no password; `--listen 127.0.0.1` keeps it local) and how to stop it.
+- `/api/info` adds `os`, `host_name`, `local_url`, `network_urls`,
+  `open_to_network`; Settings > Engine shows the system, computer, the
+  addresses for other devices and the shared folders (texts in all five
+  languages).
+- Windows: an engine started by double-click that cannot start (a port in
+  use) waits for Enter before its window closes.
+- The PS5 reports "PS5"; its addresses come from getifaddrs too, untried
+  there (the page shows "–" if it finds none).
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and

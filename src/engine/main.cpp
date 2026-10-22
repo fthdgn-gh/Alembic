@@ -49,6 +49,7 @@
 #include "http.hpp"
 #include "jobs.hpp"
 #include "json_value.hpp"
+#include "net.hpp"
 #include "platform.hpp"
 #include "ftp.hpp"
 #include "remote.hpp"
@@ -194,8 +195,29 @@ public:
 
     Status start(const std::string& address, std::uint16_t port) {
         ALEMBIC_TRY(queue_.start());
+        listen_address_ = address;
         return server_.start(address, port, [this](const HttpRequest& r) { return handle(r); });
     }
+
+    // Where the page opens: on this computer, and from other devices (empty
+    // when it listens on this computer only).
+    std::string local_url() const {
+        std::string host = listen_address_ == "0.0.0.0" || listen_address_ == "127.0.0.1" ? "localhost" : listen_address_;
+        return "http://" + host + ":" + std::to_string(port()) + "/";
+    }
+    std::vector<std::string> network_urls() const {
+        std::vector<std::string> out;
+        if (listen_address_ == "0.0.0.0") {
+            for (const std::string& ip : net::local_addresses())
+                if (std::find(out.begin(), out.end(), ip) == out.end()) out.push_back(ip);
+        } else if (listen_address_.rfind("127.", 0) != 0) {
+            out.push_back(listen_address_);
+        }
+        for (std::string& ip : out) ip = "http://" + ip + ":" + std::to_string(port()) + "/";
+        return out;
+    }
+    bool open_to_network() const { return listen_address_.rfind("127.", 0) != 0; }
+    const EngineConfig& config() const { return config_; }
 
     void wait_for_quit() {
         std::unique_lock<std::mutex> lock(quit_mutex_);
@@ -416,7 +438,14 @@ private:
         v.set("name", "Alembic");
         v.set("version", ALEMBIC_VERSION);
         v.set("platform", platform::name());
+        v.set("os", platform::os_description());
+        v.set("host_name", net::host_name());
         v.set("state_dir", config_.state_dir);
+        JsonValue urls = JsonValue::array();
+        for (const std::string& u : network_urls()) urls.push(u);
+        v.set("network_urls", std::move(urls));
+        v.set("local_url", local_url());
+        v.set("open_to_network", open_to_network());
         JsonValue roots = JsonValue::array();
         for (const std::string& root : config_.available_roots())
             if (is_directory(root)) roots.push(root);
@@ -939,6 +968,7 @@ private:
     }
 
     EngineConfig config_;
+    std::string listen_address_;
     RemoteFiles remote_; // before the queue, whose jobs may read from it
     ftp::Servers ftp_{config_.state_dir};
     GameMetaCache meta_{config_.state_dir};
@@ -1026,9 +1056,24 @@ int main(int argc, char** argv) {
     if (!started.ok()) {
         log_line("cannot start: " + started.error().message);
         platform::notify(l10n::t("Alembic: {error}", {{"error", l10n::message(started.error().message)}}));
+        platform::pause_before_exit();
         return 1;
     }
     log_line("listening on " + address + ":" + std::to_string(engine.port()));
+    // Where it runs and how to reach it, for whoever started it.
+    {
+        std::string host = net::host_name();
+        log_line("running on " + platform::os_description() + (host.empty() ? "" : ", computer \"" + host + "\""));
+        log_line("open the page: " + engine.local_url());
+        for (const std::string& u : engine.network_urls()) log_line("  from other devices: " + u);
+        std::string shared;
+        for (const std::string& r : engine.config().available_roots()) shared += (shared.empty() ? "" : ", ") + r;
+        log_line("shared folders: " + (shared.empty() ? std::string("none available") : shared));
+        log_line("state folder: " + engine.config().state_dir);
+        if (engine.open_to_network() && std::string(platform::name()) != "ps5")
+            log_line("anyone on this network can use the page (there is no password); --listen 127.0.0.1 keeps it to this computer");
+        if (std::string(platform::name()) != "ps5") log_line("stop it with Ctrl+C, or in the page: Settings > Stop the engine");
+    }
     engine.start_launcher();
     std::thread([&engine] { engine.prune_cache(); }).detach();
     const std::string port_text = std::to_string(engine.port());
