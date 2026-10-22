@@ -73,12 +73,18 @@ struct Job {
     std::int64_t created = 0; // Unix seconds
     std::int64_t started = 0;
     std::int64_t finished = 0;
+    // Seconds it ran before `started` (earlier runs it continues from, such
+    // as before a pause); `started` is the start of the latest run.
+    std::int64_t ran_before = 0;
     std::string error;
     JsonValue result; // the conversion report
     std::uint32_t auto_resumes = 0; // times it was continued after the engine stopped mid-run
 
     JsonValue to_json() const;
     static Result<Job> from_json(const JsonValue& json);
+    // Seconds spent running, over every run it continues from; -1 if it
+    // never ran.
+    std::int64_t elapsed(std::int64_t now) const;
 };
 
 // Runs one job. `progress` returns false to cancel.

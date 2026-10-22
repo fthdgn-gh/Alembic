@@ -150,6 +150,7 @@ JsonValue Job::to_json() const {
     j.set("created", created);
     j.set("started", started);
     j.set("finished", finished);
+    if (ran_before) j.set("ran_before", ran_before);
     j.set("error", error);
     j.set("result", result);
     if (auto_resumes) j.set("auto_resumes", static_cast<std::uint64_t>(auto_resumes));
@@ -170,11 +171,28 @@ Result<Job> Job::from_json(const JsonValue& j) {
     job.created = j["created"].integer(0);
     job.started = j["started"].integer(0);
     job.finished = j["finished"].integer(0);
+    job.ran_before = j["ran_before"].integer(0);
     job.error = j["error"].str();
     job.result = j["result"];
     job.auto_resumes = static_cast<std::uint32_t>(j["auto_resumes"].integer(0));
     if (job.id == 0) return make_error(Errc::invalid_data, "a saved job has no id");
     return job;
+}
+
+namespace {
+// A run that stopped and will continue: its time joins ran_before (or, for
+// a job that starts over, the time is dropped).
+void set_aside(Job& job, bool continues = true) {
+    job.ran_before = continues ? job.ran_before + std::max<std::int64_t>(0, job.finished - job.started) : 0;
+    job.finished = 0;
+}
+} // namespace
+
+std::int64_t Job::elapsed(std::int64_t now) const {
+    if (state == JobState::running) return ran_before + std::max<std::int64_t>(0, now - started);
+    if (waiting(state)) return ran_before ? ran_before : -1; // the latest run is in ran_before
+    if (!started) return -1;
+    return ran_before + std::max<std::int64_t>(0, (finished ? finished : now) - started);
 }
 
 JobQueue::JobQueue(std::string state_dir, QueueHooks hooks)
@@ -471,11 +489,11 @@ void JobQueue::worker() {
                 job->state = kept ? JobState::queued : JobState::interrupted;
                 job->error = kept ? "" : "the engine was stopped";
                 job->stage = kept ? "Continues when the engine starts" : job->stage;
-                job->finished = kept ? 0 : job->finished;
+                if (kept) set_aside(*job);
             } else if (stopped && pause_running_) {
                 job->state = JobState::paused;
                 job->stage = kept ? "Paused" : "Paused; starts over when resumed";
-                job->finished = 0;
+                set_aside(*job, kept);
             } else if (stopped) {
                 job->state = JobState::cancelled;
                 job->error = "cancelled";

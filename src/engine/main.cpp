@@ -311,7 +311,7 @@ private:
             JsonValue list = JsonValue::array();
             for (const Job& j : queue_.list()) {
                 JsonValue v = j.to_json();
-                if (j.started) v.set("elapsed", (j.finished ? j.finished : now) - j.started);
+                if (std::int64_t e = j.elapsed(now); e >= 0) v.set("elapsed", e);
                 if (j.spec.kind == "convert") v.set("keeps_progress", keeps_progress(j.spec));
                 // Where a waiting job continues from.
                 if (j.state == JobState::queued || j.state == JobState::paused || j.state == JobState::failed ||

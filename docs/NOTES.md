@@ -1428,6 +1428,15 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   Memory: at most 2 MiB per worker (decoded and stored bytes).
 - The 13 GB FFPFSC sample on the Mac: → exFAT 37.4 s → 7.8 s, extract
   39.4 s → 7.8 s, both byte-identical to the previous build.
+- **Owner on the console:** an 8.5 GB FFPFSC → exFAT (12.1 GB) in about
+  1.5 min (~150 MB/s written); → FFPKG similar (~160 MB/s); a paused and
+  resumed job's check (`same`) passed in about 1.5 min.
+- **Elapsed time across pauses** (owner: the timer restarted at every
+  resume): jobs keep `ran_before`, the seconds of earlier runs they continue
+  from; a run that pauses or stops with a checkpoint adds its time there
+  (one that starts over drops it), and a waiting job reports only that, not
+  the time spent paused. Engine on the Mac: 6 s, paused 13 s (stays 6),
+  +5 s (11), paused, +4 s (15).
 - ThreadSanitizer run of the unit tests: clean, after fixing a race in the
   LZ4 packer's volume reader (it read a block's `done` flag without the
   compressor's lock).
