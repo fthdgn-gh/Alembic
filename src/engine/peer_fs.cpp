@@ -5,6 +5,8 @@
 #include "keys.hpp"
 #include "net.hpp"
 
+#include "alembic/convert.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <cctype>
@@ -384,25 +386,29 @@ Status PeerFile::settle_locked() const {
     return wait_send_locked(0);
 }
 
-Result<BlockChecksums> PeerFile::checksums(std::uint64_t length, std::uint32_t block, const ProgressFn& progress) {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        ALEMBIC_TRY(settle_locked());
-    }
-    ALEMBIC_ASSIGN(JsonValue started, fs_.call_json(t_, "POST", "checksum", {{"length", std::to_string(length)}, {"block", std::to_string(block)}}));
+namespace {
+struct TaskResult {
+    JsonValue summary;
+    std::string blob;
+};
+// Starts `op` on the engine at `t` with `query`, reports its progress as
+// `stage` until it finishes, then fetches its results and drops it there.
+Result<TaskResult> run_task(PeerFs& fs, const Target& t, const std::string& op, std::map<std::string, std::string> query,
+                            const char* stage, const ProgressFn& progress) {
+    ALEMBIC_ASSIGN(JsonValue started, fs.call_json(t, "POST", op, std::move(query)));
     const std::string task = started["task"].str();
-    Target no_path{t_.id, ""};
-    auto drop = [&] { (void)fs_.call(no_path, "POST", "checksum_drop", {{"task", task}}); };
+    Target no_path{t.id, ""};
+    auto drop = [&] { (void)fs.call(no_path, "POST", "task_drop", {{"task", task}}); };
     JsonValue st;
     for (;;) {
-        auto status = fs_.call_json(no_path, "GET", "checksum", {{"task", task}});
+        auto status = fs.call_json(no_path, "GET", "task", {{"task", task}});
         if (!status.ok()) {
             drop();
             return status.error();
         }
         st = *status;
         if (st["finished"].boolean()) break;
-        if (progress && !progress({"Checking the package (on the other engine)", static_cast<std::uint64_t>(st["done"].integer(0)), length})) {
+        if (progress && !progress({stage, static_cast<std::uint64_t>(st["done"].integer(0)), static_cast<std::uint64_t>(st["total"].integer(0))})) {
             drop();
             return make_error(Errc::cancelled, "cancelled");
         }
@@ -412,22 +418,34 @@ Result<BlockChecksums> PeerFile::checksums(std::uint64_t length, std::uint32_t b
         drop();
         return make_error(Errc::io, st["error"].str());
     }
-    BlockChecksums out;
-    if (!keys::from_hex(st["sha3"].str(), MutableBytes(out.sha3_256.data(), out.sha3_256.size()))) {
-        drop();
-        return make_error(Errc::invalid_data, "the other engine's digest is not readable");
-    }
-    std::uint64_t total = static_cast<std::uint64_t>(st["crc_bytes"].integer(0));
-    while (out.crc32c.size() < total) {
-        std::uint64_t n = std::min<std::uint64_t>(kChunk, total - out.crc32c.size());
-        auto piece = fs_.call(no_path, "GET", "checksum_crc", {{"task", task}, {"offset", std::to_string(out.crc32c.size())}, {"length", std::to_string(n)}});
+    TaskResult out;
+    out.summary = st["summary"];
+    std::uint64_t total = static_cast<std::uint64_t>(st["blob_bytes"].integer(0));
+    while (out.blob.size() < total) {
+        std::uint64_t n = std::min<std::uint64_t>(kChunk, total - out.blob.size());
+        auto piece = fs.call(no_path, "GET", "task_blob", {{"task", task}, {"offset", std::to_string(out.blob.size())}, {"length", std::to_string(n)}});
         if (!piece.ok() || piece->empty()) {
             drop();
-            return piece.ok() ? make_error(Errc::invalid_data, "the other engine's checksums ended early") : piece.error();
+            return piece.ok() ? make_error(Errc::invalid_data, "the other engine's results ended early") : piece.error();
         }
-        out.crc32c.insert(out.crc32c.end(), piece->begin(), piece->end());
+        out.blob += *piece;
     }
     drop();
+    return out;
+}
+} // namespace
+
+Result<BlockChecksums> PeerFile::checksums(std::uint64_t length, std::uint32_t block, const ProgressFn& progress) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        ALEMBIC_TRY(settle_locked());
+    }
+    ALEMBIC_ASSIGN(TaskResult r, run_task(fs_, t_, "checksum", {{"length", std::to_string(length)}, {"block", std::to_string(block)}},
+                                          "Checking the package (on the other engine)", progress));
+    BlockChecksums out;
+    if (!keys::from_hex(r.summary["sha3"].str(), MutableBytes(out.sha3_256.data(), out.sha3_256.size())))
+        return make_error(Errc::invalid_data, "the other engine's digest is not readable");
+    out.crc32c.assign(r.blob.begin(), r.blob.end());
     return out;
 }
 
@@ -452,6 +470,15 @@ Status PeerFile::sync() {
 
 std::shared_ptr<FileSystem> make(peers::Discovery& discovery, pairing::Pairing& pairing) {
     return std::make_shared<PeerFs>(discovery, pairing);
+}
+
+Result<std::vector<convert::FileDigest>> digest_tree(peers::Discovery& discovery, pairing::Pairing& pairing, const std::string& path,
+                                                     const std::string& passcode, const ProgressFn& progress) {
+    auto t = parse(path);
+    if (!t || t->path.empty()) return make_error(Errc::invalid_argument, "not a file on another engine: " + path);
+    PeerFs fs(discovery, pairing);
+    ALEMBIC_ASSIGN(TaskResult r, run_task(fs, *t, "digest", {{"passcode", passcode}}, "Comparing (on the other engine)", progress));
+    return convert::digests_from_text(r.blob);
 }
 
 } // namespace alembic::engine::peer_fs

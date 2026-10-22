@@ -10,6 +10,7 @@
 #include "pairing.hpp"
 #include "peers.hpp"
 
+#include "alembic/convert.hpp"
 #include "alembic/io.hpp"
 
 #include <memory>
@@ -31,6 +32,10 @@ std::optional<Target> parse(const std::string& path);
 std::string name_for(const std::string& id, const std::string& local_path);
 
 std::shared_ptr<FileSystem> make(peers::Discovery& discovery, pairing::Pairing& pairing);
+
+// convert::digest_tree, worked out by the engine that has the game ("/peer/<id>/...").
+Result<std::vector<convert::FileDigest>> digest_tree(peers::Discovery& discovery, pairing::Pairing& pairing, const std::string& path,
+                                                     const std::string& passcode, const ProgressFn& progress);
 
 // A signed request to a paired engine (also for the job and browse calls).
 Result<std::string> request(peers::Discovery& discovery, pairing::Pairing& pairing, const std::string& id,

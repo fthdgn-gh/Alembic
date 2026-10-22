@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "alembic/convert.hpp"
+#include "alembic/sha256.hpp"
 
 #include "alembic/bytes.hpp"
 #include "alembic/exfat_reader.hpp"
@@ -10,6 +11,7 @@
 #include "alembic/unicode.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 
@@ -530,55 +532,67 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     return unsupported(input.format, to);
 }
 
+namespace {
+
+// A game's files for comparing: opened, LZ4 packs unpacked, sorted by path,
+// without ampr_emu.index (conversions may write their own).
+struct GameFiles {
+    Input input;
+    std::unique_ptr<tree::Source> unpacked;
+    const tree::Source* tree = nullptr;
+    std::vector<std::pair<std::string, const tree::Node*>> files;
+};
+
+Status open_game_files(const std::string& path, const std::string& passcode, GameFiles& g) {
+    ALEMBIC_ASSIGN(g.input, open(path, passcode));
+    g.tree = g.input.tree.get();
+    if (lz4pack::is_packed(g.tree->root())) {
+        ALEMBIC_ASSIGN(g.unpacked, lz4pack::unpack(*g.tree));
+        g.tree = g.unpacked.get();
+    }
+    std::vector<std::pair<std::string, const tree::Node*>> stack{{"", &g.tree->root()}};
+    while (!stack.empty()) {
+        auto [prefix, node] = stack.back();
+        stack.pop_back();
+        for (const tree::Node& c : node->children) {
+            std::string p = prefix.empty() ? c.name : prefix + "/" + c.name;
+            if (c.is_directory) stack.push_back({p, &c});
+            else if (p != "ampr_emu.index") g.files.push_back({p, &c});
+        }
+    }
+    std::sort(g.files.begin(), g.files.end());
+    return {};
+}
+
+} // namespace
+
 Result<Comparison> compare(const std::string& a, const std::string& b, const std::string& passcode,
                            const ProgressFn& progress) {
-    Input inputs[2];
-    std::unique_ptr<tree::Source> unpacked[2];
-    const tree::Source* trees[2];
-    const std::string* paths[2] = {&a, &b};
-    for (int i = 0; i < 2; ++i) {
-        ALEMBIC_ASSIGN(inputs[i], open(*paths[i], passcode));
-        trees[i] = inputs[i].tree.get();
-        if (lz4pack::is_packed(trees[i]->root())) {
-            ALEMBIC_ASSIGN(unpacked[i], lz4pack::unpack(*trees[i]));
-            trees[i] = unpacked[i].get();
-        }
-    }
-    std::vector<std::pair<std::string, const tree::Node*>> files[2];
-    for (int i = 0; i < 2; ++i) {
-        std::vector<std::pair<std::string, const tree::Node*>> stack{{"", &trees[i]->root()}};
-        while (!stack.empty()) {
-            auto [prefix, node] = stack.back();
-            stack.pop_back();
-            for (const tree::Node& c : node->children) {
-                std::string path = prefix.empty() ? c.name : prefix + "/" + c.name;
-                if (c.is_directory) stack.push_back({path, &c});
-                else if (path != "ampr_emu.index") files[i].push_back({path, &c});
-            }
-        }
-        std::sort(files[i].begin(), files[i].end());
-    }
+    GameFiles g[2];
+    ALEMBIC_TRY(open_game_files(a, passcode, g[0]));
+    ALEMBIC_TRY(open_game_files(b, passcode, g[1]));
+    const auto& files = g;
     Comparison result;
     std::uint64_t total = 0, done = 0;
-    for (auto& f : files[0]) total += f.second->size;
+    for (auto& f : files[0].files) total += f.second->size;
     std::size_t j = 0;
     std::vector<std::uint8_t> x(4 << 20), y(4 << 20);
-    for (auto& [path, node] : files[0]) {
-        while (j < files[1].size() && files[1][j].first < path) result.only_in_b.push_back(files[1][j++].first);
-        if (j >= files[1].size() || files[1][j].first != path) {
+    for (auto& [path, node] : files[0].files) {
+        while (j < files[1].files.size() && files[1].files[j].first < path) result.only_in_b.push_back(files[1].files[j++].first);
+        if (j >= files[1].files.size() || files[1].files[j].first != path) {
             result.only_in_a.push_back(path);
             done += node->size;
             continue;
         }
-        const tree::Node* other = files[1][j++].second;
+        const tree::Node* other = files[1].files[j++].second;
         ++result.files;
         if (other->size != node->size) {
             result.different.push_back(path);
             done += node->size;
             continue;
         }
-        ALEMBIC_ASSIGN(auto fa, trees[0]->open(*node));
-        ALEMBIC_ASSIGN(auto fb, trees[1]->open(*other));
+        ALEMBIC_ASSIGN(auto fa, g[0].tree->open(*node));
+        ALEMBIC_ASSIGN(auto fb, g[1].tree->open(*other));
         for (std::uint64_t at = 0; at < node->size;) {
             auto n = static_cast<std::size_t>(std::min<std::uint64_t>(x.size(), node->size - at));
             ALEMBIC_TRY(fa->read_at(at, MutableBytes(x.data(), n)));
@@ -594,8 +608,94 @@ Result<Comparison> compare(const std::string& a, const std::string& b, const std
             if (progress && !progress({"Comparing", done, total})) return make_error(Errc::cancelled, "cancelled");
         }
     }
-    for (; j < files[1].size(); ++j) result.only_in_b.push_back(files[1][j].first);
+    for (; j < files[1].files.size(); ++j) result.only_in_b.push_back(files[1].files[j].first);
     return result;
+}
+
+Result<std::vector<FileDigest>> digest_tree(const std::string& path, const std::string& passcode, const ProgressFn& progress) {
+    GameFiles g;
+    ALEMBIC_TRY(open_game_files(path, passcode, g));
+    std::uint64_t total = 0, done = 0;
+    for (auto& f : g.files) total += f.second->size;
+    std::vector<FileDigest> out;
+    out.reserve(g.files.size());
+    std::vector<std::uint8_t> buffer(4 << 20);
+    for (auto& [p, node] : g.files) {
+        ALEMBIC_ASSIGN(auto f, g.tree->open(*node));
+        Sha256 h;
+        for (std::uint64_t at = 0; at < node->size;) {
+            auto n = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), node->size - at));
+            ALEMBIC_TRY(f->read_at(at, MutableBytes(buffer.data(), n)));
+            h.update(Bytes(buffer.data(), n));
+            at += n;
+            done += n;
+            if (progress && !progress({"Hashing", done, total})) return make_error(Errc::cancelled, "cancelled");
+        }
+        out.push_back({p, node->size, h.finish()});
+    }
+    if (progress) progress({"Hashing", done, total});
+    return out;
+}
+
+Comparison compare_digests(const std::vector<FileDigest>& a, const std::vector<FileDigest>& b) {
+    Comparison result;
+    std::size_t j = 0;
+    for (const FileDigest& f : a) {
+        while (j < b.size() && b[j].path < f.path) result.only_in_b.push_back(b[j++].path);
+        if (j >= b.size() || b[j].path != f.path) {
+            result.only_in_a.push_back(f.path);
+            continue;
+        }
+        const FileDigest& o = b[j++];
+        ++result.files;
+        if (o.size != f.size || o.sha256 != f.sha256) result.different.push_back(f.path);
+        else result.bytes += f.size;
+    }
+    for (; j < b.size(); ++j) result.only_in_b.push_back(b[j].path);
+    return result;
+}
+
+std::string digests_to_text(const std::vector<FileDigest>& list) {
+    std::string out;
+    for (const FileDigest& f : list) {
+        Sha256::Digest d;
+        std::copy(f.sha256.begin(), f.sha256.end(), d.begin());
+        std::string path; // '%', CR and LF escaped: names from images may hold anything
+        for (char c : f.path) path += c == '%' ? "%25" : c == '\n' ? "%0A" : c == '\r' ? "%0D" : std::string(1, c);
+        out += Sha256::hex(d) + " " + std::to_string(f.size) + " " + path + "\n";
+    }
+    return out;
+}
+
+Result<std::vector<FileDigest>> digests_from_text(const std::string& text) {
+    std::vector<FileDigest> out;
+    auto nibble = [](char c) { return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1; };
+    for (std::size_t at = 0; at < text.size();) {
+        std::size_t end = text.find('\n', at);
+        if (end == std::string::npos) end = text.size();
+        std::string line = text.substr(at, end - at);
+        at = end + 1;
+        if (line.empty()) continue;
+        std::size_t sp1 = line.find(' '), sp2 = sp1 == std::string::npos ? sp1 : line.find(' ', sp1 + 1);
+        if (sp1 != 64 || sp2 == std::string::npos) return make_error(Errc::invalid_data, "a digest line is not readable");
+        FileDigest f;
+        for (int i = 0; i < 32; ++i) {
+            int hi = nibble(line[2 * i]), lo = nibble(line[2 * i + 1]);
+            if (hi < 0 || lo < 0) return make_error(Errc::invalid_data, "a digest line is not readable");
+            f.sha256[i] = static_cast<std::uint8_t>(hi << 4 | lo);
+        }
+        f.size = std::strtoull(line.c_str() + sp1 + 1, nullptr, 10);
+        std::string escaped = line.substr(sp2 + 1);
+        for (std::size_t i = 0; i < escaped.size(); ++i) {
+            if (escaped.compare(i, 3, "%25") == 0) { f.path += '%'; i += 2; }
+            else if (escaped.compare(i, 3, "%0A") == 0) { f.path += '\n'; i += 2; }
+            else if (escaped.compare(i, 3, "%0D") == 0) { f.path += '\r'; i += 2; }
+            else f.path += escaped[i];
+        }
+        out.push_back(std::move(f));
+    }
+    std::sort(out.begin(), out.end(), [](const FileDigest& x, const FileDigest& y) { return x.path < y.path; });
+    return out;
 }
 
 } // namespace alembic::convert

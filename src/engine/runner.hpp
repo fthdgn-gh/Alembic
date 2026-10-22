@@ -4,6 +4,7 @@
 
 #include "jobs.hpp"
 
+#include "alembic/convert.hpp"
 #include "alembic/resume.hpp"
 
 #include <functional>
@@ -29,6 +30,11 @@ struct EngineConfig {
     // True when a queued job other than the running one reads `path`; the
     // source is then kept even with delete_source.
     std::function<bool(const std::string& path)> needed_by_other_jobs;
+    // convert::digest_tree for a game on another engine ("/peer/<id>/..."),
+    // worked out there (peer_fs::digest_tree).
+    std::function<Result<std::vector<convert::FileDigest>>(const std::string& path, const std::string& passcode,
+                                                           const ProgressFn& progress)>
+        digest_elsewhere;
 
     // The roots that can be used right now (mounted drives only).
     std::vector<std::string> available_roots() const;

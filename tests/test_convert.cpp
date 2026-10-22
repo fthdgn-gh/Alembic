@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "alembic/convert.hpp"
+#include "alembic/io.hpp"
 #include "test.hpp"
 
+#include <algorithm>
 #include <string>
 
 using namespace alembic;
@@ -132,4 +134,42 @@ TEST_CASE(convert_detects_and_refuses) {
     CHECK(convert::guess_output_format("a/b.FFPFSC") == std::optional<convert::Format>(convert::Format::ffpfsc));
     CHECK(convert::guess_output_format("out/") == std::optional<convert::Format>(convert::Format::folder));
     CHECK(!convert::guess_output_format("noext"));
+}
+
+// The check before a source is deleted, by digests (each side can be worked
+// out on its own engine): the same answers as comparing the files.
+TEST_CASE(convert_digests_match_compare) {
+    std::string tmp = test::make_temp_dir();
+    std::string game = make_game(tmp);
+    convert::Options options;
+    REQUIRE_OK(convert::run(game, tmp + "/g.exfat", convert::Format::exfat, options));
+    auto a = convert::digest_tree(game);
+    auto b = convert::digest_tree(tmp + "/g.exfat");
+    REQUIRE_OK(a);
+    REQUIRE_OK(b);
+    CHECK_EQ(a->size(), std::size_t(5));
+    convert::Comparison same = convert::compare_digests(*a, *b);
+    CHECK(same.same());
+    CHECK_EQ(same.files, std::uint64_t(5));
+    auto bytewise = convert::compare(game, tmp + "/g.exfat");
+    REQUIRE_OK(bytewise);
+    CHECK(bytewise->same() && bytewise->files == same.files && bytewise->bytes == same.bytes);
+    // A changed file and a missing one.
+    REQUIRE_OK(convert::run(tmp + "/g.exfat", tmp + "/changed", convert::Format::folder, options));
+    test::write_file(tmp + "/changed/eboot.bin", bytes(300000, 9));
+    (void)remove_file(tmp + "/changed/Data/empty.bin");
+    auto c = convert::digest_tree(tmp + "/changed");
+    REQUIRE_OK(c);
+    convert::Comparison diff = convert::compare_digests(*a, *c);
+    CHECK(diff.different.size() == 1 && diff.different[0] == "eboot.bin");
+    CHECK(diff.only_in_a.size() == 1 && diff.only_in_a[0] == "Data/empty.bin");
+    // Text and back, with names that need escaping.
+    std::vector<convert::FileDigest> odd = *a;
+    odd.push_back({"Data/a%b\nc\rd", 3, {}});
+    std::sort(odd.begin(), odd.end(), [](const auto& x, const auto& y) { return x.path < y.path; });
+    auto back = convert::digests_from_text(convert::digests_to_text(odd));
+    REQUIRE_OK(back);
+    CHECK(back->size() == odd.size());
+    CHECK(convert::compare_digests(odd, *back).same());
+    CHECK(!convert::digests_from_text("not a digest line\n").ok());
 }

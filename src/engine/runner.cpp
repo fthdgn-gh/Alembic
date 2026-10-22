@@ -6,10 +6,14 @@
 #include "smp.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
+#include <chrono>
 #include <cstdio>
 #include <map>
 #include <mutex>
+#include <optional>
+#include <thread>
 
 #include "alembic/ampr_emu.hpp"
 #include "alembic/convert.hpp"
@@ -342,6 +346,50 @@ bool shadowmount_rescan(const EngineConfig& config, std::string* why) {
     return s.ok();
 }
 
+// The check before the source is deleted. Both here: the files are compared
+// byte by byte. Either on another engine: each side's file digests are
+// worked out where its files are, both at once, and only the lists compared
+// (nothing comes back over the network but the lists).
+Result<convert::Comparison> check_output(const std::string& input, const std::string& output, const std::string& passcode,
+                                         const EngineConfig& config, const ProgressFn& progress) {
+    if (!is_mounted(input) && !is_mounted(output)) return convert::compare(input, output, passcode, progress);
+    struct Side {
+        std::string path;
+        std::atomic<std::uint64_t> done{0}, total{0};
+        std::atomic<bool> finished{false};
+        std::optional<Result<std::vector<convert::FileDigest>>> result;
+        std::thread thread;
+    };
+    std::atomic<bool> stop{false};
+    Side sides[2];
+    sides[0].path = input;
+    sides[1].path = output;
+    for (Side& side : sides) {
+        side.thread = std::thread([&side, &stop, &config, passcode] {
+            ProgressFn p = [&](const ProgressEvent& e) {
+                side.done = e.done;
+                side.total = e.total;
+                return !stop.load();
+            };
+            if (is_mounted(side.path))
+                side.result = config.digest_elsewhere ? config.digest_elsewhere(side.path, passcode, p)
+                                                      : Result<std::vector<convert::FileDigest>>(make_error(Errc::unsupported, "no way to reach " + side.path));
+            else side.result = convert::digest_tree(side.path, passcode, p);
+            side.finished = true;
+        });
+    }
+    while (!(sides[0].finished && sides[1].finished)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        if (progress && !progress({"Comparing", sides[0].done + sides[1].done, sides[0].total + sides[1].total})) stop = true;
+    }
+    for (Side& side : sides) side.thread.join();
+    if (stop) return make_error(Errc::cancelled, "cancelled");
+    for (Side& side : sides)
+        if (!side.result->ok()) return side.result->error();
+    convert::Comparison cmp = convert::compare_digests(**sides[0].result, **sides[1].result);
+    return cmp;
+}
+
 Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress) {
     ALEMBIC_ASSIGN(convert::Format to, target_format(spec));
     ALEMBIC_ASSIGN(std::string output, resolve_output(spec));
@@ -504,7 +552,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
 
     if (spec.delete_source) {
         if (spec.verify) {
-            ALEMBIC_ASSIGN(convert::Comparison cmp, convert::compare(spec.input, output, options.passcode, progress));
+            ALEMBIC_ASSIGN(convert::Comparison cmp, check_output(spec.input, output, options.passcode, config, progress));
             // Packing adds the runtime when the game had none.
             std::vector<std::string> extra;
             for (const std::string& p : cmp.only_in_b)
@@ -518,6 +566,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
             JsonValue v = JsonValue::object();
             v.set("files", cmp.files);
             v.set("bytes", cmp.bytes);
+            v.set("by", is_mounted(spec.input) || is_mounted(output) ? "digests" : "bytes");
             r.set("verify", std::move(v));
             if (!cmp.only_in_a.empty() || !cmp.different.empty() || !extra.empty()) {
                 std::string first = !cmp.different.empty() ? "differs: " + cmp.different[0]

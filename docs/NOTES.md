@@ -1669,6 +1669,27 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   that engine's usual destination. Not resumable yet: a stopped copy starts
   over.
 
+### 2026-10-22: checking outputs on other engines by digests
+
+- Owner asked whether the check before deleting a source pulls files back:
+  it did (`convert::compare` reads both sides byte by byte, so an output or
+  source on another engine came over the network again). Only that check
+  reads outputs back; the writers do not (FPKG's read-back is handled on
+  the engine with the package since the entry above).
+- Now (`runner.cpp` `check_output`): both sides on the converting engine:
+  bytes, as before (hashing would read the same and add work). Either side
+  elsewhere: `convert::digest_tree` (every file's size and SHA-256, any
+  format, LZ4 packs unpacked, `ampr_emu.index` left out, as compare does)
+  for each side where its files are, both at once (a `digest` task on the
+  other engine, the background tasks now general: `task`, `task_blob`,
+  `task_drop`), then `compare_digests`. Only the lists cross the network
+  (text, one line a file; '%', CR and LF in names escaped). The job's
+  result says `verify.by`: "bytes" or "digests".
+- Checked: a unit test (digests of a folder and its exFAT agree with
+  compare; a changed and a missing file; names with newlines); two
+  engines with "delete the source": B's game to an FFPFSC on A, A's game to
+  an exFAT on B, both checked by digests, sources then deleted.
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and

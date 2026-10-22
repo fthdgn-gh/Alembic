@@ -15,6 +15,7 @@
 
 #include <functional>
 #include <memory>
+#include <array>
 #include <optional>
 #include <string>
 
@@ -136,5 +137,22 @@ struct Comparison {
 };
 Result<Comparison> compare(const std::string& a, const std::string& b, const std::string& passcode = std::string(32, '0'),
                            const ProgressFn& progress = {});
+
+// The same check by digests: each side can be worked out where its files are
+// (another engine) and only the lists compared. Every file of the game at
+// `path` (any format, LZ4 packs unpacked, ampr_emu.index left out, as
+// compare() does) with its size and SHA-256, sorted by path.
+struct FileDigest {
+    std::string path;
+    std::uint64_t size = 0;
+    std::array<std::uint8_t, 32> sha256{};
+};
+Result<std::vector<FileDigest>> digest_tree(const std::string& path, const std::string& passcode = std::string(32, '0'),
+                                            const ProgressFn& progress = {});
+Comparison compare_digests(const std::vector<FileDigest>& a, const std::vector<FileDigest>& b);
+// As text, one "sha256-hex size path" line each ('%', CR and LF in paths as
+// %25, %0A, %0D), and back.
+std::string digests_to_text(const std::vector<FileDigest>& list);
+Result<std::vector<FileDigest>> digests_from_text(const std::string& text);
 
 } // namespace alembic::convert
