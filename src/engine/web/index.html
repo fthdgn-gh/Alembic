@@ -74,6 +74,7 @@ body.covered .view.scroll, body.covered .view .scroll, .overlay.under .scroll { 
 .rail { padding: .25rem .3rem 1rem; }
 .rail h3, .sect { font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); font-weight: 600; margin: 1rem .55rem .5rem; }
 .rail h3:first-child { margin-top: .4rem; }
+.rail h4 { font-size: .78rem; color: var(--muted); font-weight: 600; margin: .7rem .55rem .3rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ritem { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: .6rem; padding: .55rem .6rem; color: var(--muted); position: relative; }
 .ritem .nm { display: flex; align-items: center; }
 .ritem .nm svg { width: 1.15rem; height: 1.15rem; margin-right: .6rem; flex: 0 0 auto; opacity: .85; }
@@ -263,7 +264,7 @@ a.btn { text-decoration: none; }
   .view { padding: 0 1rem; }
   .files { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .rail { display: flex; overflow-x: auto; padding: 0 0 .5rem; }
-  .rail h3 { display: none; }
+  .rail h3, .rail h4 { display: none; }
   .ritem { width: auto; flex: 0 0 auto; margin-right: .4rem; border: 1px solid var(--line); }
   .ritem .meter, .ritem .free { display: none; }
   .ritem.on::before { display: none; }
@@ -1026,15 +1027,23 @@ function renderRail() {
     const short = (label) => placeLabel(label.replace(/ · homebrew.*$/, " · homebrew").replace(/^Internal storage$/, "Internal"));
     const places = state.locations.filter((l) => l.exists && !l.ftp && !l.peer && !state.space.some((s) => s.root === l.path));
     const theirs = state.locations.filter((l) => l.peer && l.exists && !peerRoots.has(l.path));
-    const recent = (store.get("recent") || []).filter((p) => rootOf(p) && !places.some((l) => l.path === p) && !theirs.some((l) => l.path === p)).slice(0, 4);
+    const recent = (store.get("recent") || []).filter((p) => rootOf(p) && !peerDriveOf(p) && !places.some((l) => l.path === p)).slice(0, 4);
     if (places.length || theirs.length || recent.length) box.append(h("h3", { text: t("Places") }));
+    // With other engines' places listed too, this engine's get its name as well.
+    if (theirs.length && (places.length || recent.length)) box.append(h("h4", { text: state.info && state.info.platform === "ps5" ? "PS5" : (state.info && state.info.host_name) || t("This engine") }));
     for (const l of places) box.append(h("button", { class: "ritem" + (state.cwd === l.path ? " on" : ""), "data-key": "p:" + l.path, title: l.path, onclick: () => browse(l.path) },
       h("div", { class: "nm", html: ICONS.place }, h("span", { class: "ellip", text: short(l.label) }))));
-    for (const l of theirs) box.append(h("button", { class: "ritem" + (state.cwd === l.path ? " on" : ""), "data-key": "p:" + l.path, title: l.path, onclick: () => browse(l.path) },
-      h("div", { class: "nm", html: ICONS.place }, h("span", { class: "ellip", text: short(l.place) })),
-      h("div", { class: "free ellip", text: l.engine })));
     for (const p of recent) box.append(h("button", { class: "ritem" + (state.cwd === p ? " on" : ""), "data-key": "c:" + p, title: p, onclick: () => browse(p) },
       h("div", { class: "nm", html: ICONS.clock }, h("span", { class: "ellip", text: base(p) }))));
+    // Each paired engine's under its name.
+    const engines = [];
+    for (const l of theirs) if (!engines.includes(l.peer)) engines.push(l.peer);
+    for (const id of engines) {
+      const list = theirs.filter((l) => l.peer === id);
+      box.append(h("h4", { text: list[0].engine }));
+      for (const l of list) box.append(h("button", { class: "ritem" + (state.cwd === l.path ? " on" : ""), "data-key": "p:" + l.path, title: l.engine + " · " + l.path, onclick: () => browse(l.path) },
+        h("div", { class: "nm", html: ICONS.place }, h("span", { class: "ellip", text: short(l.place) }))));
+    }
   });
 }
 function crumbs(box, path, onPick) {
