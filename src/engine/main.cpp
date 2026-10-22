@@ -70,6 +70,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <charconv>
 #include <condition_variable>
 #include <csignal>
@@ -171,7 +172,7 @@ public:
         : config_(std::move(config)),
           queue_(config_.state_dir, QueueHooks{
                                         [this](const JobSpec& s, const ProgressFn& p) { return run_job(s, config_, p); },
-                                        [](const Job& j) { finished(j); },
+                                        [this](const Job& j) { finished(j); },
                                         [] { platform::keep_awake(); },
                                         [](const std::string& m) { log_line(m); },
                                         [this](const JobSpec& s) { return checkpoint_info(s, config_).has_value(); },
@@ -308,7 +309,29 @@ public:
     }
 
 private:
-    static void finished(const Job& job) {
+    // Another engine's paths in a message ("/peer/<id>/data/x") as people
+    // read them ("PS5: /data/x"), for notifications.
+    std::string with_engine_names(std::string text) const {
+        for (std::size_t at = 0; (at = text.find(peer_fs::kPrefix, at)) != std::string::npos;) {
+            std::size_t id_end = at + 6 + 32;
+            std::string id = text.substr(at + 6, 32);
+            if (id.size() != 32 || id.find_first_not_of("0123456789abcdef") != std::string::npos) {
+                at += 6;
+                continue;
+            }
+            std::string name = "another engine";
+            if (auto p = discovery_ ? discovery_->find(id) : std::nullopt) name = p->who.name;
+            // "/C:/x" of a Windows engine reads "C:/x".
+            bool drive = text.size() > id_end + 3 && text[id_end] == '/' && text[id_end + 2] == ':' &&
+                         std::isalpha(static_cast<unsigned char>(text[id_end + 1]));
+            std::string head = name + ": " + (id_end >= text.size() || text[id_end] != '/' ? "/" : "");
+            text.replace(at, id_end - at + (drive ? 1 : 0), head);
+            at += head.size();
+        }
+        return text;
+    }
+
+    void finished(const Job& job) {
         std::string name = job.spec.input.substr(job.spec.input.rfind('/') + 1);
         switch (job.state) {
         case JobState::done:
@@ -318,7 +341,7 @@ private:
                                      {{"name", name}}));
             break;
         case JobState::failed:
-            platform::notify(l10n::t("Failed: {name}: {error}", {{"name", name}, {"error", l10n::message(job.error)}}));
+            platform::notify(l10n::t("Failed: {name}: {error}", {{"name", name}, {"error", l10n::message(with_engine_names(job.error))}}));
             break;
         default: break;
         }
