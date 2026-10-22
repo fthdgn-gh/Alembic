@@ -1423,10 +1423,18 @@ async function openConvert(entry) {
   const destRow = h("button", { class: "frow" }, h("div", { class: "fl" }, h("b", { text: t("Save to") })), h("div", { class: "val" }, destVal, h("span", { class: "arr", text: "›" })));
   const name = h("input", { class: "input mono", spellcheck: "false", autocapitalize: "off", placeholder: "" });
   const over = switchRow(t("Replace the output if it exists"), null, false, () => sync());
+  // Which engine does the work (Settings > Other engines); the source and the output can be on any.
+  const paired = ((state.peers && state.peers.engines) || []).filter((e) => e.paired);
+  const onChoices = [{ value: "", label: t("This engine") }].concat(paired.map((e) => ({ value: e.id, label: e.name })));
+  const savedOn = store.get("convertOn") || "";
+  const where = choiceRow(t("Convert on"), onChoices, onChoices.some((c) => c.value === savedOn) ? savedOn : "", () => sync(),
+    t("The engine that does the work; the source and the output can be on any paired engine"));
+  where.hidden = !paired.length || !!entry.shared;
+  const onEngine = () => (where.hidden ? "" : where.getValue());
   const form = h("div", {},
     h("div", { class: "lbl", text: t("Convert to") }), fmts,
     h("div", { class: "lbl", text: t("Options") }), level, lz4, lz4Opts, unpack, lz4Note, ampr, del, delOpts, hide,
-    h("div", { class: "lbl", text: t("Output") }), destRow, h("div", { style: "margin-bottom:.5rem" }, name), over);
+    h("div", { class: "lbl", text: t("Output") }), destRow, h("div", { style: "margin-bottom:.5rem" }, name), over, where);
   // Right column: what it is and where it goes.
   const facts = h("div", { class: "facts" }, h("div", { text: t("Reading") }), h("div", { class: "muted", text: "…" }));
   const headIco = icoFor(entry);
@@ -1499,14 +1507,20 @@ async function openConvert(entry) {
     go.disabled = true;
     const s = spec();
     try {
-      const plan = await api("POST", "/api/plan", s);
-      if (!await getNeeds(plan, "This conversion needs {name}, which isn't downloaded yet.")) {
-        msg.className = "msg"; msg.textContent = t("Not queued: a component is needed."); return;
+      const on = onEngine(), engine = paired.find((e) => e.id === on);
+      // Components are the converting engine's own: only this engine's are fetched from here.
+      if (!on) {
+        const plan = await api("POST", "/api/plan", s);
+        if (!await getNeeds(plan, "This conversion needs {name}, which isn't downloaded yet.")) {
+          msg.className = "msg"; msg.textContent = t("Not queued: a component is needed."); return;
+        }
       }
-      const job = await api("POST", "/api/jobs", s);
+      const job = on ? await api("POST", "/api/peers/" + encodeURIComponent(on) + "/jobs", s) : await api("POST", "/api/jobs", s);
       store.set("dest", s.output_dir);
+      store.set("convertOn", on);
       closeOverlay(true);
-      toast(t("Queued: {name}", { name: base(job.spec.output) }), "ok"); refreshJobs();
+      toast(engine ? t("Queued on {engine}: {name}", { engine: engine.name, name: base(job.spec.output) }) : t("Queued: {name}", { name: base(job.spec.output) }), "ok");
+      refreshJobs(true);
     } catch (e) { msg.className = "msg err"; msg.textContent = tMsg(e.message); }
     finally { go.disabled = false; }
   });
@@ -1863,9 +1877,10 @@ function renderJobs() {
     if (!list.length) { if (!e) { box.textContent = ""; box.append(h("div", { class: "card empty", text: empty })); } return; }
     if (e) e.remove();
     list.forEach((j, idx) => {
-      seen.add(j.id);
-      let c = cards.get(j.id);
-      if (!c) { c = h("div", { class: "card click", tabindex: "0", "data-key": "j" + j.id, onclick: () => jobActions(c.__job) }); cards.set(j.id, c); }
+      const key = jobKey(j);
+      seen.add(key);
+      let c = cards.get(key);
+      if (!c) { c = h("div", { class: "card click", tabindex: "0", "data-key": "j" + key, onclick: () => jobActions(c.__job) }); cards.set(key, c); }
       c.__job = j;
       fillJob(c, j);
       if (box.children[idx] !== c) box.insertBefore(c, box.children[idx] || null);
@@ -1911,6 +1926,7 @@ function fillJob(c, j) {
   else if (j.state === "paused") detail = cpText(j) ? t("Paused at {p} · resume to continue", { p: cpText(j) }) : t(j.stage || "Paused");
   else detail = j.finished ? date(j.finished) : "";
   const tags = [];
+  if (j.engine) tags.push(t("on {engine}", { engine: j.engine.name }));
   if (s.kind === "convert") {
     tags.push(s.to);
     if (s.to === "ffpfsc") tags.push(t("level {n}", { n: s.level }));
@@ -1970,11 +1986,11 @@ async function jobActions(j) {
   if (!isActive(j)) items.push({ label: t("Remove from history"), value: "remove", sub: cpText(j) ? t("Also deletes its partial output") : null });
   if (!items.length) return;
   const v = await choose(jobText(j).title, items, jobText(j).to);
-  if (v === "pause" || v === "resume") await act("POST", "/api/jobs/" + j.id + "/" + v);
-  if (v === "up" || v === "down") await act("POST", "/api/jobs/" + j.id + "/move", { direction: v === "up" ? -1 : 1 });
-  if (v === "cancel") await act("POST", "/api/jobs/" + j.id + "/cancel");
-  if (v === "retry") await act("POST", "/api/jobs/" + j.id + "/retry");
-  if (v === "remove") await act("DELETE", "/api/jobs/" + j.id);
+  if (v === "pause" || v === "resume") await act("POST", jobPath(j) + "/" + v);
+  if (v === "up" || v === "down") await act("POST", jobPath(j) + "/move", { direction: v === "up" ? -1 : 1 });
+  if (v === "cancel") await act("POST", jobPath(j) + "/cancel");
+  if (v === "retry") await act("POST", jobPath(j) + "/retry");
+  if (v === "remove") await act("DELETE", jobPath(j));
   if (v === "show") { showTab("files"); browse(dir(r.output), true, r.output); }
   if (v === "smp-hide") await toggleHidden(r.smp_source);
   if (v === "smp-show") await toggleHidden(r.source_hidden);
@@ -1985,15 +2001,38 @@ async function act(method, path, body) {
 }
 $("#btn-clear").addEventListener("click", () => act("POST", "/api/jobs/clear"));
 
-let lastFinished = null;
-async function refreshJobs() {
+// Jobs sent to other engines: their paths as this engine names them.
+function jobKey(j) { return j.engine ? j.engine.id + ":" + j.id : String(j.id); }
+function jobPath(j) { return j.engine ? "/api/peers/" + encodeURIComponent(j.engine.id) + "/jobs/" + j.id : "/api/jobs/" + j.id; }
+function fromEngine(eid, p) {
+  if (!p) return p;
+  const self = state.info && state.info.id ? "/peer/" + state.info.id : null;
+  if (self && (p === self || p.indexOf(self + "/") === 0)) return p.slice(self.length) || "/";
+  if (p.indexOf("/peer/") === 0) return p;
+  return "/peer/" + eid + (p[0] === "/" ? "" : "/") + p;
+}
+function localView(j) {
+  const id = j.engine.id, sp = Object.assign({}, j.spec), r = j.result ? Object.assign({}, j.result) : j.result;
+  for (const k of ["input", "output", "output_dir"]) sp[k] = fromEngine(id, sp[k]);
+  if (r) for (const k of ["output", "source_hidden", "smp_source"]) if (r[k]) r[k] = fromEngine(id, r[k]);
+  return Object.assign({}, j, { spec: sp, result: r });
+}
+let lastFinished = null, remoteJobs = [], remoteAt = 0;
+async function refreshJobs(remoteNow) {
   let jobs;
   // Only a failed request means the engine is gone; a page error is logged as one.
   try { jobs = await api("GET", "/api/jobs"); }
   catch (e) { $("#status-text").textContent = t("Engine not reachable"); $("#status").className = "status off"; return; }
+  // Other engines' every two seconds, while any engine is paired.
+  const anyPaired = state.peers && state.peers.engines.some((e) => e.paired);
+  if (anyPaired && (remoteNow || Date.now() - remoteAt > 2000)) {
+    remoteAt = Date.now();
+    remoteJobs = (await api("GET", "/api/peers/jobs").catch(() => remoteJobs)).map(localView);
+  } else if (!anyPaired) remoteJobs = [];
+  jobs = jobs.concat(remoteJobs);
   {
     // Toast and refresh the listing when a job finishes.
-    const finished = jobs.filter((j) => !isActive(j)).map((j) => j.id + j.state).join();
+    const finished = jobs.filter((j) => !isActive(j)).map((j) => jobKey(j) + j.state).join();
     if (lastFinished !== null && finished !== lastFinished) {
       const newest = jobs.filter((j) => j.finished).sort((a, b) => b.finished - a.finished)[0];
       if (newest && newest.state === "done") toast(t("Finished: {name}", { name: base(newest.spec.input) }), "ok");

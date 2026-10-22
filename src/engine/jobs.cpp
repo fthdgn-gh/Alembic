@@ -92,6 +92,7 @@ JsonValue JobSpec::to_json() const {
     j.set("delete_source", delete_source);
     j.set("verify", verify);
     if (hide_source) j.set("hide_source", true);
+    if (!origin.empty()) j.set("origin", origin);
     return j;
 }
 
@@ -124,6 +125,7 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
     s.delete_source = j["delete_source"].boolean();
     s.verify = j["verify"].boolean(true);
     s.hide_source = j["hide_source"].boolean();
+    s.origin = j["origin"].str();
     if ((s.kind == "copy" || s.kind == "move") && s.output.empty())
         return make_error(Errc::invalid_argument, "copy and move need an output");
     if (s.input.empty()) return make_error(Errc::invalid_argument, "the job has no input");

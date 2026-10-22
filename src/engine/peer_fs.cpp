@@ -84,7 +84,7 @@ Result<std::string> request(peers::Discovery& discovery, pairing::Pairing& pairi
     }
     auto reply = net::http_request(peer->address, peer->who.port, method, target, body, timeout_ms, max_reply, headers);
     if (!reply.ok()) return make_error(Errc::io, peer->who.name + ": " + reply.error().message);
-    if (reply->status != 200) {
+    if (reply->status < 200 || reply->status > 299) {
         auto v = parse_json(reply->body);
         std::string why = v.ok() ? (*v)["error"].str() : "";
         Errc code = reply->status == 404 ? Errc::invalid_argument : reply->status == 501 ? Errc::unsupported : Errc::io;

@@ -349,6 +349,7 @@ private:
         if (r.path == "/api/peer-drives" && r.method == "GET") return peer_drives_json();
         if (r.path.rfind("/api/pair/", 0) == 0) return pair_action(r);
         if (r.path.rfind("/api/peer/fs/", 0) == 0) return peer_fs_action(r);
+        if (r.path == "/api/peer/jobs" || r.path.rfind("/api/peer/jobs/", 0) == 0) return peer_jobs_action(r);
         if (r.path == "/api/smp/scan" && r.method == "POST") {
             std::string why;
             if (!shadowmount_rescan(config_, &why)) return error(503, why);
@@ -356,28 +357,7 @@ private:
             v.set("queued", true);
             return json(200, v);
         }
-        if (r.path == "/api/jobs" && r.method == "GET") {
-            // Times come from the console's clock; "elapsed" saves the page
-            // from comparing them with its own.
-            std::int64_t now = unix_now();
-            JsonValue list = JsonValue::array();
-            for (const Job& j : queue_.list()) {
-                JsonValue v = j.to_json();
-                if (std::int64_t e = j.elapsed(now); e >= 0) v.set("elapsed", e);
-                if (j.spec.kind == "convert") v.set("keeps_progress", keeps_progress(j.spec));
-                // Where a waiting job continues from.
-                if (j.state == JobState::queued || j.state == JobState::paused || j.state == JobState::failed ||
-                    j.state == JobState::interrupted)
-                    if (auto cp = checkpoint_info(j.spec, config_)) {
-                        JsonValue c = JsonValue::object();
-                        c.set("done", cp->done);
-                        c.set("total", cp->total);
-                        v.set("checkpoint", std::move(c));
-                    }
-                list.push(std::move(v));
-            }
-            return json(200, list);
-        }
+        if (r.path == "/api/jobs" && r.method == "GET") return json(200, jobs_json(nullptr));
         if (r.path == "/api/jobs" && r.method == "POST") return plan(r, true);
         if (r.path == "/api/jobs/clear" && r.method == "POST") {
             queue_.clear_finished();
@@ -686,6 +666,27 @@ private:
             if (!added.ok()) return error(400, added.error().message);
             return state();
         }
+        // Jobs this engine sent to others, for the queue.
+        if (r.path == "/api/peers/jobs" && r.method == "GET") {
+            JsonValue all = JsonValue::array();
+            for (const pairing::Paired& p : pairing_->list()) {
+                auto peer = discovery_->find(p.id);
+                if (!peer) continue;
+                auto text = peer_fs::request(*discovery_, *pairing_, p.id, "GET", "/api/peer/jobs", {}, "", 2500, 4u << 20);
+                if (!text.ok()) continue;
+                auto list = parse_json(*text);
+                if (!list.ok()) continue;
+                for (const JsonValue& j : list->items()) {
+                    JsonValue v = j;
+                    JsonValue engine = JsonValue::object();
+                    engine.set("id", p.id);
+                    engine.set("name", peer->who.name);
+                    v.set("engine", std::move(engine));
+                    all.push(std::move(v));
+                }
+            }
+            return json(200, all);
+        }
         // /api/peers/ID[/pair[/confirm|/session|/check]]
         std::string rest = r.path.size() > 11 ? r.path.substr(11) : "";
         std::size_t slash = rest.find('/');
@@ -697,6 +698,15 @@ private:
         }
         if (!pairing_) return error(503, "starting");
         auto peer = discovery_->find(id);
+        if (action == "jobs" && r.method == "POST") return send_job(r, id);
+        if (action.rfind("jobs/", 0) == 0) {
+            // Pause, resume, cancel, retry, remove a job sent there.
+            auto reply = peer_fs::request(*discovery_, *pairing_, id, r.method, "/api/peer/" + action, {}, r.body, 15000, 1u << 20);
+            if (!reply.ok()) return error(502, reply.error().message);
+            HttpResponse out;
+            out.body = *reply;
+            return out;
+        }
         if (action == "pair" && r.method == "POST") {
             if (!peer) return error(404, "no such engine");
             if (pairing_->is_paired(id)) return error(409, "already paired");
@@ -1315,6 +1325,89 @@ private:
     }
 
     // Validates a job; queues it when `queue`.
+    // The queue as the page sees it; `origin` keeps only the jobs that engine sent.
+    JsonValue jobs_json(const std::string* origin) {
+        // Times come from the console's clock; "elapsed" saves the page
+        // from comparing them with its own.
+        std::int64_t now = unix_now();
+        JsonValue list = JsonValue::array();
+        for (const Job& j : queue_.list()) {
+            if (origin && j.spec.origin != *origin) continue;
+            JsonValue v = j.to_json();
+            if (std::int64_t e = j.elapsed(now); e >= 0) v.set("elapsed", e);
+            if (j.spec.kind == "convert") v.set("keeps_progress", keeps_progress(j.spec));
+            // Where a waiting job continues from.
+            if (j.state == JobState::queued || j.state == JobState::paused || j.state == JobState::failed ||
+                j.state == JobState::interrupted)
+                if (auto cp = checkpoint_info(j.spec, config_)) {
+                    JsonValue c = JsonValue::object();
+                    c.set("done", cp->done);
+                    c.set("total", cp->total);
+                    v.set("checkpoint", std::move(c));
+                }
+            list.push(std::move(v));
+        }
+        return list;
+    }
+
+    // Jobs another engine sends (signed): queue one, list and change the
+    // ones it sent. Its paths are as this engine sees them (its own files
+    // under /peer/<its id>/).
+    HttpResponse peer_jobs_action(const HttpRequest& r) {
+        if (!pairing_) return error(503, "starting");
+        auto who = pairing_->verify(r);
+        if (!who.ok()) return error(401, who.error().message);
+        auto peer = discovery_->find(*who);
+        std::string name = peer ? peer->who.name : *who;
+        HttpRequest local = r;
+        local.peer = "engine " + name;
+        if (r.path == "/api/peer/jobs" && r.method == "GET") return json(200, jobs_json(&*who));
+        if (r.path == "/api/peer/jobs" && r.method == "POST") {
+            auto body = parse_json(r.body);
+            if (!body.ok()) return error(400, body.error().message);
+            JsonValue spec = *body;
+            spec.set("origin", *who);
+            local.body = spec.dump();
+            return plan(local, true);
+        }
+        // /api/peer/jobs/<id>[/<action>]: only its own jobs
+        std::string rest = r.path.substr(std::string("/api/peer/jobs/").size());
+        std::uint64_t id = std::strtoull(rest.c_str(), nullptr, 10);
+        auto job = queue_.get(id);
+        if (!job || job->spec.origin != *who) return error(404, "no such job");
+        local.path = "/api/jobs/" + rest;
+        return job_action(local);
+    }
+
+    // Sends a job to engine `id`, its paths rewritten as it sees them: this
+    // engine's files become /peer/<this id>/..., its own files plain paths.
+    HttpResponse send_job(const HttpRequest& r, const std::string& id) {
+        auto body = parse_json(r.body);
+        if (!body.ok()) return error(400, body.error().message);
+        JsonValue spec = *body;
+        auto there = [&](const std::string& p) -> Result<std::string> {
+            if (p.empty()) return p;
+            std::string path = strip_slashes(p);
+            if (auto t = peer_fs::parse(path)) return t->id == id ? (t->path.empty() ? std::string("/") : t->path) : path;
+            if (convert::is_provided(path) || convert::is_output_provided(path))
+                return make_error(Errc::invalid_argument, "a file shared from a browser or an FTP server here can only be converted by this engine");
+            if (!path_allowed(path, config_.available_roots())) return make_error(Errc::invalid_argument, "outside the allowed folders: " + path);
+            return peer_fs::name_for(id_, path);
+        };
+        for (const char* field : {"input", "output", "output_dir"}) {
+            auto p = there(spec[field].str());
+            if (!p.ok()) return error(400, p.error().message);
+            if (!spec[field].str().empty()) spec.set(field, *p);
+        }
+        spec.set("lz4_runtime", std::string()); // the engine there uses its own
+        auto reply = peer_fs::request(*discovery_, *pairing_, id, "POST", "/api/peer/jobs", {}, spec.dump(), 60000, 1u << 20);
+        if (!reply.ok()) return error(502, reply.error().message);
+        auto v = parse_json(*reply);
+        if (!v.ok()) return error(502, "the other engine's reply is not JSON");
+        log_line("job sent to " + id + " by " + r.peer + ": " + spec["input"].str());
+        return json(201, *v);
+    }
+
     HttpResponse plan(const HttpRequest& r, bool queue) {
         auto body = parse_json(r.body);
         if (!body.ok()) return error(400, body.error().message);

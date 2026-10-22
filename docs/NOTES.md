@@ -1604,6 +1604,47 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
 - **Not yet run:** the x86 paths on a real x86-64 machine other than the CI
   runners (the Mac has no Rosetta); the self-tests guard them.
 
+### 2026-10-22: source, converting engine and target on any engine (steps 3 and 4)
+
+- **io mounts** (`io.hpp`): paths under a mounted prefix go to a
+  `FileSystem` (File::open, stat, listings with details in one call,
+  mkdir, remove, rename, times, free space); `File` can hold a handle to a
+  file elsewhere. `tests/test_mounts.cpp` mounts an in-memory one: exFAT,
+  FFPFSC, FFPKG and FFPFS written into it equal the same conversions on
+  disk; an image and a folder in it work as inputs. So every writer and
+  reader already goes through io.hpp.
+- **Paired engines at `/peer/<id>/<its path>`** (`peer_fs.cpp`; a Windows
+  engine's `C:/x` is `/peer/<id>/C:/x`): each call is a signed request to
+  that engine's `/api/peer/fs/{stat,list,read,open,write,truncate,sync,
+  mkdir,remove,rmdir,rename,times,space,roots}`, served inside its shared
+  folders, never its state folder (pairing keys), never another engine's
+  files through it; a shared folder itself cannot be changed. Reads move a
+  4 MiB window; writes next to each other go out together (4 MiB requests;
+  the HTTP body limit is 5 MiB now). Folders above a shared one answer
+  "a folder" to stat only (making an output's folders walks down to it).
+  The serving engine keeps up to 16 files open between requests.
+- **Jobs** (step 4): `JobSpec.origin` is the engine that sent it. The page's
+  engine rewrites paths for the converting engine (its own files become
+  `/peer/<its id>/...`, the converter's become plain paths; browser-shared
+  and FTP files stay with their engine) and sends the job signed to
+  `/api/peer/jobs`; `GET /api/peers/jobs` gathers the jobs this engine sent
+  elsewhere; `/api/peers/<id>/jobs/<n>/<action>` pauses, resumes, cancels,
+  retries and removes them there. Components (ampr_emu) are the converting
+  engine's own.
+- **Page:** paired engines' drives under "Other engines" in the rail, at
+  the top level and in Save to (`/api/peer-drives`, asked again after 8 s);
+  the Convert dialog's "Convert on" (this engine or a paired one,
+  remembered); the queue shows jobs on other engines ("on <engine>"), their
+  paths as this engine names them, and its buttons act there.
+- **Checked on the Mac** with two engines: A's FFPFSC to a folder on B;
+  B's folder to FFPFSC and exFAT on A (exFAT equal to a local build, FFPFSC
+  verifies, no temporary files left); A's folder as an input; browsing A
+  from B; A's state folder out of reach (browse and copy refused); a job
+  the page on B sends to A, reading and writing B's files, verifies;
+  listed and removed from B. A 1.5 GB FFPFSC read from A: 1.0 s against
+  0.6 s locally (loopback). **Not yet:** the page in a browser, two
+  computers, the PS5.
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and
@@ -1693,9 +1734,9 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
    on every x86-64 PC (2026-10-22).
 3. ✓ Windows build (2026-10-22). Owner: try the .exe files on a PC.
 4. **Working across engines** (owner): source, converting engine and target
-   each any engine on the network. Steps 1 and 2, discovery and pairing, done
-   (2026-10-22); next: peer files as inputs and outputs, then queuing jobs on
-   another engine.
+   each any engine on the network. Steps 1-4 (discovery, pairing, peer files
+   as inputs and outputs, choosing the converting engine) done 2026-10-22;
+   owner's test on the console and a PC next.
 5. Smaller: retail/patch packages, NAPS shuffle layouts, Kraken-compressed
    FPKG output, less pass-1 memory for LZ4.
 

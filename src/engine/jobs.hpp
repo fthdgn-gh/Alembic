@@ -55,6 +55,9 @@ struct JobSpec {
     // After a successful conversion that keeps the source: rename it to
     // ".name", which ShadowMount+ does not scan, so it switches to the output.
     bool hide_source = false;
+    // The engine that sent this job here (peers::Identity::id), "" for this
+    // engine's own page; it sees and changes only the jobs it sent.
+    std::string origin;
 
     JsonValue to_json() const;
     static Result<JobSpec> from_json(const JsonValue& json);
