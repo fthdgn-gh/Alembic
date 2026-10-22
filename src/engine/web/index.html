@@ -1958,12 +1958,15 @@ function fillJob(c, j) {
   const pct = j.total ? Math.min(100, 100 * j.done / j.total) : 0;
   let detail = "";
   if (j.state === "running") {
-    const now = Date.now() / 1000, sp = state.speeds[j.id];
+    // Per engine and job (job numbers repeat across engines). A sample counts
+    // when the progress moved: another engine's jobs come every two seconds,
+    // so a refresh in between is no news, not a stop (after 10 s it is).
+    const key = jobKey(j), now = Date.now() / 1000, sp = state.speeds[key];
     let rate = sp && sp.stage === j.stage ? sp.rate : 0;
-    if (sp && sp.stage === j.stage && j.done >= sp.done && now - sp.t > 0.5) {
+    if (sp && sp.stage === j.stage && j.done >= sp.done && now - sp.t > 0.5 && (j.done !== sp.done || now - sp.t > 10)) {
       const inst = (j.done - sp.done) / (now - sp.t); rate = rate ? rate * 0.75 + inst * 0.25 : inst;
-      state.speeds[j.id] = { t: now, done: j.done, rate, stage: j.stage };
-    } else if (!sp || sp.stage !== j.stage) state.speeds[j.id] = { t: now, done: j.done, rate: 0, stage: j.stage };
+      state.speeds[key] = { t: now, done: j.done, rate, stage: j.stage };
+    } else if (!sp || sp.stage !== j.stage) state.speeds[key] = { t: now, done: j.done, rate: 0, stage: j.stage };
     detail = [t(j.stage), j.total ? t("{n}%", { n: pct.toFixed(1) }) : "", rate > 1 ? bytes(rate) + "/s" : "",
       rate > 1 && j.total ? t("{time} left", { time: duration((j.total - j.done) / rate) }) : "", j.elapsed != null ? t("{time} so far", { time: duration(j.elapsed) }) : ""].filter(Boolean).join("  ·  ");
   } else if (j.state === "done") {
@@ -2016,8 +2019,10 @@ function fillJob(c, j) {
 }
 async function jobActions(j) {
   const r = j.result || {}, items = [];
-  const waiting = state.jobs.filter((x) => x.state === "queued" || x.state === "paused");
-  const pos = waiting.indexOf(waiting.filter((x) => x.id === j.id)[0]);
+  // Its place among the waiting jobs of the same engine's queue.
+  const engineOf = (x) => (x.engine ? x.engine.id : "");
+  const waiting = state.jobs.filter((x) => (x.state === "queued" || x.state === "paused") && engineOf(x) === engineOf(j));
+  const pos = waiting.findIndex((x) => jobKey(x) === jobKey(j));
   if (j.state === "running") items.push({ label: t("Pause"), value: "pause",
     sub: j.keeps_progress ? t("Keeps its progress; other jobs run meanwhile") : t("This kind of job can't keep its progress: it starts over when resumed") });
   if (j.state === "paused") items.push({ label: t("Resume"), value: "resume", sub: cpText(j) ? t("Continues from {p}", { p: cpText(j) }) : t("Starts from the beginning") });
