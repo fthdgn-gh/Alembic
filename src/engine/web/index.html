@@ -1019,6 +1019,10 @@ function renderRail() {
         s.total ? h("div", { class: "meter" + (s.free < 20e9 ? " low" : "") }, h("div", { style: "width:" + (used * 100).toFixed(1) + "%" })) : null,
         s.total ? h("div", { class: "free", text: t("{size} free", { size: bytes(s.free) }) }) : null));
     }
+    for (const l of state.locations.filter((x) => x.peer && x.custom))
+      box.append(h("button", { class: "ritem" + (state.cwd === l.path ? " on" : ""), "data-key": "p:" + l.path, title: l.path, onclick: () => browse(l.path) },
+        h("div", { class: "nm", html: ICONS.place }, h("span", { class: "ellip", text: l.place })),
+        h("div", { class: "free ellip", text: l.engine })));
     const places = state.locations.filter((l) => l.exists && !l.ftp && !l.peer && !state.space.some((s) => s.root === l.path));
     const recent = (store.get("recent") || []).filter((p) => rootOf(p) && !places.some((l) => l.path === p)).slice(0, 4);
     if (places.length || recent.length) box.append(h("h3", { text: t("Places") }));
@@ -1157,6 +1161,12 @@ async function openActions(e) {
   if (conv && e.kind !== "fpkg") items.push(isHiddenName(e.name)
     ? { label: t("Show to ShadowMount+ again"), sub: t("Renames it back to {name}", { name: e.name.slice(1) }), value: () => toggleHidden(e.path) }
     : { label: t("Hide from ShadowMount+"), sub: t("Renames it to .{name}, so ShadowMount+ uses another copy of this game", { name: e.name }), value: () => toggleHidden(e.path) });
+  // Places (this engine's or a paired one's): shared with every paired engine.
+  if (e.kind === "folder" && state.cwd !== "/") {
+    const isPlace = state.locations.some((l) => l.custom && l.path === e.path);
+    items.push(isPlace ? { label: t("Remove from Places"), value: () => setPlace(e.path, false) }
+      : { label: t("Add to Places"), sub: t("Shows it in Places and Save to, here and on paired engines"), value: () => setPlace(e.path, true) });
+  }
   // A paired engine's usual destination (Settings > Other engines), for a copy without converting.
   const peerPlace = state.locations.find((l) => l.peer) || (state.peerDrives || []).map((d) => ({ path: d.root, label: d.engine }))[0];
   if (peerPlace && !e.shared) items.push({ label: t("Send to another engine…"), sub: t("A copy as it is, without converting"), value: () => openDest(e, "copy", peerPlace.path) });
@@ -1620,6 +1630,17 @@ function renderSettings() {
     const test = h("button", { class: "frow", "data-key": "s:test", onclick: openControllerTest },
       h("div", { class: "fl" }, h("b", { text: t("Controller test") }), h("small", { text: t("Shows what each button sends to this page") })), h("span", { class: "arr", text: "›" }));
     box.append(h("div", { class: "head2" }, h("div", { class: "sect", text: t("Page") })), language, scale, test);
+    // Places the person added, here and on paired engines.
+    box.append(h("div", { class: "head2" }, h("div", { class: "sect", text: t("Places") })));
+    const mine = state.locations.filter((l) => l.custom);
+    const placeCard = h("div", { class: "card" });
+    if (!mine.length) placeCard.append(h("p", { class: "muted", style: "margin:0", text: t("No places yet: in Files, open a folder's Options and choose Add to Places. They show here and on paired engines.") }));
+    for (const l of mine)
+      placeCard.append(h("div", { class: "ftprow" },
+        h("div", { class: "nm", html: ICONS.place }),
+        h("div", { style: "min-width:0;flex:1" }, h("div", { class: "ellip", text: l.place || l.label }), h("div", { class: "muted mono ellip", style: "font-size:.85rem", text: (l.engine ? l.engine + " · " : "") + l.path })),
+        h("button", { class: "btn sm danger", "data-key": "place:rm:" + l.path, text: t("Remove"), onclick: () => setPlace(l.path, false) })));
+    box.append(placeCard);
     // Other Alembic engines on the network (discovery is off until switched on here).
     box.append(h("div", { class: "head2" }, h("div", { class: "sect", text: t("Other engines") })));
     const p = state.peers || { enabled: false, engines: [] };
@@ -1729,6 +1750,14 @@ function openControllerTest() {
   inputLog.test();
 }
 // Adds an FTP server, or changes `server`; the engine logs in once before keeping it.
+async function setPlace(path, add) {
+  try {
+    state.locations = await api("POST", "/api/places", { path, remove: !add });
+    toast(add ? t("Added to Places") : t("Removed from Places"), "ok");
+  } catch (e) { toast(tMsg(e.message), "bad"); }
+  renderRail();
+  if (state.tab === "settings") renderSettings();
+}
 async function loadPeers() {
   state.peers = await api("GET", "/api/peers");
   if (state.tab === "settings" && !overlays.length) renderSettings();

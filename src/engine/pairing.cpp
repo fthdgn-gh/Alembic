@@ -3,6 +3,7 @@
 
 #include "net.hpp"
 #include "platform.hpp"
+#include "text_file.hpp"
 
 #include "alembic/io.hpp"
 
@@ -42,21 +43,6 @@ keys::Key commitment(const keys::Key& pub, Bytes nonce) {
     std::string m(pub.begin(), pub.end());
     m.append(nonce.begin(), nonce.end());
     return keys::sha256(m);
-}
-
-Result<std::string> read_text(const std::string& path) {
-    ALEMBIC_ASSIGN(File file, File::open(path, File::Mode::read));
-    ALEMBIC_ASSIGN(std::uint64_t size, file.size());
-    if (size > 1u << 20) return make_error(Errc::too_large, path + " is too large");
-    std::string text(static_cast<std::size_t>(size), '\0');
-    ALEMBIC_TRY(file.read_at(0, MutableBytes(reinterpret_cast<std::uint8_t*>(text.data()), text.size())));
-    return text;
-}
-
-Status write_text(const std::string& path, const std::string& text) {
-    ALEMBIC_ASSIGN(AtomicOutput out, AtomicOutput::create(path, true));
-    ALEMBIC_TRY(out.file().write_at(0, bytes_of(text)));
-    return out.commit();
 }
 
 // What a signature covers: one line each, the query sorted by key.

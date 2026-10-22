@@ -179,9 +179,11 @@ if(ALEMBIC_BUILD_ENGINE)
         src/engine/pairing.cpp
         src/engine/peer_fs.cpp
         src/engine/peers.cpp
+        src/engine/places.cpp
         src/engine/remote.cpp
         src/engine/runner.cpp
         src/engine/smp.cpp
+        src/engine/text_file.cpp
         ${ALEMBIC_ENGINE_PLATFORM}
     )
     target_include_directories(alembic_engine_lib PUBLIC src/engine)

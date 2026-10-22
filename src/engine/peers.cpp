@@ -2,6 +2,7 @@
 #include "peers.hpp"
 
 #include "json_value.hpp"
+#include "text_file.hpp"
 #include "net.hpp"
 
 #include "alembic/io.hpp"
@@ -22,21 +23,6 @@ constexpr std::size_t kMaxText = 80;    // longest name, system or version kept 
 constexpr std::size_t kMaxPeers = 64;
 
 std::int64_t now() { return static_cast<std::int64_t>(std::time(nullptr)); }
-
-Result<std::string> read_text(const std::string& path) {
-    ALEMBIC_ASSIGN(File file, File::open(path, File::Mode::read));
-    ALEMBIC_ASSIGN(std::uint64_t size, file.size());
-    if (size > 1u << 20) return make_error(Errc::too_large, path + " is too large");
-    std::string text(static_cast<std::size_t>(size), '\0');
-    ALEMBIC_TRY(file.read_at(0, MutableBytes(reinterpret_cast<std::uint8_t*>(text.data()), text.size())));
-    return text;
-}
-
-Status write_text(const std::string& path, const std::string& text) {
-    ALEMBIC_ASSIGN(AtomicOutput out, AtomicOutput::create(path, true));
-    ALEMBIC_TRY(out.file().write_at(0, Bytes(reinterpret_cast<const std::uint8_t*>(text.data()), text.size())));
-    return out.commit();
-}
 
 bool is_id(const std::string& s) {
     return s.size() == 32 && std::all_of(s.begin(), s.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });

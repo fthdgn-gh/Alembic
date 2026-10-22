@@ -1690,6 +1690,28 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   engines with "delete the source": B's game to an FFPFSC on A, A's game to
   an exFAT on B, both checked by digests, sources then deleted.
 
+### 2026-10-22: Places of your own, shared with paired engines
+
+- Owner: add any folder to Places, and paired engines share their Places so
+  they can be picked on every engine.
+- **Engine** (`src/engine/places.cpp`): `<state>/places.json` (at most 64;
+  inside the shared folders, not the state folder, a folder that exists).
+  `POST /api/places {path, label, remove}`; a `/peer/<id>/...` folder goes
+  to that engine's Places (signed `POST /api/peer/places`), so it shows
+  everywhere, that engine too. `/api/locations` lists this engine's Places
+  first (`custom`), and each engine's `/api/peer/fs/roots` shares its own
+  (never ones on other engines), so paired engines show them as
+  "<engine> · <label>" (`peer`, `engine`, `place`, `custom`). The drive
+  cache is asked again at once after a change made from here.
+- **Page:** a folder's Options: Add to Places / Remove from Places; Places
+  in the rail (this engine's) and under Other engines (theirs); Settings >
+  Places lists them all with Remove; Save to and the copy picker take them.
+- Also: the engine's state-file helpers are one `text_file.cpp` now
+  (jobs, peers, pairing, places).
+- Checked with two engines (API): A's place shows on B; B adds a folder on
+  A (it lands in A's places.json) and removes another; outside the shared
+  folders, the state folder and unsigned requests refused.
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and

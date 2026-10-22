@@ -54,6 +54,7 @@
 #include "pairing.hpp"
 #include "peer_fs.hpp"
 #include "peers.hpp"
+#include "places.hpp"
 #include "platform.hpp"
 #include "ftp.hpp"
 #include "remote.hpp"
@@ -360,6 +361,7 @@ private:
         if (r.path.rfind("/api/pair/", 0) == 0) return pair_action(r);
         if (r.path.rfind("/api/peer/fs/", 0) == 0) return peer_fs_action(r);
         if (r.path == "/api/peer/jobs" || r.path.rfind("/api/peer/jobs/", 0) == 0) return peer_jobs_action(r);
+        if (r.path == "/api/peer/places" && r.method == "POST") return peer_places_action(r);
         if (r.path == "/api/smp/scan" && r.method == "POST") {
             std::string why;
             if (!shadowmount_rescan(config_, &why)) return error(503, why);
@@ -403,6 +405,7 @@ private:
         }
         if (r.path == "/api/fs/space" && r.method == "GET") return fs_space();
         if (r.path == "/api/locations" && r.method == "GET") return locations();
+        if (r.path == "/api/places") return places_action(r);
         if ((r.path == "/api/meta" || r.path == "/api/icon") && r.method == "GET") return game_meta(r);
         if (r.path == "/api/deps" && r.method == "GET") {
             JsonValue list = JsonValue::array();
@@ -930,6 +933,14 @@ private:
                 }
                 list.push(std::move(d));
             }
+            for (const Place& p : places_.list()) { // the person's own, shared with paired engines
+                if (!path_allowed(p.path, roots) || alembic::is_mounted(p.path) || !is_directory(p.path)) continue;
+                JsonValue e = JsonValue::object();
+                e.set("label", p.label);
+                e.set("path", p.path);
+                e.set("custom", true);
+                places.push(std::move(e));
+            }
             for (const platform::Location& l : platform::suggested_locations()) {
                 if (!path_allowed(l.path, roots)) continue;
                 JsonValue e = JsonValue::object();
@@ -1340,6 +1351,7 @@ private:
     };
     struct PeerPlace {
         std::string id, name, path, label;
+        bool custom = false; // added by the person (Places), not suggested
     };
     std::pair<std::vector<PeerDrive>, std::vector<PeerPlace>> peer_drives() {
         std::lock_guard<std::mutex> lock(peer_drives_mutex_);
@@ -1368,7 +1380,7 @@ private:
                     drives.push_back(std::move(drive));
                 }
                 for (const JsonValue& l : (*v)["locations"].items())
-                    places.push_back({p.id, peer->who.name, peer_fs::name_for(p.id, l["path"].str()), l["label"].str()});
+                    places.push_back({p.id, peer->who.name, peer_fs::name_for(p.id, l["path"].str()), l["label"].str(), l["custom"].boolean()});
             }
         peer_drives_ = {std::move(drives), std::move(places)};
         peer_drives_at_ = now;
@@ -1394,9 +1406,76 @@ private:
         return json(200, list);
     }
 
+    // Why `path` cannot be a place on this engine, or "" when it can.
+    std::string place_problem(const std::string& path) {
+        if (!path_allowed(path, config_.available_roots()) || alembic::is_mounted(path)) return "outside the allowed folders";
+        if (is_within(path, config_.state_dir)) return "the engine keeps its queue there";
+        if (!is_directory(path)) return "not a folder: " + path;
+        return "";
+    }
+
+    // Places (places.hpp): add one or remove one (?remove=1); a folder on
+    // another engine goes to that engine's Places, so it shows everywhere.
+    HttpResponse places_action(const HttpRequest& r) {
+        if (r.method == "GET") return locations();
+        if (r.method != "POST") return error(404, "not found");
+        auto body = parse_json(r.body);
+        if (!body.ok()) return error(400, body.error().message);
+        std::string path = strip_slashes((*body)["path"].str()), label = (*body)["label"].str();
+        bool remove = (*body)["remove"].boolean();
+        if (auto t = peer_fs::parse(path); t && alembic::is_mounted(path)) {
+            if (!pairing_ || !discovery_) return error(503, "starting");
+            JsonValue fwd = JsonValue::object();
+            fwd.set("path", t->path);
+            fwd.set("label", label);
+            fwd.set("remove", remove);
+            auto reply = peer_fs::request(*discovery_, *pairing_, t->id, "POST", "/api/peer/places", {}, fwd.dump(), 10000, 1u << 20);
+            if (!reply.ok()) return error(502, reply.error().message);
+            std::lock_guard<std::mutex> lock(peer_drives_mutex_);
+            peer_drives_at_ = 0; // ask again
+        } else {
+            Status s;
+            if (remove) s = places_.remove(path);
+            else if (std::string why = place_problem(path); !why.empty()) return error(400, why);
+            else s = places_.add(path, label);
+            if (!s.ok()) return error(400, s.error().message);
+            log_line(std::string(remove ? "place removed: " : "place added: ") + path + " by " + r.peer);
+        }
+        return locations();
+    }
+
+    // A paired engine adds or removes one of this engine's Places (signed).
+    HttpResponse peer_places_action(const HttpRequest& r) {
+        if (!pairing_) return error(503, "starting");
+        auto who = pairing_->verify(r);
+        if (!who.ok()) return error(401, who.error().message);
+        auto body = parse_json(r.body);
+        if (!body.ok()) return error(400, body.error().message);
+        std::string path = strip_slashes((*body)["path"].str());
+        Status s;
+        if ((*body)["remove"].boolean()) s = places_.remove(path);
+        else if (std::string why = place_problem(path); !why.empty()) return error(400, why);
+        else s = places_.add(path, (*body)["label"].str());
+        if (!s.ok()) return error(400, s.error().message);
+        auto peer = discovery_->find(*who);
+        log_line(std::string((*body)["remove"].boolean() ? "place removed: " : "place added: ") + path + " by engine " +
+                 (peer ? peer->who.name : *who));
+        return json(200, JsonValue::object());
+    }
+
     HttpResponse locations() {
         JsonValue list = JsonValue::array();
         std::vector<std::string> roots = config_.available_roots();
+        // The ones the person added first (a folder on another engine stays here too).
+        for (const Place& p : places_.list()) {
+            if (!path_allowed(p.path, roots)) continue;
+            JsonValue e = JsonValue::object();
+            e.set("label", p.label);
+            e.set("path", p.path);
+            e.set("exists", is_directory(p.path));
+            e.set("custom", true);
+            list.push(std::move(e));
+        }
         std::vector<platform::Location> suggested = platform::suggested_locations();
         if (suggested.empty())
             for (const std::string& root : roots) suggested.push_back({root.substr(root.rfind('/') + 1), root});
@@ -1416,12 +1495,13 @@ private:
             e.set("ftp", true);
             list.push(std::move(e));
         }
-        // Paired engines: where their outputs usually go, else their drives.
+        // Paired engines: their Places and where their outputs usually go,
+        // else their drives.
         auto [drives, places] = peer_drives();
         for (const PeerDrive& d : drives) {
-            bool has_place = std::any_of(places.begin(), places.end(), [&](const PeerPlace& p) { return p.id == d.id; });
+            bool has_place = std::any_of(places.begin(), places.end(), [&](const PeerPlace& p) { return p.id == d.id && !p.custom; });
             if (has_place) continue;
-            places.push_back({d.id, d.name, d.path, d.label});
+            places.push_back({d.id, d.name, d.path, d.label, false});
         }
         for (const PeerPlace& p : places) {
             JsonValue e = JsonValue::object();
@@ -1429,6 +1509,9 @@ private:
             e.set("path", p.path);
             e.set("exists", true);
             e.set("peer", p.id);
+            e.set("engine", p.name);
+            e.set("place", p.label);
+            if (p.custom) e.set("custom", true);
             list.push(std::move(e));
         }
         return json(200, list);
@@ -1710,6 +1793,7 @@ private:
     std::unique_ptr<peers::Discovery> discovery_;
     std::unique_ptr<pairing::Pairing> pairing_;
     OpenFiles files_;
+    Places places_{config_.state_dir};
     std::mutex tasks_mutex_;
     std::map<std::string, std::shared_ptr<Task>> tasks_;
     std::mutex peer_drives_mutex_;

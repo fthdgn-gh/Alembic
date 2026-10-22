@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "jobs.hpp"
 
+#include "text_file.hpp"
+
 #include "alembic/io.hpp"
 
 #include <algorithm>
@@ -17,21 +19,6 @@ bool finished(JobState s) { return s != JobState::queued && s != JobState::runni
 // Jobs still to run, in their order.
 bool waiting(JobState s) { return s == JobState::queued || s == JobState::paused; }
 constexpr std::uint32_t kMaxAutoResumes = 3; // a job that keeps stopping the engine is left alone
-
-Result<std::string> read_text(const std::string& path) {
-    ALEMBIC_ASSIGN(File file, File::open(path, File::Mode::read));
-    ALEMBIC_ASSIGN(std::uint64_t size, file.size());
-    if (size > 64u * 1024 * 1024) return make_error(Errc::too_large, path + " is too large");
-    std::string text(static_cast<std::size_t>(size), '\0');
-    ALEMBIC_TRY(file.read_at(0, MutableBytes(reinterpret_cast<std::uint8_t*>(text.data()), text.size())));
-    return text;
-}
-
-Status write_text(const std::string& path, const std::string& text) {
-    ALEMBIC_ASSIGN(AtomicOutput out, AtomicOutput::create(path, true));
-    ALEMBIC_TRY(out.file().write_at(0, Bytes(reinterpret_cast<const std::uint8_t*>(text.data()), text.size())));
-    return out.commit();
-}
 
 // AtomicOutput writes "<output>.<16 hex>.tmp" next to the output; a crash
 // leaves it behind.
