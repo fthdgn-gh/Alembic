@@ -420,7 +420,8 @@ std::vector<std::string> broadcast_addresses() {
 }
 
 Result<HttpReply> http_request(const std::string& host, std::uint16_t port, const std::string& method,
-                               const std::string& path, const std::string& body, int timeout_ms, std::size_t max_body) {
+                               const std::string& path, const std::string& body, int timeout_ms, std::size_t max_body,
+                               const Headers& headers) {
     if (!startup()) return make_error(Errc::io, "cannot start the network");
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
@@ -446,6 +447,7 @@ Result<HttpReply> http_request(const std::string& host, std::uint16_t port, cons
                           "\r\nConnection: close\r\n";
     if (!body.empty() || method == "POST" || method == "PUT")
         request += "Content-Type: application/json\r\nContent-Length: " + std::to_string(body.size()) + "\r\n";
+    for (const auto& [name, value] : headers) request += name + ": " + value + "\r\n";
     request += "\r\n" + body;
     for (std::size_t sent = 0; sent < request.size();) {
         if (!wait(s, POLLOUT, timeout_ms)) return make_error(Errc::io, host + ": sending timed out");

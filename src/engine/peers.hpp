@@ -10,6 +10,8 @@
 // the page. Reading or writing another engine's files comes with pairing.
 #pragma once
 
+#include "json_value.hpp"
+
 #include "alembic/result.hpp"
 
 #include <atomic>
@@ -18,6 +20,7 @@
 #include <functional>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -44,6 +47,11 @@ struct Peer {
     bool reachable = true;      // manual: whether the last check answered
     std::string problem;        // manual: why not
 };
+
+// An identity as JSON ({id, name, os, platform, version, port}) and back,
+// with the checks a beacon gets (an id of 32 hex digits, a port, clean text).
+JsonValue identity_json(const Identity& who);
+Result<Identity> identity_from_json(const JsonValue& v);
 
 // The engine's id: read from <state>/engine_id, made (random) the first time.
 std::string engine_id(const std::string& state_dir);
@@ -77,6 +85,10 @@ public:
     std::vector<Peer> list() const;
     // Asks host:port for its /api/info; adds and saves it when it answers.
     Result<Peer> add(const std::string& host, std::uint16_t port);
+    // Keeps an engine as if added by address (a paired one), without asking it.
+    void remember(const Identity& who, const std::string& address);
+    // One engine, heard or added.
+    std::optional<Peer> find(const std::string& id) const;
     Status remove(const std::string& id);
 
 private:

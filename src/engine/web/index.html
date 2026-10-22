@@ -32,6 +32,7 @@ a { color: var(--accent); }
 .muted { color: var(--muted); }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; word-break: break-all; }
 .err { color: var(--bad); }
+.good { color: var(--ok); }
 .ellip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sp > * + * { margin-left: .5rem; }
 
@@ -1603,13 +1604,17 @@ function renderSettings() {
     for (const e of p.engines) {
       const sub = [e.os || e.platform, e.address + ":" + e.port, e.version ? "v" + e.version : ""].filter(Boolean).join(" · ");
       const open = h("a", { class: "btn sm", "data-key": "peer:open:" + e.id, href: e.url, target: "_blank", rel: "noopener", text: t("Open its page") });
-      const remove = e.manual ? h("button", { class: "btn sm danger", "data-key": "peer:rm:" + e.id, text: t("Remove"), onclick: () => removePeer(e) }) : null;
+      const btn = (key, text, fn, cls) => h("button", { class: "btn sm" + (cls ? " " + cls : ""), "data-key": "peer:" + key + ":" + e.id, text, onclick: fn });
+      const actions = e.paired ? [btn("check", t("Check"), () => checkPeer(e)), btn("unpair", t("Unpair"), () => unpairPeer(e), "danger")]
+        : [e.waiting_for_code ? btn("code", t("Enter the code"), () => codeDialog(e)) : btn("pair", t("Pair"), () => pairPeer(e), "primary"),
+           e.manual ? btn("rm", t("Remove"), () => removePeer(e), "danger") : null];
       const note = e.manual && !e.reachable ? h("div", { class: "err ellip", style: "font-size:.85rem", text: t("Not reachable: {why}", { why: tMsg(e.problem || "") }) })
+        : e.paired ? h("div", { class: "good", style: "font-size:.85rem", text: t("Paired") })
         : e.manual ? h("div", { class: "muted", style: "font-size:.85rem", text: t("Added by address") }) : null;
       engines.append(h("div", { class: "ftprow" },
         h("div", { class: "nm", html: ICONS.server }),
         h("div", { style: "min-width:0;flex:1" }, h("div", { class: "ellip", text: e.name }), h("div", { class: "muted mono ellip", style: "font-size:.85rem", text: sub }), note),
-        open, remove));
+        open, ...actions));
     }
     engines.append(h("div", { class: "btns" }, h("button", { class: "btn sm", "data-key": "peer:add", text: t("Add an engine by address…"), onclick: peerDialog })));
     box.append(engines);
@@ -1714,6 +1719,64 @@ async function removePeer(e) {
   if (!await ask({ title: t("Remove {name}?", { name: e.name }), body: h("p", { style: "margin-top:0", text: t("Nothing changes on that engine; it can be added again.") }), ok: t("Remove"), danger: true })) return;
   try { state.peers = await api("DELETE", "/api/peers/" + encodeURIComponent(e.id)); toast(t("Engine removed"), "ok"); } catch (err) { toast(tMsg(err.message), "bad"); }
   renderSettings();
+}
+// Pairing (pairing.hpp): started here, the code is typed here.
+async function pairPeer(e) {
+  toast(t("Connecting…"), "ok");
+  try { state.peers = await api("POST", "/api/peers/" + encodeURIComponent(e.id) + "/pair", {}); codeDialog(e); }
+  catch (err) { toast(tMsg(err.message), "bad"); }
+}
+function codeDialog(e) {
+  const code = h("input", { class: "input mono", inputmode: "numeric", autocomplete: "off", maxlength: "7", placeholder: "123 456", style: "font-size:1.6rem;letter-spacing:.2em;text-align:center" });
+  const msg = h("span", { class: "msg" });
+  let done = false;
+  const ok = h("button", { class: "btn primary", text: t("Pair"), onclick: async () => {
+    if (code.value.replace(/\D/g, "").length !== 6) { msg.textContent = t("Enter the six-digit code"); msg.className = "msg err"; return; }
+    ok.disabled = true; msg.textContent = t("Connecting…"); msg.className = "msg";
+    try {
+      state.peers = await api("POST", "/api/peers/" + encodeURIComponent(e.id) + "/pair/confirm", { code: code.value });
+      done = true; closeOverlay(true); toast(t("Paired with {name}", { name: e.name }), "ok"); renderSettings();
+    } catch (err) {
+      msg.textContent = tMsg(err.message); msg.className = "msg err"; ok.disabled = false;
+      loadPeers().then(() => { if (!state.peers.engines.some((x) => x.id === e.id && x.waiting_for_code)) { done = true; closeOverlay(null); } }).catch(() => {});
+    }
+  } });
+  const cancel = h("button", { class: "btn", text: t("Cancel"), onclick: () => closeOverlay(null) });
+  const body = h("div", {}, h("p", { style: "margin-top:0", text: t("Enter the code {name} shows. On a PS5 it is a notification on the screen; on a computer, it is in the engine's window, or in its page opened on that computer.", { name: e.name }) }), code);
+  openOverlay(sheet(t("Pair with {name}", { name: e.name }), body, [msg, cancel, ok], "narrow"), { hints: [["x", t("Choose")], ["o", t("Cancel"), goBack]] })
+    .then(() => { if (!done) api("DELETE", "/api/peers/" + encodeURIComponent(e.id) + "/pair/session").then((p) => { state.peers = p; renderSettings(); }).catch(() => {}); });
+}
+async function checkPeer(e) {
+  try { await api("GET", "/api/peers/" + encodeURIComponent(e.id) + "/pair/check"); toast(t("The pairing works"), "ok"); }
+  catch (err) { toast(tMsg(err.message), "bad"); }
+}
+async function unpairPeer(e) {
+  if (!await ask({ title: t("Unpair {name}?", { name: e.name }), body: h("p", { style: "margin-top:0", text: t("Both engines forget their shared key; pair them again to use them together.") }), ok: t("Unpair"), danger: true })) return;
+  try { state.peers = await api("DELETE", "/api/peers/" + encodeURIComponent(e.id) + "/pair"); toast(t("Unpaired"), "ok"); } catch (err) { toast(tMsg(err.message), "bad"); }
+  renderSettings();
+}
+// Started there, the code is shown here: only in a browser on this computer
+// (the engine shows it to nobody else).
+const LOCAL_PAGE = /^(127\.0\.0\.1|localhost)$/.test(location.hostname);
+let incomingOpen = null;
+async function watchIncoming() {
+  if (!LOCAL_PAGE) return;
+  const r = await api("GET", "/api/pair/incoming").catch(() => null);
+  const p = r && r.pairing;
+  if (p && p.code && !incomingOpen) {
+    const codeBox = h("div", { class: "mono", style: "font-size:2.6rem;letter-spacing:.15em;text-align:center;margin:.6rem 0", text: p.code });
+    const cancel = h("button", { class: "btn", text: t("Cancel"), onclick: () => { api("POST", "/api/pair/incoming/cancel", {}).catch(() => {}); closeOverlay(null); } });
+    incomingOpen = { from: p.from, box: codeBox };
+    openOverlay(sheet(t("{name} wants to pair with this engine", { name: p.from }),
+      h("div", {}, h("p", { style: "margin-top:0", text: t("Enter this code on {name}:", { name: p.from }) }), codeBox), [cancel], "narrow"),
+      { hints: [["o", t("Cancel"), goBack]] }).then(() => { incomingOpen = null; });
+  } else if (!p && incomingOpen) {
+    const from = incomingOpen.from, top = overlays[overlays.length - 1];
+    if (top && top.el.contains(incomingOpen.box)) closeOverlay(true); // paired or expired: only our dialog
+    incomingOpen = null;
+    await loadPeers().catch(() => {});
+    if (state.peers && state.peers.engines.some((x) => x.name === from && x.paired)) toast(t("Paired with {name}", { name: from }), "ok");
+  }
 }
 function ftpDialog(server) {
   const field = (label, attrs) => { const i = h("input", Object.assign({ class: "input mono", spellcheck: "false", autocapitalize: "off" }, attrs)); return [h("div", { class: "lbl", text: label }), i]; };
@@ -1932,6 +1995,7 @@ loadInfo().then(() => browse("/", false)).catch((e) => { $("#status-text").textC
 refreshJobs();
 setInterval(refreshJobs, 1000);
 setInterval(() => loadInfo().catch(() => {}), 15000);
+setInterval(() => watchIncoming().catch(() => {}), 2000);
 setInterval(() => { if (state.tab === "settings" && state.peers && (state.peers.enabled || state.peers.engines.length)) loadPeers().catch(() => {}); }, 4000);
 </script>
 </body>

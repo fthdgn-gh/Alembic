@@ -1544,6 +1544,45 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   switches it on (UDP port opens). **Not yet tried:** across two computers,
   and on the PS5 (whether a payload may broadcast).
 
+### 2026-10-22: pairing engines (step 2)
+
+- **Flow (owner: "Pair" on one, code on the other):** on engine B the person
+  presses Pair next to engine A; A shows a six-digit code; they type it on
+  B. A shows the code only where someone at A sees it: a PS5 notification,
+  the engine's window, and its page when the browser runs on that computer
+  (`/api/pair/incoming` answers 127.0.0.1 only). The page has no password, so
+  a code readable over the network would let anyone there pair.
+- **Protocol** (`src/engine/pairing.cpp`, written up at the top of
+  `pairing.hpp`): X25519 keys and 16-byte nonces; B commits to SHA-256(pubB
+  || nB) before A answers, A shows its code before B reveals, so a
+  man-in-the-middle cannot search for values that give both sides the same
+  code (1 in a million per attempt); code = HMAC(shared, "code" | transcript)
+  mod 10^6; K = HMAC(shared, "key" | transcript); each side proves K before
+  keeping it. Three wrong codes end the attempt; a session lasts 2 min; one
+  pairing at a time and six attempts a minute at A.
+- **Signed requests** for what comes next: X-Alembic-Peer/Time/Nonce/Sign,
+  HMAC(K, method, path, sorted query, time, nonce, SHA-256(body)), within 2
+  minutes of the receiver's clock, each nonce once. `/api/pair/check` (a
+  signed ping) and `/api/pair/forget` use them now.
+- **Keys** in `<state>/paired.json` (secret); a paired engine is remembered
+  like one added by address. Randomness: `platform::secure_random`
+  (sceRandomGetRandomNumber on the PS5, weak import, else the module loaded
+  at run time, else arc4random_buf; arc4random_buf on macOS, getentropy on
+  Linux, BCryptGenRandom on Windows). X25519 after TweetNaCl (public domain),
+  checked against RFC 7748; HMAC-SHA256 against RFC 4231.
+- **Page:** Pair / Enter the code / Check / Unpair per engine; the code
+  dialog; the engine that shows the code opens a dialog with it (local
+  browser only) and closes it when done.
+- **Checked on the Mac:** two engines: pair (wrong code refused, right one
+  accepted), signed checks both ways, kept across a restart, unsigned
+  request refused (401), "unpair it first" before removing, unpairing on one
+  side unpairs the other. Unit tests: the protocol at A with the test as B
+  (a broken commitment, a second engine while one pairs, matching codes and
+  proofs), signatures (tampered body, other path, replay). Not yet on the
+  PS5 (sceRandom, notifications) or between two computers.
+- **Known gap:** the page itself still has no password; pairing protects
+  engine-to-engine requests only.
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and
@@ -1633,8 +1672,8 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
    SHA-256 (SHA-NI on the PS5, ARMv8 SHA2 on the Mac) for verify.
 3. ✓ Windows build (2026-10-22). Owner: try the .exe files on a PC.
 4. **Working across engines** (owner): source, converting engine and target
-   each any engine on the network. Step 1, discovery, done (2026-10-22);
-   next: pairing, then peer files as inputs and outputs, then queuing jobs on
+   each any engine on the network. Steps 1 and 2, discovery and pairing, done
+   (2026-10-22); next: peer files as inputs and outputs, then queuing jobs on
    another engine. Before step 3: AES with CPU instructions on x86-64 PCs.
 5. Smaller: retail/patch packages, NAPS shuffle layouts, Kraken-compressed
    FPKG output, less pass-1 memory for LZ4.

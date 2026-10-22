@@ -3,6 +3,8 @@
 // (GPL-3.0-or-later); keeping the console awake follows PS5-LZ4-Compression's
 // src/lzc_power_guard.c (GPL-3.0-or-later).
 #include "platform.hpp"
+
+#include <algorithm>
 #include "json_value.hpp"
 
 #include <chrono>
@@ -107,6 +109,8 @@ const char* name() { return "ps5"; }
 std::string os_description() { return "PS5"; }
 
 void pause_before_exit() {}
+
+
 
 void notify(const std::string& message) {
     std::fprintf(stderr, "[notify] %s\n", message.c_str());
@@ -525,6 +529,34 @@ Status remove_launcher() {
     ::rmdir((kAppDir + "/sce_sys").c_str());
     ::rmdir(kAppDir.c_str());
     if (rc != 0) return make_error(Errc::io, "sceAppInstUtilAppUnInstall failed: " + hex_code(rc));
+    return {};
+}
+
+// The system's random generator (libSceRandom), found like the installer
+// above: the weak import, else the module loaded now; failing both, libc's
+// arc4random_buf (the kernel's generator).
+extern "C" int sceRandomGetRandomNumber(void* buffer, std::size_t size) __attribute__((weak));
+extern "C" void arc4random_buf(void* buffer, std::size_t size);
+
+Status secure_random(std::uint8_t* out, std::size_t size) {
+    using Fn = int (*)(void*, std::size_t);
+    static Fn fn = [] {
+        Fn f = sceRandomGetRandomNumber ? &sceRandomGetRandomNumber : nullptr;
+        std::uint32_t handle = 0;
+        std::string note;
+        if (!f && module_handle("libSceRandom.sprx", "/system/common/lib/libSceRandom.sprx", handle, note))
+            f = reinterpret_cast<Fn>(kernel_dynlib_dlsym(-1, handle, "sceRandomGetRandomNumber"));
+        return f;
+    }();
+    if (!fn) {
+        arc4random_buf(out, size);
+        return {};
+    }
+    for (std::size_t done = 0; done < size;) {
+        std::size_t n = std::min<std::size_t>(size - done, 64); // the most it gives per call
+        if (fn(out + done, n) != 0) return make_error(Errc::io, "the system's random generator failed");
+        done += n;
+    }
     return {};
 }
 

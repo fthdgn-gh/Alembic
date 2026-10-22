@@ -2,6 +2,8 @@
 // The engine's JSON value, folder rules and output naming.
 #include "json_value.hpp"
 #include "l10n.hpp"
+#include "keys.hpp"
+#include "pairing.hpp"
 #include "peers.hpp"
 #include "runner.hpp"
 #include "smp.hpp"
@@ -10,6 +12,7 @@
 using namespace alembic;
 using namespace alembic::engine;
 
+#include <cctype>
 #include <cstring>
 
 TEST_CASE(engine_json_round_trips) {
@@ -194,4 +197,147 @@ TEST_CASE(engine_discovery_beacons) {
     std::string id = peers::engine_id(dir);
     CHECK(id.size() == 32);
     CHECK(peers::engine_id(dir) == id);
+}
+
+// RFC 7748 (sections 5.2 and 6.1) and RFC 4231 (test case 2).
+TEST_CASE(engine_pairing_crypto) {
+    auto key = [](const char* hex) {
+        keys::Key k{};
+        keys::from_hex(hex, MutableBytes(k.data(), k.size()));
+        return k;
+    };
+    CHECK(keys::to_hex(keys::x25519(key("a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4"),
+                                    key("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c"))) ==
+          "c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552");
+    keys::Key alice = key("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
+    keys::Key bob = key("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb");
+    keys::Key alice_pub = keys::x25519_base(alice), bob_pub = keys::x25519_base(bob);
+    CHECK(keys::to_hex(alice_pub) == "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a");
+    CHECK(keys::to_hex(bob_pub) == "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f");
+    CHECK(keys::to_hex(keys::x25519(alice, bob_pub)) == "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742");
+    CHECK(keys::to_hex(keys::x25519(bob, alice_pub)) == "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742");
+    std::string jefe = "Jefe", data = "what do ya want for nothing?";
+    CHECK(keys::to_hex(keys::hmac_sha256(Bytes(reinterpret_cast<const std::uint8_t*>(jefe.data()), jefe.size()),
+                                         Bytes(reinterpret_cast<const std::uint8_t*>(data.data()), data.size()))) ==
+          "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
+    keys::Key k{};
+    CHECK(!keys::from_hex("zz", MutableBytes(k.data(), 1)));
+    CHECK(keys::equal(Bytes(alice.data(), 32), Bytes(alice.data(), 32)) && !keys::equal(Bytes(alice.data(), 32), Bytes(bob.data(), 32)));
+}
+
+namespace {
+peers::Identity identity(const std::string& id, const std::string& name) {
+    peers::Identity who;
+    who.id = id;
+    who.name = name;
+    who.port = 5940;
+    return who;
+}
+keys::Key random_key() {
+    keys::Key k{};
+    for (std::size_t i = 0; i < k.size(); ++i) k[i] = static_cast<std::uint8_t>(i * 37 + 11);
+    return k;
+}
+} // namespace
+
+// Engine A's side of pairing, with the test playing engine B.
+TEST_CASE(engine_pairing_protocol) {
+    const std::string a_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", b_id = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    std::string dir = test::make_temp_dir();
+    std::vector<std::string> notes;
+    pairing::Pairing::Hooks hooks;
+    hooks.notify = [&](const std::string& m) { notes.push_back(m); };
+    pairing::Pairing a(dir, identity(a_id, "Console"), hooks);
+
+    keys::Key b_secret = random_key(), b_pub = keys::x25519_base(b_secret);
+    std::array<std::uint8_t, 16> b_nonce{};
+    b_nonce[0] = 7;
+    std::string commit_input(b_pub.begin(), b_pub.end());
+    commit_input.append(b_nonce.begin(), b_nonce.end());
+    JsonValue begin = JsonValue::object();
+    begin.set("from", peers::identity_json(identity(b_id, "Desk PC")));
+    begin.set("commit", keys::to_hex(keys::sha256(commit_input)));
+    auto started = a.on_begin(begin, "192.168.1.20");
+    CHECK(started.ok());
+    if (!started.ok()) return;
+    CHECK(a.incoming() && a.incoming()->code.empty()); // nothing to show before the reveal
+    // Another engine cannot step in while this one pairs.
+    JsonValue other = begin;
+    other.set("from", peers::identity_json(identity("cccccccccccccccccccccccccccccccc", "Other")));
+    CHECK(!a.on_begin(other, "192.168.1.30").ok());
+
+    keys::Key a_pub{};
+    std::array<std::uint8_t, 16> a_nonce{};
+    CHECK(keys::from_hex((*started)["pub"].str(), MutableBytes(a_pub.data(), 32)));
+    CHECK(keys::from_hex((*started)["nonce"].str(), MutableBytes(a_nonce.data(), 16)));
+    // A key that does not match the commitment ends the attempt.
+    JsonValue cheat = JsonValue::object();
+    cheat.set("session", (*started)["session"].str());
+    cheat.set("pub", keys::to_hex(keys::x25519_base(a_pub)));
+    cheat.set("nonce", keys::to_hex(Bytes(b_nonce.data(), 16)));
+    CHECK(!a.on_reveal(cheat).ok());
+    CHECK(!a.incoming());
+
+    // Again, honestly.
+    started = a.on_begin(begin, "192.168.1.20");
+    CHECK(started.ok());
+    if (!started.ok()) return;
+    keys::from_hex((*started)["pub"].str(), MutableBytes(a_pub.data(), 32));
+    keys::from_hex((*started)["nonce"].str(), MutableBytes(a_nonce.data(), 16));
+    JsonValue reveal = JsonValue::object();
+    reveal.set("session", (*started)["session"].str());
+    reveal.set("pub", keys::to_hex(b_pub));
+    reveal.set("nonce", keys::to_hex(Bytes(b_nonce.data(), 16)));
+    CHECK(a.on_reveal(reveal).ok());
+    keys::Key shared = keys::x25519(b_secret, a_pub);
+    std::string t = pairing::transcript(a_id, b_id, a_pub, b_pub, Bytes(a_nonce.data(), 16), Bytes(b_nonce.data(), 16));
+    std::string code = pairing::code_for(shared, t);
+    CHECK(code.size() == 6);
+    CHECK(a.incoming() && a.incoming()->code == code.substr(0, 3) + " " + code.substr(3)); // both sides get the same code
+    CHECK(notes.size() == 1 && notes[0].find(code.substr(0, 3) + " " + code.substr(3)) != std::string::npos);
+
+    keys::Key key = pairing::key_for(shared, t);
+    JsonValue finish = JsonValue::object();
+    finish.set("session", (*started)["session"].str());
+    finish.set("proof", keys::to_hex(keys::hmac_sha256(key, "B|" + t)));
+    auto done = a.on_finish(finish);
+    CHECK(done.ok());
+    if (!done.ok()) return;
+    CHECK((*done)["proof"].str() == keys::to_hex(keys::hmac_sha256(key, "A|" + t)));
+    CHECK(a.is_paired(b_id) && !a.incoming());
+
+    // B's signed requests: A accepts each once; any change is refused.
+    // (The test signs as B with a second Pairing that knows the same key.)
+    std::string bdir = test::make_temp_dir();
+    test::write_file(bdir + "/paired.json", [&] {
+        std::string j = R"({"engines":[{"id":")" + a_id + R"(","name":"Console","key":")" + keys::to_hex(key) + R"(","since":1}]})";
+        return std::vector<std::uint8_t>(j.begin(), j.end());
+    }());
+    pairing::Pairing b(bdir, identity(b_id, "Desk PC"), {});
+    auto headers = b.sign(a_id, "POST", "/api/pair/forget", {{"x", "1"}}, "{}");
+    CHECK(headers.ok());
+    if (!headers.ok()) return;
+    HttpRequest r;
+    r.method = "POST";
+    r.path = "/api/pair/forget";
+    r.query = {{"x", "1"}};
+    r.body = "{}";
+    for (const auto& [name, value] : *headers) {
+        std::string lower = name;
+        for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        r.headers[lower] = value;
+    }
+    HttpRequest tampered = r, moved = r;
+    tampered.body = "{\"all\":true}";
+    moved.path = "/api/pair/check";
+    CHECK(!a.verify(tampered).ok());
+    CHECK(!a.verify(moved).ok());
+    auto who = a.verify(r);
+    CHECK(who.ok() && *who == b_id);
+    CHECK(!a.verify(r).ok()); // the same request again
+    CHECK(!a.verify(HttpRequest{}).ok());
+
+    // Kept across a restart.
+    pairing::Pairing again(dir, identity(a_id, "Console"), {});
+    CHECK(again.is_paired(b_id));
 }

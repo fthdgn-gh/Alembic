@@ -49,6 +49,8 @@ keys |= set(ENGINE)
 engine_src = (web.parent / "main.cpp").read_text()
 keys |= set(re.findall(r'l10n::t\(\s*"((?:[^"\\]|\\.)*)"', engine_src))
 keys |= set(re.findall(r'\? "((?:[^"\\]|\\.)*\{name\})"', engine_src))  # l10n::t(a ? "Copied {name}" : ...)
+# Pairing's notifications go through its own t() (pairing.cpp).
+keys |= set(re.findall(r'\bt\(\s*"((?:[^"\\]|\\.)*)"', (web.parent / "pairing.cpp").read_text()))
 _js = (web / "i18n.js").read_text()
 keys |= set(json.loads(_js[_js.index("{", _js.index("var I18N =")):_js.rindex("}") + 1]).get("messages", []))
 keys = sorted(k.encode().decode("unicode_escape") if "\\" in k else k for k in keys)

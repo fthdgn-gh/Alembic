@@ -59,7 +59,9 @@ std::string clean(std::string s) {
     return s;
 }
 
-Result<Identity> identity_from(const JsonValue& v) {
+} // namespace
+
+Result<Identity> identity_from_json(const JsonValue& v) {
     Identity who;
     who.id = v["id"].str();
     std::int64_t port = v["port"].integer(0);
@@ -73,7 +75,7 @@ Result<Identity> identity_from(const JsonValue& v) {
     return who;
 }
 
-JsonValue to_json(const Identity& who) {
+JsonValue identity_json(const Identity& who) {
     JsonValue v = JsonValue::object();
     v.set("id", who.id);
     v.set("name", who.name);
@@ -83,8 +85,6 @@ JsonValue to_json(const Identity& who) {
     v.set("port", static_cast<std::int64_t>(who.port));
     return v;
 }
-
-} // namespace
 
 std::string engine_id(const std::string& state_dir) {
     std::string path = state_dir + "/engine_id";
@@ -102,7 +102,7 @@ std::string engine_id(const std::string& state_dir) {
 }
 
 std::string encode_beacon(const Identity& self, bool query) {
-    JsonValue v = to_json(self);
+    JsonValue v = identity_json(self);
     v.set("alembic", "engine");
     v.set("v", static_cast<std::int64_t>(1));
     if (query) v.set("query", true);
@@ -115,7 +115,7 @@ Result<Beacon> decode_beacon(const std::string& text) {
     if (!v.is_object() || v["alembic"].str() != "engine" || v["v"].integer(0) != 1)
         return make_error(Errc::invalid_data, "not an Alembic beacon");
     Beacon b;
-    ALEMBIC_ASSIGN(b.who, identity_from(v));
+    ALEMBIC_ASSIGN(b.who, identity_from_json(v));
     b.query = v["query"].boolean(false);
     return b;
 }
@@ -290,7 +290,7 @@ Result<Identity> ask_info(const std::string& host, std::uint16_t port) {
     who.set("platform", info["platform"].str());
     who.set("version", info["version"].str());
     who.set("port", static_cast<std::int64_t>(port));
-    auto id = identity_from(who);
+    auto id = identity_from_json(who);
     if (!id.ok()) return make_error(Errc::invalid_data, host + ":" + std::to_string(port) + " is an older engine (no id); update it");
     return id;
 }
@@ -340,6 +340,26 @@ Result<Peer> Discovery::add(const std::string& host, std::uint16_t port) {
     return p;
 }
 
+void Discovery::remember(const Identity& who, const std::string& address) {
+    if (who.id == self_.id) return;
+    std::lock_guard<std::mutex> lock(mutex_);
+    Peer& p = peers_[who.id];
+    p.who = who;
+    p.address = address;
+    p.last_seen = now();
+    p.manual = true;
+    p.reachable = true;
+    p.problem.clear();
+    (void)save_manual_locked();
+}
+
+std::optional<Peer> Discovery::find(const std::string& id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = peers_.find(id);
+    if (it == peers_.end()) return std::nullopt;
+    return it->second;
+}
+
 Status Discovery::remove(const std::string& id) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = peers_.find(id);
@@ -355,7 +375,7 @@ void Discovery::load_manual() {
     auto v = parse_json(*text);
     if (!v.ok()) return;
     for (const JsonValue& item : (*v)["engines"].items()) {
-        auto who = identity_from(item);
+        auto who = identity_from_json(item);
         std::string address = item["address"].str();
         if (!who.ok() || address.empty() || who->id == self_.id) continue;
         Peer p;
@@ -373,7 +393,7 @@ Status Discovery::save_manual_locked() const {
     JsonValue list = JsonValue::array();
     for (const auto& [id, p] : peers_) {
         if (!p.manual) continue;
-        JsonValue v = to_json(p.who);
+        JsonValue v = identity_json(p.who);
         v.set("address", p.address);
         v.set("last_seen", p.last_seen);
         list.push(std::move(v));

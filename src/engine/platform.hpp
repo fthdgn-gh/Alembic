@@ -47,6 +47,9 @@ Result<std::vector<std::uint8_t>> http_get(const std::string& url, std::size_t m
 // double-click), waits for Enter so an error at start stays readable.
 // Elsewhere it does nothing.
 void pause_before_exit();
+// Fills `out` from the system's random generator (for keys); fails rather
+// than give weaker bytes.
+Status secure_random(std::uint8_t* out, std::size_t size);
 // Where the engine keeps its queue and log.
 std::string default_state_dir();
 

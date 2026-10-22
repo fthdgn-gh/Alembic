@@ -3,11 +3,13 @@
 
 #include "alembic/io.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #ifdef _WIN32
 #include <windows.h>
+#include <bcrypt.h>
 #define popen _popen
 #define pclose _pclose
 #else
@@ -15,6 +17,9 @@
 #endif
 #ifdef __APPLE__
 #include <sys/sysctl.h>
+#endif
+#if defined(__linux__)
+#include <sys/random.h>
 #endif
 
 namespace alembic::engine::platform {
@@ -140,6 +145,22 @@ Status install_launcher(std::uint16_t, const std::uint8_t*, std::size_t, bool) {
     return make_error(Errc::unsupported, "the home-screen shortcut needs a PS5");
 }
 Status remove_launcher() { return make_error(Errc::unsupported, "the home-screen shortcut needs a PS5"); }
+
+Status secure_random(std::uint8_t* out, std::size_t size) {
+#ifdef _WIN32
+    if (BCryptGenRandom(nullptr, out, static_cast<ULONG>(size), BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0)
+        return make_error(Errc::io, "the system's random generator failed");
+#elif defined(__linux__)
+    for (std::size_t done = 0; done < size;) {
+        std::size_t n = std::min<std::size_t>(size - done, 256); // getentropy's limit
+        if (::getentropy(out + done, n) != 0) return make_error(Errc::io, "the system's random generator failed");
+        done += n;
+    }
+#else
+    ::arc4random_buf(out, size); // macOS: never fails
+#endif
+    return {};
+}
 
 void pause_before_exit() {
 #ifdef _WIN32

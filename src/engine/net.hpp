@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -86,8 +87,9 @@ struct HttpReply {
     int status = 0;
     std::string body;
 };
+using Headers = std::vector<std::pair<std::string, std::string>>;
 Result<HttpReply> http_request(const std::string& host, std::uint16_t port, const std::string& method,
                                const std::string& path, const std::string& body = "", int timeout_ms = 3000,
-                               std::size_t max_body = 4u << 20);
+                               std::size_t max_body = 4u << 20, const Headers& headers = {});
 
 } // namespace alembic::engine::net

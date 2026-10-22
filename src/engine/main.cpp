@@ -50,6 +50,7 @@
 #include "jobs.hpp"
 #include "json_value.hpp"
 #include "net.hpp"
+#include "pairing.hpp"
 #include "peers.hpp"
 #include "platform.hpp"
 #include "ftp.hpp"
@@ -210,6 +211,14 @@ public:
         discovery_ = std::make_unique<peers::Discovery>(config_.state_dir, self, discovery_port,
                                                         [](const std::string& m) { log_line(m); });
         discovery_->start();
+        pairing::Pairing::Hooks hooks;
+        hooks.log = [](const std::string& m) { log_line(m); };
+        hooks.notify = [](const std::string& m) { platform::notify(m); };
+        hooks.remember = [this](const peers::Identity& who, const std::string& address) { discovery_->remember(who, address); };
+        hooks.translate = [](const std::string& text, const std::map<std::string, std::string>& args) {
+            return l10n::t(text, l10n::Vars(args.begin(), args.end()));
+        };
+        pairing_ = std::make_unique<pairing::Pairing>(config_.state_dir, self, std::move(hooks));
         return {};
     }
 
@@ -331,6 +340,7 @@ private:
         if (r.path == "/api/remote" || r.path.rfind("/api/remote/", 0) == 0) return remote_action(r);
         if (r.path == "/api/ftp" || r.path.rfind("/api/ftp/", 0) == 0) return ftp_action(r);
         if (r.path == "/api/peers" || r.path.rfind("/api/peers/", 0) == 0) return peers_action(r);
+        if (r.path.rfind("/api/pair/", 0) == 0) return pair_action(r);
         if (r.path == "/api/smp/scan" && r.method == "POST") {
             std::string why;
             if (!shadowmount_rescan(config_, &why)) return error(503, why);
@@ -627,6 +637,8 @@ private:
                 e.set("reachable", p.reachable);
                 if (!p.problem.empty()) e.set("problem", p.problem);
                 e.set("seen_ago", p.last_seen ? t - p.last_seen : -1);
+                e.set("paired", pairing_ && pairing_->is_paired(p.who.id));
+                e.set("waiting_for_code", pairing_ && pairing_->waiting_for_code(p.who.id));
                 list.push(std::move(e));
             }
             v.set("engines", std::move(list));
@@ -650,9 +662,121 @@ private:
             if (!added.ok()) return error(400, added.error().message);
             return state();
         }
-        if (r.path.rfind("/api/peers/", 0) == 0 && r.method == "DELETE") {
-            Status s = discovery_->remove(r.path.substr(std::string("/api/peers/").size()));
+        // /api/peers/ID[/pair[/confirm|/session|/check]]
+        std::string rest = r.path.size() > 11 ? r.path.substr(11) : "";
+        std::size_t slash = rest.find('/');
+        std::string id = rest.substr(0, slash), action = slash == std::string::npos ? "" : rest.substr(slash + 1);
+        if (action.empty() && r.method == "DELETE") {
+            if (pairing_ && pairing_->is_paired(id)) return error(409, "unpair it first");
+            Status s = discovery_->remove(id);
             return s.ok() ? state() : error(404, s.error().message);
+        }
+        if (!pairing_) return error(503, "starting");
+        auto peer = discovery_->find(id);
+        if (action == "pair" && r.method == "POST") {
+            if (!peer) return error(404, "no such engine");
+            if (pairing_->is_paired(id)) return error(409, "already paired");
+            Status s = pairing_->start(*peer);
+            if (!s.ok()) return error(502, s.error().message);
+            log_line("pairing with " + peer->who.name + " started by " + r.peer);
+            return state();
+        }
+        if (action == "pair/confirm" && r.method == "POST") {
+            auto body = parse_json(r.body);
+            if (!body.ok()) return error(400, body.error().message);
+            auto paired = pairing_->confirm(id, (*body)["code"].str());
+            if (!paired.ok()) return error(400, paired.error().message);
+            if (peer) discovery_->remember(peer->who, peer->address);
+            return state();
+        }
+        if (action == "pair/session" && r.method == "DELETE") {
+            pairing_->cancel(id);
+            return state();
+        }
+        if (action == "pair/check" && r.method == "GET") {
+            // A signed request there and back: the pairing works both ways.
+            if (!peer) return error(404, "no such engine");
+            auto headers = pairing_->sign(id, "GET", "/api/pair/check", {}, "");
+            if (!headers.ok()) return error(409, headers.error().message);
+            auto reply = net::http_request(peer->address, peer->who.port, "GET", "/api/pair/check", "", 4000, 1u << 16, *headers);
+            if (!reply.ok()) return error(502, reply.error().message);
+            auto v = parse_json(reply->body);
+            if (reply->status != 200 || !v.ok() || (*v)["id"].str() != id)
+                return error(502, v.ok() && !(*v)["error"].str().empty() ? (*v)["error"].str() : "the other engine refused the signed request");
+            JsonValue ok = JsonValue::object();
+            ok.set("ok", true);
+            return json(200, ok);
+        }
+        if (action == "pair" && r.method == "DELETE") {
+            if (!pairing_->is_paired(id)) return error(404, "not paired");
+            // Tell it first, while this engine can still sign.
+            if (peer) {
+                auto headers = pairing_->sign(id, "POST", "/api/pair/forget", {}, "{}");
+                if (headers.ok()) (void)net::http_request(peer->address, peer->who.port, "POST", "/api/pair/forget", "{}", 3000, 1u << 16, *headers);
+            }
+            Status s = pairing_->forget(id);
+            if (!s.ok()) return error(500, s.error().message);
+            log_line("unpaired " + (peer ? peer->who.name : id) + " by " + r.peer);
+            return state();
+        }
+        return error(404, "not found");
+    }
+
+    // Pairing requests from other engines (pairing.hpp), and the code shown
+    // here, which only a browser on this computer (the console's own) sees.
+    HttpResponse pair_action(const HttpRequest& r) {
+        if (!pairing_) return error(503, "starting");
+        const bool local = r.peer == "127.0.0.1";
+        if (r.path == "/api/pair/incoming" && r.method == "GET") {
+            JsonValue v = JsonValue::object();
+            v.set("local", local);
+            if (auto in = pairing_->incoming(); in && local) {
+                JsonValue p = JsonValue::object();
+                p.set("from", in->from_name);
+                p.set("code", in->code);
+                p.set("expires_in", in->expires_in);
+                v.set("pairing", std::move(p));
+            }
+            return json(200, v);
+        }
+        if (r.path == "/api/pair/incoming/cancel" && r.method == "POST") {
+            if (!local) return error(403, "only on this engine's own computer");
+            pairing_->cancel_incoming();
+            log_line("pairing cancelled here");
+            return json(200, JsonValue::object());
+        }
+        if (r.path == "/api/pair/check" && r.method == "GET") {
+            auto who = pairing_->verify(r);
+            if (!who.ok()) return error(401, who.error().message);
+            JsonValue v = JsonValue::object();
+            v.set("id", id_);
+            return json(200, v);
+        }
+        if (r.path == "/api/pair/forget" && r.method == "POST") {
+            auto who = pairing_->verify(r);
+            if (!who.ok()) return error(401, who.error().message);
+            (void)pairing_->forget(*who);
+            log_line("unpaired by the other engine (" + *who + ")");
+            return json(200, JsonValue::object());
+        }
+        if (r.method != "POST") return error(404, "not found");
+        auto body = parse_json(r.body);
+        if (!body.ok()) return error(400, body.error().message);
+        if (r.path == "/api/pair/begin") {
+            auto reply = pairing_->on_begin(*body, r.peer);
+            return reply.ok() ? json(200, *reply) : error(reply.error().code == Errc::unsupported ? 429 : 400, reply.error().message);
+        }
+        if (r.path == "/api/pair/reveal") {
+            auto reply = pairing_->on_reveal(*body);
+            return reply.ok() ? json(200, *reply) : error(400, reply.error().message);
+        }
+        if (r.path == "/api/pair/finish") {
+            auto reply = pairing_->on_finish(*body);
+            return reply.ok() ? json(200, *reply) : error(400, reply.error().message);
+        }
+        if (r.path == "/api/pair/cancel") {
+            pairing_->on_cancel(*body);
+            return json(200, JsonValue::object());
         }
         return error(404, "not found");
     }
@@ -1042,6 +1166,7 @@ private:
     std::string listen_address_;
     std::string id_ = peers::engine_id(config_.state_dir);
     std::unique_ptr<peers::Discovery> discovery_;
+    std::unique_ptr<pairing::Pairing> pairing_;
     RemoteFiles remote_; // before the queue, whose jobs may read from it
     ftp::Servers ftp_{config_.state_dir};
     GameMetaCache meta_{config_.state_dir};
