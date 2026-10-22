@@ -166,10 +166,11 @@ jobs:
         with:
           name: alembic-macos-arm64.tar.gz
           path: artifacts
+      # download-artifact unpacks a .zip artifact: the .exe files land here.
       - uses: actions/download-artifact@v8
         with:
           name: alembic-windows-x64.zip
-          path: artifacts
+          path: artifacts/windows-x64
       - name: Assemble
         run: |
           name="alembic-$VERSION"
@@ -184,7 +185,7 @@ jobs:
             tar -xzf "$t" -C "dist/$name/$platform"
           done
           mkdir -p "dist/$name/windows-x64"
-          unzip -q artifacts/alembic-windows-x64.zip -d "dist/$name/windows-x64"
+          cp artifacts/windows-x64/alembic.exe artifacts/windows-x64/alembic-engine.exe "dist/$name/windows-x64/"
           cp README.md LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
           (cd dist && zip -qr "$name.zip" "$name")
           cp "artifacts/$elf" dist/
