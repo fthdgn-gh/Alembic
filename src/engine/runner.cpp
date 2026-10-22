@@ -357,6 +357,11 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     options.ffpfsc.compression.threads = config.threads;
     options.lz4_unpack = spec.lz4_unpack;
     options.fpkg.keys_folder = config.state_dir + "/keys"; // the fpkg_keys component
+    if (!spec.seed.empty()) {
+        std::array<std::uint8_t, 16> seed{};
+        for (std::size_t i = 0; i < 16; ++i) seed[i] = static_cast<std::uint8_t>(std::stoul(spec.seed.substr(2 * i, 2), nullptr, 16));
+        options.fpkg.seed = seed;
+    }
 
     // The AMPR emulator, from the runtime component (missing_dependencies
     // asks for it when the game needs it).

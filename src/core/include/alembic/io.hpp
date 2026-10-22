@@ -7,6 +7,7 @@
 
 #include "alembic/result.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -61,9 +62,21 @@ private:
     std::uint64_t length_;
 };
 
+// What a package writer reads back (FPKG): SHA3-256 over [0, length) and the
+// CRC32C of each `block` bytes (4 little-endian bytes each).
+struct BlockChecksums {
+    std::array<std::uint8_t, 32> sha3_256{};
+    std::vector<std::uint8_t> crc32c;
+};
+
 // An open file somewhere else (a mounted FileSystem, below).
 class FileHandle {
 public:
+    // Works out BlockChecksums where the file is, instead of sending it all
+    // back (Errc::unsupported: read it instead).
+    virtual Result<BlockChecksums> checksums(std::uint64_t, std::uint32_t, const ProgressFn&) {
+        return make_error(Errc::unsupported, "checksums are read back here");
+    }
     virtual ~FileHandle() = default; // closes it
     virtual Result<std::uint64_t> size() const = 0;
     virtual Status read_at(std::uint64_t offset, MutableBytes out) const = 0;
@@ -96,6 +109,11 @@ public:
     Status truncate(std::uint64_t length);
     Status sync();
     Status close();
+    // FileHandle::checksums for a file elsewhere; Errc::unsupported for one here.
+    Result<BlockChecksums> remote_checksums(std::uint64_t length, std::uint32_t block, const ProgressFn& progress) const {
+        if (handle_) return handle_->checksums(length, block, progress);
+        return make_error(Errc::unsupported, "a file on this machine");
+    }
 
 private:
     std::intptr_t fd_ = -1; // a file descriptor, or a Windows HANDLE

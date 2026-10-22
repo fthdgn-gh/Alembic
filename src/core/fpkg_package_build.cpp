@@ -758,7 +758,16 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
     const std::uint64_t mount_length = kHeaderRegion + outer_length + cnt.size();
     crypto::Sha3_256 image_hash;
     std::vector<std::uint8_t> crc(static_cast<std::size_t>(div_round_up(mount_length, kInnerBlock) * 4));
-    {
+    // A package on another engine: that engine works them out from its copy.
+    std::optional<crypto::Digest> remote_digest;
+    if (auto remote = file.remote_checksums(mount_length, kInnerBlock, progress); remote.ok()) {
+        if (remote->crc32c.size() != crc.size()) return make_error(Errc::io, "the other engine's checksums have the wrong size");
+        crc = std::move(remote->crc32c);
+        remote_digest = remote->sha3_256;
+    } else if (remote.error().code != Errc::unsupported) {
+        return remote.take_error();
+    }
+    if (!remote_digest) {
         // The SHA3 (the slow part) runs on a helper thread while the next block is read.
         crypto::BackgroundSha3 hasher(worker_count(options.threads) > 1, kInnerBlock);
         std::vector<std::uint8_t> buffer(kInnerBlock);
@@ -771,7 +780,7 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
         }
         hasher.wait();
     }
-    crypto::Digest image_digest = image_hash.finish();
+    crypto::Digest image_digest = remote_digest ? *remote_digest : image_hash.finish();
 
     // ---- The SI segment. ----
     const std::uint64_t inner_image_size = get_u64(&header[0xA0]);

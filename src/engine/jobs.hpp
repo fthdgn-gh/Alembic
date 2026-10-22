@@ -58,6 +58,9 @@ struct JobSpec {
     // The engine that sent this job here (peers::Identity::id), "" for this
     // engine's own page; it sees and changes only the jobs it sent.
     std::string origin;
+    // FPKG output: the outer PFS seed as 32 hex digits ("" = random), so a
+    // package can be made byte-identical to another (tests).
+    std::string seed;
 
     JsonValue to_json() const;
     static Result<JobSpec> from_json(const JsonValue& json);

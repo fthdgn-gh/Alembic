@@ -22,7 +22,7 @@ ENGINE = [
     # job states and stages
     "queued", "running", "done", "failed", "cancelled", "interrupted", "paused",
     "Starting", "Done", "Paused", "Pausing", "Continues from its checkpoint", "Continues when the engine starts",
-    "Paused; starts over when resumed", "Building exFAT", "Building the inner image", "Checking the package",
+    "Paused; starts over when resumed", "Building exFAT", "Building the inner image", "Checking the package", "Checking the package (on the other engine)",
     "Choosing LZ4 profile", "Comparing", "Compressing PFSC", "Compressing", "Packing dump", "Copying image", "Copying",
     "Decoding PFSC", "Deleting the source", "Extracting", "Handing it to the system installer", "LZ4 pass 1",
     "LZ4 planning", "Measuring", "Checking eboot.bin", "Writing the emulator", "Verifying LZ4 packs", "Verifying", "Writing PFS image", "Writing UFS2 image",

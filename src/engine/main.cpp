@@ -49,6 +49,7 @@
 #include "http.hpp"
 #include "jobs.hpp"
 #include "json_value.hpp"
+#include "keys.hpp"
 #include "net.hpp"
 #include "pairing.hpp"
 #include "peer_fs.hpp"
@@ -58,6 +59,7 @@
 #include "remote.hpp"
 #include "runner.hpp"
 
+#include "alembic/bytes.hpp"
 #include "alembic/convert.hpp"
 #include "alembic/crypto.hpp"
 #include "alembic/ffpfsc.hpp"
@@ -66,6 +68,7 @@
 #include "alembic/sha256.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <charconv>
 #include <condition_variable>
 #include <csignal>
@@ -756,6 +759,76 @@ private:
         return error(404, "not found");
     }
 
+    struct ChecksumTask {
+        std::string owner; // the engine that asked
+        std::atomic<std::uint64_t> done{0};
+        std::atomic<bool> cancel{false};
+        std::mutex mutex; // the fields below
+        bool finished = false;
+        Status status;
+        crypto::Digest sha3{};
+        std::vector<std::uint8_t> crc;
+        std::int64_t finished_at = 0;
+    };
+
+    JsonValue start_checksum(const std::string& owner, const std::string& path, std::uint64_t length, std::uint32_t block) {
+        auto t = std::make_shared<ChecksumTask>();
+        t->owner = owner;
+        std::array<std::uint8_t, 16> raw{};
+        (void)platform::secure_random(raw.data(), raw.size());
+        std::string id = keys::to_hex(Bytes(raw.data(), raw.size()));
+        {
+            std::lock_guard<std::mutex> lock(tasks_mutex_);
+            // Results nobody fetched are dropped after ten minutes.
+            std::int64_t now = unix_now();
+            for (auto it = tasks_.begin(); it != tasks_.end();) {
+                bool old;
+                {
+                    std::lock_guard<std::mutex> tl(it->second->mutex);
+                    old = it->second->finished && now - it->second->finished_at > 600;
+                }
+                it = old ? tasks_.erase(it) : std::next(it);
+            }
+            tasks_[id] = t;
+        }
+        // The thread holds the task; it ends on its own (or when cancelled).
+        std::thread([t, path, length, block] {
+            Status status;
+            crypto::Sha3_256 hash;
+            std::vector<std::uint8_t> crc(static_cast<std::size_t>(div_round_up(length, block) * 4));
+            auto file = File::open(path, File::Mode::read);
+            if (!file.ok()) status = file.error();
+            else {
+                crypto::BackgroundSha3 hasher(true, block);
+                std::vector<std::uint8_t> buffer(block);
+                for (std::uint64_t off = 0, i = 0; off < length; off += block, ++i) {
+                    if (t->cancel) {
+                        status = make_error(Errc::cancelled, "cancelled");
+                        break;
+                    }
+                    auto n = static_cast<std::size_t>(std::min<std::uint64_t>(block, length - off));
+                    status = file->read_at(off, MutableBytes(buffer.data(), n));
+                    if (!status.ok()) break;
+                    hasher.update(hash, Bytes(buffer.data(), n));
+                    put_u32(&crc[i * 4], crypto::crc32c(Bytes(buffer.data(), n)));
+                    t->done = off + n;
+                }
+                hasher.wait();
+            }
+            std::lock_guard<std::mutex> lock(t->mutex);
+            if (status.ok()) {
+                t->sha3 = hash.finish();
+                t->crc = std::move(crc);
+            }
+            t->status = status;
+            t->finished = true;
+            t->finished_at = unix_now();
+        }).detach();
+        JsonValue v = JsonValue::object();
+        v.set("task", id);
+        return v;
+    }
+
     // This engine's files for paired engines (peer_fs.hpp is the other side):
     // signed requests only, inside the shared folders, never the state folder
     // (it holds the pairing keys), never another engine's files through this one.
@@ -772,6 +845,50 @@ private:
         auto q = [&](const char* k) { auto it = r.query.find(k); return it == r.query.end() ? std::string() : it->second; };
         auto number = [&](const char* k) { return static_cast<std::uint64_t>(std::strtoull(q(k).c_str(), nullptr, 10)); };
         const std::vector<std::string> roots = config_.available_roots();
+        // A package's read-back checksums, worked out here (peer_fs.cpp asks):
+        // started, asked about until finished, results fetched, dropped.
+        if (op == "checksum" || op == "checksum_crc" || op == "checksum_drop") {
+            std::string task = q("task");
+            if (op == "checksum" && r.method == "POST") {
+                std::string path = strip_slashes(q("path"));
+                if (!path_allowed(path, roots) || alembic::is_mounted(path) || is_within(path, config_.state_dir))
+                    return error(403, "outside the shared folders: " + path);
+                std::uint64_t block = number("block");
+                if (block == 0 || block > (16u << 20)) return error(400, "bad block size");
+                return json(200, start_checksum(*who, path, number("length"), static_cast<std::uint32_t>(block)));
+            }
+            std::shared_ptr<ChecksumTask> t;
+            {
+                std::lock_guard<std::mutex> lock(tasks_mutex_);
+                auto it = tasks_.find(task);
+                if (it == tasks_.end() || it->second->owner != *who) return error(404, "no such task");
+                t = it->second;
+                if (op == "checksum_drop") tasks_.erase(it);
+            }
+            if (op == "checksum_drop") {
+                t->cancel = true;
+                return json(200, JsonValue::object());
+            }
+            std::lock_guard<std::mutex> lock(t->mutex);
+            if (op == "checksum") {
+                JsonValue v = JsonValue::object();
+                v.set("done", t->done.load());
+                v.set("finished", t->finished);
+                v.set("error", t->status.ok() ? std::string() : t->status.error().message);
+                if (t->finished && t->status.ok()) {
+                    v.set("sha3", keys::to_hex(Bytes(t->sha3.data(), t->sha3.size())));
+                    v.set("crc_bytes", static_cast<std::uint64_t>(t->crc.size()));
+                }
+                return json(200, v);
+            }
+            std::uint64_t offset = number("offset"), length = std::min<std::uint64_t>(number("length"), peer_fs::kChunk);
+            HttpResponse out;
+            out.content_type = "application/octet-stream";
+            if (t->finished && offset < t->crc.size())
+                out.body.assign(reinterpret_cast<const char*>(t->crc.data() + offset),
+                                static_cast<std::size_t>(std::min<std::uint64_t>(length, t->crc.size() - offset)));
+            return out;
+        }
         if (op == "roots") {
             // The shared folders with their free space, and where outputs
             // usually go (as /api/locations), for the other engine's page.
@@ -1567,6 +1684,8 @@ private:
     std::unique_ptr<peers::Discovery> discovery_;
     std::unique_ptr<pairing::Pairing> pairing_;
     OpenFiles files_;
+    std::mutex tasks_mutex_;
+    std::map<std::string, std::shared_ptr<ChecksumTask>> tasks_;
     std::mutex peer_drives_mutex_;
     std::pair<std::vector<PeerDrive>, std::vector<PeerPlace>> peer_drives_;
     std::int64_t peer_drives_at_ = 0;

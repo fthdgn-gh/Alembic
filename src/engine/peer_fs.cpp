@@ -2,9 +2,11 @@
 #include "peer_fs.hpp"
 
 #include "json_value.hpp"
+#include "keys.hpp"
 #include "net.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <cstring>
 #include <deque>
@@ -125,6 +127,8 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         return settle_locked();
     }
+    // The engine where the file is reads it and sends back only the results.
+    Result<BlockChecksums> checksums(std::uint64_t length, std::uint32_t block, const ProgressFn& progress) override;
 
 private:
     static constexpr std::size_t kAhead = 2;   // windows fetched ahead
@@ -378,6 +382,53 @@ Status PeerFile::send_pending_locked() const {
 Status PeerFile::settle_locked() const {
     ALEMBIC_TRY(send_pending_locked());
     return wait_send_locked(0);
+}
+
+Result<BlockChecksums> PeerFile::checksums(std::uint64_t length, std::uint32_t block, const ProgressFn& progress) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        ALEMBIC_TRY(settle_locked());
+    }
+    ALEMBIC_ASSIGN(JsonValue started, fs_.call_json(t_, "POST", "checksum", {{"length", std::to_string(length)}, {"block", std::to_string(block)}}));
+    const std::string task = started["task"].str();
+    Target no_path{t_.id, ""};
+    auto drop = [&] { (void)fs_.call(no_path, "POST", "checksum_drop", {{"task", task}}); };
+    JsonValue st;
+    for (;;) {
+        auto status = fs_.call_json(no_path, "GET", "checksum", {{"task", task}});
+        if (!status.ok()) {
+            drop();
+            return status.error();
+        }
+        st = *status;
+        if (st["finished"].boolean()) break;
+        if (progress && !progress({"Checking the package (on the other engine)", static_cast<std::uint64_t>(st["done"].integer(0)), length})) {
+            drop();
+            return make_error(Errc::cancelled, "cancelled");
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+    if (!st["error"].str().empty()) {
+        drop();
+        return make_error(Errc::io, st["error"].str());
+    }
+    BlockChecksums out;
+    if (!keys::from_hex(st["sha3"].str(), MutableBytes(out.sha3_256.data(), out.sha3_256.size()))) {
+        drop();
+        return make_error(Errc::invalid_data, "the other engine's digest is not readable");
+    }
+    std::uint64_t total = static_cast<std::uint64_t>(st["crc_bytes"].integer(0));
+    while (out.crc32c.size() < total) {
+        std::uint64_t n = std::min<std::uint64_t>(kChunk, total - out.crc32c.size());
+        auto piece = fs_.call(no_path, "GET", "checksum_crc", {{"task", task}, {"offset", std::to_string(out.crc32c.size())}, {"length", std::to_string(n)}});
+        if (!piece.ok() || piece->empty()) {
+            drop();
+            return piece.ok() ? make_error(Errc::invalid_data, "the other engine's checksums ended early") : piece.error();
+        }
+        out.crc32c.insert(out.crc32c.end(), piece->begin(), piece->end());
+    }
+    drop();
+    return out;
 }
 
 Status PeerFile::truncate(std::uint64_t length) {

@@ -1645,6 +1645,30 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   0.6 s locally (loopback). **Not yet:** the page in a browser, two
   computers, the PS5.
 
+### 2026-10-22: faster across engines; packages checked where they are; sending files
+
+- **Overlap** (owner asked whether images are built first, then sent: no,
+  they stream): `PeerFile` keeps the next two 4 MiB read windows on their way
+  and sends collected writes in the background, two at a time (a write over
+  one in flight waits for it; reads, size, truncate, sync and close wait for
+  all). With `ALEMBIC_TEST_PEER_DELAY_MS=20` on the serving engine (a test
+  hook: a pause before each read and write request): a 1.5 GB FFPFSC read
+  11.5 s -> 6.0 s, a 2.8 GB FFPKG written there 22.7 s -> 11.1 s.
+- **PKG output on another engine** read the whole package back over the
+  network for its digest and CRCs. Now `FileHandle::checksums` (io.hpp) lets
+  the engine with the file work them out: `POST /api/peer/fs/checksum`
+  starts a task there (SHA3 on a helper thread), the converting engine asks
+  how far it is every 0.5 s (job stage "Checking the package (on the other
+  engine)"), fetches the CRCs (`checksum_crc`, 4 MiB pieces) and drops the
+  task; results nobody fetched go after 10 min. A package written to
+  another engine equals one built locally with the same seed (`seed`: 32
+  hex digits, a new optional job field for this).
+- **Sending without converting** (owner): copy and move jobs already work
+  between engines (a move from another engine copies, then deletes there);
+  the file menu has "Send to another engine…", the copy picker opened at
+  that engine's usual destination. Not resumable yet: a stopped copy starts
+  over.
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and

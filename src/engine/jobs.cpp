@@ -93,6 +93,7 @@ JsonValue JobSpec::to_json() const {
     j.set("verify", verify);
     if (hide_source) j.set("hide_source", true);
     if (!origin.empty()) j.set("origin", origin);
+    if (!seed.empty()) j.set("seed", seed);
     return j;
 }
 
@@ -126,6 +127,9 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
     s.verify = j["verify"].boolean(true);
     s.hide_source = j["hide_source"].boolean();
     s.origin = j["origin"].str();
+    s.seed = j["seed"].str();
+    if (!s.seed.empty() && (s.seed.size() != 32 || s.seed.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos))
+        return make_error(Errc::invalid_argument, "seed must be 32 hex digits");
     if ((s.kind == "copy" || s.kind == "move") && s.output.empty())
         return make_error(Errc::invalid_argument, "copy and move need an output");
     if (s.input.empty()) return make_error(Errc::invalid_argument, "the job has no input");
