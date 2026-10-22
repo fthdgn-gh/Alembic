@@ -1019,18 +1019,20 @@ function renderRail() {
         s.total ? h("div", { class: "meter" + (s.free < 20e9 ? " low" : "") }, h("div", { style: "width:" + (used * 100).toFixed(1) + "%" })) : null,
         s.total ? h("div", { class: "free", text: t("{size} free", { size: bytes(s.free) }) }) : null));
     }
-    // Their places: the ones added by hand and the ones they suggest (a PS5's
-    // homebrew folder), not the drives themselves (listed above).
+    // Places: this engine's, then paired engines' (the ones added by hand and
+    // the ones they suggest, like a PS5's homebrew folder; not their drives,
+    // listed above), each with the engine's name under it.
     const peerRoots = new Set((state.peerDrives || []).map((d) => d.root));
-    for (const l of state.locations.filter((x) => x.peer && x.exists && !peerRoots.has(x.path)))
-      box.append(h("button", { class: "ritem" + (state.cwd === l.path ? " on" : ""), "data-key": "p:" + l.path, title: l.path, onclick: () => browse(l.path) },
-        h("div", { class: "nm", html: ICONS.place }, h("span", { class: "ellip", text: placeLabel(l.place.replace(/ · homebrew.*$/, " · homebrew")) })),
-        h("div", { class: "free ellip", text: l.engine })));
+    const short = (label) => placeLabel(label.replace(/ · homebrew.*$/, " · homebrew").replace(/^Internal storage$/, "Internal"));
     const places = state.locations.filter((l) => l.exists && !l.ftp && !l.peer && !state.space.some((s) => s.root === l.path));
-    const recent = (store.get("recent") || []).filter((p) => rootOf(p) && !places.some((l) => l.path === p)).slice(0, 4);
-    if (places.length || recent.length) box.append(h("h3", { text: t("Places") }));
+    const theirs = state.locations.filter((l) => l.peer && l.exists && !peerRoots.has(l.path));
+    const recent = (store.get("recent") || []).filter((p) => rootOf(p) && !places.some((l) => l.path === p) && !theirs.some((l) => l.path === p)).slice(0, 4);
+    if (places.length || theirs.length || recent.length) box.append(h("h3", { text: t("Places") }));
     for (const l of places) box.append(h("button", { class: "ritem" + (state.cwd === l.path ? " on" : ""), "data-key": "p:" + l.path, title: l.path, onclick: () => browse(l.path) },
-      h("div", { class: "nm", html: ICONS.place }, h("span", { class: "ellip", text: placeLabel(l.label.replace(/ · homebrew.*$/, " · homebrew").replace(/^Internal storage$/, "Internal")) }))));
+      h("div", { class: "nm", html: ICONS.place }, h("span", { class: "ellip", text: short(l.label) }))));
+    for (const l of theirs) box.append(h("button", { class: "ritem" + (state.cwd === l.path ? " on" : ""), "data-key": "p:" + l.path, title: l.path, onclick: () => browse(l.path) },
+      h("div", { class: "nm", html: ICONS.place }, h("span", { class: "ellip", text: short(l.place) })),
+      h("div", { class: "free ellip", text: l.engine })));
     for (const p of recent) box.append(h("button", { class: "ritem" + (state.cwd === p ? " on" : ""), "data-key": "c:" + p, title: p, onclick: () => browse(p) },
       h("div", { class: "nm", html: ICONS.clock }, h("span", { class: "ellip", text: base(p) }))));
   });
