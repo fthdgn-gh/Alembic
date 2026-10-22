@@ -160,6 +160,9 @@ std::vector<std::string> EngineConfig::available_roots() const {
 
 bool path_allowed(const std::string& path, const std::vector<std::string>& roots) {
     if (!is_absolute_path(path) || path.find('\\') != std::string::npos) return false;
+    // Another engine's files ("/peer/<id>/..."): that engine keeps to its own
+    // shared folders, and only a paired engine gets an answer.
+    const bool elsewhere = is_mounted(path);
     std::size_t start = 0;
     while (start <= path.size()) {
         std::size_t end = path.find('/', start);
@@ -168,6 +171,7 @@ bool path_allowed(const std::string& path, const std::vector<std::string>& roots
         if (part == "." || part == "..") return false;
         start = end + 1;
     }
+    if (elsewhere) return true;
     for (const std::string& r : roots) {
         std::string root = strip_slashes(r);
         if (root == "/") return true;

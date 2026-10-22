@@ -12,7 +12,7 @@ namespace alembic::engine {
 namespace {
 
 constexpr std::size_t kMaxHeaderBytes = 16 * 1024;
-constexpr std::size_t kMaxBodyBytes = 1024 * 1024;
+constexpr std::size_t kMaxBodyBytes = 5 * 1024 * 1024; // a 4 MiB write from another engine, and some
 constexpr int kMaxConnections = 32;
 
 const char* reason(int status) {

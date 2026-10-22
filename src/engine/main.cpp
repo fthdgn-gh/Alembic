@@ -51,6 +51,7 @@
 #include "json_value.hpp"
 #include "net.hpp"
 #include "pairing.hpp"
+#include "peer_fs.hpp"
 #include "peers.hpp"
 #include "platform.hpp"
 #include "ftp.hpp"
@@ -69,6 +70,7 @@
 #include <condition_variable>
 #include <csignal>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <mutex>
 #include <system_error>
@@ -220,6 +222,8 @@ public:
             return l10n::t(text, l10n::Vars(args.begin(), args.end()));
         };
         pairing_ = std::make_unique<pairing::Pairing>(config_.state_dir, self, std::move(hooks));
+        // Paired engines' files: "/peer/<id>/..." (peer_fs.hpp).
+        alembic::mount(peer_fs::kPrefix, peer_fs::make(*discovery_, *pairing_));
         return {};
     }
 
@@ -249,6 +253,7 @@ public:
     }
 
     void stop() {
+        alembic::unmount(peer_fs::kPrefix);
         if (discovery_) discovery_->stop();
         server_.stop();
         queue_.stop();
@@ -342,6 +347,7 @@ private:
         if (r.path == "/api/ftp" || r.path.rfind("/api/ftp/", 0) == 0) return ftp_action(r);
         if (r.path == "/api/peers" || r.path.rfind("/api/peers/", 0) == 0) return peers_action(r);
         if (r.path.rfind("/api/pair/", 0) == 0) return pair_action(r);
+        if (r.path.rfind("/api/peer/fs/", 0) == 0) return peer_fs_action(r);
         if (r.path == "/api/smp/scan" && r.method == "POST") {
             std::string why;
             if (!shadowmount_rescan(config_, &why)) return error(503, why);
@@ -566,7 +572,7 @@ private:
             return json(200, v);
         }
         if (!path_allowed(path, config_.available_roots())) return error(403, "outside the allowed folders");
-        auto names = list_directory(path);
+        auto names = list_directory_entries(path); // one request for another engine's folder
         if (!names.ok()) return error(404, "cannot open " + path);
         struct Item {
             std::string name;
@@ -576,12 +582,15 @@ private:
             bool game = false;
         };
         std::vector<Item> items;
-        for (const std::string& name : *names) {
-            PathStat st = stat_path(join_path(path, name));
+        const bool elsewhere = alembic::is_mounted(path);
+        for (const DirEntry& entry : *names) {
+            const std::string& name = entry.name;
+            const PathStat& st = entry.stat;
             if (st.kind == PathKind::missing) continue;
             Item item{name, st.is_directory(), st.size, st.mtime};
-            // A game folder: sce_sys/param.json inside.
-            item.game = item.dir && path_exists(join_path(path, name) + "/sce_sys/param.json");
+            // A game folder: sce_sys/param.json inside (not asked of another
+            // engine for every folder: one request each).
+            item.game = item.dir && !elsewhere && path_exists(join_path(path, name) + "/sce_sys/param.json");
             items.push_back(std::move(item));
         }
         std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) {
@@ -723,6 +732,177 @@ private:
         }
         return error(404, "not found");
     }
+
+    // This engine's files for paired engines (peer_fs.hpp is the other side):
+    // signed requests only, inside the shared folders, never the state folder
+    // (it holds the pairing keys), never another engine's files through this one.
+    HttpResponse peer_fs_action(const HttpRequest& r) {
+        if (!pairing_) return error(503, "starting");
+        auto who = pairing_->verify(r);
+        if (!who.ok()) return error(401, who.error().message);
+        const std::string op = r.path.substr(std::string("/api/peer/fs/").size());
+        auto q = [&](const char* k) { auto it = r.query.find(k); return it == r.query.end() ? std::string() : it->second; };
+        auto number = [&](const char* k) { return static_cast<std::uint64_t>(std::strtoull(q(k).c_str(), nullptr, 10)); };
+        const std::vector<std::string> roots = config_.available_roots();
+        if (op == "roots") {
+            JsonValue v = JsonValue::object(), list = JsonValue::array();
+            for (const std::string& root : roots)
+                if (is_directory(root)) list.push(root);
+            v.set("roots", std::move(list));
+            v.set("name", std::string(platform::name()) == "ps5" ? std::string("PS5") : net::host_name());
+            return json(200, v);
+        }
+        auto allowed = [&](const std::string& p) {
+            return path_allowed(p, roots) && !alembic::is_mounted(p) && !is_within(p, config_.state_dir);
+        };
+        // Changing a folder that holds the state folder, or a shared folder itself, is refused too.
+        auto changeable = [&](const std::string& p) {
+            if (!allowed(p) || is_within(config_.state_dir, p)) return false;
+            return std::none_of(roots.begin(), roots.end(), [&](const std::string& root) { return strip_slashes(root) == p; });
+        };
+        const std::string path = strip_slashes(q("path"));
+        auto stat_json = [](const PathStat& st, JsonValue v) {
+            v.set("kind", peer_fs::kind_name(st.kind));
+            v.set("size", st.size);
+            v.set("mtime", st.mtime);
+            v.set("atime", st.atime);
+            return v;
+        };
+        if (op == "stat" || op == "list" || op == "read" || op == "space") {
+            // A folder above a shared one is there (so the other engine can walk
+            // down to it, as making an output's folders does); nothing more about it.
+            if (op == "stat" && !allowed(path) && is_absolute_path(path) &&
+                std::any_of(roots.begin(), roots.end(), [&](const std::string& root) { return is_within(strip_slashes(root), path); })) {
+                PathStat dir;
+                dir.kind = PathKind::directory;
+                return json(200, stat_json(dir, JsonValue::object()));
+            }
+            if (!allowed(path)) return error(403, "outside the shared folders: " + path);
+            bool follow = q("follow") != "0";
+            if (op == "stat") return json(200, stat_json(stat_path(path, follow), JsonValue::object()));
+            if (op == "space") {
+                auto sp = alembic::disk_space(path);
+                if (!sp.ok()) return error(500, sp.error().message);
+                JsonValue v = JsonValue::object();
+                v.set("total", sp->total);
+                v.set("free", sp->free);
+                return json(200, v);
+            }
+            if (op == "list") {
+                auto entries = list_directory_entries(path, follow);
+                if (!entries.ok()) return error(404, entries.error().message);
+                JsonValue list = JsonValue::array();
+                for (const DirEntry& e : *entries) {
+                    if (!allowed(join_path(path, e.name))) continue; // the state folder
+                    JsonValue item = JsonValue::object();
+                    item.set("name", e.name);
+                    list.push(stat_json(e.stat, std::move(item)));
+                }
+                JsonValue v = JsonValue::object();
+                v.set("entries", std::move(list));
+                return json(200, v);
+            }
+            // read
+            std::uint64_t offset = number("offset"), length = std::min<std::uint64_t>(number("length"), peer_fs::kChunk);
+            auto file = files_.get(path, false);
+            if (!file.ok()) return error(404, file.error().message);
+            auto size = (*file)->size();
+            if (!size.ok()) return error(500, size.error().message);
+            HttpResponse out;
+            out.content_type = "application/octet-stream";
+            if (offset < *size) {
+                out.body.resize(static_cast<std::size_t>(std::min<std::uint64_t>(length, *size - offset)));
+                Status s = (*file)->read_at(offset, MutableBytes(reinterpret_cast<std::uint8_t*>(out.body.data()), out.body.size()));
+                if (!s.ok()) return error(500, s.error().message);
+            }
+            return out;
+        }
+        if (r.method != "POST") return error(404, "not found");
+        if (op == "open") {
+            std::string mode = q("mode");
+            if (mode == "read" ? !allowed(path) : !changeable(path)) return error(403, "not allowed here: " + path);
+            if (mode == "create_new") {
+                files_.forget(path);
+                auto f = File::open(path, File::Mode::create_new);
+                if (!f.ok()) return error(409, f.error().message);
+            }
+            auto file = files_.get(path, mode != "read");
+            if (!file.ok()) return error(404, file.error().message);
+            auto size = (*file)->size();
+            JsonValue v = JsonValue::object();
+            v.set("size", size.ok() ? *size : 0);
+            return json(200, v);
+        }
+        if (!changeable(path)) return error(403, "not allowed here: " + path);
+        Status s;
+        if (op == "write") {
+            auto file = files_.get(path, true);
+            if (!file.ok()) return error(404, file.error().message);
+            s = (*file)->write_at(number("offset"), Bytes(reinterpret_cast<const std::uint8_t*>(r.body.data()), r.body.size()));
+        } else if (op == "truncate") {
+            auto file = files_.get(path, true);
+            if (!file.ok()) return error(404, file.error().message);
+            s = (*file)->truncate(number("length"));
+        } else if (op == "sync") {
+            auto file = files_.get(path, true);
+            if (!file.ok()) return error(404, file.error().message);
+            s = (*file)->sync();
+        } else if (op == "mkdir") {
+            s = alembic::make_directory(path);
+        } else if (op == "remove") {
+            files_.forget(path);
+            s = alembic::remove_file(path);
+        } else if (op == "rmdir") {
+            s = alembic::remove_directory(path);
+        } else if (op == "rename") {
+            std::string to = strip_slashes(q("to"));
+            if (!changeable(to)) return error(403, "not allowed here: " + to);
+            files_.forget(path);
+            files_.forget(to);
+            s = alembic::rename_path(path, to);
+        } else if (op == "times") {
+            s = alembic::set_file_times(path, static_cast<std::int64_t>(number("atime")), static_cast<std::int64_t>(number("mtime")));
+        } else {
+            return error(404, "not found");
+        }
+        if (!s.ok()) return error(s.error().code == Errc::unsupported ? 501 : 500, s.error().message);
+        return json(200, JsonValue::object());
+    }
+
+    // Files other engines read and write, kept open between their requests.
+    class OpenFiles {
+    public:
+        Result<std::shared_ptr<File>> get(const std::string& path, bool writable) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            for (Entry& e : list_)
+                if (e.path == path && (e.writable || !writable)) {
+                    e.used = ++clock_;
+                    return e.file;
+                }
+            ALEMBIC_ASSIGN(File f, File::open(path, writable ? File::Mode::read_write : File::Mode::read));
+            if (list_.size() >= 16) {
+                auto oldest = std::min_element(list_.begin(), list_.end(), [](const Entry& a, const Entry& b) { return a.used < b.used; });
+                list_.erase(oldest);
+            }
+            list_.push_back({path, writable, std::make_shared<File>(std::move(f)), ++clock_});
+            return list_.back().file;
+        }
+        void forget(const std::string& path) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            list_.erase(std::remove_if(list_.begin(), list_.end(), [&](const Entry& e) { return e.path == path; }), list_.end());
+        }
+
+    private:
+        struct Entry {
+            std::string path;
+            bool writable;
+            std::shared_ptr<File> file;
+            std::uint64_t used;
+        };
+        std::mutex mutex_;
+        std::vector<Entry> list_;
+        std::uint64_t clock_ = 0;
+    };
 
     // Pairing requests from other engines (pairing.hpp), and the code shown
     // here, which only a browser on this computer (the console's own) sees.
@@ -1169,6 +1349,7 @@ private:
     std::string id_ = peers::engine_id(config_.state_dir);
     std::unique_ptr<peers::Discovery> discovery_;
     std::unique_ptr<pairing::Pairing> pairing_;
+    OpenFiles files_;
     RemoteFiles remote_; // before the queue, whose jobs may read from it
     ftp::Servers ftp_{config_.state_dir};
     GameMetaCache meta_{config_.state_dir};
