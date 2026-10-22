@@ -483,8 +483,13 @@ function toast(text, kind) {
 }
 function rootOf(path) {
   let best = null;
-  for (const s of state.space) if (path === s.root || path.indexOf(s.root + "/") === 0) if (!best || s.root.length > best.root.length) best = s;
+  for (const s of state.space.concat(state.peerDrives || [])) if (path === s.root || path.indexOf(s.root + "/") === 0) if (!best || s.root.length > best.root.length) best = s;
   return best;
+}
+// The paired engine's drive a path is on (null for this engine's own).
+function peerDriveOf(path) {
+  const r = rootOf(path);
+  return r && r.engine ? r : null;
 }
 // The FTP server a path is on (null for paths on the console).
 function ftpOf(path) {
@@ -495,6 +500,8 @@ function driveName(root) {
   let m;
   const f = ftpOf(root);
   if (f && f.path === root) return f.name;
+  const pd = (state.peerDrives || []).find((d) => d.root === root);
+  if (pd) return pd.engine + " · " + placeLabel(pd.label);
   if (root === "/data") return t("Internal");
   if ((m = /^\/mnt\/usb(\d+)$/.exec(root))) return t("USB {n}", { n: m[1] });
   if ((m = /^\/mnt\/ext(\d+)$/.exec(root))) return t("Extended {n}", { n: m[1] });
@@ -955,6 +962,7 @@ async function loadInfo() {
   state.space = await api("GET", "/api/fs/space").catch(() => []);
   state.locations = await api("GET", "/api/locations").catch(() => []);
   state.ftp = await api("GET", "/api/ftp").catch(() => []);
+  state.peerDrives = await api("GET", "/api/peer-drives").catch(() => state.peerDrives || []);
   state.peers = await api("GET", "/api/peers").catch(() => state.peers);
   renderStatus(); renderRail(); renderHints(); // the hint glyphs follow the console's Enter button
   if (state.tab === "settings") renderSettings();
@@ -1001,7 +1009,17 @@ function renderRail() {
         h("div", { class: "nm", html: ICONS.server }, h("span", { class: "ellip", text: s.name })),
         h("div", { class: "free ellip", text: "FTP · " + s.host + (s.port === 21 ? "" : ":" + s.port) })));
     }
-    const places = state.locations.filter((l) => l.exists && !l.ftp && !state.space.some((s) => s.root === l.path));
+    // Paired engines' drives (Settings > Other engines).
+    if ((state.peerDrives || []).length) box.append(h("h3", { text: t("Other engines") }));
+    for (const s of state.peerDrives || []) {
+      const on = state.cwd && (state.cwd === s.root || state.cwd.indexOf(s.root + "/") === 0);
+      const used = s.total ? 1 - s.free / s.total : 0;
+      box.append(h("button", { class: "ritem" + (on ? " on" : ""), "data-key": "r:" + s.root, title: s.engine, onclick: () => browse(s.root) },
+        h("div", { class: "nm", html: ICONS.server }, h("span", { class: "ellip", text: driveName(s.root) })),
+        s.total ? h("div", { class: "meter" + (s.free < 20e9 ? " low" : "") }, h("div", { style: "width:" + (used * 100).toFixed(1) + "%" })) : null,
+        s.total ? h("div", { class: "free", text: t("{size} free", { size: bytes(s.free) }) }) : null));
+    }
+    const places = state.locations.filter((l) => l.exists && !l.ftp && !l.peer && !state.space.some((s) => s.root === l.path));
     const recent = (store.get("recent") || []).filter((p) => rootOf(p) && !places.some((l) => l.path === p)).slice(0, 4);
     if (places.length || recent.length) box.append(h("h3", { text: t("Places") }));
     for (const l of places) box.append(h("button", { class: "ritem" + (state.cwd === l.path ? " on" : ""), "data-key": "p:" + l.path, title: l.path, onclick: () => browse(l.path) },
@@ -1039,7 +1057,7 @@ async function browse(path, push, focusKey) {
   const total = files.reduce((n, e) => n + (e.size || 0), 0);
   const r = data.path === "/" ? null : rootOf(data.path);
   $("#summary").textContent = data.path === "/" ? t("Pick a drive") :
-    [folders ? plural(folders, "{n} folder", "{n} folders") : "", files.length ? plural(files.length, "{n} file", "{n} files") + " · " + bytes(total) : "", r ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) : ftpOf(data.path) ? t("On an FTP server") : ""].filter(Boolean).join("  ·  ") || t("Empty");
+    [folders ? plural(folders, "{n} folder", "{n} folders") : "", files.length ? plural(files.length, "{n} file", "{n} files") + " · " + bytes(total) : "", r && (r.total || !r.engine) ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) : ftpOf(data.path) ? t("On an FTP server") : ""].filter(Boolean).join("  ·  ") || t("Empty");
   // Back from a folder: land on that folder's row.
   const key = same ? (document.activeElement && document.activeElement.getAttribute("data-key")) : (focusKey || (from && dir(from) === data.path ? from : null));
   renderList(key, same);

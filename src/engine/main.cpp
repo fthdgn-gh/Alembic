@@ -346,6 +346,7 @@ private:
         if (r.path == "/api/remote" || r.path.rfind("/api/remote/", 0) == 0) return remote_action(r);
         if (r.path == "/api/ftp" || r.path.rfind("/api/ftp/", 0) == 0) return ftp_action(r);
         if (r.path == "/api/peers" || r.path.rfind("/api/peers/", 0) == 0) return peers_action(r);
+        if (r.path == "/api/peer-drives" && r.method == "GET") return peer_drives_json();
         if (r.path.rfind("/api/pair/", 0) == 0) return pair_action(r);
         if (r.path.rfind("/api/peer/fs/", 0) == 0) return peer_fs_action(r);
         if (r.path == "/api/smp/scan" && r.method == "POST") {
@@ -544,6 +545,14 @@ private:
                 e.set("ftp", true);
                 entries.push(std::move(e));
             }
+            for (const PeerDrive& d : peer_drives().first) {
+                JsonValue e = JsonValue::object();
+                e.set("name", d.name + " · " + d.label);
+                e.set("path", d.path);
+                e.set("kind", "folder");
+                e.set("peer", d.id);
+                entries.push(std::move(e));
+            }
             v.set("entries", std::move(entries));
             return json(200, v);
         }
@@ -612,6 +621,10 @@ private:
         if (parent.size() == 2 && parent[1] == ':') parent += '/'; // "C:/x" -> "C:/"
         bool is_root = std::any_of(config_.roots.begin(), config_.roots.end(),
                                    [&](const std::string& root) { return strip_slashes(root) == path; });
+        if (elsewhere) { // another engine's: up to its drive, then to the list of drives
+            auto drives = peer_drives().first;
+            is_root = std::none_of(drives.begin(), drives.end(), [&](const PeerDrive& d) { return is_within(parent, d.path); });
+        }
         if (is_root || parent.empty() || !path_allowed(parent, config_.available_roots()))
             v.set("parent", "/");
         else
@@ -745,11 +758,30 @@ private:
         auto number = [&](const char* k) { return static_cast<std::uint64_t>(std::strtoull(q(k).c_str(), nullptr, 10)); };
         const std::vector<std::string> roots = config_.available_roots();
         if (op == "roots") {
-            JsonValue v = JsonValue::object(), list = JsonValue::array();
-            for (const std::string& root : roots)
-                if (is_directory(root)) list.push(root);
+            // The shared folders with their free space, and where outputs
+            // usually go (as /api/locations), for the other engine's page.
+            JsonValue v = JsonValue::object(), list = JsonValue::array(), places = JsonValue::array();
+            for (const std::string& root : roots) {
+                if (!is_directory(root)) continue;
+                JsonValue d = JsonValue::object();
+                d.set("path", root);
+                d.set("label", drive_label(root));
+                if (auto sp = alembic::disk_space(root); sp.ok()) {
+                    d.set("free", sp->free);
+                    d.set("total", sp->total);
+                }
+                list.push(std::move(d));
+            }
+            for (const platform::Location& l : platform::suggested_locations()) {
+                if (!path_allowed(l.path, roots)) continue;
+                JsonValue e = JsonValue::object();
+                e.set("label", l.label);
+                e.set("path", l.path);
+                places.push(std::move(e));
+            }
             v.set("roots", std::move(list));
-            v.set("name", std::string(platform::name()) == "ps5" ? std::string("PS5") : net::host_name());
+            v.set("locations", std::move(places));
+            v.set("platform", platform::name());
             return json(200, v);
         }
         auto allowed = [&](const std::string& p) {
@@ -1132,6 +1164,78 @@ private:
         return json(200, v);
     }
 
+    // A drive's name for people: the PS5's own names, else the folder's.
+    static std::string drive_label(const std::string& root) {
+        if (root == "/data") return "Internal";
+        if (root.rfind("/mnt/usb", 0) == 0) return "USB " + root.substr(8);
+        if (root.rfind("/mnt/ext", 0) == 0) return "Extended " + root.substr(8);
+        std::string name = base_name(root);
+        return name.empty() || name == "/" ? root : name;
+    }
+
+    // Paired engines' shared folders (from their /api/peer/fs/roots), asked
+    // again after a few seconds; one that does not answer is left out.
+    struct PeerDrive {
+        std::string id, name, platform, path, label;
+        std::uint64_t free = 0, total = 0;
+        bool has_space = false;
+    };
+    struct PeerPlace {
+        std::string id, name, path, label;
+    };
+    std::pair<std::vector<PeerDrive>, std::vector<PeerPlace>> peer_drives() {
+        std::lock_guard<std::mutex> lock(peer_drives_mutex_);
+        std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+        if (now - peer_drives_at_ < 8) return peer_drives_;
+        std::vector<PeerDrive> drives;
+        std::vector<PeerPlace> places;
+        if (pairing_ && discovery_)
+            for (const pairing::Paired& p : pairing_->list()) {
+                auto peer = discovery_->find(p.id);
+                if (!peer) continue;
+                auto text = peer_fs::request(*discovery_, *pairing_, p.id, "GET", "/api/peer/fs/roots", {}, "", 2500, 1u << 20);
+                if (!text.ok()) continue;
+                auto v = parse_json(*text);
+                if (!v.ok()) continue;
+                for (const JsonValue& d : (*v)["roots"].items()) {
+                    PeerDrive drive;
+                    drive.id = p.id;
+                    drive.name = peer->who.name;
+                    drive.platform = (*v)["platform"].str();
+                    drive.path = peer_fs::name_for(p.id, d["path"].str());
+                    drive.label = d["label"].str();
+                    drive.has_space = d.has("free");
+                    drive.free = static_cast<std::uint64_t>(d["free"].integer(0));
+                    drive.total = static_cast<std::uint64_t>(d["total"].integer(0));
+                    drives.push_back(std::move(drive));
+                }
+                for (const JsonValue& l : (*v)["locations"].items())
+                    places.push_back({p.id, peer->who.name, peer_fs::name_for(p.id, l["path"].str()), l["label"].str()});
+            }
+        peer_drives_ = {std::move(drives), std::move(places)};
+        peer_drives_at_ = now;
+        return peer_drives_;
+    }
+
+    HttpResponse peer_drives_json() {
+        auto [drives, places] = peer_drives();
+        JsonValue list = JsonValue::array();
+        for (const PeerDrive& d : drives) {
+            JsonValue e = JsonValue::object();
+            e.set("id", d.id);
+            e.set("engine", d.name);
+            e.set("platform", d.platform);
+            e.set("root", d.path);
+            e.set("label", d.label);
+            if (d.has_space) {
+                e.set("free", d.free);
+                e.set("total", d.total);
+            }
+            list.push(std::move(e));
+        }
+        return json(200, list);
+    }
+
     HttpResponse locations() {
         JsonValue list = JsonValue::array();
         std::vector<std::string> roots = config_.available_roots();
@@ -1152,6 +1256,21 @@ private:
             e.set("path", "/ftp/" + s.id);
             e.set("exists", true);
             e.set("ftp", true);
+            list.push(std::move(e));
+        }
+        // Paired engines: where their outputs usually go, else their drives.
+        auto [drives, places] = peer_drives();
+        for (const PeerDrive& d : drives) {
+            bool has_place = std::any_of(places.begin(), places.end(), [&](const PeerPlace& p) { return p.id == d.id; });
+            if (has_place) continue;
+            places.push_back({d.id, d.name, d.path, d.label});
+        }
+        for (const PeerPlace& p : places) {
+            JsonValue e = JsonValue::object();
+            e.set("label", p.name + " · " + p.label);
+            e.set("path", p.path);
+            e.set("exists", true);
+            e.set("peer", p.id);
             list.push(std::move(e));
         }
         return json(200, list);
@@ -1350,6 +1469,9 @@ private:
     std::unique_ptr<peers::Discovery> discovery_;
     std::unique_ptr<pairing::Pairing> pairing_;
     OpenFiles files_;
+    std::mutex peer_drives_mutex_;
+    std::pair<std::vector<PeerDrive>, std::vector<PeerPlace>> peer_drives_;
+    std::int64_t peer_drives_at_ = 0;
     RemoteFiles remote_; // before the queue, whose jobs may read from it
     ftp::Servers ftp_{config_.state_dir};
     GameMetaCache meta_{config_.state_dir};
