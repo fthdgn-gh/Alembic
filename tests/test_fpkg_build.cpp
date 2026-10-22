@@ -80,10 +80,8 @@ namespace {
 
 // ProsperoPkgTool's public key moduli, from its checkout when it is there.
 std::string keys_folder() {
-#ifdef ALEMBIC_SOURCE_DIR
-    std::string k = std::string(ALEMBIC_SOURCE_DIR) + "/.refs/ProsperoPkgTool/ProsperoPkgTool/Keys";
+    std::string k = test::source_dir() + "/.refs/ProsperoPkgTool/ProsperoPkgTool/Keys";
     if (is_regular_file(k + "/passcode.bin") && is_regular_file(k + "/mount_image.bin")) return k;
-#endif
     return "";
 }
 

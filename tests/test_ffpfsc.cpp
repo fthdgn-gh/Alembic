@@ -90,7 +90,12 @@ TEST_CASE(ffpfsc_dump_image_names) {
     CHECK(image_name(make_dump(tmp, "a", R"({"TITLEID": "abcd12345"})")) == "ABCD12345.exfat");
     CHECK(image_name(make_dump(tmp, "b", R"({"titleId": "PPSA1234"})")) == "b.exfat");
     CHECK(image_name(make_dump(tmp, "c", R"({"titleId": "PPSA01234",})")) == "c.exfat");
+#ifdef _WIN32
+    // Windows has no ':' in names; a non-ASCII letter is replaced the same way.
+    CHECK(image_name(make_dump(tmp, " .J\xC3\xA9u\xC3\xA9x. ", "{}")) == "J_u_x.exfat");
+#else
     CHECK(image_name(make_dump(tmp, " .J\xC3\xA9u:x. ", "{}")) == "J_u_x.exfat");
+#endif
     CHECK(image_name(make_dump(tmp, "...", "{}")) == "PS5_GAME.exfat");
 }
 

@@ -13,7 +13,8 @@ trap '[[ -n $engine ]] && kill "$engine" 2>/dev/null; rm -rf "$work"' EXIT
 win() { cygpath -m "$1"; }
 
 echo "== unit tests"
-"$bin/alembic_tests.exe"
+# The tests read a few files from the checkout (translations, reference keys).
+ALEMBIC_SOURCE_DIR="$(win "$(cd "$(dirname "$0")/../.." && pwd)")" "$bin/alembic_tests.exe"
 
 echo "== a game folder with non-ASCII names and a long path"
 in="$work/in"

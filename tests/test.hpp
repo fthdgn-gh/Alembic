@@ -30,6 +30,9 @@ std::string make_temp_dir();
 void write_file(const std::string& path, const std::vector<std::uint8_t>& data);
 void make_dir(const std::string& path);
 std::vector<std::uint8_t> read_file(const std::string& path);
+// The source checkout: $ALEMBIC_SOURCE_DIR when set (a build run on another
+// machine, such as the Windows one CI cross-builds), else where it was built.
+std::string source_dir();
 
 } // namespace test
 

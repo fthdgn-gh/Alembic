@@ -29,16 +29,27 @@ TEST_CASE(engine_json_round_trips) {
 }
 
 TEST_CASE(engine_paths_stay_inside_the_roots) {
-    std::vector<std::string> roots{"/data", "/mnt/usb0/"};
-    CHECK(path_allowed("/data", roots));
-    CHECK(path_allowed("/data/homebrew/x.pkg", roots));
-    CHECK(path_allowed("/mnt/usb0/game", roots));
-    CHECK(!path_allowed("/database", roots));
-    CHECK(!path_allowed("/data/../etc", roots));
-    CHECK(!path_allowed("/data/./x", roots));
+#ifdef _WIN32
+    const std::string d = "C:"; // absolute paths start with a drive there
+#else
+    const std::string d;
+#endif
+    std::vector<std::string> roots{d + "/data", d + "/mnt/usb0/"};
+    CHECK(path_allowed(d + "/data", roots));
+    CHECK(path_allowed(d + "/data/homebrew/x.pkg", roots));
+    CHECK(path_allowed(d + "/mnt/usb0/game", roots));
+    CHECK(!path_allowed(d + "/database", roots));
+    CHECK(!path_allowed(d + "/data/../etc", roots));
+    CHECK(!path_allowed(d + "/data/./x", roots));
     CHECK(!path_allowed("data/x", roots));
-    CHECK(!path_allowed("/system/x", roots));
+    CHECK(!path_allowed(d + "/system/x", roots));
     CHECK(!path_allowed("", roots));
+#ifdef _WIN32
+    CHECK(path_allowed("c:/DATA/x", roots));       // no case on Windows
+    CHECK(!path_allowed("C:/data\\..\\x", roots)); // '\\' is turned into '/' before this
+    CHECK(!path_allowed("/data", roots));          // drive-relative
+    CHECK(path_allowed("D:/x", {"D:/"}));          // a drive root
+#endif
 }
 
 TEST_CASE(engine_names_outputs_next_to_the_input) {
@@ -98,8 +109,7 @@ TEST_CASE(engine_names_outputs_next_to_the_input) {
 
 // The engine's translations come from the page's i18n.js.
 TEST_CASE(engine_l10n_messages) {
-    std::string here = __FILE__;
-    std::vector<std::uint8_t> js = test::read_file(here.substr(0, here.rfind('/')) + "/../src/engine/web/i18n.js");
+    std::vector<std::uint8_t> js = test::read_file(test::source_dir() + "/src/engine/web/i18n.js");
     CHECK(!js.empty());
     l10n::load(reinterpret_cast<const char*>(js.data()), js.size());
     CHECK(l10n::has_language("tr") && l10n::has_language("ja") && !l10n::has_language("xx"));

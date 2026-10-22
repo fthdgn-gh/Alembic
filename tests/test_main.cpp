@@ -81,6 +81,14 @@ std::vector<std::uint8_t> read_file(const std::string& path) {
     return data;
 }
 
+std::string source_dir() {
+    std::string dir = alembic::portable_path(alembic::environment("ALEMBIC_SOURCE_DIR"));
+#ifdef ALEMBIC_SOURCE_DIR
+    if (dir.empty()) dir = ALEMBIC_SOURCE_DIR;
+#endif
+    return dir;
+}
+
 // Deletes a folder and everything in it; links are removed, not followed.
 static void remove_all(const std::string& path) {
     alembic::PathStat st = alembic::stat_path(path, false);
