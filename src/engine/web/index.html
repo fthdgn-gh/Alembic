@@ -107,7 +107,8 @@ body.covered .view.scroll, body.covered .view .scroll, .overlay.under .scroll { 
 .row .t { font-size: 1.05rem; font-weight: 500; }
 .row .s { font-size: .82rem; color: var(--muted); }
 .row .sz { font-size: .9rem; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
-.row .more { background: none; border: 0; color: var(--dim); font-size: 1.2rem; padding: .2rem .5rem; border-radius: .4rem; line-height: 1; }
+.row .more { background: none; border: 0; color: var(--dim); font-size: 1.35rem; padding: .35rem .75rem; border-radius: .5rem; line-height: 1; }
+.row:hover .more { color: var(--muted); }
 .row .more:hover { color: var(--text); background: var(--raise); }
 .empty { padding: 3rem 1rem; text-align: center; color: var(--muted); }
 
@@ -300,6 +301,7 @@ a.btn { text-decoration: none; }
       <div class="tools" data-zone="tools">
         <button class="btn sm" id="btn-share" data-i18n="From this computer…" hidden>From this computer…</button>
         <input type="file" id="share-pick" accept=".pkg,.exfat,.ffpfsc,.ffpkg,.ffpfs" hidden>
+        <button class="btn sm" id="btn-here" data-i18n-title="Options for this folder" title="Options for this folder">⋯</button>
         <button class="btn sm" id="btn-mkdir" data-i18n="New folder">New folder</button>
         <button class="btn sm ghost" id="btn-refresh" data-i18n="Refresh" data-i18n-title="Refresh">Refresh</button>
       </div>
@@ -1071,6 +1073,7 @@ async function browse(path, push, focusKey) {
   state.cwd = data.path; state.listing = data;
   crumbs($("#crumbs"), data.path, (p) => browse(p));
   $("#btn-mkdir").disabled = data.path === "/";
+  $("#btn-here").disabled = data.path === "/";
   const files = data.entries.filter((e) => e.kind !== "folder"), folders = data.entries.length - files.length;
   const total = files.reduce((n, e) => n + (e.size || 0), 0);
   const r = data.path === "/" ? null : rootOf(data.path);
@@ -1146,7 +1149,8 @@ function renderList(focusKey, keepPlace) {
     const fs = top ? ftpOf(e.path) : null;
     const s = top ? (rootOf(e.path) ? t("{free} free of {total}", { free: bytes(rootOf(e.path).free), total: bytes(rootOf(e.path).total) }) : fs ? "FTP · " + fs.user + "@" + fs.host + ":" + fs.port : e.path) :
       [e.kind === "folder" ? "" : bytes(e.size), date(e.mtime)].filter(Boolean).join("  ·  ");
-    const row = h("div", { class: "row", tabindex: "0", "data-key": e.path, onclick: () => openEntry(e), onfocus: () => onRowFocus(e) },
+    const row = h("div", { class: "row", tabindex: "0", "data-key": e.path, onclick: () => openEntry(e), onfocus: () => onRowFocus(e),
+      oncontextmenu: top ? null : (ev) => { ev.preventDefault(); openActions(e); } }, // a right-click: its options
       top ? h("div", { class: "ico folder", html: fs ? ICONS.server : /usb|ext/.test(e.path) ? ICONS.usb : ICONS.drive }) : icoFor(e),
       h("div", { style: "min-width:0" }, h("div", { class: "t ellip", title: e.name, text: top ? driveName(e.path) : e.name }), h("div", { class: "s ellip", text: s })),
       h("div", { class: "sz", text: !top && e.kind !== "folder" ? bytes(e.size) : "" }),
@@ -1168,7 +1172,7 @@ function onRowFocus(e) {
 async function openActions(e) {
   if (state.cwd === "/") return;
   const conv = isConvertible(e), items = [];
-  if (e.kind === "folder") items.push({ label: t("Open"), value: () => browse(e.path) });
+  if (e.kind === "folder" && e.path !== state.cwd) items.push({ label: t("Open"), value: () => browse(e.path) });
   if (conv) items.push({ label: t("Convert…"), sub: t("To FFPFSC, FFPKG, exFAT or a folder"), value: () => openConvert(e) });
   if (e.kind === "fpkg") items.push({ label: t("Install"), sub: t("Hand it to the console's installer"), value: () => installPkg(e) });
   if (conv && e.kind !== "fpkg") items.push({ label: t("Add the AMPR emulator…"), sub: t("For games that stop at start from an image or folder"), value: () => addAmpr(e) });
@@ -1190,6 +1194,11 @@ async function openActions(e) {
   if (fn) fn();
 }
 $("#btn-refresh").addEventListener("click", () => { browse(state.cwd, false); loadInfo().catch(() => {}); });
+// The folder you are in: Add to Places, Copy to..., and the rest.
+$("#btn-here").addEventListener("click", () => {
+  if (!state.cwd || state.cwd === "/") return;
+  openActions({ path: state.cwd, name: base(state.cwd), kind: "folder" });
+});
 $("#btn-mkdir").addEventListener("click", async () => {
   const name = await ask({ title: t("New folder"), input: t("New folder"), ok: t("Create") });
   if (!name) return;
@@ -1500,7 +1509,7 @@ async function openConvert(entry) {
       try {
         const p = await api("POST", "/api/plan", spec());
         name.placeholder = base(p.output);
-        outPath.textContent = p.output;
+        outPath.textContent = shownPath(p.output);
         const r = rootOf(p.output), need = cv.inspect ? cv.inspect.bytes : 0;
         outSpace.textContent = r ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) + (need ? " · " + t("the game is {size} unpacked", { size: bytes(need) }) : "") : ftpOf(p.output) ? t("On an FTP server") : "";
         msg.textContent = ""; msg.className = "msg"; go.disabled = false;
@@ -1898,12 +1907,23 @@ async function quitEngine() {
 }
 
 /* ---------- queue ---------- */
+// A path as people read it: another engine's "/peer/<id>/data/x" is
+// "PS5: /data/x" (paths keep their real form everywhere else).
+function shownPath(p) {
+  if (!p || String(p).indexOf("/peer/") !== 0) return p;
+  const rest = p.slice(6), slash = rest.indexOf("/"), id = slash < 0 ? rest : rest.slice(0, slash);
+  const e = ((state.peers && state.peers.engines) || []).find((x) => x.id === id) || (state.peerDrives || []).find((x) => x.id === id);
+  const name = e ? e.name || e.engine : t("another engine");
+  let local = slash < 0 ? "/" : rest.slice(slash);
+  if (/^\/[A-Za-z]:\//.test(local)) local = local.slice(1); // a Windows engine's C:/...
+  return name + ": " + local;
+}
 function jobText(j) {
   const s = j.spec;
-  if (s.kind === "copy" || s.kind === "move") return { title: base(s.input), to: t(s.kind === "copy" ? "Copy to {path}" : "Move to {path}", { path: s.output }) };
+  if (s.kind === "copy" || s.kind === "move") return { title: base(s.input), to: t(s.kind === "copy" ? "Copy to {path}" : "Move to {path}", { path: shownPath(s.output) }) };
   if (s.kind === "install") return { title: base(s.input), to: t("Install on this console") };
-  if (s.kind === "ampr_emu") return { title: base(s.input), to: (j.result && j.result.output) ? t("AMPR emulator into {path}", { path: j.result.output }) : t("Add the AMPR emulator") };
-  return { title: base(s.input), to: "→ " + s.output };
+  if (s.kind === "ampr_emu") return { title: base(s.input), to: (j.result && j.result.output) ? t("AMPR emulator into {path}", { path: shownPath(j.result.output) }) : t("Add the AMPR emulator") };
+  return { title: base(s.input), to: "→ " + shownPath(s.output) };
 }
 const cards = new Map();
 // Running, or still to run (queued or paused), in the order they run.
