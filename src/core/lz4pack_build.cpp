@@ -155,11 +155,11 @@ public:
         }
         pool_.submit([this, block, params, fingerprint](unsigned worker) {
             compress_block(*block, params, states_, worker, fingerprint);
-            {
-                std::lock_guard<std::mutex> lock(mutex_);
-                block->done = true;
-                --pending_;
-            }
+            // Notified under the lock: once pending_ reaches 0 the destructor
+            // may run, and this object (done_ with it) is gone after unlock.
+            std::lock_guard<std::mutex> lock(mutex_);
+            block->done = true;
+            --pending_;
             done_.notify_all();
         });
     }
