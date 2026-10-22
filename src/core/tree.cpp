@@ -33,15 +33,16 @@ public:
     }
 
     Status scan(const std::string& path, Node& parent) {
-        ALEMBIC_ASSIGN(std::vector<std::string> names, list_directory(path));
+        // Names and their details in one listing (one request for another engine's folder).
+        ALEMBIC_ASSIGN(std::vector<DirEntry> entries, list_directory_entries(path, false));
         Status status;
-        for (std::string& name : names) {
+        for (DirEntry& entry : entries) {
+            std::string& name = entry.name;
             if (is_os_junk(name)) continue;
             std::string full = path + "/" + name;
-            std::string why;
-            PathStat st = stat_path(full, false, &why);
+            const PathStat& st = entry.stat;
             if (st.kind == PathKind::missing) {
-                status = make_error(Errc::io, "cannot stat '" + full + "': " + why);
+                status = make_error(Errc::io, "cannot stat '" + full + "'");
                 break;
             }
             if (st.kind == PathKind::link) continue; // PS5PKGTool skips reparse points

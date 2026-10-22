@@ -61,6 +61,18 @@ private:
     std::uint64_t length_;
 };
 
+// An open file somewhere else (a mounted FileSystem, below).
+class FileHandle {
+public:
+    virtual ~FileHandle() = default; // closes it
+    virtual Result<std::uint64_t> size() const = 0;
+    virtual Status read_at(std::uint64_t offset, MutableBytes out) const = 0;
+    virtual Status write_at(std::uint64_t offset, Bytes data) = 0;
+    virtual Status truncate(std::uint64_t length) = 0;
+    virtual Status sync() = 0;
+    virtual Status close() = 0;
+};
+
 class File final : public RandomAccess {
 public:
     enum class Mode { read, create_new, read_write };
@@ -74,7 +86,7 @@ public:
 
     static Result<File> open(const std::string& path, Mode mode);
 
-    bool is_open() const { return fd_ >= 0; }
+    bool is_open() const { return fd_ >= 0 || handle_ != nullptr; }
     const std::string& path() const { return path_; }
 
     Result<std::uint64_t> size() const override;
@@ -87,6 +99,7 @@ public:
 
 private:
     std::intptr_t fd_ = -1; // a file descriptor, or a Windows HANDLE
+    std::unique_ptr<FileHandle> handle_; // or a file in a mounted FileSystem
     std::string path_;
 };
 
@@ -195,6 +208,36 @@ void use_utf8_console();
 bool stderr_is_terminal();
 // fopen() for a UTF-8 path (fopen itself takes the ANSI code page on Windows).
 std::FILE* open_stdio(const std::string& path, const char* mode);
+
+// A folder's entries with what stat_path would say about each (one request
+// where the files are elsewhere).
+struct DirEntry {
+    std::string name;
+    PathStat stat;
+};
+Result<std::vector<DirEntry>> list_directory_entries(const std::string& path, bool follow_links = true);
+
+// Files elsewhere, under a path prefix: another engine's files are
+// "/peer/<id>/<its path>". Every call above (File::open, stat_path,
+// list_directory, rename_path, ...) on a path that starts with a mounted
+// prefix goes to its FileSystem, with the full path.
+class FileSystem {
+public:
+    virtual ~FileSystem() = default;
+    virtual Result<std::unique_ptr<FileHandle>> open(const std::string& path, File::Mode mode) = 0;
+    virtual PathStat stat(const std::string& path, bool follow_links, std::string* error) = 0;
+    virtual Result<std::vector<DirEntry>> list(const std::string& path, bool follow_links) = 0;
+    virtual Status make_directory(const std::string& path) = 0;
+    virtual Status remove_file(const std::string& path) = 0;
+    virtual Status remove_directory(const std::string& path) = 0;
+    virtual Status rename(const std::string& from, const std::string& to) = 0; // both under this prefix
+    virtual Status set_times(const std::string& path, std::int64_t atime, std::int64_t mtime) = 0;
+    virtual Result<DiskSpace> disk_space(const std::string& path) = 0;
+};
+// `prefix` ends in '/' ("/peer/"); a later mount of the same prefix replaces it.
+void mount(const std::string& prefix, std::shared_ptr<FileSystem> fs);
+void unmount(const std::string& prefix);
+bool is_mounted(const std::string& path);
 
 bool path_exists(const std::string& path);
 bool is_directory(const std::string& path);

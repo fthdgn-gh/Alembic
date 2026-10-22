@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "alembic/io.hpp"
+#include "io_mounts.hpp"
 
+#include <algorithm>
 #include <cerrno>
 #include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <atomic>
+#include <mutex>
 #include <random>
 
 #ifndef _WIN32
@@ -29,6 +33,64 @@ std::string os_error_message(int error_number) {
 }
 
 // ------------------------------------------------------------------ shared
+
+namespace {
+struct Mounts {
+    std::atomic<bool> any{false}; // most runs mount nothing: no lock then
+    std::mutex mutex;
+    std::vector<std::pair<std::string, std::shared_ptr<FileSystem>>> list;
+};
+Mounts& mounts() {
+    static Mounts m;
+    return m;
+}
+} // namespace
+
+namespace detail {
+std::shared_ptr<FileSystem> mounted(const std::string& path) {
+    Mounts& m = mounts();
+    if (!m.any.load(std::memory_order_acquire)) return nullptr;
+    std::lock_guard<std::mutex> lock(m.mutex);
+    for (const auto& [prefix, fs] : m.list)
+        if (path.compare(0, prefix.size(), prefix) == 0 || path + "/" == prefix) return fs;
+    return nullptr;
+}
+} // namespace detail
+
+void mount(const std::string& prefix, std::shared_ptr<FileSystem> fs) {
+    Mounts& m = mounts();
+    std::lock_guard<std::mutex> lock(m.mutex);
+    for (auto& [p, f] : m.list)
+        if (p == prefix) {
+            f = std::move(fs);
+            return;
+        }
+    m.list.emplace_back(prefix, std::move(fs));
+    m.any = true;
+}
+
+void unmount(const std::string& prefix) {
+    Mounts& m = mounts();
+    std::lock_guard<std::mutex> lock(m.mutex);
+    m.list.erase(std::remove_if(m.list.begin(), m.list.end(), [&](const auto& e) { return e.first == prefix; }), m.list.end());
+    m.any = !m.list.empty();
+}
+
+bool is_mounted(const std::string& path) { return detail::mounted(path) != nullptr; }
+
+Result<std::vector<DirEntry>> list_directory_entries(const std::string& path, bool follow_links) {
+    if (auto fs = detail::mounted(path)) return fs->list(path, follow_links);
+    ALEMBIC_ASSIGN(std::vector<std::string> names, list_directory(path));
+    std::vector<DirEntry> out;
+    out.reserve(names.size());
+    for (std::string& n : names) {
+        DirEntry e;
+        e.stat = stat_path(join_path(path, n), follow_links);
+        e.name = std::move(n);
+        out.push_back(std::move(e));
+    }
+    return out;
+}
 
 Status Slice::read_at(std::uint64_t offset, MutableBytes out) const {
     if (offset > length_ || out.size() > length_ - offset)
@@ -191,7 +253,7 @@ File::~File() {
     if (fd_ >= 0) ::close(static_cast<int>(fd_));
 }
 
-File::File(File&& other) noexcept : fd_(other.fd_), path_(std::move(other.path_)) {
+File::File(File&& other) noexcept : fd_(other.fd_), handle_(std::move(other.handle_)), path_(std::move(other.path_)) {
     other.fd_ = -1;
 }
 
@@ -199,6 +261,7 @@ File& File::operator=(File&& other) noexcept {
     if (this != &other) {
         if (fd_ >= 0) ::close(static_cast<int>(fd_));
         fd_ = other.fd_;
+        handle_ = std::move(other.handle_);
         path_ = std::move(other.path_);
         other.fd_ = -1;
     }
@@ -206,6 +269,14 @@ File& File::operator=(File&& other) noexcept {
 }
 
 Result<File> File::open(const std::string& path, Mode mode) {
+    if (auto fs = detail::mounted(path)) {
+        ALEMBIC_ASSIGN(std::unique_ptr<FileHandle> handle, fs->open(path, mode));
+        File file;
+        file.handle_ = std::move(handle);
+        file.path_ = path;
+        return file;
+    }
+
     int flags = 0;
     switch (mode) {
     case Mode::read: flags = O_RDONLY; break;
@@ -224,12 +295,16 @@ Result<File> File::open(const std::string& path, Mode mode) {
 }
 
 Result<std::uint64_t> File::size() const {
+    if (handle_) return handle_->size();
+
     struct stat st {};
     if (::fstat(static_cast<int>(fd_), &st) != 0) return io_error("cannot stat", path_);
     return static_cast<std::uint64_t>(st.st_size);
 }
 
 Status File::read_at(std::uint64_t offset, MutableBytes out) const {
+    if (handle_) return handle_->read_at(offset, out);
+
     std::size_t done = 0;
     while (done < out.size()) {
         ssize_t n = ::pread(static_cast<int>(fd_), out.data() + done, out.size() - done, static_cast<off_t>(offset + done));
@@ -244,6 +319,8 @@ Status File::read_at(std::uint64_t offset, MutableBytes out) const {
 }
 
 Status File::write_at(std::uint64_t offset, Bytes data) {
+    if (handle_) return handle_->write_at(offset, data);
+
     std::size_t done = 0;
     while (done < data.size()) {
         ssize_t n = ::pwrite(static_cast<int>(fd_), data.data() + done, data.size() - done, static_cast<off_t>(offset + done));
@@ -257,16 +334,26 @@ Status File::write_at(std::uint64_t offset, Bytes data) {
 }
 
 Status File::truncate(std::uint64_t length) {
+    if (handle_) return handle_->truncate(length);
+
     if (::ftruncate(static_cast<int>(fd_), static_cast<off_t>(length)) != 0) return io_error("cannot resize", path_);
     return {};
 }
 
 Status File::sync() {
+    if (handle_) return handle_->sync();
+
     if (::fsync(static_cast<int>(fd_)) != 0) return io_error("cannot flush", path_);
     return {};
 }
 
 Status File::close() {
+    if (handle_) {
+        Status s = handle_->close();
+        handle_.reset();
+        return s;
+    }
+
     if (fd_ < 0) return {};
     int fd = static_cast<int>(fd_);
     fd_ = -1;
@@ -275,6 +362,8 @@ Status File::close() {
 }
 
 PathStat stat_path(const std::string& path, bool follow_links, std::string* error) {
+    if (auto fs = detail::mounted(path)) return fs->stat(path, follow_links, error);
+
     struct stat st {};
     PathStat out;
     if ((follow_links ? ::stat(path.c_str(), &st) : ::lstat(path.c_str(), &st)) != 0) {
@@ -292,6 +381,13 @@ PathStat stat_path(const std::string& path, bool follow_links, std::string* erro
 }
 
 Result<std::vector<std::string>> list_directory(const std::string& path) {
+    if (auto fs = detail::mounted(path)) {
+        ALEMBIC_ASSIGN(std::vector<DirEntry> entries, fs->list(path, false));
+        std::vector<std::string> names;
+        for (DirEntry& e : entries) names.push_back(std::move(e.name));
+        return names;
+    }
+
     DIR* dir = ::opendir(path.c_str());
     if (!dir) return io_error("cannot open folder", path);
     std::vector<std::string> names;
@@ -310,21 +406,33 @@ Result<std::vector<std::string>> list_directory(const std::string& path) {
 }
 
 Status make_directory(const std::string& path) {
+    if (auto fs = detail::mounted(path)) return fs->make_directory(path);
+
     if (::mkdir(path.c_str(), 0755) != 0) return io_error("cannot create folder", path);
     return {};
 }
 
 Status remove_file(const std::string& path) {
+    if (auto fs = detail::mounted(path)) return fs->remove_file(path);
+
     if (::unlink(path.c_str()) != 0) return io_error("cannot delete", path);
     return {};
 }
 
 Status remove_directory(const std::string& path) {
+    if (auto fs = detail::mounted(path)) return fs->remove_directory(path);
+
     if (::rmdir(path.c_str()) != 0) return io_error("cannot delete", path);
     return {};
 }
 
 Status rename_path(const std::string& from, const std::string& to) {
+    auto from_fs = detail::mounted(from), to_fs = detail::mounted(to);
+    if (from_fs || to_fs) {
+        if (from_fs != to_fs) return make_error(Errc::unsupported, "cannot rename across machines: " + from + " -> " + to);
+        return from_fs->rename(from, to);
+    }
+
     if (::rename(from.c_str(), to.c_str()) == 0) return {};
     Error e = io_error("cannot rename", from);
     if (errno == EXDEV) e.code = Errc::unsupported;
@@ -333,6 +441,8 @@ Status rename_path(const std::string& from, const std::string& to) {
 }
 
 Status set_file_times(const std::string& path, std::int64_t atime, std::int64_t mtime) {
+    if (auto fs = detail::mounted(path)) return fs->set_times(path, atime, mtime);
+
     timeval times[2] = {};
     times[0].tv_sec = static_cast<time_t>(atime);
     times[1].tv_sec = static_cast<time_t>(mtime);
@@ -343,6 +453,8 @@ Status set_file_times(const std::string& path, std::int64_t atime, std::int64_t 
 void flush_file_system() { ::sync(); }
 
 Result<DiskSpace> disk_space(const std::string& path) {
+    if (auto fs = detail::mounted(path)) return fs->disk_space(path);
+
     struct statfs st {};
     if (::statfs(path.c_str(), &st) != 0) return io_error("cannot read the free space of", path);
     DiskSpace s;
@@ -353,7 +465,7 @@ Result<DiskSpace> disk_space(const std::string& path) {
 
 int process_id() { return static_cast<int>(::getpid()); }
 
-bool is_absolute_path(const std::string& path) { return !path.empty() && path[0] == '/'; }
+bool is_absolute_path(const std::string& path) { return !path.empty() && path[0] == '/'; } // mounted paths too
 
 std::string portable_path(std::string path) { return path; }
 
@@ -371,6 +483,7 @@ bool stderr_is_terminal() { return ::isatty(STDERR_FILENO); }
 std::FILE* open_stdio(const std::string& path, const char* mode) { return std::fopen(path.c_str(), mode); }
 
 Result<std::string> absolute_path(const std::string& path) {
+    if (detail::mounted(path)) return path;
     std::string rest;
     std::string head = path.empty() ? "." : path;
     for (;;) {

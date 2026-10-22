@@ -217,6 +217,7 @@ if(ALEMBIC_BUILD_TESTS)
         tests/test_fpkg_build.cpp
         tests/test_json.cpp
         tests/test_lz4pack.cpp
+        tests/test_mounts.cpp
         tests/test_pfs.cpp
         tests/test_pfsc.cpp
         tests/test_resume.cpp
