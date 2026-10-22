@@ -23,9 +23,16 @@ public:
     Digest finish(); // the object must not be reused afterwards
 
     static std::string hex(const Digest& digest);
+    // SHA-NI (x86-64) or the ARMv8 SHA-256 instructions are used: the CPU has
+    // them and they passed a self-test.
+    static bool hardware();
+    // The portable code only (the reference in tests).
+    static Digest portable(Bytes data);
 
 private:
+    void blocks(const std::uint8_t* p, std::size_t count);
     void block(const std::uint8_t* p);
+    bool portable_only_ = false;
     std::uint32_t h_[8];
     std::uint8_t buffer_[64];
     std::size_t fill_ = 0;

@@ -1637,6 +1637,7 @@ function renderSettings() {
     if (i) {
       add(t("Version"), i.version); add(t("Running on"), i.platform === "ps5" ? t("PS5 (payload)") : i.os || t("PC"));
       if (i.host_name && i.platform !== "ps5") add(t("Computer"), i.host_name);
+      if (i.cpu_instructions) add(t("CPU instructions"), i.cpu_instructions === "none" ? "–" : i.cpu_instructions);
       add(t("Address"), location.host, "mono");
       add(t("From other devices"), i.network_urls && i.network_urls.length ? i.network_urls.join("\n") : i.open_to_network ? "–" : t("This computer only"), "mono");
       if (i.roots && i.roots.length) add(t("Shared folders"), i.roots.join("\n"), "mono");

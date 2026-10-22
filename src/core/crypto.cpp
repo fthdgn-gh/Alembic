@@ -11,17 +11,27 @@
 #include <thread>
 #include <vector>
 
-#if defined(__AES__) && defined(__SSE2__) && (defined(__x86_64__) || defined(__i386__))
+#include "cpu_features.hpp"
+
+// x86-64: the AES and CRC32 code is compiled for those instructions whatever
+// the build targets (target attributes) and runs only on CPUs that have them
+// (CPUID; a build that targets them, the PS5, skips the check). ARMv8: only
+// when the build targets them (Apple silicon does).
+#if defined(__x86_64__)
 #define ALEMBIC_AES_X86 1
-#include <wmmintrin.h>
-#elif defined(__ARM_FEATURE_AES) && defined(__aarch64__)
+#define ALEMBIC_CRC_X86 1
+#include <immintrin.h>
+#define ALEMBIC_TARGET_AES __attribute__((target("aes,sse2")))
+#define ALEMBIC_TARGET_CRC __attribute__((target("sse4.2")))
+#else
+#define ALEMBIC_TARGET_AES
+#define ALEMBIC_TARGET_CRC
+#endif
+#if defined(__ARM_FEATURE_AES) && defined(__aarch64__)
 #define ALEMBIC_AES_ARM 1
 #include <arm_neon.h>
 #endif
-#if defined(__SSE4_2__) && defined(__x86_64__)
-#define ALEMBIC_CRC_X86 1
-#include <nmmintrin.h>
-#elif defined(__ARM_FEATURE_CRC32) && defined(__aarch64__)
+#if defined(__ARM_FEATURE_CRC32) && defined(__aarch64__)
 #define ALEMBIC_CRC_ARM 1
 #include <arm_acle.h>
 #endif
@@ -357,9 +367,9 @@ Aes128::Aes128(const std::uint8_t key[16]) {
 // are in flight at a time so the units stay busy.
 #if defined(ALEMBIC_AES_X86)
 namespace {
-inline __m128i k128(const std::uint8_t* p) { return _mm_load_si128(reinterpret_cast<const __m128i*>(p)); }
+ALEMBIC_TARGET_AES inline __m128i k128(const std::uint8_t* p) { return _mm_load_si128(reinterpret_cast<const __m128i*>(p)); }
 }
-void Aes128::hw_encrypt(const std::uint8_t* in, std::uint8_t* out, std::size_t count) const {
+ALEMBIC_TARGET_AES void Aes128::hw_encrypt(const std::uint8_t* in, std::uint8_t* out, std::size_t count) const {
     __m128i k[11];
     for (int r = 0; r < 11; ++r) k[r] = k128(ek_ + 16 * r);
     for (; count >= 8; count -= 8, in += 128, out += 128) {
@@ -375,7 +385,7 @@ void Aes128::hw_encrypt(const std::uint8_t* in, std::uint8_t* out, std::size_t c
         _mm_storeu_si128(reinterpret_cast<__m128i*>(out), _mm_aesenclast_si128(b, k[10]));
     }
 }
-void Aes128::hw_decrypt(const std::uint8_t* in, std::uint8_t* out, std::size_t count) const {
+ALEMBIC_TARGET_AES void Aes128::hw_decrypt(const std::uint8_t* in, std::uint8_t* out, std::size_t count) const {
     __m128i k[11];
     for (int r = 0; r < 11; ++r) k[r] = k128(dk_ + 16 * r);
     for (; count >= 8; count -= 8, in += 128, out += 128) {
@@ -439,6 +449,9 @@ void Aes128::hw_decrypt(const std::uint8_t* in, std::uint8_t* out, std::size_t c
 bool Aes128::hardware() {
 #if defined(ALEMBIC_AES_X86) || defined(ALEMBIC_AES_ARM)
     static const bool ok = [] {
+#if defined(ALEMBIC_AES_X86) && !defined(__AES__)
+        if (!cpu::features().aes) return false;
+#endif
         const std::uint8_t key[16] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
                                       0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f};
         const std::uint8_t expect[16] = {0x69, 0xc4, 0xe0, 0xd8, 0x6a, 0x7b, 0x04, 0x30,
@@ -622,7 +635,7 @@ std::uint32_t crc32c_table(const std::uint8_t* p, std::size_t n, std::uint32_t c
 }
 
 #if defined(ALEMBIC_CRC_X86) || defined(ALEMBIC_CRC_ARM)
-std::uint32_t crc32c_hw(const std::uint8_t* p, std::size_t n, std::uint32_t c) {
+ALEMBIC_TARGET_CRC std::uint32_t crc32c_hw(const std::uint8_t* p, std::size_t n, std::uint32_t c) {
     for (; n >= 8; n -= 8, p += 8) {
         std::uint64_t v;
         std::memcpy(&v, p, 8);
@@ -644,16 +657,44 @@ std::uint32_t crc32c_hw(const std::uint8_t* p, std::size_t n, std::uint32_t c) {
 
 } // namespace
 
+namespace {
+bool crc_hardware();
+}
+
 // The CRC32 instructions are used only after they give the check value once.
 std::uint32_t crc32c(Bytes data, std::uint32_t crc) {
+    if (crc_hardware()) {
+#if defined(ALEMBIC_CRC_X86) || defined(ALEMBIC_CRC_ARM)
+        return ~crc32c_hw(data.data(), data.size(), ~crc);
+#endif
+    }
+    return ~crc32c_table(data.data(), data.size(), ~crc);
+}
+
+namespace {
+bool crc_hardware() {
 #if defined(ALEMBIC_CRC_X86) || defined(ALEMBIC_CRC_ARM)
     static const bool hw_ok = [] {
+#if defined(ALEMBIC_CRC_X86) && !defined(__SSE4_2__)
+        if (!cpu::features().sse42) return false;
+#endif
         const char* check = "123456789";
         return ~crc32c_hw(reinterpret_cast<const std::uint8_t*>(check), 9, ~0u) == 0xE3069283u;
     }();
-    if (hw_ok) return ~crc32c_hw(data.data(), data.size(), ~crc);
+    return hw_ok;
+#else
+    return false;
 #endif
-    return ~crc32c_table(data.data(), data.size(), ~crc);
+}
+} // namespace
+
+std::string accelerations() {
+    std::string out;
+    auto add = [&](const char* name) { out += (out.empty() ? "" : ", ") + std::string(name); };
+    if (Aes128::hardware()) add("AES");
+    if (crc_hardware()) add("CRC32C");
+    if (Sha256::hardware()) add("SHA-256");
+    return out.empty() ? "none" : out;
 }
 
 } // namespace alembic::crypto

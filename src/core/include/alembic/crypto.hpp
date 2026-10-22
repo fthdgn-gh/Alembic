@@ -10,6 +10,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace alembic::crypto {
 
@@ -61,7 +62,7 @@ public:
     void encrypt_block(const std::uint8_t in[16], std::uint8_t out[16]) const;
     void decrypt_block(const std::uint8_t in[16], std::uint8_t out[16]) const;
     // ECB over `count` 16-byte blocks (in == out is fine): with the CPU's AES
-    // instructions when the build targets them, several blocks at a time.
+    // instructions when it has them, several blocks at a time.
     void encrypt_blocks(const std::uint8_t* in, std::uint8_t* out, std::size_t count) const;
     void decrypt_blocks(const std::uint8_t* in, std::uint8_t* out, std::size_t count) const;
     // The table implementation (the fallback, and the reference in tests).
@@ -86,6 +87,9 @@ void xts_encrypt(const Aes128& data_key, const Aes128& tweak_key, std::uint64_t 
 // CRC-32C (Castagnoli), continuing from `crc` (0 to start): with the CPU's
 // CRC32 instructions when the build targets them.
 std::uint32_t crc32c(Bytes data, std::uint32_t crc = 0);
+
+// The CPU instructions in use, for logs: "AES, CRC32C, SHA-256", or "none".
+std::string accelerations();
 
 // CBC without padding, in place. `data.size()` must be a multiple of 16.
 void cbc_decrypt(const Aes128& key, const std::uint8_t iv[16], MutableBytes data);

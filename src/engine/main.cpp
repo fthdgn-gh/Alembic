@@ -58,6 +58,7 @@
 #include "runner.hpp"
 
 #include "alembic/convert.hpp"
+#include "alembic/crypto.hpp"
 #include "alembic/ffpfsc.hpp"
 #include "alembic/io.hpp"
 #include "alembic/lz4pack.hpp"
@@ -466,6 +467,7 @@ private:
         v.set("version", ALEMBIC_VERSION);
         v.set("platform", platform::name());
         v.set("os", platform::os_description());
+        v.set("cpu_instructions", alembic::crypto::accelerations());
         v.set("host_name", net::host_name());
         v.set("state_dir", config_.state_dir);
         JsonValue urls = JsonValue::array();
@@ -1268,7 +1270,8 @@ int main(int argc, char** argv) {
     // Where it runs and how to reach it, for whoever started it.
     {
         std::string host = net::host_name();
-        log_line("running on " + platform::os_description() + (host.empty() ? "" : ", computer \"" + host + "\""));
+        log_line("running on " + platform::os_description() + (host.empty() ? "" : ", computer \"" + host + "\"") +
+                 "; CPU instructions: " + alembic::crypto::accelerations());
         log_line("open the page: " + engine.local_url());
         for (const std::string& u : engine.network_urls()) log_line("  from other devices: " + u);
         std::string shared;

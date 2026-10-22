@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "alembic/crypto.hpp"
 #include "alembic/sha256.hpp"
 #include "test.hpp"
+
+#include <algorithm>
+#include <cstdio>
+#include <vector>
 
 #include <cstring>
 
@@ -29,4 +34,28 @@ TEST_CASE(sha256_vectors) {
         left -= n;
     }
     CHECK(Sha256::hex(h.finish()) == "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");
+}
+
+// The CPU's SHA-256 instructions (when there) against the portable code, for
+// every length around the block size and a larger message in odd pieces.
+TEST_CASE(sha256_fast_path_matches_portable) {
+#if defined(__aarch64__) && defined(__ARM_FEATURE_SHA2)
+    CHECK(Sha256::hardware()); // the self-test passed, so the comparisons below cover the instructions
+#endif
+    std::fprintf(stderr, "  (CPU instructions in use: %s)\n", crypto::accelerations().c_str());
+    std::vector<std::uint8_t> data(1 << 20);
+    std::uint32_t x = 99;
+    for (auto& b : data) b = static_cast<std::uint8_t>((x = x * 1103515245u + 12345u) >> 16);
+    for (std::size_t n = 0; n <= 200; ++n) {
+        Sha256 h;
+        h.update(Bytes(data.data(), n));
+        CHECK(h.finish() == Sha256::portable(Bytes(data.data(), n)));
+    }
+    Sha256 pieces;
+    for (std::size_t at = 0; at < data.size();) {
+        std::size_t n = std::min<std::size_t>(data.size() - at, 1 + (at * 7919) % 100003);
+        pieces.update(Bytes(data.data() + at, n));
+        at += n;
+    }
+    CHECK(pieces.finish() == Sha256::portable(data));
 }

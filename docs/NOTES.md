@@ -88,9 +88,9 @@ tools/lz4-oracle/compare.sh         # LZ4 packs vs ampr_pack.py (needs .refs/ven
   inode and fragmented PFS images are refused.
 - FPKG: retail and patch (LIH) packages are not opened; NAPS "shuffle"
   layouts (current LibProsperoPKG output) are refused.
-- SHA-256 is single-threaded with no CPU-instruction path (verify is bound
-  by it); inflate and Kraken decode read ahead on worker threads, AES and
-  CRC32C use the CPU's instructions.
+- SHA-256 is single-threaded (with SHA-NI / ARMv8 SHA2 where the CPU has
+  them); inflate and Kraken decode read ahead on worker threads; AES and
+  CRC32C use the CPU's instructions on x86-64 and ARMv8.
 - FTP outputs cannot take FFPFSC or PKG (they seek back), and uploads do
   not resume.
 
@@ -1583,6 +1583,27 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
 - **Known gap:** the page itself still has no password; pairing protects
   engine-to-engine requests only.
 
+### 2026-10-22: CPU instructions on every x86-64 PC, SHA-256 in hardware
+
+- **Why:** the PC is to do the heavy package work, but PC builds target plain
+  x86-64, so AES-NI and CRC32 were compiled only for the PS5 (whose target
+  enables them) and Windows/Linux PCs ran the table code.
+- **x86-64 now:** the AES, CRC32C and SHA-256 paths are compiled with
+  `__attribute__((target(...)))` in every x86-64 build and used when CPUID
+  says the CPU has them (`src/core/cpu_features.hpp`, `__get_cpuid`, no
+  runtime library), then only after the existing self-tests pass. Builds
+  that target them (the PS5) skip the CPUID check.
+- **SHA-256:** SHA-NI (x86-64) and the ARMv8 SHA-256 instructions (Apple
+  silicon), four rounds a step; self-tested against the portable code on
+  five blocks before first use; a unit test compares every length to 200
+  bytes and 1 MiB in odd pieces. `Sha256::portable()` is the reference.
+- **Mac:** `ffpfsc-verify` of the 13 GB FFPFSC 71 s -> 13.4 s.
+- **Shown:** `crypto::accelerations()` ("AES, CRC32C, SHA-256" or "none") in
+  the engine's start-up log, `/api/info` (`cpu_instructions`) and Settings >
+  Engine; the unit tests print it (CI shows each runner's).
+- **Not yet run:** the x86 paths on a real x86-64 machine other than the CI
+  runners (the Mac has no Rosetta); the self-tests guard them.
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and
@@ -1668,13 +1689,13 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
 
 **Open:**
 1. Owner's console test: install an Alembic-made FPKG.
-2. ✓ zlib read-ahead for FFPFSC inputs (2026-10-22). Left: hardware
-   SHA-256 (SHA-NI on the PS5, ARMv8 SHA2 on the Mac) for verify.
+2. ✓ zlib read-ahead for FFPFSC inputs, hardware SHA-256, CPU instructions
+   on every x86-64 PC (2026-10-22).
 3. ✓ Windows build (2026-10-22). Owner: try the .exe files on a PC.
 4. **Working across engines** (owner): source, converting engine and target
    each any engine on the network. Steps 1 and 2, discovery and pairing, done
    (2026-10-22); next: peer files as inputs and outputs, then queuing jobs on
-   another engine. Before step 3: AES with CPU instructions on x86-64 PCs.
+   another engine.
 5. Smaller: retail/patch packages, NAPS shuffle layouts, Kraken-compressed
    FPKG output, less pass-1 memory for LZ4.
 
