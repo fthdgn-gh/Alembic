@@ -2066,19 +2066,23 @@ function localView(j) {
   const id = j.engine.id, sp = Object.assign({}, j.spec), r = j.result ? Object.assign({}, j.result) : j.result;
   for (const k of ["input", "output", "output_dir"]) sp[k] = fromEngine(id, sp[k]);
   if (r) for (const k of ["output", "source_hidden", "smp_source"]) if (r[k]) r[k] = fromEngine(id, r[k]);
-  return Object.assign({}, j, { spec: sp, result: r });
+  return Object.assign({}, j, { spec: sp, result: r, __raw: j.__raw || j });
 }
-let lastFinished = null, remoteJobs = [], remoteAt = 0;
+let lastFinished = null, remoteJobs = [], remoteAt = 0, remoteBusy = false;
 async function refreshJobs(remoteNow) {
   let jobs;
   // Only a failed request means the engine is gone; a page error is logged as one.
   try { jobs = await api("GET", "/api/jobs"); }
   catch (e) { $("#status-text").textContent = t("Engine not reachable"); $("#status").className = "status off"; return; }
-  // Other engines' every two seconds, while any engine is paired.
+  // Other engines' jobs: every second while one of them works or waits, or
+  // the queue is open; else every five seconds. One request at a time.
   const anyPaired = state.peers && state.peers.engines.some((e) => e.paired);
-  if (anyPaired && (remoteNow || Date.now() - remoteAt > 2000)) {
+  const busy = state.tab === "queue" || remoteJobs.some((j) => isActive(j));
+  if (anyPaired && !remoteBusy && (remoteNow || Date.now() - remoteAt > (busy ? 900 : 5000))) {
     remoteAt = Date.now();
-    remoteJobs = (await api("GET", "/api/peers/jobs").catch(() => remoteJobs)).map(localView);
+    remoteBusy = true;
+    try { remoteJobs = (await api("GET", "/api/peers/jobs").catch(() => null) || remoteJobs.map((j) => j.__raw)).map(localView); }
+    finally { remoteBusy = false; }
   } else if (!anyPaired) remoteJobs = [];
   jobs = jobs.concat(remoteJobs);
   {

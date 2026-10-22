@@ -682,21 +682,41 @@ private:
         // Jobs this engine sent to others, for the queue.
         if (r.path == "/api/peers/jobs" && r.method == "GET") {
             JsonValue all = JsonValue::array();
+            const std::int64_t now = unix_now();
             for (const pairing::Paired& p : pairing_->list()) {
                 auto peer = discovery_->find(p.id);
                 if (!peer) continue;
+                {
+                    // One that did not answer is left alone for a while, so a
+                    // page asking every second does not wait on it each time.
+                    std::lock_guard<std::mutex> lock(peer_jobs_mutex_);
+                    if (auto it = peer_jobs_quiet_until_.find(p.id); it != peer_jobs_quiet_until_.end() && now < it->second) {
+                        for (const JsonValue& j : peer_jobs_last_[p.id].items()) all.push(j);
+                        continue;
+                    }
+                }
                 auto text = peer_fs::request(*discovery_, *pairing_, p.id, "GET", "/api/peer/jobs", {}, "", 2500, 4u << 20);
-                if (!text.ok()) continue;
+                if (!text.ok()) {
+                    std::lock_guard<std::mutex> lock(peer_jobs_mutex_);
+                    peer_jobs_quiet_until_[p.id] = now + 10;
+                    for (const JsonValue& j : peer_jobs_last_[p.id].items()) all.push(j);
+                    continue;
+                }
                 auto list = parse_json(*text);
                 if (!list.ok()) continue;
+                JsonValue mine = JsonValue::array();
                 for (const JsonValue& j : list->items()) {
                     JsonValue v = j;
                     JsonValue engine = JsonValue::object();
                     engine.set("id", p.id);
                     engine.set("name", peer->who.name);
                     v.set("engine", std::move(engine));
+                    mine.push(v);
                     all.push(std::move(v));
                 }
+                std::lock_guard<std::mutex> lock(peer_jobs_mutex_);
+                peer_jobs_last_[p.id] = std::move(mine); // shown again while it does not answer
+                peer_jobs_quiet_until_.erase(p.id);
             }
             return json(200, all);
         }
@@ -1806,6 +1826,9 @@ private:
     Places places_{config_.state_dir};
     std::mutex tasks_mutex_;
     std::map<std::string, std::shared_ptr<Task>> tasks_;
+    std::mutex peer_jobs_mutex_;
+    std::map<std::string, std::int64_t> peer_jobs_quiet_until_;
+    std::map<std::string, JsonValue> peer_jobs_last_;
     std::mutex peer_drives_mutex_;
     std::pair<std::vector<PeerDrive>, std::vector<PeerPlace>> peer_drives_;
     std::int64_t peer_drives_at_ = 0;
