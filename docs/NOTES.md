@@ -1690,6 +1690,15 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   engines with "delete the source": B's game to an FFPFSC on A, A's game to
   an exFAT on B, both checked by digests, sources then deleted.
 
+### 2026-10-23: jobs show on the engines whose files they use
+
+- Owner: a job started on the PC's page, converting on the PC, writing to
+  the PS5, did not show on the PS5. Engines saw only the jobs they sent.
+  Now `/api/peer/jobs` (and its actions) cover every job an engine has a
+  part in: it sent it, or its input, output or output folder is under
+  `/peer/<that engine>/`. So the source's and the target's queues show it
+  ("on <engine>") and can pause, resume or cancel it there.
+
 ### 2026-10-22: Places of your own, shared with paired engines
 
 - Owner: add any folder to Places, and paired engines share their Places so

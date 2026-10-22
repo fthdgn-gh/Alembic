@@ -1556,14 +1556,24 @@ private:
     }
 
     // Validates a job; queues it when `queue`.
-    // The queue as the page sees it; `origin` keeps only the jobs that engine sent.
+    // Whether engine `id` has a part in `j`: it sent it, or the job reads or
+    // writes its files (/peer/<id>/...), so its page shows the job too.
+    static bool involves(const Job& j, const std::string& id) {
+        if (j.spec.origin == id) return true;
+        const std::string mine = std::string(peer_fs::kPrefix) + id;
+        for (const std::string* p : {&j.spec.input, &j.spec.output, &j.spec.output_dir})
+            if (!p->empty() && is_within(strip_slashes(*p), mine)) return true;
+        return is_within(strip_slashes(j.result["output"].str()), mine);
+    }
+
+    // The queue as the page sees it; `origin` keeps only the jobs that engine has a part in.
     JsonValue jobs_json(const std::string* origin) {
         // Times come from the console's clock; "elapsed" saves the page
         // from comparing them with its own.
         std::int64_t now = unix_now();
         JsonValue list = JsonValue::array();
         for (const Job& j : queue_.list()) {
-            if (origin && j.spec.origin != *origin) continue;
+            if (origin && !involves(j, *origin)) continue;
             JsonValue v = j.to_json();
             if (std::int64_t e = j.elapsed(now); e >= 0) v.set("elapsed", e);
             if (j.spec.kind == "convert") v.set("keeps_progress", keeps_progress(j.spec));
@@ -1582,7 +1592,7 @@ private:
     }
 
     // Jobs another engine sends (signed): queue one, list and change the
-    // ones it sent. Its paths are as this engine sees them (its own files
+    // ones it has a part in (sent, or reading or writing its files). Its paths are as this engine sees them (its own files
     // under /peer/<its id>/).
     HttpResponse peer_jobs_action(const HttpRequest& r) {
         if (!pairing_) return error(503, "starting");
@@ -1605,7 +1615,7 @@ private:
         std::string rest = r.path.substr(std::string("/api/peer/jobs/").size());
         std::uint64_t id = std::strtoull(rest.c_str(), nullptr, 10);
         auto job = queue_.get(id);
-        if (!job || job->spec.origin != *who) return error(404, "no such job");
+        if (!job || !involves(*job, *who)) return error(404, "no such job");
         local.path = "/api/jobs/" + rest;
         return job_action(local);
     }
