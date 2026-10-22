@@ -764,6 +764,11 @@ private:
         auto who = pairing_->verify(r);
         if (!who.ok()) return error(401, who.error().message);
         const std::string op = r.path.substr(std::string("/api/peer/fs/").size());
+        // Tests only: a slow network (ALEMBIC_TEST_PEER_DELAY_MS before each read and write).
+        if (op == "read" || op == "write") {
+            static const int delay = std::atoi(alembic::environment("ALEMBIC_TEST_PEER_DELAY_MS").c_str());
+            if (delay > 0) std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+        }
         auto q = [&](const char* k) { auto it = r.query.find(k); return it == r.query.end() ? std::string() : it->second; };
         auto number = [&](const char* k) { return static_cast<std::uint64_t>(std::strtoull(q(k).c_str(), nullptr, 10)); };
         const std::vector<std::string> roots = config_.available_roots();

@@ -7,7 +7,9 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <deque>
 #include <mutex>
+#include <thread>
 
 namespace alembic::engine::peer_fs {
 
@@ -97,33 +99,64 @@ namespace {
 
 class PeerFs;
 
-// A file on another engine: reads through a 4 MiB window that moves on with
-// the reader; writes collected while they follow each other.
+// A file on another engine. Reads come through a 4 MiB window, with the next
+// two windows already on their way while the reader works on this one; writes
+// that follow each other are collected into 4 MiB requests and sent in the
+// background, two at a time, so the network and the conversion overlap.
+// Any read, size, truncate, sync or close waits for the writes in flight.
 class PeerFile final : public FileHandle {
 public:
     PeerFile(PeerFs& fs, Target t, std::uint64_t size) : fs_(fs), t_(std::move(t)), size_(size) {}
-    ~PeerFile() override { (void)flush(); }
+    ~PeerFile() override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        (void)settle_locked();
+        drop_ahead_locked();
+    }
     Result<std::uint64_t> size() const override {
         std::lock_guard<std::mutex> lock(mutex_);
-        return std::max(size_, pending_offset_ + pending_.size());
+        ALEMBIC_TRY(settle_locked());
+        return size_;
     }
     Status read_at(std::uint64_t offset, MutableBytes out) const override;
     Status write_at(std::uint64_t offset, Bytes data) override;
     Status truncate(std::uint64_t length) override;
     Status sync() override;
-    Status close() override { return flush(); }
+    Status close() override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return settle_locked();
+    }
 
 private:
-    Status flush() const;          // the pending writes
-    Status flush_locked() const;
+    static constexpr std::size_t kAhead = 2;   // windows fetched ahead
+    static constexpr std::size_t kInFlight = 2; // writes sent at once
+    struct Fetch {
+        std::uint64_t offset = 0;
+        std::uint64_t length = 0;
+        std::thread thread;
+        std::optional<Result<std::string>> result;
+    };
+    struct Send {
+        std::uint64_t offset = 0;
+        std::uint64_t length = 0;
+        std::thread thread;
+        Status result;
+    };
+    void start_fetch_locked(std::uint64_t offset) const;
+    void drop_ahead_locked() const;            // stops using what was fetched ahead
+    Status send_pending_locked() const;        // the collected writes, in the background
+    Status wait_send_locked(std::size_t keep) const; // until at most `keep` are in flight
+    Status settle_locked() const;              // pending and in-flight writes all done
     PeerFs& fs_;
     Target t_;
     mutable std::mutex mutex_;
     mutable std::uint64_t size_;
-    mutable std::string window_;           // read cache
+    mutable std::string window_;
     mutable std::uint64_t window_offset_ = 0;
-    mutable std::string pending_;          // writes not sent yet
+    mutable std::deque<std::unique_ptr<Fetch>> ahead_;
+    mutable std::string pending_;
     mutable std::uint64_t pending_offset_ = 0;
+    mutable std::deque<std::unique_ptr<Send>> sends_;
+    mutable Status write_error_; // the first failed background write
 };
 
 class PeerFs final : public FileSystem {
@@ -224,19 +257,59 @@ private:
     pairing::Pairing& pairing_;
 };
 
+void PeerFile::start_fetch_locked(std::uint64_t offset) const {
+    auto f = std::make_unique<Fetch>();
+    f->offset = offset;
+    f->length = std::min<std::uint64_t>(kChunk, size_ - offset);
+    Fetch* raw = f.get();
+    PeerFs* fs = &fs_;
+    Target t = t_;
+    raw->thread = std::thread([raw, fs, t] {
+        raw->result = fs->call(t, "GET", "read", {{"offset", std::to_string(raw->offset)}, {"length", std::to_string(raw->length)}});
+    });
+    ahead_.push_back(std::move(f));
+}
+
+void PeerFile::drop_ahead_locked() const {
+    for (auto& f : ahead_)
+        if (f->thread.joinable()) f->thread.join();
+    ahead_.clear();
+}
+
 Status PeerFile::read_at(std::uint64_t offset, MutableBytes out) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    ALEMBIC_TRY(flush_locked()); // read what was written
+    ALEMBIC_TRY(settle_locked()); // read what was written
     std::size_t done = 0;
     while (done < out.size()) {
         std::uint64_t at = offset + done;
         if (at < window_offset_ || at >= window_offset_ + window_.size()) {
             if (at >= size_) return make_error(Errc::invalid_data, "unexpected end of file in '" + t_.path + "'");
-            std::uint64_t want = std::min<std::uint64_t>(std::max<std::size_t>(kChunk, out.size() - done), size_ - at);
-            want = std::min<std::uint64_t>(want, kChunk);
-            ALEMBIC_ASSIGN(window_, fs_.call(t_, "GET", "read", {{"offset", std::to_string(at)}, {"length", std::to_string(want)}}));
-            window_offset_ = at;
-            if (window_.empty()) return make_error(Errc::invalid_data, "unexpected end of file in '" + t_.path + "'");
+            // The window fetched ahead for this spot, else a jump: fetch it now.
+            while (!ahead_.empty() && ahead_.front()->offset + ahead_.front()->length <= at) {
+                if (ahead_.front()->thread.joinable()) ahead_.front()->thread.join();
+                ahead_.pop_front();
+            }
+            if (!ahead_.empty() && ahead_.front()->offset <= at) {
+                auto f = std::move(ahead_.front());
+                ahead_.pop_front();
+                f->thread.join();
+                if (!f->result->ok()) return f->result->error();
+                window_ = std::move(**f->result);
+                window_offset_ = f->offset;
+            } else {
+                drop_ahead_locked();
+                std::uint64_t want = std::min<std::uint64_t>(kChunk, size_ - at);
+                ALEMBIC_ASSIGN(window_, fs_.call(t_, "GET", "read", {{"offset", std::to_string(at)}, {"length", std::to_string(want)}}));
+                window_offset_ = at;
+            }
+            if (window_.empty() || at >= window_offset_ + window_.size())
+                return make_error(Errc::invalid_data, "unexpected end of file in '" + t_.path + "'");
+            // Keep the next windows coming.
+            std::uint64_t next = ahead_.empty() ? window_offset_ + window_.size() : ahead_.back()->offset + ahead_.back()->length;
+            while (ahead_.size() < kAhead && next < size_) {
+                start_fetch_locked(next);
+                next = ahead_.back()->offset + ahead_.back()->length;
+            }
         }
         std::size_t from = static_cast<std::size_t>(at - window_offset_);
         std::size_t n = std::min(out.size() - done, window_.size() - from);
@@ -248,38 +321,69 @@ Status PeerFile::read_at(std::uint64_t offset, MutableBytes out) const {
 
 Status PeerFile::write_at(std::uint64_t offset, Bytes data) {
     std::lock_guard<std::mutex> lock(mutex_);
-    // A write inside the read window makes it stale.
+    if (!write_error_.ok()) return write_error_;
+    // What was read or fetched around here is stale now.
     if (offset < window_offset_ + window_.size() && offset + data.size() > window_offset_) window_.clear();
+    if (!ahead_.empty()) drop_ahead_locked();
     while (!data.empty()) {
         bool follows = !pending_.empty() && offset == pending_offset_ + pending_.size();
         if (!follows || pending_.size() >= kChunk) {
-            ALEMBIC_TRY(flush_locked());
+            ALEMBIC_TRY(send_pending_locked());
             pending_offset_ = offset;
         }
         std::size_t n = std::min(data.size(), kChunk - pending_.size());
         pending_.append(reinterpret_cast<const char*>(data.data()), n);
+        size_ = std::max(size_, offset + n);
         offset += n;
         data = data.subspan(n);
     }
     return {};
 }
 
-Status PeerFile::flush_locked() const {
-    if (pending_.empty()) return {};
-    ALEMBIC_TRY(fs_.call(t_, "POST", "write", {{"offset", std::to_string(pending_offset_)}}, pending_));
-    size_ = std::max(size_, pending_offset_ + pending_.size());
+Status PeerFile::wait_send_locked(std::size_t keep) const {
+    while (sends_.size() > keep) {
+        auto s = std::move(sends_.front());
+        sends_.pop_front();
+        s->thread.join();
+        if (!s->result.ok() && write_error_.ok()) write_error_ = s->result;
+    }
+    return write_error_;
+}
+
+Status PeerFile::send_pending_locked() const {
+    if (pending_.empty()) return write_error_;
+    std::uint64_t offset = pending_offset_, length = pending_.size();
+    // A write over one still on its way waits for it (they would race there).
+    for (const auto& s : sends_)
+        if (offset < s->offset + s->length && s->offset < offset + length) {
+            ALEMBIC_TRY(wait_send_locked(0));
+            break;
+        }
+    ALEMBIC_TRY(wait_send_locked(kInFlight - 1));
+    auto s = std::make_unique<Send>();
+    s->offset = offset;
+    s->length = length;
+    Send* raw = s.get();
+    PeerFs* fs = &fs_;
+    Target t = t_;
+    raw->thread = std::thread([raw, fs, t, body = std::move(pending_)] {
+        auto r = fs->call(t, "POST", "write", {{"offset", std::to_string(raw->offset)}}, body);
+        if (!r.ok()) raw->result = r.error();
+    });
     pending_.clear();
+    sends_.push_back(std::move(s));
     return {};
 }
 
-Status PeerFile::flush() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return flush_locked();
+Status PeerFile::settle_locked() const {
+    ALEMBIC_TRY(send_pending_locked());
+    return wait_send_locked(0);
 }
 
 Status PeerFile::truncate(std::uint64_t length) {
     std::lock_guard<std::mutex> lock(mutex_);
-    ALEMBIC_TRY(flush_locked());
+    ALEMBIC_TRY(settle_locked());
+    drop_ahead_locked();
     ALEMBIC_TRY(fs_.call(t_, "POST", "truncate", {{"length", std::to_string(length)}}));
     size_ = length;
     window_.clear();
@@ -288,7 +392,7 @@ Status PeerFile::truncate(std::uint64_t length) {
 
 Status PeerFile::sync() {
     std::lock_guard<std::mutex> lock(mutex_);
-    ALEMBIC_TRY(flush_locked());
+    ALEMBIC_TRY(settle_locked());
     ALEMBIC_TRY(fs_.call(t_, "POST", "sync", {}));
     return {};
 }
