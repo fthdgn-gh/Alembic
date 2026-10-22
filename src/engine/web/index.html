@@ -233,6 +233,8 @@ a.btn { text-decoration: none; }
 .chips { margin-bottom: .6rem; }
 .chip { display: inline-block; font-size: .85rem; padding: .3rem .8rem; border-radius: 99px; border: 1px solid var(--line2); background: #121825; margin: 0 .35rem .4rem 0; }
 .chip.on { border-color: var(--accent); color: var(--accent); }
+.chipgroup { display: block; margin-bottom: .15rem; }
+.chipgroup > .who { display: inline-block; font-size: .78rem; color: var(--muted); font-weight: 600; margin-right: .5rem; min-width: 5rem; }
 .picker { border: 1px solid var(--line); border-radius: .8rem; max-height: 18rem; padding: .3rem; }
 .picker .row { grid-template-columns: 2.4rem minmax(0, 1fr); padding: .4rem .6rem; }
 .picker .ico { width: 2.4rem; height: 2.4rem; }
@@ -1366,7 +1368,18 @@ function openDest(entry, kind, start) {
     try { data = await api("GET", "/api/browse?path=" + encodeURIComponent(path || "/")); } catch (e) { msg.textContent = tMsg(e.message); msg.className = "msg err"; return; }
     cur = data.path; msg.textContent = "";
     chips.textContent = "";
-    for (const l of state.locations.filter((x) => x.exists)) chips.append(h("button", { class: "chip" + (cur === l.path ? " on" : ""), text: placeLabel(l.label), title: l.path, onclick: () => load(l.path) }));
+    // Places by engine: this one's, then each paired engine's under its name.
+    const here = state.info && state.info.platform === "ps5" ? "PS5" : (state.info && state.info.host_name) || t("This engine");
+    const groups = [];
+    for (const l of state.locations.filter((x) => x.exists)) {
+      const who = l.peer ? l.engine : here;
+      let g = groups.find((x) => x.who === who);
+      if (!g) groups.push(g = { who, list: [] });
+      g.list.push(l);
+    }
+    for (const g of groups)
+      chips.append(h("div", { class: "chipgroup" }, groups.length > 1 ? h("span", { class: "who", text: g.who }) : null,
+        ...g.list.map((l) => h("button", { class: "chip" + (cur === l.path ? " on" : ""), text: placeLabel((l.peer ? l.place : l.label).replace(/ · homebrew.*$/, " · homebrew")), title: shownPath(l.path), onclick: () => load(l.path) }))));
     crumbs(cr, cur, load);
     list.textContent = "";
     const folders = data.entries.filter((x) => x.kind === "folder");
