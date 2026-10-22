@@ -1505,6 +1505,9 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   use) waits for Enter before its window closes.
 - The PS5 reports "PS5"; its addresses come from getifaddrs too, untried
   there (the page shows "–" if it finds none).
+- Owner: a PC browser still showed "L2 R2 Leave". Leaving is for the
+  console's browser, so the hint and the chord are PS5-only now; on a PC
+  L2/R2 page at once (no wait for the other trigger).
 
 ### 2026-10-19: open items from that day (all solved)
 

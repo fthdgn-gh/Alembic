@@ -541,7 +541,8 @@ function renderHints() {
     if (e && state.cwd !== "/") list.push(["s", t("Options"), () => openActions(e)]);
     list.push(["lr", t("Sections"), () => cycleTab(1)]);
   } else list = [["x", t("Choose")], ["o", t("Back"), goBack], ["lr", t("Sections"), () => cycleTab(1)]];
-  if (!top) list.push(["l2r2", t("Leave"), leaveAll]);
+  // Leaving is for the console's own browser (one more ○ then closes it).
+  if (!top && IS_PS5) list.push(["l2r2", t("Leave"), leaveAll]);
   for (const item of list) {
     const fn = item[2];
     box.append(h("button", { class: "hint", tabindex: "-1", "data-nonav": true, onmousedown: (ev) => ev.preventDefault(), onclick: fn || (() => press("ok")) },
@@ -632,12 +633,13 @@ function move(dir) {
   if (z && z !== zoneOf(cur) && zoneLast[z] && zoneLast[z].isConnected && visible(zoneLast[z]) && (z === "list" || z === "rail")) best = zoneLast[z];
   focusEl(best);
 }
-// L2 or R2 alone pages up or down; both together leave (leaveAll). A press
+// L2 or R2 alone pages up or down; on the PS5 both together leave (leaveAll). A press
 // waits a moment for the other trigger, so a chord never pages first. Held
 // triggers arrive as streams of presses: the chord stays on while either
 // keeps coming, and a held single trigger pages about every 120 ms.
 const chord = { l2: 0, r2: 0, pending: { l2: 0, r2: 0 }, until: 0 };
 function trigger(side) {
+  if (!IS_PS5) return press(side === "l2" ? "page-up" : "page-down"); // a PC: no chord, no wait
   const now = Date.now(), other = side === "l2" ? "r2" : "l2";
   chord[side] = now;
   if (now < chord.until) { chord.until = now + 400; return; }
