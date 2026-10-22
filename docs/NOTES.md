@@ -2,44 +2,47 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (session 2, 2026-10-18)
+## Where we are (2026-10-22, release 0.1.1)
 
-### What works (CLI: `build/alembic`)
+### What works
 
-| From \ To | folder | exFAT | FFPFSC | FFPKG (UFS2) | FPKG |
-|---|---|---|---|---|---|
-| folder | – | ✓ | ✓ | ✓ | – |
-| exFAT | ✓ | `--rebuild` | ✓ (wrap) | ✓ | – |
-| FFPFSC (exFAT, UFS2 or PFS payload) | ✓ | ✓ | ✓ | ✓ (unwrap UFS2) | – |
-| FFPKG (UFS2) | ✓ | ✓ | ✓ (wrap) | `--rebuild` | – |
-| FFPFS (PFS) | ✓ | ✓ | ✓ (wrap) | ✓ | – |
-| FPKG (debug) | ✓ | ✓ | ✓ | ✓ | – |
+| From \ To | folder | exFAT | FFPFSC | FFPKG (UFS2) | FFPFS (PFS) | FPKG |
+|---|---|---|---|---|---|---|
+| folder | – | ✓ | ✓ | ✓ | ✓ | ✓ |
+| exFAT | ✓ | `--rebuild` | ✓ (wrap) | ✓ | ✓ | ✓ |
+| FFPFSC (exFAT, UFS2 or PFS payload) | ✓ | ✓ | ✓ | ✓ (unwrap UFS2) | ✓ | ✓ |
+| FFPKG (UFS2) | ✓ | ✓ | ✓ (wrap) | `--rebuild` | ✓ | ✓ |
+| FFPFS (PFS) | ✓ | ✓ | ✓ (wrap) | ✓ | – | ✓ |
+| FPKG (debug) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
-Every row can also be written as FFPFS (`.ffpfs`, uncompressed PFS),
-byte-identical to MkPFS (see the 2026-10-18 FFPFS entry).
-
-- `alembic convert <in> <out>` (format from content / extension / `--to`),
-  `alembic ls <in>`, plus `exfat`, `ffpfsc`, `ffpfsc-info|extract|verify`,
-  `fpkg-info`, `fpkg-dump`, `ampr-index`, `pfsc-encode|decode|info`.
-- **Hardware-tested:** an FFPFSC made by `alembic convert pkg out.ffpfsc` from
-  sample package B mounted and ran on a PS5 with ShadowMountPlus.
-- Output written by Alembic (exFAT, FFPFSC, AMPR index with
-  `--ampr-scheme ps5pkgtool`, PFSC at `--level 9`) is **byte-identical to
-  PS5PKGTool**; the default AMPR scheme matches drakmor's ampr_emu builder.
-- **LZ4 asset packs:** `convert --lz4` (to folder, exFAT or FFPFSC) packs
-  game files for ampr_emu's PackedStdio runtime, byte-identical to
-  `ampr_pack.py`; `--lz4-unpack`, `lz4-info`, `lz4-verify`, `same`. A 149 GiB
-  game became a 114.7 GiB exFAT in 9.6 min (see the 2026-10-18 entry).
-- Performance (14-core M-series): FPKG → FFPFSC 12.4 s for a 2.7 GB image
-  (compression on all cores, default zlib level 6), FPKG → exFAT 5 s,
-  FFPFSC → exFAT 3 s, memory ~40 MB.
+- **Byte-identical to the references:** exFAT, FFPFSC and FFPKG to
+  PS5PKGTool (AMPR index with `--ampr-scheme ps5pkgtool`, PFSC at
+  `--level 9`); FFPFS to MkPFS; FPKG (stored) to ProsperoPkgTool
+  `img_create --seed S --no_right_sprx`; LZ4 packs to `ampr_pack.py`.
+- **CLI** (`build/alembic`, run with no arguments for the list): `convert`
+  (any row to any column, `--lz4`, `--ampr-emu`), `ampr-emu`, `fpkg-build`,
+  `ls`, `cat`, `same`, `lz4-info|verify`, `ffpfsc-info|extract|verify`,
+  `fpkg-info|dump`, `exfat`, `ampr-index`, `pfsc-encode|decode|info`.
+- **PS5 engine** (`alembic.elf`, built by `tools/ps5/build.sh` and in CI):
+  a queue of conversions, copies, moves and installs with checkpoints
+  (pause, resume, survives a restart); a web page on port 5940 made for
+  the controller, opened from a Media-tab shortcut; a Components page that
+  downloads third-party files pinned by SHA-256. Inputs can be files shared
+  from a PC browser tab or FTP servers; outputs can go to FTP (formats
+  written front to back only).
+- **Console-tested (owner):** FFPFSC images from dumps and packages run via
+  ShadowMount+; games that use APR start once the AMPR emulator is added;
+  some LZ4 packs run (Unity with `unity.toml`). FPKG → uncompressed exFAT
+  of a ~90 GB package: about 30 min on the console.
+- Mac speeds (14-core M-series): package B (2.8 GB) → exFAT 1.7 s, →
+  FFPFSC 5.5 s, → FPKG 9.5 s.
 
 ### How it is checked
 
 ```sh
-cmake -S . -B build && cmake --build build && ./build/alembic_tests   # 51 unit tests
-tools/oracle/compare.sh             # 69 byte-for-byte checks vs PS5PKGTool, MkPFS (.ffpfs) + ampr_emu builder
-tools/pkg-oracle/compare.sh         # FPKG reading vs packages built by ProsperoPkgTool/LibProsperoPKG
+cmake -S . -B build && cmake --build build && ./build/alembic_tests   # 72 unit tests
+tools/oracle/compare.sh             # byte-for-byte checks vs PS5PKGTool, MkPFS (.ffpfs) + ampr_emu builder
+tools/pkg-oracle/compare.sh         # FPKG reading/writing vs ProsperoPkgTool/LibProsperoPKG
 tools/pkg-oracle/check_samples.sh   # owner's real files in .refs/samples/ (~4 min; skips files over
                                     # ALEMBIC_SAMPLES_MAX_GB GiB, default 20; cleans up after each step)
 tools/lz4-oracle/compare.sh         # LZ4 packs vs ampr_pack.py (needs .refs/venv, Homebrew lz4)
@@ -74,18 +77,22 @@ tools/lz4-oracle/compare.sh         # LZ4 packs vs ampr_pack.py (needs .refs/ven
 
 ### Known limitations
 
-- Writing FPKG: stored packages only (`convert --to fpkg`, `fpkg-build`, the engine); no Kraken, fake-signing, DDS generation or keystone generation. Not yet installed on a console.
-- LZ4 packs: no TOML profile input yet (only the automatic profile); pass 1
-  keeps ~200 bytes per chunk in RAM (456 MB for 2.2M chunks), which may need
-  trimming for the PS5 payload; never tested on a console.
+- Writing FPKG: stored packages only (`convert --to fpkg`, `fpkg-build`, the
+  engine); no Kraken, fake-signing, DDS generation or keystone generation.
+  Not yet installed on a console.
+- LZ4 packs: hit and miss on the console (owner, 2026-10-22: "works when it
+  works", left as it is). Pass 1 keeps ~200 bytes per chunk in RAM (456 MB
+  for 2.2M chunks).
 - PFS reading covers unsigned, unencrypted images with 32-bit inodes and
   contiguous files (what MkPFS and Alembic write); signed, encrypted, 64-bit
   inode and fragmented PFS images are refused.
 - FPKG: retail and patch (LIH) packages are not opened; NAPS "shuffle"
   layouts (current LibProsperoPKG output) are refused.
-- Reading (inflate, Kraken, SHA-256) is single-threaded; AES and CRC32C use
-  the CPU's instructions (2026-10-19), SHA-256 does not yet.
-- No PS5 build yet; the core uses only POSIX + std::thread, no exceptions/RTTI.
+- Inflate (FFPFSC inputs) and SHA-256 are single-threaded and SHA-256 has
+  no CPU-instruction path; Kraken decode reads ahead on worker threads, AES
+  and CRC32C use the CPU's instructions.
+- FTP outputs cannot take FFPFSC or PKG (they seek back), and uploads do
+  not resume.
 
 ## Reference repositories
 
@@ -1409,9 +1416,8 @@ removes param.json so the next start tries again. Not yet confirmed on the
 console; the owner's test is the same session again (payload, then a game).
 Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
 
-## Next session
+### 2026-10-19: open items from that day (all solved)
 
-**Open (owner, 2026-10-19), in this order:**
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and
    ShadowMount+ finds and installs the image, but launching it errors out
    (a small package and the ~90 GB one; CE-108264-1 for one, CE-108255-1
@@ -1484,32 +1490,24 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
    for FFPFSC inputs, SHA-NI/ARM SHA-256. Owner: the ~90 GB package took
    1.5 h to become an image on the console before this; time it again.
 
-**First (owner, 2026-10-18): the web page on the console.** Load the
-payload, check the Media tab shows "Alembic" and opens the page, then try the
-controller: D-pad focus, ✕, ○ closing dialogs and going up folders, △, L1/R1.
-Fix what the real browser does differently, then continue below.
+## Next session
 
-Agreed order (owner, end of session 1). Each item: port, test against the
-references and the samples, commit.
+**Settled (owner, 2026-10-22):**
+- Games crashing with the engine idle: not only caused by the payload;
+  closed.
+- The 1.5 h for the ~90 GB package is not worth chasing: FPKG → exFAT
+  without compression takes about 30 min on the console, fine for now.
+- LZ4 packs stay as they are.
 
-1. **Faster reading** (matters most on the PS5's slower cores):
-   - parallel read-ahead decoding: PFSC blocks in `pfsc::Reader`/`decode`
-     and Kraken blocks in `fpkg::InnerMount` (decode upcoming blocks on worker
-     threads; same ring idea as `pfsc::Encoder`);
-   - hardware SHA-256 (ARMv8 SHA2 / x86 SHA-NI) and AES (ARMv8 AES / AES-NI)
-     with the current code as fallback; verify of a 30 GB FFPFSC took 105 s,
-     mostly SHA-256.
-2. **PS5 cross-build of the core** with ps5-payload-sdk (`prospero.mk`,
-   clang-18); check std::thread, file I/O and zlib there; then a minimal
-   payload that runs a conversion. Ask the owner before running anything on
-   the console.
-3. ✓ **LZ4 asset packs** done (2026-10-18). Left: owner's console test of
-   package D's LZ4 exFAT; TOML profiles (PS5-LZ4-Compression's per-game
-   profiles are GPL); smaller pass-1 memory for the PS5.
-4. **FPKG builder** (dump/image → debug FPKG): Kraken encoder or "stored";
-   ProsperoPkgTool and LibProsperoPKG builders as references; must install on
-   a console (owner tests).
-5. **UFS2 writer** (.ffpkg), then **PFS images** (.ffpfs).
+**Open:**
+1. Owner's console test: install an Alembic-made FPKG.
+2. zlib read-ahead for FFPFSC inputs (decode upcoming PFSC blocks on worker
+   threads, as `fpkg::InnerMount` does for Kraken); hardware SHA-256
+   (SHA-NI on the PS5, ARMv8 SHA2 on the Mac) for verify.
+3. Next big item (owner): a **PC companion app**, so a PC can do the heavy
+   work (and read the PC's disk at full speed) instead of the console.
+4. Smaller: retail/patch packages, NAPS shuffle layouts, Kraken-compressed
+   FPKG output, less pass-1 memory for LZ4.
 
-Smaller ideas noted along the way: an app-side downloader for third-party binaries
-(`libSceAmpr.sprx`) pinned by SHA-256, never bundled.
+Older plan items (faster reading, PS5 build, LZ4 packs, FPKG, UFS2 and PFS
+writers, the downloader for third-party files) are done; see the log above.
