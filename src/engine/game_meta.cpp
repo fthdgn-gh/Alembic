@@ -9,13 +9,9 @@
 #include <condition_variable>
 #include <cstdio>
 #include <ctime>
-#include <dirent.h>
 #include <map>
 #include <memory>
 #include <mutex>
-#include <sys/stat.h>
-#include <sys/time.h>
-#include <unistd.h>
 
 namespace alembic::engine {
 
@@ -140,16 +136,14 @@ GameMeta parse_param(const std::string& text) {
 GameMetaCache::GameMetaCache(std::string state_dir) : dir_(std::move(state_dir) + "/cache/meta") {}
 
 Result<std::string> GameMetaCache::key_for(const std::string& path) const {
-    struct stat st{};
-    if (::stat(path.c_str(), &st) != 0) {
-        // A file a browser shares: its path already names its size and time.
-        if (!convert::is_provided(path)) return make_error(Errc::invalid_argument, "no such file or folder: " + path);
-        st = {};
-    }
+    PathStat st = stat_path(path);
+    // A file a browser shares: its path already names its size and time.
+    if (st.kind == PathKind::missing && !convert::is_provided(path))
+        return make_error(Errc::invalid_argument, "no such file or folder: " + path);
     char buf[32];
     std::snprintf(buf, sizeof buf, "%016llx",
-                  static_cast<unsigned long long>(fnv1a64(path + "|" + std::to_string(st.st_size) + "|" +
-                                                          std::to_string(static_cast<long long>(st.st_mtime)))));
+                  static_cast<unsigned long long>(fnv1a64(path + "|" + std::to_string(st.size) + "|" +
+                                                          std::to_string(static_cast<long long>(st.mtime)))));
     return std::string(buf);
 }
 
@@ -172,7 +166,7 @@ Status GameMetaCache::load(const std::string& path, const std::string& key) {
     if (auto data = read_file(json_path); data.ok()) {
         auto v = parse_json(std::string(data->begin(), data->end()));
         if (v.ok()) {
-            ::utimes(json_path.c_str(), nullptr); // used now (once per run: it stays in memory)
+            (void)touch_file(json_path); // used now (once per run: it stays in memory)
             std::lock_guard<std::mutex> lock(g_memory_mutex);
             g_memory[key] = from_json(*v);
             return {};
@@ -243,29 +237,26 @@ struct Entry {
 
 std::map<std::string, Entry> scan(const std::string& dir, std::uint64_t* other_bytes) {
     std::map<std::string, Entry> out;
-    DIR* d = ::opendir(dir.c_str());
-    if (!d) return out;
-    while (dirent* e = ::readdir(d)) {
-        std::string name = e->d_name;
-        if (name == "." || name == "..") continue;
-        struct stat st{};
-        if (::stat((dir + "/" + name).c_str(), &st) != 0 || !S_ISREG(st.st_mode)) continue;
+    auto names = list_directory(dir);
+    if (!names.ok()) return out;
+    for (const std::string& name : *names) {
+        PathStat st = stat_path(dir + "/" + name);
+        if (!st.is_file()) continue;
         std::size_t dot = name.rfind('.');
         std::string ext = dot == std::string::npos ? "" : name.substr(dot);
         if (ext != ".json" && ext != ".png") {
-            if (other_bytes) *other_bytes += static_cast<std::uint64_t>(st.st_size);
+            if (other_bytes) *other_bytes += st.size;
             continue;
         }
         Entry& entry = out[name.substr(0, dot)];
-        entry.bytes += static_cast<std::uint64_t>(st.st_size);
+        entry.bytes += st.size;
         if (ext == ".json") {
             entry.has_json = true;
-            entry.used = st.st_mtime;
+            entry.used = st.mtime;
         } else if (!entry.has_json) {
-            entry.used = std::max(entry.used, st.st_mtime);
+            entry.used = std::max<std::int64_t>(entry.used, st.mtime);
         }
     }
-    ::closedir(d);
     return out;
 }
 
@@ -291,8 +282,8 @@ std::uint64_t GameMetaCache::prune(std::uint64_t max_age_days, std::uint64_t max
     }
     std::sort(by_use.begin(), by_use.end());
     auto drop = [&](const std::string& key) {
-        ::unlink((dir_ + "/" + key + ".json").c_str());
-        ::unlink((dir_ + "/" + key + ".png").c_str());
+        (void)remove_file((dir_ + "/" + key + ".json"));
+        (void)remove_file((dir_ + "/" + key + ".png"));
         std::lock_guard<std::mutex> lock(g_memory_mutex);
         g_memory.erase(key);
     };
@@ -310,8 +301,8 @@ std::uint64_t GameMetaCache::prune(std::uint64_t max_age_days, std::uint64_t max
 Status GameMetaCache::clear() {
     for (const auto& [key, e] : scan(dir_, nullptr)) {
         (void)e;
-        ::unlink((dir_ + "/" + key + ".json").c_str());
-        ::unlink((dir_ + "/" + key + ".png").c_str());
+        (void)remove_file((dir_ + "/" + key + ".json"));
+        (void)remove_file((dir_ + "/" + key + ".png"));
     }
     std::lock_guard<std::mutex> lock(g_memory_mutex);
     g_memory.clear();

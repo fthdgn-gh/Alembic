@@ -73,7 +73,7 @@ private:
     Result<Reply> reply();
     Result<Reply> command(const std::string& line);
     Status open_data(); // EPSV, else PASV
-    int control_ = -1, data_ = -1;
+    std::intptr_t control_ = -1, data_ = -1; // net::Socket
     std::string peer_; // the server's address, for passive connections
     std::string buffer_;
     bool data_ended_ = false;

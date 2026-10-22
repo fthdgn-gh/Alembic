@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "alembic/resume.hpp"
 
-#include <unistd.h>
 
 #include <algorithm>
 
@@ -49,8 +48,8 @@ Status SkipSink::write(Bytes data) {
 
 void remove_partial(const std::string& partial_path) {
     if (partial_path.empty()) return;
-    ::unlink(partial_path.c_str());
-    for (const char* suffix : kSidecarSuffixes) ::unlink((partial_path + suffix).c_str());
+    (void)remove_file(partial_path);
+    for (const char* suffix : kSidecarSuffixes) (void)remove_file((partial_path + suffix));
 }
 
 } // namespace alembic::resume

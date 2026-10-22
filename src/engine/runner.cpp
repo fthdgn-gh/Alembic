@@ -10,8 +10,6 @@
 #include <cstdio>
 #include <map>
 #include <mutex>
-#include <sys/stat.h>
-#include <unistd.h>
 
 #include "alembic/ampr_emu.hpp"
 #include "alembic/convert.hpp"
@@ -23,10 +21,9 @@ namespace alembic::engine {
 
 namespace {
 
-std::string strip_slashes(std::string p) {
-    while (p.size() > 1 && p.back() == '/') p.pop_back();
-    return p;
-}
+// Paths from the page and the command line: '/' between parts (Windows may
+// send '\\'), no trailing '/' except for "/" and "C:/".
+std::string strip_slashes(std::string p) { return without_trailing_slashes(portable_path(std::move(p))); }
 
 std::string extension_for(convert::Format f) {
     switch (f) {
@@ -162,8 +159,8 @@ std::vector<std::string> EngineConfig::available_roots() const {
 }
 
 bool path_allowed(const std::string& path, const std::vector<std::string>& roots) {
-    if (path.empty() || path[0] != '/') return false;
-    std::size_t start = 1;
+    if (!is_absolute_path(path) || path.find('\\') != std::string::npos) return false;
+    std::size_t start = 0;
     while (start <= path.size()) {
         std::size_t end = path.find('/', start);
         if (end == std::string::npos) end = path.size();
@@ -174,8 +171,7 @@ bool path_allowed(const std::string& path, const std::vector<std::string>& roots
     for (const std::string& r : roots) {
         std::string root = strip_slashes(r);
         if (root == "/") return true;
-        if (path == root || (path.size() > root.size() && path.compare(0, root.size(), root) == 0 && path[root.size()] == '/'))
-            return true;
+        if (is_within(path, root)) return true; // without case on Windows
     }
     return false;
 }
@@ -200,15 +196,15 @@ std::string checkpoint_path(const std::string& output, const EngineConfig& confi
 
 // What must not change between a checkpoint and the run that continues it.
 std::string fingerprint(const JobSpec& spec, const std::string& output, const EngineConfig& config) {
-    struct stat st{};
     std::string input = strip_slashes(spec.input);
+    PathStat st = stat_path(input);
     // A shared file's path names its size and time already.
-    if (::stat(input.c_str(), &st) != 0 && !convert::is_provided(input)) return "";
+    if (st.kind == PathKind::missing && !convert::is_provided(input)) return "";
     JsonValue v = JsonValue::object();
     v.set("layout", static_cast<std::int64_t>(resume::kLayoutVersion));
     v.set("input", input);
-    v.set("input_size", static_cast<std::int64_t>(st.st_size));
-    v.set("input_mtime", static_cast<std::int64_t>(st.st_mtime));
+    v.set("input_size", static_cast<std::int64_t>(st.size));
+    v.set("input_mtime", st.mtime);
     v.set("output", output);
     v.set("to", spec.to);
     v.set("level", spec.level);
@@ -222,11 +218,10 @@ std::string fingerprint(const JobSpec& spec, const std::string& output, const En
         v.set("lz4_profile", spec.lz4_profile);
         v.set("lz4_level", spec.lz4_level);
         std::string runtime = spec.lz4_runtime.empty() ? config.runtime_path : spec.lz4_runtime;
-        struct stat rs{};
         v.set("lz4_runtime", runtime);
-        if (::stat(runtime.c_str(), &rs) == 0) {
-            v.set("lz4_runtime_size", static_cast<std::int64_t>(rs.st_size));
-            v.set("lz4_runtime_mtime", static_cast<std::int64_t>(rs.st_mtime));
+        if (PathStat rs = stat_path(runtime); rs.kind != PathKind::missing) {
+            v.set("lz4_runtime_size", static_cast<std::int64_t>(rs.size));
+            v.set("lz4_runtime_mtime", rs.mtime);
         }
     }
     return v.dump();
@@ -287,11 +282,11 @@ void discard_checkpoint(const JobSpec& spec, const EngineConfig& config) {
     if (!output.ok()) return;
     // A folder keeps what it has; only side files go.
     if (is_folder_output(*output)) {
-        for (const char* suffix : resume::kSidecarSuffixes) ::unlink((partial_name(*output) + suffix).c_str());
+        for (const char* suffix : resume::kSidecarSuffixes) (void)remove_file((partial_name(*output) + suffix));
     } else {
         resume::remove_partial(*output + kPartialSuffix);
     }
-    ::unlink(checkpoint_path(*output, config).c_str());
+    (void)remove_file(checkpoint_path(*output, config));
 }
 
 namespace {
@@ -317,8 +312,8 @@ void shadowmount_follow_up(const JobSpec& spec, const EngineConfig& config, cons
             warnings.push_back("the source was not hidden: another queued job uses it");
         } else if (path_exists(hidden)) {
             warnings.push_back("the source was not hidden: " + hidden + " already exists");
-        } else if (::rename(input.c_str(), hidden.c_str()) != 0) {
-            warnings.push_back("the source was not hidden: " + os_error_message(errno));
+        } else if (Status moved = rename_path(input, hidden); !moved.ok()) {
+            warnings.push_back("the source was not hidden: " + moved.error().message);
         } else {
             r.set("source_hidden", hidden);
         }
@@ -410,7 +405,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     auto drop_partial = [&] {
         resume::remove_partial(session.partial_path);
         if (is_folder_output(output))
-            for (const char* suffix : resume::kSidecarSuffixes) ::unlink((partial_name(output) + suffix).c_str());
+            for (const char* suffix : resume::kSidecarSuffixes) (void)remove_file((partial_name(output) + suffix));
     };
     if (spec.kind == "convert" && !fp.empty()) {
         if (!is_folder_output(output)) session.partial_path = output + kPartialSuffix;
@@ -421,7 +416,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
             session.from = std::move(state);
         } else {
             drop_partial();
-            ::unlink(cp_path.c_str());
+            (void)remove_file(cp_path);
         }
         session.save = [&](const resume::State& state) -> Status {
             JsonValue v = JsonValue::object(), st = JsonValue::object();
@@ -444,7 +439,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
         result->error().message.find("checkpoint") != std::string::npos) {
         // The partial file or checkpoint is unusable: start over.
         drop_partial();
-        ::unlink(cp_path.c_str());
+        (void)remove_file(cp_path);
         session.from.reset();
         resumed = false;
         result.emplace(convert::run(spec.input, output, to, options, tracked));
@@ -455,7 +450,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
         // it failed after a checkpoint (a full disk, a pulled drive).
         if (ran.ok() || !is_regular_file(cp_path)) {
             drop_partial();
-            ::unlink(cp_path.c_str());
+            (void)remove_file(cp_path);
         }
     }
     if (!ran.ok()) return ran.error();
@@ -545,10 +540,10 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
 }
 
 std::optional<AmprState> ampr_state(const std::string& path, const std::string& passcode) {
-    struct stat st{};
-    if (::stat(path.c_str(), &st) != 0 && !convert::is_provided(path)) return std::nullopt;
+    PathStat st = stat_path(path);
+    if (st.kind == PathKind::missing && !convert::is_provided(path)) return std::nullopt;
     // Opening a large package and reading its eboot.bin takes a moment.
-    std::string key = path + "|" + std::to_string(st.st_size) + "|" + std::to_string(st.st_mtime);
+    std::string key = path + "|" + std::to_string(st.size) + "|" + std::to_string(st.mtime);
     static std::mutex mutex;
     static std::map<std::string, std::optional<AmprState>> cache;
     {

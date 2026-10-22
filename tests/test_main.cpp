@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "test.hpp"
 
+#include "alembic/io.hpp"
+
 #include <cstdlib>
 #include <cstring>
-#include <ftw.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <unistd.h>
+#include <random>
 
 namespace test {
 
@@ -32,48 +31,72 @@ static std::vector<std::string>& temp_dirs() {
 }
 
 std::string make_temp_dir() {
-    const char* base = std::getenv("TMPDIR");
-    std::string pattern = std::string(base && *base ? base : "/tmp") + "/alembic-test-XXXXXX";
-    std::vector<char> buffer(pattern.begin(), pattern.end());
-    buffer.push_back('\0');
-    if (!::mkdtemp(buffer.data())) {
-        std::perror("mkdtemp");
-        std::abort();
+#ifdef _WIN32
+    std::string base = alembic::portable_path(alembic::environment("TEMP"));
+    if (base.empty()) base = "C:/Windows/Temp";
+#else
+    std::string base = alembic::environment("TMPDIR");
+    if (base.empty()) base = "/tmp";
+#endif
+    while (base.size() > 1 && base.back() == '/') base.pop_back();
+    static std::mt19937_64 rng(std::random_device{}());
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        char name[32];
+        std::snprintf(name, sizeof name, "alembic-test-%012llx", static_cast<unsigned long long>(rng() & 0xffffffffffffULL));
+        std::string dir = base + "/" + name;
+        if (alembic::make_directory(dir).ok()) {
+            temp_dirs().push_back(dir);
+            return dir;
+        }
     }
-    temp_dirs().push_back(buffer.data());
-    return buffer.data();
+    std::fprintf(stderr, "cannot create a temporary folder in %s\n", base.c_str());
+    std::abort();
 }
 
 void make_dir(const std::string& path) {
-    if (::mkdir(path.c_str(), 0755) != 0) {
-        std::perror(path.c_str());
+    auto made = alembic::make_directory(path);
+    if (!made.ok()) {
+        std::fprintf(stderr, "%s\n", made.error().message.c_str());
         std::abort();
     }
 }
 
 void write_file(const std::string& path, const std::vector<std::uint8_t>& data) {
-    FILE* f = std::fopen(path.c_str(), "wb");
-    if (!f || (data.size() && std::fwrite(data.data(), 1, data.size(), f) != data.size())) {
-        std::perror(path.c_str());
+    if (alembic::path_exists(path)) (void)alembic::remove_file(path);
+    auto f = alembic::File::open(path, alembic::File::Mode::create_new);
+    if (!f.ok() || !f->write_at(0, data).ok()) {
+        std::fprintf(stderr, "cannot write %s\n", path.c_str());
         std::abort();
     }
-    std::fclose(f);
 }
 
 std::vector<std::uint8_t> read_file(const std::string& path) {
     std::vector<std::uint8_t> data;
-    FILE* f = std::fopen(path.c_str(), "rb");
-    if (!f) return data;
-    std::uint8_t buffer[65536];
-    std::size_t n;
-    while ((n = std::fread(buffer, 1, sizeof buffer, f)) > 0) data.insert(data.end(), buffer, buffer + n);
-    std::fclose(f);
+    auto f = alembic::File::open(path, alembic::File::Mode::read);
+    if (!f.ok()) return data;
+    auto size = f->size();
+    if (!size.ok()) return data;
+    data.resize(static_cast<std::size_t>(*size));
+    if (!f->read_at(0, data).ok()) data.clear();
     return data;
+}
+
+// Deletes a folder and everything in it; links are removed, not followed.
+static void remove_all(const std::string& path) {
+    alembic::PathStat st = alembic::stat_path(path, false);
+    if (st.is_directory()) {
+        if (auto names = alembic::list_directory(path); names.ok())
+            for (const std::string& n : *names) remove_all(path + "/" + n);
+        (void)alembic::remove_directory(path);
+    } else if (st.kind != alembic::PathKind::missing) {
+        if (!alembic::remove_file(path).ok()) (void)alembic::remove_directory(path); // a Windows folder link
+    }
 }
 
 } // namespace test
 
 int main(int argc, char** argv) {
+    alembic::use_utf8_console();
     bool verbose = argc > 1 && std::strcmp(argv[1], "-v") == 0;
     if (verbose) {
         --argc;
@@ -93,7 +116,6 @@ int main(int argc, char** argv) {
     // ALEMBIC_KEEP_TEST_DIRS=1 keeps them for a look after a failure.
     if (!std::getenv("ALEMBIC_KEEP_TEST_DIRS"))
         for (const std::string& dir : test::temp_dirs())
-            ::nftw(dir.c_str(), [](const char* path, const struct stat*, int, struct FTW*) { return ::remove(path); }, 16,
-                   FTW_DEPTH | FTW_PHYS);
+            test::remove_all(dir);
     return test::failures() == 0 ? 0 : 1;
 }

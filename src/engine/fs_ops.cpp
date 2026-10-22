@@ -1,54 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "fs_ops.hpp"
 
-#include <cerrno>
-#include <cstdio>
+#include <cctype>
 #include <cstring>
-#include <dirent.h>
-#include <fcntl.h>
-#if defined(__linux__)
-#include <sys/vfs.h> // statfs
-#else
-#include <sys/mount.h> // statfs (macOS, FreeBSD, PS5)
-#endif
-#include <sys/stat.h>
-#include <sys/time.h>
-#include <unistd.h>
 #include <vector>
 
 namespace alembic::engine {
 
 namespace {
 
-Error os_error(const std::string& what, const std::string& path) {
-    return Error{Errc::io, what + " " + path + ": " + std::strerror(errno)};
-}
-
 std::vector<std::string> children(const std::string& dir) {
-    std::vector<std::string> out;
-    if (DIR* d = ::opendir(dir.c_str())) {
-        while (dirent* e = ::readdir(d)) {
-            std::string n = e->d_name;
-            if (n != "." && n != "..") out.push_back(n);
-        }
-        ::closedir(d);
-    }
-    return out;
+    auto names = list_directory(dir);
+    return names.ok() ? std::move(*names) : std::vector<std::string>{};
 }
 
-bool plain_name(const std::string& name) {
-    return !name.empty() && name != "." && name != ".." && name.find('/') == std::string::npos &&
-           name.find('\0') == std::string::npos;
-}
-
-void keep_times(const std::string& path, const struct stat& st) {
-    timeval times[2];
-    times[0].tv_sec = st.st_atime;
-    times[0].tv_usec = 0;
-    times[1].tv_sec = st.st_mtime;
-    times[1].tv_usec = 0;
-    ::utimes(path.c_str(), times);
-}
+void keep_times(const std::string& path, const PathStat& st) { (void)set_file_times(path, st.atime, st.mtime); }
 
 struct Copier {
     explicit Copier(const ProgressFn& p) : progress(p) {}
@@ -58,60 +24,40 @@ struct Copier {
     std::vector<std::string> created; // to undo on failure, in creation order
     std::vector<std::uint8_t> buffer = std::vector<std::uint8_t>(8 << 20);
 
-    Status file(const std::string& from, const std::string& to, const struct stat& st, bool overwrite) {
+    Status file(const std::string& from, const std::string& to, const PathStat& st, bool overwrite) {
         if (!overwrite && path_exists(to)) return make_error(Errc::invalid_argument, "already exists: " + to);
         std::string partial = to + ".alembic-partial";
-        int in = ::open(from.c_str(), O_RDONLY);
-        if (in < 0) return os_error("cannot open", from);
-        int out = ::open(partial.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
-        if (out < 0) {
-            ::close(in);
-            return os_error("cannot create", partial);
-        }
+        ALEMBIC_ASSIGN(File in, File::open(from, File::Mode::read));
+        if (path_exists(partial)) ALEMBIC_TRY(remove_file(partial));
+        ALEMBIC_ASSIGN(File out, File::open(partial, File::Mode::create_new));
         created.push_back(partial);
-        Status status;
-        for (;;) {
-            ssize_t n = ::read(in, buffer.data(), buffer.size());
-            if (n < 0 && errno == EINTR) continue;
-            if (n < 0) {
-                status = os_error("cannot read", from);
-                break;
-            }
-            if (n == 0) break;
-            for (ssize_t off = 0; off < n;) {
-                ssize_t w = ::write(out, buffer.data() + off, static_cast<std::size_t>(n - off));
-                if (w < 0 && errno == EINTR) continue;
-                if (w <= 0) {
-                    status = os_error("cannot write", partial);
-                    break;
-                }
-                off += w;
-            }
-            if (!status.ok()) break;
-            done += static_cast<std::uint64_t>(n);
-            if (progress && !progress({"Copying", done, total})) {
-                status = make_error(Errc::cancelled, "cancelled");
-                break;
-            }
+        ALEMBIC_ASSIGN(std::uint64_t size, in.size());
+        for (std::uint64_t at = 0; at < size;) {
+            auto n = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), size - at));
+            ALEMBIC_TRY(in.read_at(at, MutableBytes(buffer.data(), n)));
+            ALEMBIC_TRY(out.write_at(at, Bytes(buffer.data(), n)));
+            at += n;
+            done += n;
+            if (progress && !progress({"Copying", done, total})) return make_error(Errc::cancelled, "cancelled");
         }
-        ::close(in);
-        if (::close(out) != 0 && status.ok()) status = os_error("cannot write", partial);
-        if (!status.ok()) return status;
-        if (::rename(partial.c_str(), to.c_str()) != 0) return os_error("cannot rename", partial);
+        ALEMBIC_TRY(out.close());
+        (void)in.close();
+        ALEMBIC_TRY(rename_path(partial, to));
         created.back() = to;
         keep_times(to, st);
         return {};
     }
 
     Status any(const std::string& from, const std::string& to, bool overwrite) {
-        struct stat st{};
-        if (::stat(from.c_str(), &st) != 0) return os_error("cannot read", from);
-        if (!S_ISDIR(st.st_mode)) return file(from, to, st, overwrite);
+        std::string why;
+        PathStat st = stat_path(from, true, &why);
+        if (st.kind == PathKind::missing) return make_error(Errc::io, "cannot read " + from + ": " + why);
+        if (!st.is_directory()) return file(from, to, st, overwrite);
         if (path_exists(to)) {
             if (!is_directory(to)) return make_error(Errc::invalid_argument, "a file is in the way: " + to);
             if (!overwrite) return make_error(Errc::invalid_argument, "already exists: " + to);
         } else {
-            if (::mkdir(to.c_str(), 0777) != 0) return os_error("cannot create", to);
+            ALEMBIC_TRY(make_directory(to));
             created.push_back(to);
         }
         for (const std::string& name : children(from)) ALEMBIC_TRY(any(from + "/" + name, to + "/" + name, overwrite));
@@ -121,62 +67,74 @@ struct Copier {
 
     void undo() {
         for (auto it = created.rbegin(); it != created.rend(); ++it) {
-            if (is_directory(*it)) ::rmdir(it->c_str());
-            else ::unlink(it->c_str());
+            if (is_directory(*it)) (void)remove_directory(*it);
+            else (void)remove_file(*it);
         }
     }
 };
 
 } // namespace
 
+namespace {
+// Paths compare without case on Windows (ASCII only: drive letters, most names).
+bool same_text(const std::string& a, std::size_t from, std::size_t count, const std::string& b) {
+#ifdef _WIN32
+    if (a.size() - from < count || b.size() != count) return false;
+    for (std::size_t i = 0; i < count; ++i)
+        if (std::tolower(static_cast<unsigned char>(a[from + i])) != std::tolower(static_cast<unsigned char>(b[i]))) return false;
+    return true;
+#else
+    return a.compare(from, count, b) == 0;
+#endif
+}
+} // namespace
+
 bool is_within(const std::string& inner, const std::string& outer) {
-    if (inner == outer) return true;
+    if (inner.size() == outer.size() && same_text(inner, 0, inner.size(), outer)) return true;
     std::string o = outer;
     if (o.empty() || o.back() != '/') o += '/';
-    return inner.compare(0, o.size(), o) == 0;
+    return inner.size() >= o.size() && same_text(inner, 0, o.size(), o);
 }
 
 Result<SpaceInfo> space(const std::string& path) {
-    struct statfs st{};
-    if (::statfs(path.c_str(), &st) != 0) return os_error("cannot read the free space of", path);
-    SpaceInfo s;
-    s.total = static_cast<std::uint64_t>(st.f_blocks) * static_cast<std::uint64_t>(st.f_bsize);
-    s.free = static_cast<std::uint64_t>(st.f_bavail) * static_cast<std::uint64_t>(st.f_bsize);
-    return s;
+    ALEMBIC_ASSIGN(DiskSpace d, disk_space(path));
+    return SpaceInfo{d.total, d.free};
 }
 
 Status remove_tree(const std::string& path) {
-    struct stat st{};
-    if (::lstat(path.c_str(), &st) != 0) return os_error("cannot delete", path);
-    if (S_ISDIR(st.st_mode)) {
+    PathStat st = stat_path(path, false);
+    if (st.kind == PathKind::missing) return make_error(Errc::io, "cannot delete " + path + ": it is not there");
+    if (st.is_directory()) {
         for (const std::string& name : children(path)) ALEMBIC_TRY(remove_tree(path + "/" + name));
-        if (::rmdir(path.c_str()) != 0) return os_error("cannot delete", path);
-        return {};
+        return remove_directory(path);
     }
-    if (::unlink(path.c_str()) != 0) return os_error("cannot delete", path);
-    return {};
+#ifdef _WIN32
+    // A link to a folder is removed like a folder (its target stays).
+    if (st.kind == PathKind::link && stat_path(path).is_directory()) return remove_directory(path);
+#endif
+    return remove_file(path);
 }
 
 Status make_folder(const std::string& path) {
     if (path_exists(path)) return make_error(Errc::invalid_argument, "already exists: " + path);
-    if (::mkdir(path.c_str(), 0777) != 0) return os_error("cannot create", path);
-    return {};
+    return make_directory(path);
 }
 
 Status rename_entry(const std::string& path, const std::string& new_name) {
-    if (!plain_name(new_name)) return make_error(Errc::invalid_argument, "a name cannot contain '/'");
+    if (!safe_file_name(new_name)) return make_error(Errc::invalid_argument, "not a valid name: " + new_name);
     std::size_t slash = path.rfind('/');
     std::string target = path.substr(0, slash + 1) + new_name;
     if (target == path) return {};
-    if (path_exists(target)) return make_error(Errc::invalid_argument, "already exists: " + target);
-    if (::rename(path.c_str(), target.c_str()) != 0) return os_error("cannot rename", path);
-    return {};
+    // Windows: a change of case only is the same file, so let it through.
+    if (path_exists(target) && !is_within(target, path)) return make_error(Errc::invalid_argument, "already exists: " + target);
+    return rename_path(path, target);
 }
 
 Result<std::uint64_t> tree_size(const std::string& path) {
-    struct stat st{};
-    if (::stat(path.c_str(), &st) != 0) return os_error("cannot read", path);
-    if (!S_ISDIR(st.st_mode)) return static_cast<std::uint64_t>(st.st_size);
+    std::string why;
+    PathStat st = stat_path(path, true, &why);
+    if (st.kind == PathKind::missing) return make_error(Errc::io, "cannot read " + path + ": " + why);
+    if (!st.is_directory()) return st.size;
     std::uint64_t total = 0;
     for (const std::string& name : children(path)) {
         ALEMBIC_ASSIGN(std::uint64_t n, tree_size(path + "/" + name));
@@ -200,8 +158,11 @@ Status move_tree(const std::string& source, const std::string& destination, bool
     if (is_within(destination, source)) return make_error(Errc::invalid_argument, "cannot move a folder into itself");
     if (path_exists(destination) && !overwrite) return make_error(Errc::invalid_argument, "already exists: " + destination);
     ALEMBIC_TRY(make_parent_directories(destination));
-    if (!path_exists(destination) && ::rename(source.c_str(), destination.c_str()) == 0) return {};
-    if (errno != EXDEV && !path_exists(destination)) return os_error("cannot move", source);
+    if (!path_exists(destination)) {
+        Status moved = rename_path(source, destination);
+        if (moved.ok()) return {};
+        if (moved.error().code != Errc::unsupported) return moved; // not "another drive"
+    }
     // Another drive (or merging into an existing folder): copy, then delete.
     ALEMBIC_TRY(copy_tree(source, destination, overwrite, progress));
     if (progress) progress({"Deleting the source", 0, 0});

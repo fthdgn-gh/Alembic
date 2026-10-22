@@ -5,7 +5,8 @@
 Alembic converts PS5 games between the formats homebrew loaders use: debug
 packages (FPKG), dump folders, exFAT images, FFPKG (UFS2), FFPFS (PFS) and
 FFPFSC (compressed PFS). It runs **on the console** as a payload with a web
-page you drive with the controller, and on a PC as a command-line tool.
+page you drive with the controller, and on a PC (Windows, macOS, Linux) as a
+command-line tool.
 
 > Work in progress. Back up anything you convert until you have checked the
 > result on your console.
@@ -97,6 +98,17 @@ cmake --build build -j
 ./build/alembic_tests
 ```
 
+Windows (`alembic.exe`, `alembic-engine.exe`) is cross-built with
+[llvm-mingw](https://github.com/mstorsjo/llvm-mingw) from macOS or Linux; the
+executables are statically linked and run on Windows 10 and later as they
+are. `tools/windows/smoke.sh` checks them on Windows (Git Bash).
+
+```sh
+cmake -S . -B build-win -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake \
+      -DLLVM_MINGW=/path/to/llvm-mingw
+cmake --build build-win -j
+```
+
 The PS5 payload needs LLVM 18 and
 [ps5-payload-dev/sdk](https://github.com/ps5-payload-dev/sdk) v0.44:
 
@@ -110,7 +122,8 @@ GitHub Actions builds and tests everything on every push (see
 [.github/workflows/build.yml](.github/workflows/build.yml)). Each run has the
 payload as a download of its own, `alembic-<version>.elf`, and a bundle,
 `alembic-<version>.zip`: the payload in `ps5/`, `alembic` and
-`alembic-engine` in `linux-x64/` and `macos-arm64/`, with the README and
+`alembic-engine` in `linux-x64/`, `macos-arm64/` and `windows-x64/` (`.exe`),
+with the README and
 license files. The version is the tag (`v0.1.0`), else the branch and commit
 (`main-a2fab12`). A `v*` tag publishes the payload, the bundle and
 `SHA256SUMS` as a release.

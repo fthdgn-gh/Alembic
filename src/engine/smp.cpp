@@ -1,17 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "smp.hpp"
 
-#include <arpa/inet.h>
-#include <cerrno>
+#include "alembic/io.hpp"
+#include "net.hpp"
+
 #include <charconv>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <poll.h>
-#include <sys/socket.h>
 #include <system_error>
-#include <unistd.h>
 
 namespace alembic::engine::smp {
 
@@ -39,15 +36,6 @@ bool parse_port(const std::string& text, std::uint16_t& out) {
 
 Error io_error(const std::string& what) { return make_error(Errc::io, "ShadowMount+ API: " + what); }
 
-// Waits until `fd` is readable or writable, up to the deadline.
-bool wait_for(int fd, short events, int timeout_ms) {
-    pollfd p{fd, events, 0};
-    int r;
-    do r = ::poll(&p, 1, timeout_ms);
-    while (r < 0 && errno == EINTR);
-    return r > 0;
-}
-
 // libmicrohttpd may answer with chunked transfer encoding.
 std::string dechunk(const std::string& body) {
     std::string out;
@@ -68,7 +56,7 @@ std::string dechunk(const std::string& body) {
 
 Endpoint read_endpoint(const std::string& config_ini) {
     Endpoint e;
-    std::FILE* f = std::fopen(config_ini.c_str(), "r");
+    std::FILE* f = alembic::open_stdio(config_ini, "r");
     if (!f) return e;
     e.enabled = true; // api_enabled defaults to 1
     char line[1024];
@@ -110,23 +98,14 @@ Result<JsonValue> post(const Endpoint& endpoint, const std::string& path, const 
     addr.sin_port = htons(endpoint.port);
     if (::inet_pton(AF_INET, endpoint.address.c_str(), &addr.sin_addr) != 1)
         return io_error("bad address " + endpoint.address);
-    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return io_error(std::string("socket: ") + std::strerror(errno));
+    if (!net::startup()) return io_error("cannot start the network (Winsock)");
+    std::string why;
+    net::Socket fd = net::connect(addr, timeout_ms, true, &why);
+    if (fd == net::kNone) return io_error(why == "connection timed out" ? why : "not reachable (" + why + ")");
     struct Closer {
-        int fd;
-        ~Closer() { ::close(fd); }
+        net::Socket fd;
+        ~Closer() { net::close(fd); }
     } closer{fd};
-
-    int flags = ::fcntl(fd, F_GETFL, 0);
-    ::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-    if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof addr) != 0) {
-        if (errno != EINPROGRESS) return io_error("not reachable (" + std::string(std::strerror(errno)) + ")");
-        if (!wait_for(fd, POLLOUT, timeout_ms)) return io_error("connection timed out");
-        int err = 0;
-        socklen_t len = sizeof err;
-        ::getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len);
-        if (err != 0) return io_error("not reachable (" + std::string(std::strerror(err)) + ")");
-    }
 
     std::string payload = body.dump();
     std::string request = "POST " + path + " HTTP/1.1\r\nHost: " + endpoint.address + ":" +
@@ -134,19 +113,19 @@ Result<JsonValue> post(const Endpoint& endpoint, const std::string& path, const 
                           "\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: " +
                           std::to_string(payload.size()) + "\r\n\r\n" + payload;
     for (std::size_t sent = 0; sent < request.size();) {
-        if (!wait_for(fd, POLLOUT, timeout_ms)) return io_error("send timed out");
-        ssize_t n = ::send(fd, request.data() + sent, request.size() - sent, 0);
-        if (n < 0 && (errno == EAGAIN || errno == EINTR)) continue;
-        if (n <= 0) return io_error(std::string("send: ") + std::strerror(errno));
+        if (!net::wait(fd, POLLOUT, timeout_ms)) return io_error("send timed out");
+        long n = net::send(fd, request.data() + sent, request.size() - sent);
+        if (n < 0 && net::should_retry()) continue;
+        if (n <= 0) return io_error("send: " + net::error_text());
         sent += static_cast<std::size_t>(n);
     }
     std::string reply;
     char buffer[16384];
     for (;;) {
-        if (!wait_for(fd, POLLIN, timeout_ms)) return io_error("no reply");
-        ssize_t n = ::recv(fd, buffer, sizeof buffer, 0);
-        if (n < 0 && (errno == EAGAIN || errno == EINTR)) continue;
-        if (n < 0) return io_error(std::string("recv: ") + std::strerror(errno));
+        if (!net::wait(fd, POLLIN, timeout_ms)) return io_error("no reply");
+        long n = net::recv(fd, buffer, sizeof buffer);
+        if (n < 0 && net::should_retry()) continue;
+        if (n < 0) return io_error("recv: " + net::error_text());
         if (n == 0) break;
         reply.append(buffer, static_cast<std::size_t>(n));
         if (reply.size() > (16u << 20)) return io_error("reply too large");

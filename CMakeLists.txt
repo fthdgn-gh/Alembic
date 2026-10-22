@@ -9,9 +9,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# zlib: the system's on a PC; the PS5 payload SDK has none, so the bundled
-# zlib 1.3.1 (third_party/zlib, official release sources) is built there.
-if(PS5)
+# zlib: the system's on a PC; the PS5 payload SDK and Windows have none, so
+# the bundled zlib 1.3.1 (third_party/zlib, official release sources) is
+# built there.
+if(PS5 OR WIN32)
     set(ALEMBIC_BUNDLED_ZLIB_DEFAULT ON)
 else()
     set(ALEMBIC_BUNDLED_ZLIB_DEFAULT OFF)
@@ -33,6 +34,13 @@ else()
     find_package(ZLIB REQUIRED)
 endif()
 find_package(Threads REQUIRED)
+
+# Windows: one self-contained .exe each (no libc++ or winpthread DLLs);
+# UTF-8 paths are converted to UTF-16 for the Win32 calls (src/core/os_win32.cpp).
+if(WIN32)
+    add_compile_definitions(UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00)
+    add_link_options(-static)
+endif()
 
 # The PS5 build forbids exceptions and RTTI, so the host build does too.
 set(ALEMBIC_COMPILE_OPTIONS -fno-exceptions -fno-rtti -Wall -Wextra -Wpedantic)
@@ -71,6 +79,7 @@ add_library(alembic_core STATIC
     src/core/fpkg.cpp
     src/core/fpkg_inner.cpp
     src/core/io.cpp
+    src/core/io_win32.cpp
     src/core/resume.cpp
     src/core/json.cpp
     src/core/kraken.cpp
@@ -101,6 +110,9 @@ target_include_directories(alembic_core
 )
 target_compile_options(alembic_core PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
 target_link_libraries(alembic_core PUBLIC ZLIB::ZLIB Threads::Threads PRIVATE alembic_lz4)
+if(WIN32)
+    target_link_libraries(alembic_core PUBLIC shell32)
+endif()
 
 if(ALEMBIC_BUILD_CLI)
     add_executable(alembic src/cli/main.cpp)
@@ -162,6 +174,7 @@ if(ALEMBIC_BUILD_ENGINE)
         src/engine/jobs.cpp
         src/engine/json_value.cpp
         src/engine/l10n.cpp
+        src/engine/net.cpp
         src/engine/remote.cpp
         src/engine/runner.cpp
         src/engine/smp.cpp
@@ -170,6 +183,9 @@ if(ALEMBIC_BUILD_ENGINE)
     target_include_directories(alembic_engine_lib PUBLIC src/engine)
     target_compile_options(alembic_engine_lib PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
     target_link_libraries(alembic_engine_lib PUBLIC alembic_core)
+    if(WIN32)
+        target_link_libraries(alembic_engine_lib PUBLIC ws2_32)
+    endif()
     add_executable(alembic_engine src/engine/main.cpp ${ALEMBIC_WEB_SOURCE} ${ALEMBIC_I18N_SOURCE} ${ALEMBIC_ICON_SOURCE} ${ALEMBIC_ICON0_SOURCE})
     target_compile_options(alembic_engine PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
     target_compile_definitions(alembic_engine PRIVATE ALEMBIC_VERSION="${PROJECT_VERSION}")

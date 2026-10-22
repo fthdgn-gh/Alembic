@@ -18,7 +18,6 @@
 #include <cstdio>
 #include <cstring>
 #include <functional>
-#include <unistd.h>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -133,7 +132,7 @@ public:
     ProgressFn callback() {
         // Live percentages only on a terminal; logs and pipes stay clean
         // unless --progress asks for lines.
-        if (g_progress_lines && !::isatty(STDERR_FILENO)) {
+        if (g_progress_lines && !stderr_is_terminal()) {
             return [this](const ProgressEvent& event) {
                 int percent = event.total == 0 ? 100 : static_cast<int>(event.done * 100 / event.total);
                 if (percent != last_percent_ || event.stage != stage_) {
@@ -147,7 +146,7 @@ public:
                 return true;
             };
         }
-        if (!::isatty(STDERR_FILENO)) return {};
+        if (!stderr_is_terminal()) return {};
         return [this](const ProgressEvent& event) {
             int percent = event.total == 0 ? 100 : static_cast<int>(event.done * 100 / event.total);
             if (percent != last_percent_ || event.stage != stage_) {
@@ -161,7 +160,7 @@ public:
         };
     }
     void done() {
-        if (last_percent_ >= 0 && ::isatty(STDERR_FILENO)) std::fputc('\n', stderr);
+        if (last_percent_ >= 0 && stderr_is_terminal()) std::fputc('\n', stderr);
     }
 
 private:
@@ -198,12 +197,13 @@ Args parse(int argc, char** argv, const std::vector<std::string>& flags) {
     Args args;
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
+        // Paths may come with '\\' on Windows; Alembic uses '/' inside.
         if (arg.rfind("--", 0) == 0) {
             bool is_flag = std::find(flags.begin(), flags.end(), arg) != flags.end();
-            std::string value = (!is_flag && i + 1 < argc) ? argv[++i] : "";
+            std::string value = (!is_flag && i + 1 < argc) ? portable_path(argv[++i]) : "";
             args.options.emplace_back(arg, value);
         } else {
-            args.positional.push_back(arg);
+            args.positional.push_back(portable_path(arg));
         }
     }
     return args;
@@ -830,6 +830,15 @@ int cmd_pfsc_info(const Args& args) {
 } // namespace
 
 int main(int argc, char** argv) {
+    // UTF-8 arguments and console output everywhere (Windows hands main()
+    // the ANSI code page).
+    use_utf8_console();
+    std::vector<std::string> utf8 = program_arguments(argc, argv);
+    std::vector<char*> pointers;
+    for (std::string& a : utf8) pointers.push_back(a.data());
+    pointers.push_back(nullptr);
+    argc = static_cast<int>(utf8.size());
+    argv = pointers.data();
     if (argc < 2) return usage(), 2;
     std::string command = argv[1];
     // --progress may appear anywhere; strip it before the command parses.

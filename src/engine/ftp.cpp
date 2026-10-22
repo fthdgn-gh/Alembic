@@ -1,30 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ftp.hpp"
 
+#include "net.hpp"
+
 #include <algorithm>
-#include <arpa/inet.h>
 #include <cctype>
-#include <cerrno>
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <deque>
-#include <fcntl.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <poll.h>
-#include <sys/socket.h>
 #include <thread>
-#include <unistd.h>
 
 namespace alembic::engine::ftp {
 
 namespace {
 
 constexpr int kIoTimeoutSeconds = 30;
+
+// timegm: a UTC broken-down time to Unix seconds (Windows calls it _mkgmtime).
+std::time_t portable_timegm(std::tm* t) {
+#ifdef _WIN32
+    return ::_mkgmtime(t);
+#else
+    return ::timegm(t);
+#endif
+}
 
 Error net_error(const std::string& what) { return make_error(Errc::io, "FTP: " + what); }
 
@@ -34,7 +36,8 @@ std::string lower(std::string s) {
 }
 
 // A TCP connection to host:port, with a timeout on connecting and on I/O.
-Result<int> connect_to(const std::string& host, std::uint16_t port, int timeout_ms, std::string* peer = nullptr) {
+Result<net::Socket> connect_to(const std::string& host, std::uint16_t port, int timeout_ms, std::string* peer = nullptr) {
+    if (!net::startup()) return net_error("cannot start the network (Winsock)");
     addrinfo hints{};
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
@@ -44,34 +47,11 @@ Result<int> connect_to(const std::string& host, std::uint16_t port, int timeout_
     sockaddr_in addr{};
     std::memcpy(&addr, found->ai_addr, sizeof addr);
     ::freeaddrinfo(found);
-    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return net_error(std::string("socket: ") + std::strerror(errno));
-    int flags = ::fcntl(fd, F_GETFL, 0);
-    ::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-    if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof addr) != 0) {
-        bool ok = errno == EINPROGRESS;
-        if (ok) {
-            pollfd p{fd, POLLOUT, 0};
-            ok = ::poll(&p, 1, timeout_ms) > 0;
-            int err = 0;
-            socklen_t len = sizeof err;
-            if (ok) ::getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len);
-            ok = ok && err == 0;
-        }
-        if (!ok) {
-            ::close(fd);
-            return net_error("cannot connect to " + host + ":" + std::to_string(port));
-        }
-    }
-    ::fcntl(fd, F_SETFL, flags);
-    timeval tv{kIoTimeoutSeconds, 0};
-    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
-    ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
-    int one = 1;
-    ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
-#ifdef SO_NOSIGPIPE
-    ::setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
-#endif
+    std::string why;
+    net::Socket fd = net::connect(addr, timeout_ms, false, &why);
+    if (fd == net::kNone) return net_error("cannot connect to " + host + ":" + std::to_string(port) + " (" + why + ")");
+    net::set_timeouts(fd, kIoTimeoutSeconds);
+    net::set_no_delay(fd);
     if (peer) {
         char text[INET_ADDRSTRLEN] = {};
         ::inet_ntop(AF_INET, &addr.sin_addr, text, sizeof text);
@@ -80,11 +60,11 @@ Result<int> connect_to(const std::string& host, std::uint16_t port, int timeout_
     return fd;
 }
 
-Status send_all(int fd, const char* data, std::size_t size) {
+Status send_all(net::Socket fd, const char* data, std::size_t size) {
     while (size) {
-        ssize_t n = ::send(fd, data, size, 0);
-        if (n < 0 && errno == EINTR) continue;
-        if (n <= 0) return net_error(std::string("send: ") + std::strerror(errno));
+        long n = net::send(fd, data, size);
+        if (n < 0 && net::should_retry()) continue;
+        if (n <= 0) return net_error("send: " + net::error_text());
         data += n;
         size -= static_cast<std::size_t>(n);
     }
@@ -118,7 +98,7 @@ bool parse_mlsd(const std::string& line, Entry& e) {
             tm.tm_hour = std::atoi(value.substr(8, 2).c_str());
             tm.tm_min = std::atoi(value.substr(10, 2).c_str());
             tm.tm_sec = std::atoi(value.substr(12, 2).c_str());
-            e.mtime = static_cast<std::int64_t>(::timegm(&tm));
+            e.mtime = static_cast<std::int64_t>(portable_timegm(&tm));
         }
     }
     return e.name != "." && e.name != "..";
@@ -158,10 +138,10 @@ bool parse_list(const std::string& line, Entry& e) {
 // ---------------------------------------------------------------- Connection
 
 Connection::~Connection() {
-    if (data_ >= 0) ::close(data_);
-    if (control_ >= 0) {
+    if (data_ != net::kNone) net::close(data_);
+    if (control_ != net::kNone) {
         (void)send_all(control_, "QUIT\r\n", 6);
-        ::close(control_);
+        net::close(control_);
     }
 }
 
@@ -173,8 +153,8 @@ Result<Connection::Reply> Connection::reply() {
         std::size_t eol;
         while ((eol = buffer_.find("\r\n")) == std::string::npos) {
             char chunk[4096];
-            ssize_t n = ::recv(control_, chunk, sizeof chunk, 0);
-            if (n < 0 && errno == EINTR) continue;
+            long n = net::recv(control_, chunk, sizeof chunk);
+            if (n < 0 && net::should_retry()) continue;
             if (n <= 0) return net_error("the server closed the connection");
             buffer_.append(chunk, static_cast<std::size_t>(n));
         }
@@ -222,7 +202,7 @@ Result<std::unique_ptr<Connection>> Connection::open(const Server& server, int t
 
 Status Connection::open_data() {
     if (data_ >= 0) {
-        ::close(data_);
+        net::close(data_);
         data_ = -1;
     }
     std::uint16_t port = 0;
@@ -264,20 +244,20 @@ Result<std::vector<Entry>> Connection::list(const std::string& directory) {
         ALEMBIC_ASSIGN(r, command("LIST " + directory));
     }
     if (r.code != 150 && r.code != 125) {
-        ::close(data_);
+        net::close(data_);
         data_ = -1;
         return make_error(Errc::invalid_argument, "FTP: cannot list " + directory + ": " + r.text);
     }
     std::string text;
     char chunk[16384];
     for (;;) {
-        ssize_t n = ::recv(data_, chunk, sizeof chunk, 0);
-        if (n < 0 && errno == EINTR) continue;
+        long n = net::recv(data_, chunk, sizeof chunk);
+        if (n < 0 && net::should_retry()) continue;
         if (n < 0) return net_error("listing interrupted");
         if (n == 0) break;
         text.append(chunk, static_cast<std::size_t>(n));
     }
-    ::close(data_);
+    net::close(data_);
     data_ = -1;
     ALEMBIC_ASSIGN(Reply done, reply());
     if (done.code != 226 && done.code != 250) return net_error("listing failed: " + done.text);
@@ -322,7 +302,7 @@ Status Connection::start_download(const std::string& path, std::uint64_t offset)
     }
     ALEMBIC_ASSIGN(Reply r, command("RETR " + path));
     if (r.code != 150 && r.code != 125) {
-        ::close(data_);
+        net::close(data_);
         data_ = -1;
         return make_error(Errc::io, "FTP: cannot read " + path + ": " + r.text);
     }
@@ -332,12 +312,12 @@ Status Connection::start_download(const std::string& path, std::uint64_t offset)
 Result<std::size_t> Connection::read(MutableBytes out) {
     if (data_ < 0 || data_ended_) return std::size_t{0};
     for (;;) {
-        ssize_t n = ::recv(data_, out.data(), out.size(), 0);
-        if (n < 0 && errno == EINTR) continue;
+        long n = net::recv(data_, out.data(), out.size());
+        if (n < 0 && net::should_retry()) continue;
         if (n < 0) return net_error("download interrupted");
         if (n == 0) {
             data_ended_ = true;
-            ::close(data_);
+            net::close(data_);
             data_ = -1;
             ALEMBIC_ASSIGN(Reply done, reply());
             if (done.code != 226 && done.code != 250) return net_error("download failed: " + done.text);
@@ -353,7 +333,7 @@ Status Connection::stop_download() {
     // everything. Nothing else is sent until that reply is read: servers
     // answer other commands (ABOR, NOOP) during a transfer, in either order
     // with that reply, which put every later reply one command behind.
-    ::close(data_);
+    net::close(data_);
     data_ = -1;
     ALEMBIC_ASSIGN(Reply r, reply()); // fails after the receive timeout
     (void)r;
@@ -364,7 +344,7 @@ Status Connection::start_upload(const std::string& path) {
     ALEMBIC_TRY(open_data());
     ALEMBIC_ASSIGN(Reply r, command("STOR " + path));
     if (r.code != 150 && r.code != 125) {
-        ::close(data_);
+        net::close(data_);
         data_ = -1;
         return make_error(Errc::io, "FTP: cannot write " + path + ": " + r.text);
     }
@@ -378,7 +358,7 @@ Status Connection::write(Bytes data) {
 
 Status Connection::finish_upload() {
     if (data_ < 0) return net_error("no upload is open");
-    ::close(data_);
+    net::close(data_);
     data_ = -1;
     ALEMBIC_ASSIGN(Reply done, reply());
     if (done.code != 226 && done.code != 250) return net_error("upload failed: " + done.text);
@@ -557,7 +537,7 @@ private:
 } // namespace
 
 Servers::Servers(std::string state_dir) : file_(std::move(state_dir) + "/ftp.json") {
-    std::FILE* f = std::fopen(file_.c_str(), "rb");
+    std::FILE* f = alembic::open_stdio(file_, "rb");
     if (!f) return;
     std::string text;
     char buf[4096];

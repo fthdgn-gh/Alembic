@@ -25,7 +25,6 @@
 #include <cstring>
 #include <optional>
 #include <random>
-#include <unistd.h>
 
 namespace alembic::fpkg::build {
 
@@ -659,7 +658,7 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
                 const std::string path = resume::sidecar_path(*session, ".digests");
                 auto f = digests_saved ? File::open(path, File::Mode::read_write) : File::open(path, File::Mode::create_new);
                 if (!f.ok() && !digests_saved) {
-                    ::unlink(path.c_str());
+                    (void)remove_file(path);
                     f = File::open(path, File::Mode::create_new);
                 }
                 if (!f.ok()) return f.error();
@@ -787,7 +786,7 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
     ALEMBIC_TRY(file.write_at(mount_length, si));
     result.package_length = mount_length + si.size();
     ALEMBIC_TRY(output.commit());
-    if (session) for (const char* suffix : resume::kSidecarSuffixes) ::unlink(resume::sidecar_path(*session, suffix).c_str());
+    if (session) for (const char* suffix : resume::kSidecarSuffixes) (void)remove_file(resume::sidecar_path(*session, suffix));
     return result;
 }
 

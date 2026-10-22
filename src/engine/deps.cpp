@@ -5,7 +5,6 @@
 #include "alembic/io.hpp"
 #include "alembic/sha256.hpp"
 
-#include <unistd.h>
 
 namespace alembic::engine {
 
@@ -135,8 +134,7 @@ Status install_dependency(const Dependency& dep, const std::string& state_dir) {
 Status remove_dependency(const Dependency& dep, const std::string& state_dir) {
     for (const DependencyFile& f : dep.files) {
         std::string path = state_dir + "/" + f.path;
-        if (path_exists(path) && ::unlink(path.c_str()) != 0)
-            return make_error(Errc::io, "cannot delete " + path);
+        if (path_exists(path)) ALEMBIC_TRY(remove_file(path));
     }
     return {};
 }

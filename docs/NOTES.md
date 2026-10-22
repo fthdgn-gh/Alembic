@@ -1441,6 +1441,52 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   LZ4 packer's volume reader (it read a block's `done` flag without the
   compressor's lock).
 
+### 2026-10-22: Windows build
+
+- **Toolchain (owner's choice):** llvm-mingw 20261006 (LLVM 23.1.3, UCRT),
+  the same clang family as the Mac and PS5 builds. macOS:
+  `llvm-mingw-20261006-ucrt-macos-universal.tar.xz` (SHA-256
+  `a7a19b11048e89372637d26279cdb7c430ed3cf8c1e224310421312bf986ebf6`) in
+  `.refs/`; CI: the `ubuntu-22.04-x86_64` archive (SHA-256
+  `5f9c6ed95b2d4bdb2869a488c5fd5857fbdabcf288a0aa3eb1da43f6a08d8ab4`).
+  `cmake/mingw-w64-x86_64.cmake`; bundled zlib; `-static`, so `alembic.exe`
+  and `alembic-engine.exe` import only KERNEL32, SHELL32, WS2_32 and the
+  UCRT (part of Windows 10 and later).
+- **Files and folders** go through `alembic/io.hpp` on every platform now:
+  `stat_path`, `list_directory`, `make_directory`, `remove_file`,
+  `remove_directory`, `rename_path` (replaces a file; Errc::unsupported
+  across drives, where move falls back to copy), `set_file_times`,
+  `disk_space`, `open_stdio`, `safe_file_name`, `join_path`, ...
+  `io.cpp` has the POSIX code, `io_win32.cpp` the Win32 one: UTF-8 ↔ UTF-16,
+  '/' or '\\', absolute paths (relative ones are made absolute) get `\\?\`
+  (no 260-character limit; "." and ".." folded first), files opened with
+  every share mode (rename/delete while open, as on POSIX), positional
+  ReadFile/WriteFile, read-only files deletable. MinGW's own `open`/`stat`/
+  `fopen` take the ANSI code page and `open` defaults to text mode, so
+  none of them is used. Program arguments come from `GetCommandLineW`; the
+  console is switched to UTF-8.
+- **Names from images** are refused on Windows when they hold \\ : * ? " < > |
+  or control characters (':' would write an alternate data stream).
+- **Sockets:** `src/engine/net.hpp` (Winsock: WSAStartup, closesocket,
+  WSAGetLastError, time-outs in milliseconds, SO_EXCLUSIVEADDRUSE instead
+  of SO_REUSEADDR, refused connects seen through POLLERR).
+- **Engine on Windows:** state in `%LOCALAPPDATA%/Alembic`, default root
+  `%USERPROFILE%`, paths `C:/...` (the page's paths work unchanged; a drive
+  root keeps its '/'), roots compared without case; downloads through
+  Windows' own `curl.exe`. Same defaults as on the Mac otherwise: listens on
+  0.0.0.0:5940 without authentication.
+- **Checks:** all three builds (macOS, Windows, PS5) without warnings; the
+  oracles, samples and LZ4 checks unchanged; `tools/windows/smoke.sh`
+  (unit tests; a folder with non-ASCII names and a 300+ character path to
+  exFAT, FFPFSC, back to a folder, `same`; the engine: browse, a 403
+  outside the root, a queued job) passes on the Mac with stand-ins, and
+  runs in CI on `windows-latest`. Not yet run on a Windows PC.
+- **Left:** `flush_file_system` does nothing on Windows (checkpoints of
+  folder outputs trust the cache); the x86-64 PC builds (Windows, Linux) use
+  the table AES/CRC32C code, as the instruction paths are compiled only when
+  the target enables them (the PS5 does): runtime CPU detection with
+  `target` attributes would speed up packages on PCs.
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and
@@ -1528,9 +1574,10 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
 1. Owner's console test: install an Alembic-made FPKG.
 2. ✓ zlib read-ahead for FFPFSC inputs (2026-10-22). Left: hardware
    SHA-256 (SHA-NI on the PS5, ARMv8 SHA2 on the Mac) for verify.
-3. Next big item (owner): a **PC companion app**, so a PC can do the heavy
+3. ✓ Windows build (2026-10-22). Owner: try the .exe files on a PC.
+4. Next big item (owner): a **PC companion app**, so a PC can do the heavy
    work (and read the PC's disk at full speed) instead of the console.
-4. Smaller: retail/patch packages, NAPS shuffle layouts, Kraken-compressed
+5. Smaller: retail/patch packages, NAPS shuffle layouts, Kraken-compressed
    FPKG output, less pass-1 memory for LZ4.
 
 Older plan items (faster reading, PS5 build, LZ4 packs, FPKG, UFS2 and PFS

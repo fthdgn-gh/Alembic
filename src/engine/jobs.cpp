@@ -6,8 +6,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
-#include <dirent.h>
-#include <unistd.h>
 
 namespace alembic::engine {
 
@@ -42,17 +40,15 @@ void remove_stale_temp_files(const std::string& output, const std::function<void
     std::size_t slash = output.rfind('/');
     std::string dir = slash == std::string::npos ? "." : output.substr(0, slash);
     std::string prefix = output.substr(slash == std::string::npos ? 0 : slash + 1) + ".";
-    DIR* d = ::opendir(dir.c_str());
-    if (!d) return;
-    while (dirent* e = ::readdir(d)) {
-        std::string name = e->d_name;
+    auto names = list_directory(dir);
+    if (!names.ok()) return;
+    for (const std::string& name : *names) {
         if (name.size() != prefix.size() + 16 + 4 || name.compare(0, prefix.size(), prefix) != 0 ||
             name.compare(name.size() - 4, 4, ".tmp") != 0)
             continue;
         std::string path = dir + "/" + name;
-        if (::unlink(path.c_str()) == 0 && log) log("removed " + path + " left by an interrupted job");
+        if (remove_file(path).ok() && log) log("removed " + path + " left by an interrupted job");
     }
-    ::closedir(d);
 }
 
 } // namespace

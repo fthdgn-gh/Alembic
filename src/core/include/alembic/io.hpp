@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Minimal POSIX file I/O, byte sinks and progress reporting. POSIX covers both
-// the PC host (macOS/Linux) and the PS5 (FreeBSD-based).
+// File and folder access, byte sinks and progress reporting. Paths are UTF-8
+// with '/' between parts on every platform. io.cpp has the POSIX code (macOS,
+// Linux, the PS5); io_win32.cpp the Windows code, which also takes '\\' and
+// drive letters ("C:/Games/x") and converts paths to UTF-16 for Win32.
 #pragma once
 
 #include "alembic/result.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 #include <memory>
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace alembic {
 
@@ -82,7 +86,7 @@ public:
     Status close();
 
 private:
-    int fd_ = -1;
+    std::intptr_t fd_ = -1; // a file descriptor, or a Windows HANDLE
     std::string path_;
 };
 
@@ -139,6 +143,59 @@ private:
     bool keep_ = false; // a partial file: kept when not committed
 };
 
+// What is at a path. `follow_links` false reports a symbolic link (on
+// Windows, any reparse point) as `link` instead of what it points at.
+enum class PathKind { missing, file, directory, link, other };
+struct PathStat {
+    PathKind kind = PathKind::missing;
+    std::uint64_t size = 0; // folders: what the system reports (0 on Windows)
+    std::int64_t atime = 0; // Unix seconds
+    std::int64_t mtime = 0;
+    bool is_file() const { return kind == PathKind::file; }
+    bool is_directory() const { return kind == PathKind::directory; }
+};
+// `kind` is `missing` when the path cannot be read (`error` then says why).
+PathStat stat_path(const std::string& path, bool follow_links = true, std::string* error = nullptr);
+// The names in a folder, without "." and "..", in the order the system gives.
+Result<std::vector<std::string>> list_directory(const std::string& path);
+// Creates one folder; fails when something is already there.
+Status make_directory(const std::string& path);
+Status remove_file(const std::string& path);
+Status remove_directory(const std::string& path); // must be empty
+// Renames a file or folder, replacing a file at `to`. Fails with
+// Errc::unsupported when `to` is on another drive (copy instead).
+Status rename_path(const std::string& from, const std::string& to);
+// Sets the access and modification times (Unix seconds).
+Status set_file_times(const std::string& path, std::int64_t atime, std::int64_t mtime);
+// Sets both to now.
+Status touch_file(const std::string& path);
+// Pushes written data to the drives (sync(2)). Windows has no such call for
+// files already closed, so there it does nothing.
+void flush_file_system();
+struct DiskSpace {
+    std::uint64_t total = 0;
+    std::uint64_t free = 0; // available to this process
+};
+Result<DiskSpace> disk_space(const std::string& path);
+int process_id();
+// "/x" on POSIX; "C:/x", "C:\\x" or "//server/share" on Windows.
+bool is_absolute_path(const std::string& path);
+// '\\' to '/' on Windows; unchanged elsewhere.
+std::string portable_path(std::string path);
+// Drops trailing '/', but keeps "/" and a drive root ("C:/").
+std::string without_trailing_slashes(std::string path);
+// dir + "/" + name, without doubling the '/' of "/" or "C:/".
+std::string join_path(const std::string& dir, const std::string& name);
+// An environment variable as UTF-8 ("" when unset).
+std::string environment(const char* name);
+// The program's arguments as UTF-8 (Windows passes main() the ANSI code page).
+std::vector<std::string> program_arguments(int argc, char** argv);
+// Makes stdout and stderr take UTF-8 (the Windows console); else nothing.
+void use_utf8_console();
+bool stderr_is_terminal();
+// fopen() for a UTF-8 path (fopen itself takes the ANSI code page on Windows).
+std::FILE* open_stdio(const std::string& path, const char* mode);
+
 bool path_exists(const std::string& path);
 bool is_directory(const std::string& path);
 bool is_regular_file(const std::string& path); // follows symlinks
@@ -147,8 +204,16 @@ Status make_parent_directories(const std::string& path);
 // Absolute path with symlinks resolved. For a path that does not exist yet,
 // resolves the nearest existing parent and appends the rest.
 Result<std::string> absolute_path(const std::string& path);
+// Whether `name` (from an image, or typed in the page) is one plain name that
+// stays inside its folder here: no '/', "." or "..", and on Windows none of
+// \\ : * ? " < > | or control characters either (':' would write to an
+// alternate data stream).
+bool safe_file_name(std::string_view name);
 // "/a/b/c" -> "c"; trailing slashes ignored.
 std::string base_name(const std::string& path);
 std::string os_error_message(int error_number);
+// The message for the calling thread's last failed system call (errno, or
+// GetLastError on Windows).
+std::string last_os_error();
 
 } // namespace alembic

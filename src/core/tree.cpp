@@ -6,11 +6,6 @@
 
 #include <algorithm>
 #include <cerrno>
-#include <dirent.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/time.h>
-#include <unistd.h>
 
 namespace alembic::tree {
 
@@ -38,26 +33,19 @@ public:
     }
 
     Status scan(const std::string& path, Node& parent) {
-        DIR* dir = ::opendir(path.c_str());
-        if (!dir) return make_error(Errc::io, "cannot open folder '" + path + "': " + os_error_message(errno));
+        ALEMBIC_ASSIGN(std::vector<std::string> names, list_directory(path));
         Status status;
-        for (;;) {
-            errno = 0;
-            dirent* entry = ::readdir(dir);
-            if (!entry) {
-                if (errno != 0) status = make_error(Errc::io, "cannot read folder '" + path + "'");
-                break;
-            }
-            std::string name = entry->d_name;
-            if (name == "." || name == ".." || is_os_junk(name)) continue;
+        for (std::string& name : names) {
+            if (is_os_junk(name)) continue;
             std::string full = path + "/" + name;
-            struct stat st {};
-            if (::lstat(full.c_str(), &st) != 0) {
-                status = make_error(Errc::io, "cannot stat '" + full + "': " + os_error_message(errno));
+            std::string why;
+            PathStat st = stat_path(full, false, &why);
+            if (st.kind == PathKind::missing) {
+                status = make_error(Errc::io, "cannot stat '" + full + "': " + why);
                 break;
             }
-            if (S_ISLNK(st.st_mode)) continue; // PS5PKGTool skips reparse points
-            if (!S_ISDIR(st.st_mode) && !S_ISREG(st.st_mode)) {
+            if (st.kind == PathKind::link) continue; // PS5PKGTool skips reparse points
+            if (st.kind != PathKind::directory && st.kind != PathKind::file) {
                 status = make_error(Errc::unsupported, "not a regular file or folder: " + full);
                 break;
             }
@@ -66,15 +54,14 @@ public:
                 break;
             }
             Node node;
-            node.name = name;
-            node.is_directory = S_ISDIR(st.st_mode);
-            node.size = node.is_directory ? 0 : static_cast<std::uint64_t>(st.st_size);
-            node.mtime = static_cast<std::int64_t>(st.st_mtime);
+            node.name = std::move(name);
+            node.is_directory = st.is_directory();
+            node.size = node.is_directory ? 0 : st.size;
+            node.mtime = st.mtime;
             node.id = paths_.size();
             paths_.push_back(full);
             parent.children.push_back(std::move(node));
         }
-        ::closedir(dir);
         if (!status.ok()) return status;
         for (Node& child : parent.children) {
             if (!child.is_directory) continue;
@@ -103,7 +90,7 @@ struct Extraction {
     // Flushes everything written so far, then records the finished files
     // and how far the current one is.
     Status save() {
-        ::sync();
+        flush_file_system();
         since_save = 0;
         return session->save(resume::State{
             {"format", resume::kFolderFormat}, {"files", files}, {"bytes", current}, {"done", done}});
@@ -124,8 +111,7 @@ Status write_one(const Source& source, const Node& file, const std::string& path
         ALEMBIC_TRY(out.truncate(from));
     } else {
         if (path_exists(path) && !overwrite) return make_error(Errc::invalid_argument, "the output file already exists: " + path);
-        if (path_exists(path) && ::unlink(path.c_str()) != 0)
-            return make_error(Errc::io, "cannot replace '" + path + "': " + os_error_message(errno));
+        if (path_exists(path)) ALEMBIC_TRY(remove_file(path));
         ALEMBIC_ASSIGN(out, File::open(path, File::Mode::create_new));
     }
     x.current = from;
@@ -145,8 +131,7 @@ Status write_one(const Source& source, const Node& file, const std::string& path
         }
     }
     ALEMBIC_TRY(out.close());
-    timeval times[2] = {{static_cast<time_t>(file.mtime), 0}, {static_cast<time_t>(file.mtime), 0}};
-    ::utimes(path.c_str(), times); // best effort
+    (void)set_file_times(path, file.mtime, file.mtime); // best effort
     x.current = 0;
     ++x.files;
     return {};
@@ -154,13 +139,10 @@ Status write_one(const Source& source, const Node& file, const std::string& path
 
 Status extract_into(const Source& source, const Node& directory, const std::string& folder, bool overwrite,
                     Extraction& x, const ProgressFn& progress) {
-    if (!is_directory(folder) && ::mkdir(folder.c_str(), 0755) != 0)
-        return make_error(Errc::io, "cannot create folder '" + folder + "': " + os_error_message(errno));
+    if (!is_directory(folder)) ALEMBIC_TRY(make_directory(folder));
     for (const Node& child : directory.children) {
         // Names come from untrusted images: never let one leave the folder.
-        if (child.name.empty() || child.name == "." || child.name == ".." ||
-            child.name.find('/') != std::string::npos || child.name.find('\0') != std::string::npos)
-            return make_error(Errc::invalid_data, "unsafe name in the image: " + child.name);
+        if (!safe_file_name(child.name)) return make_error(Errc::invalid_data, "unsafe name in the image: " + child.name);
         std::string path = folder + "/" + child.name;
         if (child.is_directory) {
             ALEMBIC_TRY(extract_into(source, child, path, overwrite, x, progress));
@@ -168,9 +150,9 @@ Status extract_into(const Source& source, const Node& directory, const std::stri
         }
         // A continued run keeps the files finished before its checkpoint and
         // the written part of the one it stopped in.
-        struct stat st{};
-        bool there = x.resuming && ::stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
-        std::uint64_t size = there ? static_cast<std::uint64_t>(st.st_size) : 0;
+        PathStat st = x.resuming ? stat_path(path) : PathStat{};
+        bool there = st.is_file();
+        std::uint64_t size = st.size;
         if (there && x.files < x.keep && size == child.size) {
             ++x.files;
             x.done += child.size;

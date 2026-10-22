@@ -15,6 +15,8 @@ tools/oracle/compare.sh /path/to/PS5PKGTool   # byte-for-byte check vs PS5PKGToo
 tools/pkg-oracle/compare.sh                   # FPKG reading vs ProsperoPkgTool/LibProsperoPKG
 tools/pkg-oracle/check_samples.sh             # real files in .refs/samples/ (owner-supplied)
 tools/lz4-oracle/compare.sh                   # LZ4 packs vs ampr_emu's ampr_pack.py (needs .refs/venv)
+cmake -S . -B build-win -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake \
+      -DLLVM_MINGW=$PWD/.refs/llvm-mingw-20261006-ucrt-macos-universal && cmake --build build-win   # Windows .exe
 ```
 
 Output must stay byte-identical to PS5PKGTool (the AMPR index with
@@ -64,6 +66,12 @@ environment in `.refs/mkpfs-venv`).
   backport folder for an image). Never for FPKG output.
 - **Language rules:** C++20 with no exceptions and no RTTI (the PS5 build
   forbids them), so errors are returned as values.
+- **Windows:** cross-built with llvm-mingw, tested on a GitHub Windows runner
+  (`tools/windows/smoke.sh`) and on the owner's PC. Files and folders go
+  through `alembic/io.hpp` (UTF-8 paths with '/', `\\?\` long paths on
+  Windows) and sockets through `src/engine/net.hpp`: no direct POSIX
+  file, folder or socket calls (nor `fopen`) outside those and
+  `platform_ps5.cpp`.
 - **License:** GPL-3.0-or-later, compatible with every source we port from.
 - **Third-party files at run time:** the engine's Components page downloads
   them on request from a fixed URL, pinned by SHA-256 (`src/engine/deps.cpp`):

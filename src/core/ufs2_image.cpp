@@ -24,7 +24,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
-#include <unistd.h>
 
 namespace alembic::ufs2 {
 
@@ -968,7 +967,7 @@ Result<ImageBuilder> ImageBuilder::from_source(const tree::Source& source, const
     m.fpb = m.bsize / m.fsize;
     m.now = options.timestamp ? *options.timestamp
                               : std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    m.pid = options.process_id ? *options.process_id : static_cast<std::int32_t>(::getpid());
+    m.pid = options.process_id ? *options.process_id : static_cast<std::int32_t>(process_id());
     m.volume = sanitize_volume(options.volume_name);
     if (!root.is_directory) return make_error(Errc::invalid_argument, "the UFS2 root must be a folder");
 
@@ -1216,7 +1215,7 @@ Status write_image(const tree::Source& source, const tree::Node& root, const std
     } else {
         if (!o.timestamp)
             o.timestamp = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-        if (!o.process_id) o.process_id = static_cast<std::int32_t>(::getpid());
+        if (!o.process_id) o.process_id = static_cast<std::int32_t>(process_id());
     }
     ALEMBIC_ASSIGN(ImageBuilder builder, ImageBuilder::from_source(source, root, o));
     const std::uint64_t length = builder.image_length();

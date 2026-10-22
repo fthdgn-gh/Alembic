@@ -1,16 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "http.hpp"
 
-#include <arpa/inet.h>
-#include <cerrno>
+#include "net.hpp"
+
 #include <chrono>
 #include <cstring>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
 #include <string_view>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
 
 namespace alembic::engine {
 
@@ -37,10 +32,10 @@ const char* reason(int status) {
     }
 }
 
-bool send_all(int fd, const char* data, std::size_t size) {
+bool send_all(net::Socket fd, const char* data, std::size_t size) {
     while (size) {
-        ssize_t n = ::send(fd, data, size, 0);
-        if (n < 0 && errno == EINTR) continue;
+        long n = net::send(fd, data, size);
+        if (n < 0 && net::should_retry()) continue;
         if (n <= 0) return false;
         data += n;
         size -= static_cast<std::size_t>(n);
@@ -59,7 +54,7 @@ std::string trim(std::string s) {
     return s;
 }
 
-void write_response(int fd, const HttpResponse& r) {
+void write_response(net::Socket fd, const HttpResponse& r) {
     std::string head = "HTTP/1.1 " + std::to_string(r.status) + " " + reason(r.status) + "\r\n";
     head += "Content-Type: " + r.content_type + "\r\n";
     head += "Content-Length: " + std::to_string(r.body.size()) + "\r\n";
@@ -107,31 +102,28 @@ HttpServer::~HttpServer() { stop(); }
 
 Status HttpServer::start(const std::string& address, std::uint16_t port, HttpHandler handler) {
     handler_ = std::move(handler);
-    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return make_error(Errc::io, std::string("socket: ") + std::strerror(errno));
-    int one = 1;
-    ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+    if (!net::startup()) return make_error(Errc::io, "cannot start the network (Winsock)");
+    net::Socket fd = net::tcp_socket();
+    if (fd == net::kNone) return make_error(Errc::io, "socket: " + net::error_text());
+    net::set_reuse_address(fd);
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     if (::inet_pton(AF_INET, address.c_str(), &addr.sin_addr) != 1) {
-        ::close(fd);
+        net::close(fd);
         return make_error(Errc::invalid_argument, "bad listen address " + address);
     }
-    if (::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof addr) != 0) {
-        int e = errno;
-        ::close(fd);
-        return make_error(Errc::io, "cannot listen on port " + std::to_string(port) + ": " + std::strerror(e));
+    if (!net::bind(fd, addr)) {
+        std::string e = net::error_text();
+        net::close(fd);
+        return make_error(Errc::io, "cannot listen on port " + std::to_string(port) + ": " + e);
     }
-    if (::listen(fd, 16) != 0) {
-        int e = errno;
-        ::close(fd);
-        return make_error(Errc::io, std::string("listen: ") + std::strerror(e));
+    if (!net::listen(fd, 16)) {
+        std::string e = net::error_text();
+        net::close(fd);
+        return make_error(Errc::io, "listen: " + e);
     }
-    sockaddr_in bound{};
-    socklen_t len = sizeof bound;
-    ::getsockname(fd, reinterpret_cast<sockaddr*>(&bound), &len);
-    port_ = ntohs(bound.sin_port);
+    port_ = net::local_port(fd);
     listen_fd_ = fd;
     stopping_ = false;
     thread_ = std::thread([this] { accept_loop(); });
@@ -139,11 +131,11 @@ Status HttpServer::start(const std::string& address, std::uint16_t port, HttpHan
 }
 
 void HttpServer::stop() {
-    if (listen_fd_ < 0) return;
+    if (listen_fd_ == net::kNone) return;
     stopping_ = true;
-    ::shutdown(listen_fd_, SHUT_RDWR);
-    ::close(listen_fd_);
-    listen_fd_ = -1;
+    net::shutdown(listen_fd_);
+    net::close(listen_fd_);
+    listen_fd_ = net::kNone;
     if (thread_.joinable()) thread_.join();
     // Connection threads are detached; wait briefly for them to finish.
     for (int i = 0; i < 200 && active_ > 0; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -152,10 +144,9 @@ void HttpServer::stop() {
 void HttpServer::accept_loop() {
     while (!stopping_) {
         sockaddr_in peer{};
-        socklen_t len = sizeof peer;
-        int fd = ::accept(listen_fd_, reinterpret_cast<sockaddr*>(&peer), &len);
-        if (fd < 0) {
-            if (errno == EINTR) continue;
+        net::Socket fd = net::accept(listen_fd_, &peer);
+        if (fd == net::kNone) {
+            if (net::should_retry()) continue;
             if (stopping_) break;
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
             continue;
@@ -164,29 +155,27 @@ void HttpServer::accept_loop() {
         ::inet_ntop(AF_INET, &peer.sin_addr, ip, sizeof ip);
         if (active_ >= kMaxConnections) {
             write_response(fd, error_response(503, "busy"));
-            ::close(fd);
+            net::close(fd);
             continue;
         }
         ++active_;
         std::thread([this, fd, p = std::string(ip)] {
             serve(fd, p);
-            ::close(fd);
+            net::close(fd);
             --active_;
         }).detach();
     }
 }
 
-void HttpServer::serve(int fd, std::string peer) {
-    timeval timeout{10, 0};
-    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout);
-    ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout);
+void HttpServer::serve(net::Socket fd, std::string peer) {
+    net::set_timeouts(fd, 10);
 
     std::string data;
     std::size_t header_end = std::string::npos;
     char buf[4096];
     while (header_end == std::string::npos) {
-        ssize_t n = ::recv(fd, buf, sizeof buf, 0);
-        if (n < 0 && errno == EINTR) continue;
+        long n = net::recv(fd, buf, sizeof buf);
+        if (n < 0 && net::should_retry()) continue;
         if (n <= 0) return;
         data.append(buf, static_cast<std::size_t>(n));
         header_end = data.find("\r\n\r\n");
@@ -239,8 +228,8 @@ void HttpServer::serve(int fd, std::string peer) {
     }
     req.body = data.substr(header_end + 4);
     while (req.body.size() < length) {
-        ssize_t n = ::recv(fd, buf, sizeof buf, 0);
-        if (n < 0 && errno == EINTR) continue;
+        long n = net::recv(fd, buf, sizeof buf);
+        if (n < 0 && net::should_retry()) continue;
         if (n <= 0) return;
         req.body.append(buf, static_cast<std::size_t>(n));
     }

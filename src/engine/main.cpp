@@ -66,12 +66,9 @@
 #include <csignal>
 #include <cstdio>
 #include <ctime>
-#include <dirent.h>
 #include <mutex>
-#include <sys/stat.h>
 #include <system_error>
 #include <thread>
-#include <unistd.h>
 
 #ifndef ALEMBIC_VERSION
 #define ALEMBIC_VERSION "dev"
@@ -105,7 +102,7 @@ void log_line(const std::string& message) {
     std::strftime(stamp, sizeof stamp, "%Y-%m-%d %H:%M:%S", std::localtime(&t));
     std::fprintf(stderr, "%s %s\n", stamp, message.c_str());
     if (g_log_path.empty()) return;
-    if (std::FILE* f = std::fopen(g_log_path.c_str(), "a")) {
+    if (std::FILE* f = alembic::open_stdio(g_log_path, "a")) {
         std::fprintf(f, "%s %s\n", stamp, message.c_str());
         std::fclose(f);
     }
@@ -125,10 +122,9 @@ HttpResponse error(int status, const std::string& message) {
     return json(status, v);
 }
 
-std::string strip_slashes(std::string p) {
-    while (p.size() > 1 && p.back() == '/') p.pop_back();
-    return p;
-}
+// Paths from the page and the command line: '/' between parts (Windows may
+// send '\\'), no trailing '/' except for "/" and "C:/".
+std::string strip_slashes(std::string p) { return without_trailing_slashes(portable_path(std::move(p))); }
 
 std::string file_sha256(const std::string& path) {
     auto file = File::open(path, File::Mode::read);
@@ -347,7 +343,7 @@ private:
             std::string code = (*body)["lang"].str();
             if (!l10n::has_language(code)) return error(400, "unknown language: " + code);
             l10n::set_language(code);
-            if (std::FILE* f = std::fopen(lang_path().c_str(), "w")) {
+            if (std::FILE* f = alembic::open_stdio(lang_path(), "w")) {
                 std::fputs(code.c_str(), f);
                 std::fclose(f);
             }
@@ -410,8 +406,8 @@ private:
             log_line("remove home-screen shortcut by " + r.peer + (s.ok() ? "" : ": " + s.error().message));
         }
         if (!s.ok()) return error(502, s.error().message);
-        if (enable) ::unlink(launcher_off_path().c_str());
-        else if (std::FILE* f = std::fopen(launcher_off_path().c_str(), "w")) std::fclose(f);
+        if (enable) (void)remove_file(launcher_off_path());
+        else if (std::FILE* f = alembic::open_stdio(launcher_off_path(), "w")) std::fclose(f);
         return info();
     }
 
@@ -512,8 +508,8 @@ private:
             return json(200, v);
         }
         if (!path_allowed(path, config_.available_roots())) return error(403, "outside the allowed folders");
-        DIR* dir = ::opendir(path.c_str());
-        if (!dir) return error(404, "cannot open " + path);
+        auto names = list_directory(path);
+        if (!names.ok()) return error(404, "cannot open " + path);
         struct Item {
             std::string name;
             bool dir;
@@ -522,19 +518,14 @@ private:
             bool game = false;
         };
         std::vector<Item> items;
-        while (dirent* d = ::readdir(dir)) {
-            std::string name = d->d_name;
-            if (name == "." || name == "..") continue;
-            struct stat st{};
-            if (::stat((path + "/" + name).c_str(), &st) != 0) continue;
-            Item item{name, S_ISDIR(st.st_mode), static_cast<std::uint64_t>(st.st_size),
-                      static_cast<std::int64_t>(st.st_mtime)};
+        for (const std::string& name : *names) {
+            PathStat st = stat_path(join_path(path, name));
+            if (st.kind == PathKind::missing) continue;
+            Item item{name, st.is_directory(), st.size, st.mtime};
             // A game folder: sce_sys/param.json inside.
-            struct stat ps{};
-            item.game = item.dir && ::stat((path + "/" + name + "/sce_sys/param.json").c_str(), &ps) == 0;
+            item.game = item.dir && path_exists(join_path(path, name) + "/sce_sys/param.json");
             items.push_back(std::move(item));
         }
-        ::closedir(dir);
         std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) {
             if (a.dir != b.dir) return a.dir;
             return a.name < b.name;
@@ -542,7 +533,7 @@ private:
         for (const Item& i : items) {
             JsonValue e = JsonValue::object();
             e.set("name", i.name);
-            e.set("path", path + "/" + i.name);
+            e.set("path", join_path(path, i.name));
             e.set("kind", kind_of(i.name, i.dir));
             if (i.game) e.set("game", true);
             if (!i.dir) e.set("size", i.size);
@@ -551,6 +542,7 @@ private:
         }
         v.set("path", path);
         std::string parent = path.substr(0, path.rfind('/'));
+        if (parent.size() == 2 && parent[1] == ':') parent += '/'; // "C:/x" -> "C:/"
         bool is_root = std::any_of(config_.roots.begin(), config_.roots.end(),
                                    [&](const std::string& root) { return strip_slashes(root) == path; });
         if (is_root || parent.empty() || !path_allowed(parent, config_.available_roots()))
@@ -965,7 +957,17 @@ private:
 
 int main(int argc, char** argv) {
     using namespace alembic::engine;
+    // UTF-8 arguments on Windows too (main() gets the ANSI code page there).
+    alembic::use_utf8_console();
+    std::vector<std::string> utf8 = alembic::program_arguments(argc, argv);
+    std::vector<char*> pointers;
+    for (std::string& a : utf8) pointers.push_back(a.data());
+    pointers.push_back(nullptr);
+    argc = static_cast<int>(utf8.size());
+    argv = pointers.data();
+#ifdef SIGPIPE
     std::signal(SIGPIPE, SIG_IGN); // a client closing early must not end the engine
+#endif
 
     EngineConfig config;
     config.state_dir = platform::default_state_dir();
@@ -985,11 +987,11 @@ int main(int argc, char** argv) {
         } else if (a == "--listen") {
             address = next();
         } else if (a == "--state") {
-            config.state_dir = next();
+            config.state_dir = strip_slashes(next());
         } else if (a == "--root") {
-            roots.push_back(next());
+            roots.push_back(strip_slashes(next()));
         } else if (a == "--runtime") {
-            runtime = next();
+            runtime = strip_slashes(next());
         } else if (a == "--shadowmount") {
             shadowmount = next();
         } else {
@@ -1012,7 +1014,7 @@ int main(int argc, char** argv) {
     l10n::load(kI18nJs, kI18nJsSize);
     {
         std::string code = platform::system_language();
-        if (std::FILE* f = std::fopen((config.state_dir + "/lang").c_str(), "r")) {
+        if (std::FILE* f = alembic::open_stdio((config.state_dir + "/lang"), "r")) {
             char buf[16] = {};
             if (std::fgets(buf, sizeof buf, f)) code = buf;
             std::fclose(f);

@@ -29,7 +29,6 @@
 #include <mutex>
 #include <set>
 #include <thread>
-#include <unistd.h>
 #include <unordered_map>
 
 namespace alembic::lz4pack {
@@ -858,7 +857,7 @@ Status PackedTreeImpl::pass_one(const PackOptions& options, const ProgressFn& pr
             auto f = saved_chunks ? File::open(cp->sidecar_path, File::Mode::read_write)
                                   : Result<File>(make_error(Errc::io, "new"));
             if (!f.ok()) {
-                ::unlink(cp->sidecar_path.c_str());
+                (void)remove_file(cp->sidecar_path);
                 f = File::open(cp->sidecar_path, File::Mode::create_new);
             }
             if (!f.ok()) return f.error();

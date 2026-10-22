@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // A minimal HTTP/1.1 server for the engine API: one request per connection
-// (Connection: close), small bodies, no TLS. Plain POSIX sockets, so it runs
+// (Connection: close), small bodies, no TLS. Plain sockets (net.hpp), so it runs
 // the same on the PS5 and on a PC.
 #pragma once
 
@@ -49,10 +49,10 @@ public:
 
 private:
     void accept_loop();
-    void serve(int fd, std::string peer);
+    void serve(std::intptr_t fd, std::string peer); // a net::Socket
 
     HttpHandler handler_;
-    int listen_fd_ = -1;
+    std::intptr_t listen_fd_ = -1; // a net::Socket
     std::uint16_t port_ = 0;
     std::atomic<bool> stopping_{false};
     std::atomic<int> active_{0};

@@ -4,7 +4,6 @@
 #include "test.hpp"
 
 #include <cstdio>
-#include <unistd.h>
 #include <vector>
 
 using namespace alembic;
@@ -147,7 +146,7 @@ TEST_CASE(fpkg_resume_matches_uninterrupted) {
             };
             convert::Options o = plain;
             o.resume = &session;
-            ::unlink(output.c_str());
+            (void)remove_file(output);
             auto stopped = convert::run(game, output, convert::Format::fpkg, o, [&](const ProgressEvent&) { return saved.size() < 5; });
             CHECK(!stopped.ok());
             CHECK(saved.size() >= 5);
