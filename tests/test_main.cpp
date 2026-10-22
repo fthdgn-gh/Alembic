@@ -115,6 +115,10 @@ int main(int argc, char** argv) {
     for (const test::Case& c : test::registry()) {
         if (filter && !std::strstr(c.name, filter)) continue;
         int before = test::failures();
+        if (verbose) { // first, so a test that never ends is named
+            std::fprintf(stderr, "...  %s\n", c.name);
+            std::fflush(stderr);
+        }
         c.fn();
         ++run;
         if (verbose || test::failures() != before)

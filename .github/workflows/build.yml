@@ -31,8 +31,10 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - name: Build
         run: cmake --build build -j 4
+      # -v names each test as it starts, so one that hangs shows in the log.
       - name: Unit tests
-        run: ./build/alembic_tests
+        run: ./build/alembic_tests -v
+        timeout-minutes: 10
       # A tarball keeps the executable bits (zipped artifacts drop them).
       - name: Package
         run: |
