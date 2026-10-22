@@ -5,6 +5,8 @@
 // kept here.
 #pragma once
 
+#include "alembic/result.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -66,5 +68,26 @@ std::string host_name();
 // Its IPv4 addresses that other devices can reach: not loopback (127.x) or
 // link-local (169.254.x); best effort, empty when they cannot be read.
 std::vector<std::string> local_addresses();
+// Where a broadcast reaches each of those networks ("192.168.1.255"), then
+// 255.255.255.255 (which some systems send on one interface only).
+std::vector<std::string> broadcast_addresses();
+
+// UDP: a socket bound to every interface on `port`, allowed to broadcast and
+// to share the port with other programs (several engines on one computer).
+Socket udp_socket(std::uint16_t port);
+bool send_to(Socket s, const std::string& ip, std::uint16_t port, const void* data, std::size_t size);
+// Waits up to `timeout_ms` for one datagram: its size, 0 on a time-out, < 0
+// on failure; `from` gets the sender's address.
+long receive_from(Socket s, void* data, std::size_t size, int timeout_ms, std::string* from);
+
+// A plain HTTP/1.1 request ("Connection: close") with a time-out on each
+// step; the reply body is at most `max_body` bytes.
+struct HttpReply {
+    int status = 0;
+    std::string body;
+};
+Result<HttpReply> http_request(const std::string& host, std::uint16_t port, const std::string& method,
+                               const std::string& path, const std::string& body = "", int timeout_ms = 3000,
+                               std::size_t max_body = 4u << 20);
 
 } // namespace alembic::engine::net

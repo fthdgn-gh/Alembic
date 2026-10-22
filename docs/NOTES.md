@@ -1509,6 +1509,41 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   console's browser, so the hint and the chord are PS5-only now; on a PC
   L2/R2 page at once (no wait for the other trigger).
 
+### 2026-10-22: engines find each other (step 1 of working across engines)
+
+- **Plan (agreed with the owner):** engines see each other on the network;
+  then pairing (a code shown on one, typed on the other; a shared key after
+  that) before anything reads or writes files; then another engine's files
+  as inputs and its folders as outputs (`/peer/<id>/...`, ranged reads and
+  writes at any offset, so every format and resuming work); then queuing a
+  job on another engine. A job has three parts that can each be any
+  engine: the source, the engine that converts, the target (owner).
+- **Discovery** (`src/engine/peers.cpp`): with Settings > Other engines >
+  "Find engines on this network" on (off by default, kept in
+  `<state>/discovery.on`), an engine broadcasts a JSON beacon on UDP 5940
+  every 5 s to each interface's broadcast address and 255.255.255.255:
+  `{"alembic":"engine","v":1,"id","name","os","platform","version","port"}`;
+  the first after switching on carries `"query":true` and the others answer
+  at once (a broadcast too: engines sharing the port on one computer each get
+  only some unicast datagrams). Heard engines drop off after 20 s of
+  silence; the address is where the beacon came from, not what it says.
+  Text from beacons is cleaned (no control characters, at most 80 bytes,
+  whole UTF-8). An id per engine in `<state>/engine_id`; `/api/info` has
+  it.
+- **By address:** Settings > "Add an engine by address…" asks the engine's
+  `/api/info` (works with discovery off and across networks that drop
+  broadcasts); kept in `<state>/peers.json` and asked again every 15 s
+  ("Not reachable: ..." when it does not answer).
+- **API:** `GET /api/peers`, `POST /api/peers/discovery {enabled}`,
+  `POST /api/peers {address, port}`, `DELETE /api/peers/ID`. `--discovery-port`
+  for tests. Discovery shares nothing /api/info does not already show.
+- **Checked on the Mac:** two engines (ports 6101/6102, one discovery port)
+  find each other within a second of switching on; off by default; switching
+  off empties the list; added by address; "that is this engine"; an engine
+  that is not there; removed. Unit test for beacons. Windows smoke test
+  switches it on (UDP port opens). **Not yet tried:** across two computers,
+  and on the PS5 (whether a payload may broadcast).
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and
@@ -1597,8 +1632,10 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
 2. ✓ zlib read-ahead for FFPFSC inputs (2026-10-22). Left: hardware
    SHA-256 (SHA-NI on the PS5, ARMv8 SHA2 on the Mac) for verify.
 3. ✓ Windows build (2026-10-22). Owner: try the .exe files on a PC.
-4. Next big item (owner): a **PC companion app**, so a PC can do the heavy
-   work (and read the PC's disk at full speed) instead of the console.
+4. **Working across engines** (owner): source, converting engine and target
+   each any engine on the network. Step 1, discovery, done (2026-10-22);
+   next: pairing, then peer files as inputs and outputs, then queuing jobs on
+   another engine. Before step 3: AES with CPU instructions on x86-64 PCs.
 5. Smaller: retail/patch packages, NAPS shuffle layouts, Kraken-compressed
    FPKG output, less pass-1 memory for LZ4.
 

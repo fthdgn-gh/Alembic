@@ -48,6 +48,10 @@ echo "$info" | grep -q '"local_url":"http://localhost:5941/"'
 root="$(win "$work")"
 curl -sf --get --data-urlencode "path=$root" http://127.0.0.1:5941/api/browse | grep -q 'out.ffpfsc'
 curl -sf --get --data-urlencode "path=$root/in" http://127.0.0.1:5941/api/browse | grep -q 'Ünïcode dir'
+# Discovery: off by default; switched on, it opens its UDP port and announces.
+curl -sf http://127.0.0.1:5941/api/peers | grep -q '"enabled":false'
+curl -sf -X POST http://127.0.0.1:5941/api/peers/discovery -d '{"enabled":true}' | grep -q '"listening":true'
+curl -sf -X POST http://127.0.0.1:5941/api/peers/discovery -d '{"enabled":false}' | grep -q '"enabled":false'
 # Outside the root: refused.
 code=$(curl -s -o /dev/null -w '%{http_code}' --get --data-urlencode "path=C:/Windows" http://127.0.0.1:5941/api/browse)
 [[ $code == 403 ]] || { echo "browsing outside the root gave $code"; exit 1; }

@@ -2,6 +2,7 @@
 // The engine's JSON value, folder rules and output naming.
 #include "json_value.hpp"
 #include "l10n.hpp"
+#include "peers.hpp"
 #include "runner.hpp"
 #include "smp.hpp"
 #include "test.hpp"
@@ -156,4 +157,41 @@ TEST_CASE(shadowmount_hidden_names_and_config) {
     auto parsed = smp::parse_endpoint("192.168.1.5:10101");
     CHECK(parsed.has_value() && parsed->address == "192.168.1.5" && parsed->port == 10101);
     CHECK(!smp::parse_endpoint("nonsense").has_value());
+}
+
+TEST_CASE(engine_discovery_beacons) {
+    peers::Identity self;
+    self.id = "0123456789abcdef0123456789abcdef";
+    self.name = "Desk PC";
+    self.os = "Windows 11 (build 26100, x64)";
+    self.platform = "host";
+    self.version = "0.1.1";
+    self.port = 5940;
+    auto b = peers::decode_beacon(peers::encode_beacon(self, true));
+    CHECK(b.ok());
+    if (!b.ok()) return;
+    CHECK(b->who.id == self.id && b->who.name == self.name && b->who.os == self.os && b->who.port == 5940);
+    CHECK(b->query);
+    CHECK(!peers::decode_beacon(peers::encode_beacon(self, false))->query);
+    // Anything else is ignored.
+    CHECK(!peers::decode_beacon("hello").ok());
+    CHECK(!peers::decode_beacon(R"({"alembic":"engine","v":2,"id":"0123456789abcdef0123456789abcdef","port":5940})").ok());
+    CHECK(!peers::decode_beacon(R"({"alembic":"engine","v":1,"id":"not-an-id","port":5940})").ok());
+    CHECK(!peers::decode_beacon(R"({"alembic":"engine","v":1,"id":"0123456789abcdef0123456789abcdef","port":70000})").ok());
+    // Text from the network is cleaned: no control characters, at most 80 bytes, whole UTF-8 sequences.
+    std::string long_name(78, 'a');
+    long_name += "\xC3\xA9\xC3\xA9"; // 82 bytes, the cut falls inside the second é
+    auto c = peers::decode_beacon(R"({"alembic":"engine","v":1,"id":"0123456789abcdef0123456789abcdef","port":1,"name":"a\u0007b","os":")" + long_name + "\"}");
+    CHECK(c.ok());
+    if (!c.ok()) return;
+    CHECK(c->who.name == "ab");
+    CHECK(c->who.os == std::string(78, 'a') + "\xC3\xA9");
+    auto d = peers::decode_beacon(R"({"alembic":"engine","v":1,"id":"0123456789abcdef0123456789abcdef","port":1,"os":")" +
+                                  std::string(79, 'a') + "\xC3\xA9\"}"); // the cut splits the é
+    CHECK(d.ok() && d->who.os == std::string(79, 'a'));
+    // The engine's id is made once and kept.
+    std::string dir = test::make_temp_dir();
+    std::string id = peers::engine_id(dir);
+    CHECK(id.size() == 32);
+    CHECK(peers::engine_id(dir) == id);
 }

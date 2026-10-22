@@ -136,6 +136,7 @@ body.covered .view.scroll, body.covered .view .scroll, .overlay.under .scroll { 
 /* buttons */
 .btn { background: var(--panel2); border: 1px solid var(--line2); border-radius: .65rem; padding: .55rem 1.05rem; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; color: var(--text); }
 .btn:hover { border-color: var(--accent); }
+a.btn { text-decoration: none; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 .btn.danger { color: var(--bad); }
 .btn.danger.solid { background: var(--bad); border-color: var(--bad); color: #fff; }
@@ -953,6 +954,7 @@ async function loadInfo() {
   state.space = await api("GET", "/api/fs/space").catch(() => []);
   state.locations = await api("GET", "/api/locations").catch(() => []);
   state.ftp = await api("GET", "/api/ftp").catch(() => []);
+  state.peers = await api("GET", "/api/peers").catch(() => state.peers);
   renderStatus(); renderRail(); renderHints(); // the hint glyphs follow the console's Enter button
   if (state.tab === "settings") renderSettings();
 }
@@ -1582,6 +1584,35 @@ function renderSettings() {
     const test = h("button", { class: "frow", "data-key": "s:test", onclick: openControllerTest },
       h("div", { class: "fl" }, h("b", { text: t("Controller test") }), h("small", { text: t("Shows what each button sends to this page") })), h("span", { class: "arr", text: "›" }));
     box.append(h("div", { class: "head2" }, h("div", { class: "sect", text: t("Page") })), language, scale, test);
+    // Other Alembic engines on the network (discovery is off until switched on here).
+    box.append(h("div", { class: "head2" }, h("div", { class: "sect", text: t("Other engines") })));
+    const p = state.peers || { enabled: false, engines: [] };
+    const find = switchRow(t("Find engines on this network"),
+      t("Announces this engine on the local network every few seconds and lists the other Alembic engines that do the same. Off by default."),
+      p.enabled, async (on) => {
+        try { state.peers = await api("POST", "/api/peers/discovery", { enabled: on }); setTimeout(() => loadPeers().catch(() => {}), 1500); renderSettings(); }
+        catch (e) { toast(tMsg(e.message), "bad"); find.setOn(!on); }
+      });
+    find.setAttribute("data-key", "s:discovery");
+    box.append(find);
+    const engines = h("div", { class: "card" });
+    if (p.enabled && p.listening === false)
+      engines.append(h("p", { class: "err", style: "margin:0 0 .5rem", text: t("The discovery port could not be opened; another program may be using it.") }));
+    if (!p.engines.length)
+      engines.append(h("p", { class: "muted", style: "margin:0 0 .5rem", text: p.enabled ? t("No other engines found yet.") : t("Switch on finding engines, or add one by its address.") }));
+    for (const e of p.engines) {
+      const sub = [e.os || e.platform, e.address + ":" + e.port, e.version ? "v" + e.version : ""].filter(Boolean).join(" · ");
+      const open = h("a", { class: "btn sm", "data-key": "peer:open:" + e.id, href: e.url, target: "_blank", rel: "noopener", text: t("Open its page") });
+      const remove = e.manual ? h("button", { class: "btn sm danger", "data-key": "peer:rm:" + e.id, text: t("Remove"), onclick: () => removePeer(e) }) : null;
+      const note = e.manual && !e.reachable ? h("div", { class: "err ellip", style: "font-size:.85rem", text: t("Not reachable: {why}", { why: tMsg(e.problem || "") }) })
+        : e.manual ? h("div", { class: "muted", style: "font-size:.85rem", text: t("Added by address") }) : null;
+      engines.append(h("div", { class: "ftprow" },
+        h("div", { class: "nm", html: ICONS.server }),
+        h("div", { style: "min-width:0;flex:1" }, h("div", { class: "ellip", text: e.name }), h("div", { class: "muted mono ellip", style: "font-size:.85rem", text: sub }), note),
+        open, remove));
+    }
+    engines.append(h("div", { class: "btns" }, h("button", { class: "btn sm", "data-key": "peer:add", text: t("Add an engine by address…"), onclick: peerDialog })));
+    box.append(engines);
     box.append(h("div", { class: "head2" }, h("div", { class: "sect", text: t("FTP servers") })));
     const servers = h("div", { class: "card" },
       h("p", { class: "muted", style: "margin:0 0 .5rem", text: t("Games on another computer's FTP server can be converted from there, and exFAT, FFPKG, FFPFS and folder outputs saved there. FFPFSC and PKG outputs must be saved on the console first. Plain FTP: the password crosses the network unencrypted and is kept on the console.") }));
@@ -1657,6 +1688,33 @@ function openControllerTest() {
   inputLog.test();
 }
 // Adds an FTP server, or changes `server`; the engine logs in once before keeping it.
+async function loadPeers() {
+  state.peers = await api("GET", "/api/peers");
+  if (state.tab === "settings" && !overlays.length) renderSettings();
+}
+function peerDialog() {
+  const field = (label, attrs) => { const i = h("input", Object.assign({ class: "input mono", spellcheck: "false", autocapitalize: "off" }, attrs)); return [h("div", { class: "lbl", text: label }), i]; };
+  const [hl, host] = field(t("Address"), { placeholder: "192.168.1.10" });
+  const [pl, port] = field(t("Port"), { value: "5940", inputmode: "numeric" });
+  const msg = h("span", { class: "msg" });
+  const add = h("button", { class: "btn primary", text: t("Add"), onclick: async () => {
+    if (!host.value.trim()) { msg.textContent = t("Enter the engine's address"); msg.className = "msg err"; return; }
+    add.disabled = true; msg.textContent = t("Connecting…"); msg.className = "msg";
+    try {
+      state.peers = await api("POST", "/api/peers", { address: host.value.trim(), port: parseInt(port.value, 10) || 5940 });
+      toast(t("Engine added"), "ok");
+      closeOverlay(true);
+      renderSettings();
+    } catch (e) { msg.textContent = tMsg(e.message); msg.className = "msg err"; add.disabled = false; }
+  } });
+  openOverlay(sheet(t("Add an engine"), h("div", {}, hl, host, pl, port), [msg, h("button", { class: "btn", text: t("Cancel"), onclick: () => closeOverlay(null) }), add], "narrow"),
+    { hints: [["x", t("Choose")], ["o", t("Cancel"), goBack]] });
+}
+async function removePeer(e) {
+  if (!await ask({ title: t("Remove {name}?", { name: e.name }), body: h("p", { style: "margin-top:0", text: t("Nothing changes on that engine; it can be added again.") }), ok: t("Remove"), danger: true })) return;
+  try { state.peers = await api("DELETE", "/api/peers/" + encodeURIComponent(e.id)); toast(t("Engine removed"), "ok"); } catch (err) { toast(tMsg(err.message), "bad"); }
+  renderSettings();
+}
 function ftpDialog(server) {
   const field = (label, attrs) => { const i = h("input", Object.assign({ class: "input mono", spellcheck: "false", autocapitalize: "off" }, attrs)); return [h("div", { class: "lbl", text: label }), i]; };
   const [nl, name] = field(t("Name"), { placeholder: t("My PC"), value: server ? server.name : null });
@@ -1874,6 +1932,7 @@ loadInfo().then(() => browse("/", false)).catch((e) => { $("#status-text").textC
 refreshJobs();
 setInterval(refreshJobs, 1000);
 setInterval(() => loadInfo().catch(() => {}), 15000);
+setInterval(() => { if (state.tab === "settings" && state.peers && (state.peers.enabled || state.peers.engines.length)) loadPeers().catch(() => {}); }, 4000);
 </script>
 </body>
 </html>

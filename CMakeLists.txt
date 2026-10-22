@@ -175,6 +175,7 @@ if(ALEMBIC_BUILD_ENGINE)
         src/engine/json_value.cpp
         src/engine/l10n.cpp
         src/engine/net.cpp
+        src/engine/peers.cpp
         src/engine/remote.cpp
         src/engine/runner.cpp
         src/engine/smp.cpp

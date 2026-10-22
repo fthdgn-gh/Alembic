@@ -50,6 +50,7 @@
 #include "jobs.hpp"
 #include "json_value.hpp"
 #include "net.hpp"
+#include "peers.hpp"
 #include "platform.hpp"
 #include "ftp.hpp"
 #include "remote.hpp"
@@ -193,10 +194,23 @@ public:
         };
     }
 
-    Status start(const std::string& address, std::uint16_t port) {
+    Status start(const std::string& address, std::uint16_t port, std::uint16_t discovery_port = peers::kDiscoveryPort) {
         ALEMBIC_TRY(queue_.start());
         listen_address_ = address;
-        return server_.start(address, port, [this](const HttpRequest& r) { return handle(r); });
+        ALEMBIC_TRY(server_.start(address, port, [this](const HttpRequest& r) { return handle(r); }));
+        // Other engines on the network (peers.hpp); it needs the port we got.
+        peers::Identity self;
+        self.id = id_;
+        self.name = std::string(platform::name()) == "ps5" ? "PS5" : net::host_name();
+        if (self.name.empty()) self.name = "Alembic";
+        self.os = platform::os_description();
+        self.platform = platform::name();
+        self.version = ALEMBIC_VERSION;
+        self.port = server_.port();
+        discovery_ = std::make_unique<peers::Discovery>(config_.state_dir, self, discovery_port,
+                                                        [](const std::string& m) { log_line(m); });
+        discovery_->start();
+        return {};
     }
 
     // Where the page opens: on this computer, and from other devices (empty
@@ -225,6 +239,7 @@ public:
     }
 
     void stop() {
+        if (discovery_) discovery_->stop();
         server_.stop();
         queue_.stop();
     }
@@ -315,6 +330,7 @@ private:
         if (r.path == "/api/plan" && r.method == "POST") return plan(r, false);
         if (r.path == "/api/remote" || r.path.rfind("/api/remote/", 0) == 0) return remote_action(r);
         if (r.path == "/api/ftp" || r.path.rfind("/api/ftp/", 0) == 0) return ftp_action(r);
+        if (r.path == "/api/peers" || r.path.rfind("/api/peers/", 0) == 0) return peers_action(r);
         if (r.path == "/api/smp/scan" && r.method == "POST") {
             std::string why;
             if (!shadowmount_rescan(config_, &why)) return error(503, why);
@@ -436,6 +452,7 @@ private:
     HttpResponse info() {
         JsonValue v = JsonValue::object();
         v.set("name", "Alembic");
+        v.set("id", id_);
         v.set("version", ALEMBIC_VERSION);
         v.set("platform", platform::name());
         v.set("os", platform::os_description());
@@ -584,6 +601,60 @@ private:
             v.set("total", s->total);
         }
         return json(200, v);
+    }
+
+    // Other engines (peers.hpp): the list, discovery on/off, add one by
+    // address (asks it first), remove one.
+    HttpResponse peers_action(const HttpRequest& r) {
+        if (!discovery_) return error(503, "starting");
+        auto state = [this] {
+            JsonValue v = JsonValue::object();
+            v.set("enabled", discovery_->enabled());
+            v.set("listening", discovery_->listening());
+            JsonValue list = JsonValue::array();
+            std::int64_t t = static_cast<std::int64_t>(std::time(nullptr));
+            for (const peers::Peer& p : discovery_->list()) {
+                JsonValue e = JsonValue::object();
+                e.set("id", p.who.id);
+                e.set("name", p.who.name);
+                e.set("os", p.who.os);
+                e.set("platform", p.who.platform);
+                e.set("version", p.who.version);
+                e.set("address", p.address);
+                e.set("port", static_cast<std::int64_t>(p.who.port));
+                e.set("url", "http://" + p.address + ":" + std::to_string(p.who.port) + "/");
+                e.set("manual", p.manual);
+                e.set("reachable", p.reachable);
+                if (!p.problem.empty()) e.set("problem", p.problem);
+                e.set("seen_ago", p.last_seen ? t - p.last_seen : -1);
+                list.push(std::move(e));
+            }
+            v.set("engines", std::move(list));
+            return json(200, v);
+        };
+        if (r.path == "/api/peers" && r.method == "GET") return state();
+        if (r.path == "/api/peers/discovery" && r.method == "POST") {
+            auto body = parse_json(r.body);
+            if (!body.ok()) return error(400, body.error().message);
+            Status s = discovery_->set_enabled((*body)["enabled"].boolean(false));
+            if (!s.ok()) return error(500, s.error().message);
+            log_line(std::string("discovery switched ") + (discovery_->enabled() ? "on" : "off") + " by " + r.peer);
+            return state();
+        }
+        if (r.path == "/api/peers" && r.method == "POST") {
+            auto body = parse_json(r.body);
+            if (!body.ok()) return error(400, body.error().message);
+            std::int64_t port = (*body)["port"].integer(kDefaultPort);
+            if (port <= 0 || port > 65535) return error(400, "bad port");
+            auto added = discovery_->add((*body)["address"].str(), static_cast<std::uint16_t>(port));
+            if (!added.ok()) return error(400, added.error().message);
+            return state();
+        }
+        if (r.path.rfind("/api/peers/", 0) == 0 && r.method == "DELETE") {
+            Status s = discovery_->remove(r.path.substr(std::string("/api/peers/").size()));
+            return s.ok() ? state() : error(404, s.error().message);
+        }
+        return error(404, "not found");
     }
 
     // FTP servers (ftp.hpp): the list (no passwords), add one (logs in first), remove one.
@@ -969,6 +1040,8 @@ private:
 
     EngineConfig config_;
     std::string listen_address_;
+    std::string id_ = peers::engine_id(config_.state_dir);
+    std::unique_ptr<peers::Discovery> discovery_;
     RemoteFiles remote_; // before the queue, whose jobs may read from it
     ftp::Servers ftp_{config_.state_dir};
     GameMetaCache meta_{config_.state_dir};
@@ -1005,6 +1078,7 @@ int main(int argc, char** argv) {
     std::string address = "0.0.0.0";
     std::uint16_t port = kDefaultPort;
     std::string runtime, shadowmount;
+    std::uint16_t discovery_port = peers::kDiscoveryPort;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
@@ -1024,8 +1098,14 @@ int main(int argc, char** argv) {
             runtime = strip_slashes(next());
         } else if (a == "--shadowmount") {
             shadowmount = next();
+        } else if (a == "--discovery-port") {
+            std::string v = next();
+            unsigned value = 0;
+            auto r = std::from_chars(v.data(), v.data() + v.size(), value);
+            if (r.ec != std::errc() || value == 0 || value > 65535) return std::fprintf(stderr, "bad --discovery-port\n"), 2;
+            discovery_port = static_cast<std::uint16_t>(value);
         } else {
-            std::fprintf(stderr, "usage: %s [--port N] [--listen ADDR] [--state DIR] [--root DIR]... [--runtime FILE] [--shadowmount HOST:PORT]\n",
+            std::fprintf(stderr, "usage: %s [--port N] [--listen ADDR] [--state DIR] [--root DIR]... [--runtime FILE] [--shadowmount HOST:PORT] [--discovery-port N]\n",
                          argv[0]);
             return 2;
         }
@@ -1052,7 +1132,7 @@ int main(int argc, char** argv) {
         l10n::set_language(code);
     }
     Engine engine(config);
-    alembic::Status started = engine.start(address, port);
+    alembic::Status started = engine.start(address, port, discovery_port);
     if (!started.ok()) {
         log_line("cannot start: " + started.error().message);
         platform::notify(l10n::t("Alembic: {error}", {{"error", l10n::message(started.error().message)}}));
