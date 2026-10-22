@@ -1019,9 +1019,12 @@ function renderRail() {
         s.total ? h("div", { class: "meter" + (s.free < 20e9 ? " low" : "") }, h("div", { style: "width:" + (used * 100).toFixed(1) + "%" })) : null,
         s.total ? h("div", { class: "free", text: t("{size} free", { size: bytes(s.free) }) }) : null));
     }
-    for (const l of state.locations.filter((x) => x.peer && x.custom))
+    // Their places: the ones added by hand and the ones they suggest (a PS5's
+    // homebrew folder), not the drives themselves (listed above).
+    const peerRoots = new Set((state.peerDrives || []).map((d) => d.root));
+    for (const l of state.locations.filter((x) => x.peer && x.exists && !peerRoots.has(x.path)))
       box.append(h("button", { class: "ritem" + (state.cwd === l.path ? " on" : ""), "data-key": "p:" + l.path, title: l.path, onclick: () => browse(l.path) },
-        h("div", { class: "nm", html: ICONS.place }, h("span", { class: "ellip", text: l.place })),
+        h("div", { class: "nm", html: ICONS.place }, h("span", { class: "ellip", text: placeLabel(l.place.replace(/ · homebrew.*$/, " · homebrew")) })),
         h("div", { class: "free ellip", text: l.engine })));
     const places = state.locations.filter((l) => l.exists && !l.ftp && !l.peer && !state.space.some((s) => s.root === l.path));
     const recent = (store.get("recent") || []).filter((p) => rootOf(p) && !places.some((l) => l.path === p)).slice(0, 4);
