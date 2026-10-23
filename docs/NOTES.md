@@ -1725,7 +1725,7 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
 
 - Owner: clean up the page with a framework. Chosen (owner): Preact +
   TypeScript, built by CMake (so building the engine needs Node 20+ and npm;
-  CI sets up Node 22).
+  CI sets up Node 24).
 - **Build** (`src/engine/web/build.mjs`): esbuild bundles `src/main.tsx` and
   `src/style.css` for `safari12` (destructuring marked as supported: esbuild
   counts it missing before Safari 14.1 over an edge case, and the page has

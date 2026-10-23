@@ -33,14 +33,14 @@ jobs:
         os: [ubuntu-24.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install zlib (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
       # The engine's web page is built with Node (src/engine/web/build.mjs).
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: src/engine/web/package-lock.json
       - name: Configure
@@ -80,7 +80,7 @@ jobs:
       LLVM_MINGW_URL: https://github.com/mstorsjo/llvm-mingw/releases/download/20261006/llvm-mingw-20261006-ucrt-ubuntu-22.04-x86_64.tar.xz
       LLVM_MINGW_SHA256: 5f9c6ed95b2d4bdb2869a488c5fd5857fbdabcf288a0aa3eb1da43f6a08d8ab4
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Download llvm-mingw
         run: |
           curl -fsSL -o "$RUNNER_TEMP/llvm-mingw.tar.xz" "$LLVM_MINGW_URL"
@@ -88,9 +88,9 @@ jobs:
           tar -xf "$RUNNER_TEMP/llvm-mingw.tar.xz" -C "$RUNNER_TEMP"
           echo "LLVM_MINGW=$RUNNER_TEMP/llvm-mingw-20261006-ucrt-ubuntu-22.04-x86_64" >> "$GITHUB_ENV"
       # The engine's web page is built with Node (src/engine/web/build.mjs).
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: src/engine/web/package-lock.json
       - name: Configure
@@ -122,7 +122,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           name: windows-build
@@ -138,13 +138,13 @@ jobs:
       SDK_URL: https://github.com/ps5-payload-dev/sdk/releases/download/v0.44/ps5-payload-sdk.zip
       SDK_SHA256: 4d06eab777bb135705b5a6816688c9132efb246093fe606ac488ab6cf65ca5b0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install LLVM 18
         run: sudo apt-get update && sudo apt-get install -y clang-18 lld-18 llvm-18
       # The engine's web page is built with Node (src/engine/web/build.mjs).
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: src/engine/web/package-lock.json
       - name: Download the PS5 payload SDK
@@ -181,7 +181,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The version in file names: the tag (v0.1.0), else branch-commit (main-a2fab12).
       - name: Version
         run: |
