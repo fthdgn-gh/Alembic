@@ -13,6 +13,12 @@ processor, straight into the console's storage.
 > Work in progress. Back up anything you convert until you have checked the
 > result on your console.
 
+**Tried on a console so far:** FFPFSC images made from dumps and from
+packages run through ShadowMount+; games that need the AMPR emulator start
+once it is added; the console and a PC pair and convert for each other.
+**Not yet:** installing an FPKG that Alembic built. LZ4 asset packs work for
+some games and not for others.
+
 ## What it does
 
 | From ↓ / To → | Folder | exFAT | FFPKG (UFS2) | FFPFS (PFS) | FFPFSC | FPKG |
@@ -94,8 +100,6 @@ State (queue, settings, downloaded components) is kept in `/data/alembic`.
 
 Run `alembic-engine` on a PC as well as the payload on the console. Once
 paired, each engine can read and write the other's files and hand it jobs.
-New in 0.2.0: checked with engines on one computer, not yet between a
-console and a PC.
 
 1. In **Settings → Other engines**, switch on **Find engines on this
    network** on both (off by default), or add one by its address.
@@ -110,9 +114,8 @@ console and a PC.
 
 A job shows in the queue of every engine whose files it uses ("on Living
 room PC"), and can be paused, resumed, cancelled or cleared from the history
-on any of them. When a
-job deletes its source after checking the output, engines compare SHA-256
-digests instead of sending the files back. Files can also be sent between
+on any of them. When a job deletes its source after checking the output,
+engines compare SHA-256 digests instead of sending the files back. Files can also be sent between
 engines without converting (Options → Send to another engine).
 
 ![Settings: Places, a paired PC and a Mac found on the network, and an FTP server](docs/screenshots/engines.png)
@@ -174,12 +177,11 @@ tools/ps5/build.sh                                # → build-ps5/alembic.elf
 ```
 
 GitHub Actions builds and tests everything on every push that changes more
-than the docs (see [.github/workflows/build.yml](.github/workflows/build.yml)). Each run has the
-payload as a download of its own, `alembic-<version>.elf`, and a bundle,
-`alembic-<version>.zip`: the payload in `ps5/`, `alembic` and
+than the docs (see [.github/workflows/build.yml](.github/workflows/build.yml)).
+Each run has the payload as a download of its own, `alembic-<version>.elf`,
+and a bundle, `alembic-<version>.zip`: the payload in `ps5/`, `alembic` and
 `alembic-engine` in `linux-x64/`, `macos-arm64/` and `windows-x64/` (`.exe`),
-with the README and
-license files. The version is the tag (`v0.1.0`), else the branch and commit
+with the README and license files. The version is the tag (`v0.1.0`), else the branch and commit
 (`main-a2fab12`). A `v*` tag publishes the payload, the bundle and
 `SHA256SUMS` as a release.
 
@@ -250,7 +252,9 @@ Alembic stands on the work of the PS5 homebrew scene. Thank you to:
   and [itsPLK/ps5-payload-manager](https://github.com/itsPLK/ps5-payload-manager).
 - **blackbearreloaded** for [ps5-homebrew-ui](https://github.com/blackbearreloaded/ps5-homebrew-ui),
   the design the page follows.
-- [zlib](https://zlib.net) and [LZ4](https://github.com/lz4/lz4), bundled.
+- [zlib](https://zlib.net) and [LZ4](https://github.com/lz4/lz4), bundled
+  with the engine, and [Preact](https://github.com/preactjs/preact) with its
+  [signals](https://github.com/preactjs/signals), bundled into its page.
 
 The games, engines and addresses in the screenshots are made up
 (`tools/screenshots/shoot.sh` renders them against a stand-in engine).

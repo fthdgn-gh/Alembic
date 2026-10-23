@@ -32,7 +32,8 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   written front to back only).
 - **Console-tested (owner):** FFPFSC images from dumps and packages run via
   ShadowMount+; games that use APR start once the AMPR emulator is added;
-  some LZ4 packs run (Unity with `unity.toml`). FPKG → uncompressed exFAT
+  some LZ4 packs run (Unity with `unity.toml`); the console and a PC pair,
+  and convert for each other (2026-10-24). FPKG → uncompressed exFAT
   of a ~90 GB package: about 30 min on the console.
 - Mac speeds (14-core M-series): package B (2.8 GB) → exFAT 1.7 s, →
   FFPFSC 5.5 s, → FPKG 9.5 s.
@@ -1916,7 +1917,7 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
 4. **Working across engines** (owner): source, converting engine and target
    each any engine on the network. Steps 1-4 (discovery, pairing, peer files
    as inputs and outputs, choosing the converting engine) done 2026-10-22;
-   owner's test on the console and a PC next.
+   ✓ owner: the console and a PC pair and work together (2026-10-24).
 5. Smaller: retail/patch packages, NAPS shuffle layouts, Kraken-compressed
    FPKG output, less pass-1 memory for LZ4.
 
