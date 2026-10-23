@@ -1721,6 +1721,22 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   A (it lands in A's places.json) and removes another; outside the shared
   folders, the state folder and unsigned requests refused.
 
+### 2026-10-23: README screenshots, redone
+
+- The README was from before engines could pair. It now covers working
+  across engines (discovery, pairing, Convert on, jobs on every engine
+  involved), Places, CPU instructions and `alembic-engine --root`, with four
+  screenshots in `docs/screenshots/` (Files, Convert, Queue, Settings >
+  Other engines) instead of the one `docs/screenshot.png`.
+- `tools/screenshots/shoot.sh [name]` remakes them: it asks a throwaway
+  engine for `/api/info` and `/api/deps`, serves the real page from
+  `tools/screenshots/mock.mjs` (made-up games ALEM00011-19 with SVG icons,
+  a paired "Living room PC", an FTP "NAS", jobs that move with the clock),
+  and drives a headless Chromium browser over DevTools with a PlayStation
+  user agent at 1600x900, 2x (`shoot.mjs`). Chrome by default,
+  `BROWSER=` for another (the Mac here has Brave). When the page's API
+  changes, the mock may need the same change.
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and

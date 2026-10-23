@@ -1,12 +1,14 @@
 # Alembic
 
-![Alembic's page in the PS5 browser: a library of games in several formats, with drives and an FTP server on the left](docs/screenshot.png)
+![Alembic's page in the PS5 browser: a library of games in several formats, with drives, an FTP server and a paired PC on the left](docs/screenshots/files.png)
 
 Alembic converts PS5 games between the formats homebrew loaders use: debug
 packages (FPKG), dump folders, exFAT images, FFPKG (UFS2), FFPFS (PFS) and
 FFPFSC (compressed PFS). It runs **on the console** as a payload with a web
 page you drive with the controller, and on a PC (Windows, macOS, Linux) as a
-command-line tool.
+command-line tool or the same engine and page. Engines on your network can
+pair and work together: convert a package that sits on your PC, on the PC's
+processor, straight into the console's storage.
 
 > Work in progress. Back up anything you convert until you have checked the
 > result on your console.
@@ -38,7 +40,8 @@ command-line tool.
 - **AMPR emulator:** games that use the console's APR file reader need
   ampr_emu's `libSceAmpr.sprx` to start from an image or folder. Alembic
   adds it when converting, or to a game you already have.
-- **Fast:** compression and package decoding use every core; zlib level 6
+- **Fast:** compression and package decoding use every core; AES, CRC32C
+  and SHA-256 use the CPU's own instructions where it has them; zlib level 6
   by default (level 9 for exact PS5PKGTool output).
 
 ## On the PS5
@@ -50,16 +53,23 @@ it adds to the Media tab, or from any browser on your network at
 
 1. Send `alembic-<version>.elf` (from the releases) to your console's ELF loader.
 2. Open Alembic from the Media tab (or the address above).
-3. In **Files**, pick a game on internal storage, USB or an FTP server, then
-   **Convert**, **Install** (packages), **Copy** or **Move**.
+3. In **Files**, pick a game on internal storage, USB, an FTP server or a
+   paired engine, then **Convert**, **Install** (packages), **Copy** or
+   **Move**.
 4. Jobs run one at a time in **Queue**: pause, resume (long jobs continue
    from a checkpoint), reorder, cancel. You get a notification when one
    finishes.
+
+![The Convert dialog: target formats, compression level, the AMPR emulator switch, and the output path on a paired PC](docs/screenshots/convert.png)
+
+![The queue: a running conversion with speed and time left, a paused one that continues from its checkpoint, a copy to FTP, and a job running on the paired PC](docs/screenshots/queue.png)
 
 Also on the page:
 
 - **Controller first:** D-pad, ✕/○, L1/R1, L2/R2 and △/□ all work in the
   console's browser; a controller test is in Settings.
+- **Places:** add any folder to Places from its Options; they show in the
+  rail, in Save to, and on paired engines.
 - **FTP servers** (Settings): convert straight from a PC or NAS without
   copying the game to the console first. exFAT, FFPKG, FFPFS and folder
   outputs can be saved back to the server.
@@ -74,6 +84,36 @@ Also on the page:
 
 State (queue, settings, downloaded components) is kept in `/data/alembic`.
 
+## Working across engines
+
+Run `alembic-engine` on a PC as well as the payload on the console. Once
+paired, each engine can read and write the other's files and hand it jobs.
+New in 0.2.0: checked with engines on one computer, not yet between a
+console and a PC.
+
+1. In **Settings → Other engines**, switch on **Find engines on this
+   network** on both (off by default), or add one by its address.
+2. Press **Pair** next to the other engine. It shows a six-digit code
+   (on the PS5 as a notification, on a PC in its window); type it in.
+   Paired engines sign every request with the key they agreed on.
+3. The other engine's drives and Places appear in **Files** under
+   *Other engines*, as inputs and as places to save to.
+4. In **Convert**, **Convert on** picks the engine that does the work. The
+   source, the converting engine and the output can each be on a different
+   engine; data streams between them, with no copy made first.
+
+A job shows in the queue of every engine whose files it uses ("on Living
+room PC"), and can be paused, resumed or cancelled from any of them. When a
+job deletes its source after checking the output, engines compare SHA-256
+digests instead of sending the files back. Files can also be sent between
+engines without converting (Options → Send to another engine).
+
+![Settings: Places, a paired PC and a Mac found on the network, and an FTP server](docs/screenshots/engines.png)
+
+The page itself has no password: anyone on your network can open it. Start
+a PC engine with `--listen 127.0.0.1` to keep it to that computer; other
+engines can't reach it then.
+
 ## On a PC
 
 ```sh
@@ -86,7 +126,9 @@ alembic --help                                    # every command and option
 ```
 
 `alembic-engine` is the same engine as the payload, with the same web page
-(`http://localhost:5940`), for converting on a PC.
+(`http://localhost:5940`), for converting on a PC or pairing with the
+console. `--root DIR` (repeatable) chooses the folders it shares (your
+home folder by default); `alembic-engine --help` lists the other options.
 
 ## Building
 
@@ -178,7 +220,8 @@ Alembic stands on the work of the PS5 homebrew scene. Thank you to:
   the design the page follows.
 - [zlib](https://zlib.net) and [LZ4](https://github.com/lz4/lz4), bundled.
 
-The games in the screenshot are made up.
+The games, engines and addresses in the screenshots are made up
+(`tools/screenshots/shoot.sh` renders them against a stand-in engine).
 
 ## License
 
