@@ -132,7 +132,9 @@ home folder by default); `alembic-engine --help` lists the other options.
 
 ## Building
 
-Requirements: CMake 3.20+, a C++20 compiler, zlib (bundled for the PS5).
+Requirements: CMake 3.20+, a C++20 compiler, zlib (bundled for the PS5), and
+Node.js 20+ with npm for the engine's web page (`src/engine/web`, Preact and
+TypeScript bundled by esbuild; the first build runs `npm ci` there).
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release

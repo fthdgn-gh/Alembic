@@ -124,13 +124,32 @@ endif()
 # payload), alembic-engine on a PC for testing.
 option(ALEMBIC_BUILD_ENGINE "Build the conversion engine" ON)
 if(ALEMBIC_BUILD_ENGINE)
+    # The web page (src/engine/web): Preact and TypeScript, bundled by esbuild
+    # into one HTML file (build.mjs, which runs npm ci when needed).
+    find_program(ALEMBIC_NODE node)
+    find_program(ALEMBIC_NPM npm)
+    if(NOT ALEMBIC_NODE OR NOT ALEMBIC_NPM)
+        message(FATAL_ERROR "The engine's web page is built with Node.js 20 or later and npm: install them "
+                            "(https://nodejs.org), or configure with -DALEMBIC_BUILD_ENGINE=OFF")
+    endif()
+    set(ALEMBIC_WEB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/web)
+    set(ALEMBIC_WEB_PAGE ${CMAKE_CURRENT_BINARY_DIR}/web/index.html)
+    file(GLOB_RECURSE ALEMBIC_WEB_FILES CONFIGURE_DEPENDS ${ALEMBIC_WEB_DIR}/src/*)
+    add_custom_command(
+        OUTPUT ${ALEMBIC_WEB_PAGE}
+        COMMAND ${ALEMBIC_NODE} ${ALEMBIC_WEB_DIR}/build.mjs --out ${ALEMBIC_WEB_PAGE}
+        DEPENDS ${ALEMBIC_WEB_FILES} ${ALEMBIC_WEB_DIR}/index.html ${ALEMBIC_WEB_DIR}/build.mjs
+                ${ALEMBIC_WEB_DIR}/package.json ${ALEMBIC_WEB_DIR}/package-lock.json
+        WORKING_DIRECTORY ${ALEMBIC_WEB_DIR}
+        COMMENT "Building the engine web page"
+        VERBATIM)
     set(ALEMBIC_WEB_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/engine_index_html.cpp)
     add_custom_command(
         OUTPUT ${ALEMBIC_WEB_SOURCE}
-        COMMAND ${CMAKE_COMMAND} -DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/src/engine/web/index.html
+        COMMAND ${CMAKE_COMMAND} -DINPUT=${ALEMBIC_WEB_PAGE}
                 -DOUTPUT=${ALEMBIC_WEB_SOURCE} -DSYMBOL=kIndexHtml -DNAMESPACE=alembic::engine
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_text.cmake
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/web/index.html ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_text.cmake
+        DEPENDS ${ALEMBIC_WEB_PAGE} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_text.cmake
         COMMENT "Embedding the engine web page"
         VERBATIM)
     set(ALEMBIC_I18N_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/engine_i18n_js.cpp)

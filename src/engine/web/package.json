@@ -1,0 +1,20 @@
+{
+  "name": "alembic-page",
+  "private": true,
+  "description": "The engine's web page. CMake builds it (build.mjs) and embeds the result in the engine.",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs --out ../../../build/web/index.html",
+    "check": "tsc --noEmit",
+    "dev": "node build.mjs --serve"
+  },
+  "dependencies": {
+    "@preact/signals": "2.11.3",
+    "preact": "10.29.8"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "typescript": "6.0.3"
+  }
+}

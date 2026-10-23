@@ -89,7 +89,7 @@ const DEPS = JSON.parse(fs.readFileSync(path.join(DATA, "deps.json"), "utf8"))
 // Jobs. Running ones move along with the clock.
 const spec = (o) => Object.assign({ kind: "convert", level: 6, overwrite: false, rebuild: false, cluster_size: 0, lz4: false, lz4_profile: "auto", lz4_level: 9, lz4_runtime: "", lz4_unpack: false, ampr_emu: "auto", delete_source: false, verify: true }, o);
 const running = (id, s, stage, total, startPct, rate, elapsed0) => () => {
-  const e = now() - T0;
+  const e = process.env.MOCK_FROZEN ? 0 : now() - T0; // frozen: for comparing two builds
   return { id, spec: s, state: "running", stage, done: Math.min(total, Math.round(total * startPct + rate * e)), total, created: mt, started: mt, finished: 0, error: "", result: null, elapsed: Math.round(elapsed0 + e), keeps_progress: true };
 };
 const LOCAL = [
@@ -148,7 +148,7 @@ http.createServer((req, res) => {
   req.on("data", (c) => (body += c));
   req.on("end", () => {
     const json = body ? JSON.parse(body) : {};
-    if (p === "/" || p === "/index.html") return send(res, 200, fs.readFileSync(REPO + "/src/engine/web/index.html"), "text/html; charset=utf-8");
+    if (p === "/" || p === "/index.html") return send(res, 200, fs.readFileSync(process.env.MOCK_PAGE || REPO + "/build/web/index.html"), "text/html; charset=utf-8");
     if (p === "/i18n.js") return send(res, 200, fs.readFileSync(REPO + "/src/engine/web/i18n.js"), "text/javascript");
     if (p === "/icon.svg" || p === "/favicon.ico") return send(res, 200, fs.readFileSync(REPO + "/assets/icon/alembic.svg"), "image/svg+xml");
     if (p === "/api/info") return send(res, 200, INFO);

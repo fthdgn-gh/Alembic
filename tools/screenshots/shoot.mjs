@@ -43,27 +43,27 @@ await cdp("Page.navigate", { url: "http://127.0.0.1:5960/" });
 await sleep(2500);
 
 // 1. Files: the homebrew folder, first game focused.
-await run(`browse("/data/homebrew")`);
+await run(`__alembic.browse("/data/homebrew")`);
 await sleep(1500);
 await down(); await key("ArrowUp", "ArrowUp", 38);
 await shot("files");
 
 // 2. Convert: a package on the paired PC, opened from Files.
-await run(`browse(${JSON.stringify("/peer/6f3c9a1e24b74d0e8c51a7f2d9e0b318/D:/Games")})`);
+await run(`__alembic.browse(${JSON.stringify("/peer/6f3c9a1e24b74d0e8c51a7f2d9e0b318/D:/Games")})`);
 await sleep(1500);
-await run(`openConvert(state.listing.entries.find((e) => e.name === "Glass Meridian.pkg"))`);
+await run(`__alembic.openConvert(__alembic.state.listing.entries.find((e) => e.name === "Glass Meridian.pkg"))`);
 await sleep(1500);
 await shot("convert");
-await run(`closeOverlay(null)`);
+await run(`__alembic.closeOverlay(null)`);
 await sleep(500);
 
 // 3. Queue: give the speed estimate a few seconds of samples.
-await run(`showTab("queue")`);
+await run(`__alembic.showTab("queue")`);
 await sleep(6000);
 await shot("queue");
 
 // 4. Settings: scroll to the other engines.
-await run(`showTab("settings")`);
+await run(`__alembic.showTab("settings")`);
 await sleep(1200);
 await run(`(() => { const s = [...document.querySelectorAll("#settings .sect")].find((x) => x.textContent === "Places"); s.scrollIntoView({ block: "start" }); document.querySelector("#view-settings").scrollTop -= 20; })()`);
 await shot("engines");

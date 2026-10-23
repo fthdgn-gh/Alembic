@@ -1,0 +1,1828 @@
+"use strict";
+const $ = (s, root) => (root || document).querySelector(s);
+const $$ = (s, root) => Array.prototype.slice.call((root || document).querySelectorAll(s));
+const IS_PS5 = /PlayStation/i.test(navigator.userAgent);
+const state = { info: null, cwd: null, listing: null, jobs: [], speeds: {}, tab: "files", space: [], locations: [], pad: IS_PS5, focusEntry: null };
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem("alembic." + k)); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem("alembic." + k, JSON.stringify(v)); } catch (e) {} },
+};
+/* ---------- languages ---------- */
+// Translations are in i18n.js, keyed by the English text; anything missing stays English.
+const LANGS = [["en", "English"], ["es", "Español"], ["fr", "Français"], ["de", "Deutsch"], ["ja", "日本語"], ["tr", "Türkçe"]];
+function pickLang() {
+  const saved = store.get("lang");
+  if (saved && LANGS.some((l) => l[0] === saved)) return saved;
+  const list = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || "en"];
+  for (const x of list) { const c = String(x).toLowerCase().slice(0, 2); if (LANGS.some((l) => l[0] === c)) return c; }
+  return "en";
+}
+let lang = pickLang();
+document.documentElement.lang = lang;
+// English text in, translated text out; {name} is filled from `vars`.
+function t(text, vars) {
+  const d = (window.I18N || {})[lang];
+  let out = d && d[text] != null ? d[text] : text;
+  if (vars) out = out.replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? String(vars[k]) : m));
+  return out;
+}
+function plural(n, one, many) { return t(n === 1 ? one : many, { n: n.toLocaleString(lang) }); }
+// The engine's place names: "Internal storage", "USB 0 · homebrew", ...
+function placeLabel(s) {
+  return String(s).replace(/^Internal storage$/, t("Internal storage")).replace(/^Internal\b/, t("Internal"))
+    .replace(/^USB (\d+)/, (m, n) => t("USB {n}", { n })).replace(/^Extended (\d+)/, (m, n) => t("Extended {n}", { n }));
+}
+// How the engine did a conversion ("LZ4-packed and built a new exFAT image ...").
+function tMethod(m) {
+  if (!m) return "";
+  const p = /^(LZ4-packed|LZ4-unpacked|added the AMPR emulator) and (.*)$/.exec(m);
+  if (p) return t(p[1] + " and {rest}", { rest: tMethod(p[2]) });
+  const c = /^(re)?compressed the (exFAT|UFS2|PFS) image unchanged$/.exec(m);
+  if (c) return t(c[1] ? "recompressed the {kind} image unchanged" : "compressed the {kind} image unchanged", { kind: c[2] });
+  return t(m);
+}
+// An engine message in the page's language: an exact key, else the first of
+// I18N.messages (longest first) whose {name} parts match. The matched parts are
+// translated too, so a system reason inside an error ("No space left on
+// device") is. The engine's log keeps the English text.
+// Another engine's paths inside a message ("... exists: /peer/<id>/data/x")
+// as people read them ("PS5: /data/x").
+function peerNames(text) {
+  return String(text).replace(/\/peer\/[0-9a-f]{32}(?:\/[^\s'"),;]*)?/g, (m) => shownPath(m));
+}
+function tMsg(text) {
+  if (text == null || text === "") return "";
+  text = peerNames(String(text));
+  const d = (window.I18N || {})[lang];
+  if (!d) return text;
+  if (d[text] != null) return d[text];
+  for (const p of window.I18N.messages || []) {
+    const vars = matchPattern(p, text);
+    if (vars) { for (const k in vars) vars[k] = tMsg(vars[k]); return t(p, vars); }
+  }
+  return text;
+}
+// {name: text} when `text` has the shape of `pattern` ("cannot write '{path}': {reason}").
+function matchPattern(pattern, text) {
+  const parts = pattern.split(/\{(\w+)\}/); // literal, name, literal, ..., literal
+  if (parts.length === 1 || text.indexOf(parts[0]) !== 0) return null;
+  let pos = parts[0].length;
+  const vars = {};
+  for (let i = 1; i < parts.length; i += 2) {
+    const next = parts[i + 1], last = i + 2 >= parts.length;
+    let end;
+    if (last) { end = text.length - next.length; if (end <= pos || text.slice(end) !== next) return null; }
+    else { end = text.indexOf(next, pos + 1); if (end < 0) return null; }
+    vars[parts[i]] = text.slice(pos, end);
+    pos = end + next.length;
+  }
+  return vars;
+}
+// The shortcut status: a message, then where it came from in brackets.
+function tStatus(s) {
+  const m = /^(.*?) \(((?:at start|added by|registered again by)[^;]*); (.*)\)$/.exec(s);
+  return m ? tMsg(m[1]) + " (" + m[2] + "; " + m[3] + ")" : tMsg(s);
+}
+function applyStatic() {
+  for (const el of $$("[data-i18n]")) el.textContent = t(el.getAttribute("data-i18n"));
+  for (const el of $$("[data-i18n-title]")) el.title = t(el.getAttribute("data-i18n-title"));
+}
+// Consoles set to confirm with ○ (the engine reads the system setting). The
+// browser already sends the keys to match; the page only shows the matching
+// glyphs, and reads raw gamepad buttons (physical ✕ and ○) the same way.
+function circleConfirms() { return state.pad && !!state.info && state.info.enter_button === "circle"; }
+function swapAction(a) { return circleConfirms() && (a === "ok" || a === "back") ? (a === "ok" ? "back" : "ok") : a; }
+function backGlyph() { return circleConfirms() ? "✕" : "○"; }
+const CONVERTIBLE = ["fpkg", "exfat", "ffpfsc", "ffpkg", "ffpfs"];
+const KIND_LABEL = { fpkg: "PKG", exfat: "EXFAT", ffpfsc: "FFPFSC", ffpkg: "FFPKG", ffpfs: "FFPFS", folder: "FOLDER", file: "FILE" };
+const KIND_TITLE = { fpkg: "Package (FPKG)", exfat: "exFAT image", ffpfsc: "FFPFSC image", ffpkg: "FFPKG image (UFS2)", ffpfs: "PFS image", folder: "Folder", file: "File" };
+const TABS = ["files", "queue", "deps", "settings"];
+
+/* ---------- helpers ---------- */
+async function api(method, path, body) {
+  const res = await fetch(path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const text = await res.text();
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch (e) { data = { error: text }; }
+  if (!res.ok) { const err = new Error(data.error || res.statusText); err.data = data; throw err; }
+  return data;
+}
+// Element.append, without the null and false children (append would print them).
+function put(el) { for (const c of Array.prototype.slice.call(arguments, 1)) if (c != null && c !== false) el.append(c); return el; }
+function h(tag, attrs) {
+  const e = document.createElement(tag);
+  const kids = Array.prototype.slice.call(arguments, 2);
+  for (const k in attrs || {}) {
+    const v = attrs[k];
+    if (v == null || v === false) continue;
+    if (k === "class") e.className = v;
+    else if (k === "text") e.textContent = v;
+    else if (k === "html") e.innerHTML = v;
+    else if (k.slice(0, 2) === "on") e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v === true ? "" : v);
+  }
+  (function add(list) { for (const c of list) { if (Array.isArray(c)) add(c); else if (c != null && c !== false) e.append(c); } })(kids);
+  return e;
+}
+function bytes(n) {
+  if (n == null) return "";
+  const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0;
+  while (n >= 1000 && i < u.length - 1) { n /= 1000; i++; }
+  return (i ? n.toFixed(n < 10 ? 2 : n < 100 ? 1 : 0) : n) + " " + u[i];
+}
+function duration(s) {
+  s = Math.max(0, Math.round(s));
+  const hh = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), r = s % 60;
+  return hh ? t("{h} h {m} min", { h: hh, m }) : m ? (r ? t("{m} min {s} s", { m, s: r }) : t("{m} min", { m })) : t("{s} s", { s: r });
+}
+function date(when, full) {
+  if (!when) return "";
+  const d = new Date(when * 1000), now = new Date();
+  const time = d.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" });
+  if (d.toDateString() === now.toDateString() && !full) return time;
+  const day = d.toLocaleDateString(lang, { year: "numeric", month: "short", day: "numeric" });
+  return full ? day + " " + time : day;
+}
+const base = (p) => p.replace(/\/+$/, "").split("/").pop();
+const dir = (p) => { const s = p.replace(/\/+$/, ""); const i = s.lastIndexOf("/"); return i <= 0 ? "/" : s.slice(0, i); };
+function toast(text, kind) {
+  const el = h("div", { class: "toast " + (kind || ""), text });
+  $("#toasts").append(el);
+  while ($("#toasts").children.length > 3) $("#toasts").firstChild.remove();
+  setTimeout(() => el.remove(), kind === "bad" ? 7000 : 4000);
+}
+function rootOf(path) {
+  let best = null;
+  for (const s of state.space.concat(state.peerDrives || [])) if (path === s.root || path.indexOf(s.root + "/") === 0) if (!best || s.root.length > best.root.length) best = s;
+  return best;
+}
+// The paired engine's drive a path is on (null for this engine's own).
+function peerDriveOf(path) {
+  const r = rootOf(path);
+  return r && r.engine ? r : null;
+}
+// The FTP server a path is on (null for paths on the console).
+function ftpOf(path) {
+  for (const s of state.ftp || []) if (path === s.path || String(path).indexOf(s.path + "/") === 0) return s;
+  return null;
+}
+function driveName(root) {
+  let m;
+  const f = ftpOf(root);
+  if (f && f.path === root) return f.name;
+  const pd = (state.peerDrives || []).find((d) => d.root === root);
+  if (pd) return pd.engine + " · " + placeLabel(pd.label);
+  if (root === "/data") return t("Internal");
+  if ((m = /^\/mnt\/usb(\d+)$/.exec(root))) return t("USB {n}", { n: m[1] });
+  if ((m = /^\/mnt\/ext(\d+)$/.exec(root))) return t("Extended {n}", { n: m[1] });
+  return base(root) || root;
+}
+const ICONS = {
+  folder: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h3.6c.6 0 1.2.3 1.6.7L12 6h6.5A2.5 2.5 0 0 1 21 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></svg>',
+  drive: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="18" height="10" rx="2"/><circle cx="17" cy="12" r="1" fill="currentColor"/></svg>',
+  usb: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="7" y="9" width="10" height="12" rx="1.5"/><path d="M9 9V4h6v5"/></svg>',
+  server: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="7" rx="1.5"/><rect x="4" y="13" width="16" height="7" rx="1.5"/><circle cx="8" cy="7.5" r=".9" fill="currentColor"/><circle cx="8" cy="16.5" r=".9" fill="currentColor"/></svg>',
+  place: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7.5A1.5 1.5 0 0 1 5.5 6H10l2 2h6.5A1.5 1.5 0 0 1 20 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>',
+  file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/></svg>',
+};
+function icoFor(e) {
+  if (e.kind === "folder" && !e.game) return h("div", { class: "ico folder", html: ICONS.folder });
+  if (e.kind === "file") return h("div", { class: "ico file", html: ICONS.file });
+  return h("div", { class: "ico " + (e.game ? "game" : e.kind), text: e.game ? t("GAME") : KIND_LABEL[e.kind] || "" });
+}
+
+/* ---------- glyphs and button hints ---------- */
+const GLYPH = {
+  x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="#8aa7ff" stroke-width="2.6" stroke-linecap="round"/></svg>',
+  o: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5" fill="none" stroke="#ff6f8f" stroke-width="2.4"/></svg>',
+  t: '<svg viewBox="0 0 24 24"><path d="M12 5l7.5 13h-15z" fill="none" stroke="#45d6a8" stroke-width="2.3" stroke-linejoin="round"/></svg>',
+  s: '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1" fill="none" stroke="#e993dc" stroke-width="2.3"/></svg>',
+  dpad: '<svg viewBox="0 0 24 24" fill="#c9d1e2"><path d="M9.5 3h5v5.5H9.5zM9.5 15.5h5V21h-5zM3 9.5h5.5v5H3zM15.5 9.5H21v5h-5.5z" opacity=".9"/></svg>',
+};
+const KEYS = { x: "Enter", o: "Esc", t: "A", s: "S", lr: "Q E", dpad: "←→" };
+function glyph(b) {
+  if (b === "l2r2") return h("span", {}, h("span", { class: "key", text: "L2" }), h("span", { class: "key", text: "R2" }));
+  if (b === "lr") return state.pad ? h("span", {}, h("span", { class: "key", text: "L1" }), h("span", { class: "key", text: "R1" })) : h("span", {}, h("span", { class: "key", text: "Q" }), h("span", { class: "key", text: "E" }));
+  if (state.pad) return h("span", { html: GLYPH[circleConfirms() && (b === "x" || b === "o") ? (b === "x" ? "o" : "x") : b] });
+  return h("span", { class: "key", text: KEYS[b] });
+}
+// Hints come from the screen on top: the open overlay, else the current tab.
+function renderHints() {
+  const box = $("#hints"); box.textContent = "";
+  const top = overlays.length ? overlays[overlays.length - 1] : null;
+  let list;
+  if (top) list = top.hints || [["x", t("Choose")], ["o", t("Back"), goBack]];
+  else if (state.tab === "files") {
+    const e = state.focusEntry;
+    list = [["x", e ? (e.kind === "folder" ? t("Open") : isConvertible(e) ? t("Convert") : t("Options")) : t("Choose")]];
+    if (state.cwd && state.cwd !== "/") list.push(["o", t("Back"), goBack]);
+    if (e && state.cwd !== "/") list.push(["s", t("Options"), () => openActions(e)]);
+    list.push(["lr", t("Sections"), () => cycleTab(1)]);
+  } else list = [["x", t("Choose")], ["o", t("Back"), goBack], ["lr", t("Sections"), () => cycleTab(1)]];
+  // Leaving is for the console's own browser (one more ○ then closes it).
+  if (!top && IS_PS5) list.push(["l2r2", t("Leave"), leaveAll]);
+  for (const item of list) {
+    const fn = item[2];
+    box.append(h("button", { class: "hint", tabindex: "-1", "data-nonav": true, onmousedown: (ev) => ev.preventDefault(), onclick: fn || (() => press("ok")) },
+      h("span", { class: "g" }, glyph(item[0])), item[1]));
+  }
+  for (const s of $$("[data-pad]")) s.hidden = !state.pad;
+}
+
+/* ---------- focus and navigation (D-pad, arrows) ---------- */
+const FOCUSABLE = "button, input, [tabindex]";
+const zoneLast = {};
+function scope() { return overlays.length ? overlays[overlays.length - 1].el : document.body; }
+function visible(el) {
+  if (el.disabled || el.getAttribute("tabindex") === "-1" || el.hasAttribute("data-nonav")) return false;
+  const r = el.getBoundingClientRect();
+  return r.width > 0 && r.height > 0 && el.offsetParent !== null;
+}
+function candidates() { return $$(FOCUSABLE, scope()).filter(visible); }
+function zoneOf(el) { const z = el && el.closest && el.closest("[data-zone]"); return z ? z.getAttribute("data-zone") : ""; }
+document.addEventListener("focusin", (e) => {
+  const z = zoneOf(e.target); if (z) zoneLast[z] = e.target;
+  // Keep focus inside the open overlay.
+  if (overlays.length && !scope().contains(e.target)) focusFirst();
+});
+function focusEl(el) {
+  if (!el) return;
+  el.focus({ preventScroll: true });
+  ensureVisible(el);
+}
+function ensureVisible(el) {
+  let p = el.parentElement;
+  while (p && p !== document.body) {
+    const st = getComputedStyle(p);
+    if ((st.overflowY === "auto" || st.overflowY === "scroll") && p.scrollHeight > p.clientHeight) {
+      const r = el.getBoundingClientRect(), pr = p.getBoundingClientRect(), pad = 12;
+      if (r.top < pr.top + pad) p.scrollTop -= pr.top + pad - r.top;
+      else if (r.bottom > pr.bottom - pad) p.scrollTop += r.bottom - pr.bottom + pad;
+      return;
+    }
+    p = p.parentElement;
+  }
+}
+function preferred() {
+  const s = scope();
+  return $("[data-autofocus]", s) && visible($("[data-autofocus]", s)) ? $("[data-autofocus]", s) : null;
+}
+function focusFirst() {
+  const s = scope();
+  if (s === document.body) {
+    const zone = { files: "list", queue: "queue", deps: "deps", settings: "settings" }[state.tab];
+    const last = zoneLast[zone];
+    if (last && last.isConnected && visible(last)) return focusEl(last);
+    const inZone = candidates().filter((c) => zoneOf(c) === zone);
+    if (inZone.length) return focusEl(inZone.filter((c) => c.matches(".card.click, .row"))[0] || inZone[0]);
+    const a = document.activeElement;
+    if (a && a !== document.body && visible(a)) return; // the view is still loading
+  }
+  const c = preferred() || candidates()[0];
+  if (c) focusEl(c);
+}
+// The nearest focusable in the pressed direction, by screen position.
+function move(dir) {
+  const cur = document.activeElement;
+  if (!cur || cur === document.body || !scope().contains(cur) || !visible(cur)) { focusFirst(); return; }
+  if ((dir === "left" || dir === "right") && cur.__step) { cur.__step(dir === "left" ? -1 : 1); return; }
+  const strict = !!cur.closest("[data-column]");
+  const r = cur.getBoundingClientRect();
+  const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
+  let best = null, bestScore = Infinity;
+  for (const c of candidates()) {
+    if (c === cur || c.contains(cur) || cur.contains(c)) continue;
+    const q = c.getBoundingClientRect();
+    const qx = (q.left + q.right) / 2, qy = (q.top + q.bottom) / 2;
+    let main, ortho;
+    if (dir === "down") { if (qy <= cy + 1 || q.top < r.top + 2) continue; main = Math.max(0, q.top - r.bottom); ortho = Math.max(0, q.left - r.right, r.left - q.right); }
+    else if (dir === "up") { if (qy >= cy - 1 || q.bottom > r.bottom - 2) continue; main = Math.max(0, r.top - q.bottom); ortho = Math.max(0, q.left - r.right, r.left - q.right); }
+    else if (dir === "right") { if (q.left < r.right - 8) continue; main = Math.max(0, q.left - r.right); ortho = Math.max(0, q.top - r.bottom, r.top - q.bottom); }
+    else { if (q.right > r.left + 8) continue; main = Math.max(0, r.left - q.right); ortho = Math.max(0, q.top - r.bottom, r.top - q.bottom); }
+    // Up and down stay in the file browser's columns: the end of a list is the end.
+    if ((dir === "up" || dir === "down") && ortho > 0 && strict) continue;
+    const align = dir === "up" || dir === "down" ? Math.abs(qx - cx) : Math.abs(qy - cy);
+    const score = main + ortho * 4 + align * 0.05;
+    if (score < bestScore) { bestScore = score; best = c; }
+  }
+  if (!best) return;
+  // Coming back into a column: the item that had the focus there last.
+  const z = zoneOf(best);
+  if (z && z !== zoneOf(cur) && zoneLast[z] && zoneLast[z].isConnected && visible(zoneLast[z]) && (z === "list" || z === "rail")) best = zoneLast[z];
+  focusEl(best);
+}
+// L2 or R2 alone pages up or down; on the PS5 both together leave (leaveAll). A press
+// waits a moment for the other trigger, so a chord never pages first. Held
+// triggers arrive as streams of presses: the chord stays on while either
+// keeps coming, and a held single trigger pages about every 120 ms.
+const chord = { l2: 0, r2: 0, pending: { l2: 0, r2: 0 }, until: 0 };
+function trigger(side) {
+  if (!IS_PS5) return press(side === "l2" ? "page-up" : "page-down"); // a PC: no chord, no wait
+  const now = Date.now(), other = side === "l2" ? "r2" : "l2";
+  chord[side] = now;
+  if (now < chord.until) { chord.until = now + 400; return; }
+  if (now - chord[other] < 250) {
+    clearTimeout(chord.pending.l2); clearTimeout(chord.pending.r2); chord.pending.l2 = chord.pending.r2 = 0;
+    chord.until = now + 400;
+    leaveAll();
+    return;
+  }
+  if (chord.pending[side]) return;
+  chord.pending[side] = setTimeout(() => { chord.pending[side] = 0; press(side === "l2" ? "page-up" : "page-down"); }, 120);
+}
+// Actions from any input: keyboard, the PS5 browser's own mapping, a gamepad,
+// or a click on a hint.
+function press(action) {
+  if (action === "up" || action === "down" || action === "left" || action === "right") return move(action);
+  if (action === "ok") { const a = document.activeElement; if (a && a !== document.body && !a.closest(".hints")) a.click(); else focusFirst(); return; }
+  if (action === "back") return goBack();
+  if (action === "l2" || action === "r2") return trigger(action);
+  if (action === "page-up" || action === "page-down") { // inside the same list
+    for (let i = 0; i < 8; i++) {
+      const before = document.activeElement, z = zoneOf(before);
+      move(action === "page-up" ? "up" : "down");
+      if (document.activeElement === before) break;
+      if (zoneOf(document.activeElement) !== z) { focusEl(before); break; }
+    }
+    return;
+  }
+  if (action === "l1") return overlays.length ? null : cycleTab(-1);
+  if (action === "r1") return overlays.length ? null : cycleTab(1);
+  const top = overlays.length ? overlays[overlays.length - 1] : null;
+  // □ is the page's second action: the browser keeps △, Options, L3 and R3 for itself.
+  if (action === "s") {
+    if (top) { if (top.onSquare) top.onSquare(); return; }
+    const z = zoneOf(document.activeElement);
+    if (state.tab === "files" && state.focusEntry && state.cwd !== "/" && z === "list") openActions(state.focusEntry);
+  }
+}
+const lastNative = {};
+// The PS5 browser's keys the page uses. △ (F1), Options (F3), L3 (F9) and R3
+// (F10) belong to the browser: never mapped, never stopped.
+const PS_KEYS = { F2: "s", F5: "l1", F6: "r1", F7: "l2", F8: "r2" };
+const BROWSER_KEYS = { F1: true, F3: true, F9: true, F10: true };
+// What the browser sends, for Settings → Controller test.
+const inputLog = { items: [], test: null };
+function logInput(text) {
+  inputLog.items.unshift({ t: Date.now(), text });
+  inputLog.items.length = Math.min(inputLog.items.length, 40);
+  if (inputLog.test) inputLog.test();
+}
+// The PS5 browser turns ✕ into a mouse click at its cursor, wherever that is.
+// While the D-pad is in use, a click acts on the focused item instead; moving
+// the cursor (or a mouse) hands clicks back to the pointer.
+const pointer = { x: -1, y: -1, mode: false };
+function useController() { if (!pointer.mode) { pointer.mode = true; document.body.classList.add("pad"); } }
+document.addEventListener("mousemove", (e) => {
+  const moved = Math.abs(e.clientX - pointer.x) + Math.abs(e.clientY - pointer.y) > 4;
+  pointer.x = e.clientX; pointer.y = e.clientY;
+  if (moved && pointer.mode) { pointer.mode = false; document.body.classList.remove("pad"); logInput("pointer moved: clicks follow the cursor"); }
+}, true);
+// The press before that click would move the focus to whatever is under the
+// cursor; keep it where the D-pad put it.
+document.addEventListener("mousedown", (e) => {
+  if (e.isTrusted && (pointer.mode || inputLog.test)) {
+    const a = document.activeElement;
+    if (!a || a === document.body || !a.contains(e.target)) e.preventDefault();
+  }
+}, true);
+document.addEventListener("keydown", (e) => {
+  const target = e.target, typing = target && target.tagName === "INPUT" && target.type !== "checkbox";
+  const k = e.key, code = e.keyCode;
+  logInput("key " + JSON.stringify(k) + " code=" + (e.code || "-") + " keyCode=" + code + (e.shiftKey ? " +shift" : "") + (e.repeat ? " (repeat)" : ""));
+  let a = null;
+  if (k === "ArrowUp" || code === 38) a = "up";
+  else if (k === "ArrowDown" || code === 40) a = "down";
+  else if (k === "ArrowLeft" || code === 37) a = typing ? null : "left";
+  else if (k === "ArrowRight" || code === 39) a = typing ? null : "right";
+  else if (k === "Escape" || code === 27) a = "back";
+  else if ((k === "Backspace" || code === 8) && !typing) a = "back";
+  else if ((k === "Enter" || code === 13) && !typing && target && target.tagName !== "BUTTON") a = "ok";
+  // The PS5 browser sends the other buttons as function keys (owner's
+  // Controller test): △ F1, □ F2, Options F3, L1 F5, R1 F6, L2 F7, R2 F8,
+  // L3 F9, R3 F10. ○ is Escape, ✕ a click at the cursor. The browser also acts
+  // on △, Options, L3 and R3 itself, so the page uses only ✕ ○ □, the D-pad,
+  // L1/R1 and L2/R2.
+  else if (PS_KEYS[k]) a = PS_KEYS[k];
+  else if (!typing && (k === "q" || k === "Q")) a = "l1";
+  else if (!typing && (k === "e" || k === "E")) a = "r1";
+  else if (!typing && (k === "s" || k === "S" || k === "a" || k === "A" || k === "ContextMenu")) a = "s";
+  // The function keys the page uses have browser meanings too (F5 reloads,
+  // F6 jumps to the address bar): those must not reach the browser.
+  if (PS_KEYS[k]) { e.preventDefault(); useController(); }
+  if (BROWSER_KEYS[k]) { useController(); return; }
+  if (k === "Enter" || code === 13) lastNative.ok = Date.now();
+  if (inputLog.test && !((k === "Enter" || code === 13) && target && target.hasAttribute && target.hasAttribute("data-test-done"))) { e.preventDefault(); return; }
+  if (!a) return;
+  if (a === "back" && (k === "Escape" || code === 27)) {
+    // A held ○ arrives as a stream of Escape presses, without e.repeat on the
+    // PS5 (owner's Controller test): presses less than 250 ms apart are one
+    // hold, which is one step back (leaving is L2 + R2).
+    const now = Date.now(), gap = now - backHold.lastAt;
+    backHold.lastAt = now;
+    if (e.repeat || gap < 250) { e.preventDefault(); return; }
+  }
+  if (a === "up" || a === "down" || a === "left" || a === "right") useController();
+  lastNative[a] = Date.now();
+  if (a === "back" && !overlays.length && !(history.state && history.state.depth > 0)) return; // nothing to go back to: let it be
+  e.preventDefault();
+  if (typing && a === "back") target.blur();
+  press(a);
+}, true);
+document.addEventListener("keyup", (e) => {
+  if (e.key === "Escape" || e.keyCode === 27) logInput("key up \"Escape\"");
+}, true);
+const backHold = { lastAt: 0 };
+// Leaving (L2 + R2): everything open is closed and the page returns to its
+// first entry, where one more Back leaves the browser (a page cannot close it).
+const hold = { unwinding: false };
+function leaveAll() {
+  if (inputLog.test) return; // the controller test listens to every button
+  const d = depth();
+  while (overlays.length) { const o = overlays.pop(); o.el.remove(); o.resolve(null); }
+  document.body.classList.remove("covered");
+  if (d > 0) { hold.unwinding = true; history.go(-d); } else afterLeave();
+}
+function afterLeave() {
+  if (state.tab !== "files") showTab("files", false);
+  if (state.cwd !== "/") browse("/", false);
+  renderHints();
+  toast(t("Press {b} once more to leave Alembic", { b: backGlyph() }), "ok");
+  try { window.close(); } catch (e) {} // works only where the browser allows it
+}
+document.addEventListener("click", (e) => {
+  lastNative.ok = Date.now();
+  if (!e.isTrusted) return; // our own a.click()
+  logInput("click at " + e.clientX + "," + e.clientY + " on <" + e.target.tagName.toLowerCase() + (e.target.className ? "." + String(e.target.className).split(" ")[0] : "") + ">" + (pointer.mode ? " → focused item" : ""));
+  if (inputLog.test) { const d = e.target.closest && e.target.closest("[data-test-done]"); if (!d && !(pointer.mode && document.activeElement && document.activeElement.hasAttribute("data-test-done"))) { e.preventDefault(); e.stopPropagation(); return; } }
+  if (!pointer.mode) return;
+  const a = document.activeElement;
+  if (!a || a === document.body || a.contains(e.target)) return; // already the focused item
+  e.preventDefault(); e.stopPropagation();
+  if (a.tagName === "INPUT") { a.focus(); return; }
+  a.click();
+}, true);
+
+// Gamepad API, where the browser has it. Buttons the browser already turns
+// into keys (D-pad, ✕, ○) are only used when no key arrived for them.
+const PAD = { 0: "ok", 1: "back", 2: "s", 3: "t", 4: "l1", 5: "r1", 6: "l2", 7: "r2", 9: "options", 12: "up", 13: "down", 14: "left", 15: "right" };
+const padState = { held: {}, timer: 0 };
+function padLoop() {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  let any = false;
+  for (const p of pads) {
+    if (!p) continue; any = true;
+    padState.raw = padState.raw || {};
+    p.buttons.forEach((b, i) => {
+      const down = !!(b && (b.pressed || b.value > 0.5));
+      if (down && !padState.raw[i]) logInput("gamepad button " + i + (PAD[i] ? " (" + PAD[i] + ")" : "") + " · " + (p.mapping || "no mapping") + " · " + p.id.slice(0, 40));
+      padState.raw[i] = down;
+    });
+    if (inputLog.test) continue;
+    for (const i in PAD) {
+      const b = p.buttons[i], down = !!(b && (b.pressed || b.value > 0.5)), was = padState.held[i];
+      const now = Date.now();
+      if (down && !was) { padState.held[i] = { t: now, next: now + 380 }; padPress(swapAction(PAD[i]), now); }
+      else if (down && was && i >= 12 && now >= was.next) { was.next = now + 110; padPress(PAD[i], now); }
+      else if (!down && was) delete padState.held[i];
+    }
+    const ax = p.axes || [];
+    const dirs = [["left", ax[0] < -0.6], ["right", ax[0] > 0.6], ["up", ax[1] < -0.6], ["down", ax[1] > 0.6]];
+    for (const d of dirs) {
+      const key = "ax" + d[0], was = padState.held[key], now = Date.now();
+      if (d[1] && !was) { padState.held[key] = { next: now + 380 }; press(d[0]); }
+      else if (d[1] && now >= was.next) { was.next = now + 140; press(d[0]); }
+      else if (!d[1] && was) delete padState.held[key];
+    }
+  }
+  if (any && !state.pad) { state.pad = true; renderHints(); }
+  padState.timer = any ? requestAnimationFrame(padLoop) : 0;
+}
+function padPress(action, at) {
+  if (action === "up" || action === "down" || action === "left" || action === "right") useController();
+  // The PS5 browser already sends keys for these; act only when none came.
+  setTimeout(() => { if (!(lastNative[action] >= at - 60)) press(action); }, 90);
+}
+window.addEventListener("gamepadconnected", () => { if (!padState.timer) padState.timer = requestAnimationFrame(padLoop); });
+if (navigator.getGamepads) setTimeout(() => { const p = navigator.getGamepads(); for (const x of p) if (x) { padState.timer = requestAnimationFrame(padLoop); break; } }, 500);
+
+/* ---------- history: ○ is the browser's Back on the PS5 ---------- */
+const overlays = [];
+function depth() { return history.state && history.state.depth ? history.state.depth : 0; }
+function pushNav(s) { s.depth = depth() + 1; history.pushState(s, ""); }
+function goBack() {
+  if (overlays.length || depth() > 0) { lastNative.back = Date.now(); history.back(); }
+}
+window.addEventListener("popstate", (e) => {
+  if (hold.unwinding) { hold.unwinding = false; afterLeave(); return; }
+  lastNative.back = Date.now();
+  logInput("history back/forward (popstate)" + (inputLog.closing ? "" : ""));
+  if (inputLog.test && !inputLog.closing) { history.pushState({ overlay: true, depth: depth() + 1 }, ""); return; }
+  inputLog.closing = false;
+  if (overlays.length) { popOverlay(); return; }
+  const s = e.state || { view: "files", path: "/" };
+  if (s.overlay) { history.back(); return; } // a stale overlay entry
+  showTab(s.view || "files", false);
+  if ((s.view || "files") === "files" && s.path && s.path !== state.cwd) browse(s.path, false);
+});
+
+/* ---------- overlays ---------- */
+// An overlay is a sheet over the page with its own history entry, so ○ closes
+// it. close(value) goes back; the entry's popstate resolves the promise.
+function openOverlay(sheet, opts) {
+  opts = opts || {};
+  const el = h("div", { class: "overlay", onclick: (ev) => { if (ev.target === el) closeOverlay(null); } }, sheet);
+  const o = { el, result: null, hints: opts.hints, onSquare: opts.onSquare, back: document.activeElement, resolve: null };
+  const p = new Promise((res) => { o.resolve = res; });
+  if (overlays.length) overlays[overlays.length - 1].el.classList.add("under");
+  overlays.push(o);
+  document.body.classList.add("covered");
+  document.body.append(el);
+  pushNav({ overlay: true, view: state.tab, path: state.cwd });
+  renderHints();
+  setTimeout(() => focusFirst(), 0);
+  return p;
+}
+function closeOverlay(value) {
+  const o = overlays[overlays.length - 1];
+  if (!o) return;
+  o.result = value === undefined ? null : value;
+  history.back();
+}
+function popOverlay() {
+  const o = overlays.pop();
+  o.el.remove();
+  if (overlays.length) overlays[overlays.length - 1].el.classList.remove("under");
+  else document.body.classList.remove("covered");
+  renderHints();
+  // The element focus came from, or (re-rendered meanwhile) the one with its data-key.
+  const key = o.back && o.back.getAttribute && o.back.getAttribute("data-key");
+  const again = o.back && !o.back.isConnected && key ? $$("[data-key]").filter((x) => x.getAttribute("data-key") === key)[0] : null;
+  if (o.back && o.back.isConnected) focusEl(o.back); else if (again) focusEl(again); else focusFirst();
+  o.resolve(o.result);
+}
+function sheet(title, body, foot, cls) {
+  return h("div", { class: "sheet " + (cls || "") },
+    title ? h("div", { class: "sh-head", text: title }) : null,
+    h("div", { class: "sh-body scroll" }, body),
+    foot ? h("div", { class: "sh-foot" }, foot) : null);
+}
+function ask(o) {
+  const input = o.input != null ? h("input", { class: "input", value: o.input, spellcheck: "false", autocapitalize: "off" }) : null;
+  const ok = h("button", { class: "btn " + (o.danger ? "danger solid" : "primary"), text: o.ok || t("OK"), "data-autofocus": input && !IS_PS5 ? null : true,
+    onclick: () => closeOverlay(input ? input.value.trim() : true) });
+  if (input) {
+    if (!IS_PS5) input.setAttribute("data-autofocus", "");
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); ok.click(); } });
+  }
+  const body = h("div", {}, o.body || null, input ? h("div", { style: "margin-top:.6rem" }, input) : null);
+  const p = openOverlay(sheet(o.title, body, [h("button", { class: "btn", text: t("Cancel"), onclick: () => closeOverlay(null) }), ok], "narrow"),
+    { hints: [["x", t("Choose")], ["o", t("Cancel"), goBack]] });
+  if (input && !IS_PS5) setTimeout(() => input.select(), 10);
+  return p;
+}
+// A list of choices; resolves with the chosen item's value.
+// `items`: {label, sub, value, selected, danger}, or {heading} for a title
+// between groups (not a choice: the D-pad passes over it).
+function choose(title, items, sub) {
+  const firstChoice = items.findIndex((x) => !x.heading);
+  const list = h("div", { class: "menu-list" }, items.map((it, i) => it.heading ? h("div", { class: "menu-head", text: it.heading }) :
+    h("button", { class: it.danger ? "danger" : "", "data-autofocus": it.selected || (i === firstChoice && !items.some((x) => x.selected)) ? true : null,
+      onclick: () => closeOverlay(it.value) }, it.label, it.sub ? h("small", { text: it.sub }) : null)));
+  return openOverlay(h("div", { class: "sheet narrow" }, h("div", { class: "sh-head", text: title }), sub ? h("div", { class: "sh-sub mono", text: sub }) : null,
+    h("div", { class: "sh-body scroll" }, list)), { hints: [["x", t("Choose")], ["o", t("Cancel"), goBack]] });
+}
+
+/* ---------- form pieces ---------- */
+// A row whose value changes with ← and → (and a click on its arrows).
+function choiceRow(label, options, value, onchange, hint) {
+  let i = Math.max(0, options.findIndex((o) => o.value === value));
+  const text = h("span", { class: "valtext" });
+  const row = h("div", { class: "frow fx", tabindex: "0" },
+    h("div", { class: "fl" }, h("b", { text: label }), hint ? h("small", { text: hint }) : null),
+    h("div", { class: "val" }, h("span", { class: "arr", text: "‹", onclick: (e) => { e.stopPropagation(); step(-1); } }), text,
+      h("span", { class: "arr", text: "›", onclick: (e) => { e.stopPropagation(); step(1); } })));
+  function show() { text.textContent = options[i].label; }
+  function step(d) { const n = i + d; if (n < 0 || n >= options.length) return; i = n; show(); if (onchange) onchange(options[i].value); }
+  row.__step = step;
+  row.addEventListener("click", () => step(i === options.length - 1 ? -(options.length - 1) : 1));
+  row.getValue = () => options[i].value;
+  row.setOptions = (opts, v) => { options = opts; i = Math.max(0, opts.findIndex((o) => o.value === v)); show(); };
+  show();
+  return row;
+}
+function switchRow(label, hint, on, onchange) {
+  const row = h("button", { class: "frow" + (on ? " on" : ""), role: "switch", "aria-checked": String(!!on) },
+    h("div", { class: "fl" }, h("b", { text: label }), hint ? h("small", { text: hint }) : null), h("span", { class: "sw" }));
+  row.addEventListener("click", () => row.setOn(!row.isOn(), true));
+  row.isOn = () => row.classList.contains("on");
+  row.setOn = (v, fire) => { row.classList.toggle("on", !!v); row.setAttribute("aria-checked", String(!!v)); if (fire && onchange) onchange(!!v); };
+  return row;
+}
+// Re-renders a box and gives the focus back to the element with the same data-key.
+function keepFocus(box, fn) {
+  const a = document.activeElement, key = a && box.contains(a) ? a.getAttribute("data-key") : null;
+  fn();
+  if (key) { const again = $$("[data-key]", box).filter((x) => x.getAttribute("data-key") === key)[0]; if (again) again.focus({ preventScroll: true }); else focusFirst(); }
+}
+
+/* ---------- header, tabs ---------- */
+async function loadInfo() {
+  state.info = await api("GET", "/api/info");
+  // The engine's console notifications follow the page's language.
+  if (state.info.lang && state.info.lang !== lang) api("POST", "/api/lang", { lang }).catch(() => {});
+  state.space = await api("GET", "/api/fs/space").catch(() => []);
+  state.locations = await api("GET", "/api/locations").catch(() => []);
+  state.ftp = await api("GET", "/api/ftp").catch(() => []);
+  state.peerDrives = await api("GET", "/api/peer-drives").catch(() => state.peerDrives || []);
+  state.peers = await api("GET", "/api/peers").catch(() => state.peers);
+  renderStatus(); renderRail(); renderHints(); // the hint glyphs follow the console's Enter button
+  if (state.tab === "settings") renderSettings();
+}
+function renderStatus() {
+  const running = state.jobs.filter((j) => j.state === "running").length, queued = state.jobs.filter((j) => j.state === "queued" || j.state === "paused").length;
+  const s = $("#status");
+  $("#status-text").textContent = state.info ? (running ? t("Working") : t("Idle")) + (queued ? " · " + t("{n} waiting", { n: queued }) : "") : t("Not connected");
+  s.className = "status" + (running ? " live" : "") + (state.info ? "" : " off");
+  const n = running + queued, b = $("#qcount");
+  b.hidden = !n; b.textContent = n;
+}
+function showTab(tab, push) {
+  if (push !== false && tab !== state.tab) pushNav({ view: tab, path: state.cwd });
+  state.tab = tab;
+  for (const b of $$(".tab")) b.classList.toggle("on", b.getAttribute("data-tab") === tab);
+  for (const v of TABS) $("#view-" + v).hidden = v !== tab;
+  if (tab === "queue") renderJobs();
+  if (tab === "deps") loadDeps();
+  if (tab === "settings") renderSettings();
+  renderHints();
+  if (!overlays.length) setTimeout(focusFirst, 0);
+}
+function cycleTab(d) { showTab(TABS[(TABS.indexOf(state.tab) + d + TABS.length) % TABS.length]); }
+for (const b of $$(".tab")) b.addEventListener("click", () => showTab(b.getAttribute("data-tab")));
+
+/* ---------- files ---------- */
+function isConvertible(e) { return CONVERTIBLE.indexOf(e.kind) >= 0 || !!e.game; }
+function renderRail() {
+  const box = $("#rail");
+  keepFocus(box, () => {
+    box.textContent = "";
+    box.append(h("h3", { text: t("Drives") }));
+    for (const s of state.space) {
+      const used = s.total ? 1 - s.free / s.total : 0, on = state.cwd && (state.cwd === s.root || state.cwd.indexOf(s.root + "/") === 0);
+      box.append(h("button", { class: "ritem" + (on ? " on" : ""), "data-key": "r:" + s.root, title: s.root, onclick: () => browse(s.root) },
+        h("div", { class: "nm", html: (/usb|ext/.test(s.root) ? ICONS.usb : ICONS.drive) }, h("span", { class: "ellip", text: driveName(s.root) })),
+        h("div", { class: "meter" + (s.free < 20e9 ? " low" : "") }, h("div", { style: "width:" + (used * 100).toFixed(1) + "%" })),
+        h("div", { class: "free", text: t("{size} free", { size: bytes(s.free) }) })));
+    }
+    for (const s of state.ftp || []) {
+      const on = state.cwd && ftpOf(state.cwd) === s;
+      box.append(h("button", { class: "ritem" + (on ? " on" : ""), "data-key": "r:" + s.path, title: s.user + "@" + s.host + ":" + s.port, onclick: () => browse(s.path) },
+        h("div", { class: "nm", html: ICONS.server }, h("span", { class: "ellip", text: s.name })),
+        h("div", { class: "free ellip", text: "FTP · " + s.host + (s.port === 21 ? "" : ":" + s.port) })));
+    }
+    // Paired engines' drives (Settings > Other engines).
+    if ((state.peerDrives || []).length) box.append(h("h3", { text: t("Other engines") }));
+    for (const s of state.peerDrives || []) {
+      const on = state.cwd && (state.cwd === s.root || state.cwd.indexOf(s.root + "/") === 0);
+      const used = s.total ? 1 - s.free / s.total : 0;
+      box.append(h("button", { class: "ritem" + (on ? " on" : ""), "data-key": "r:" + s.root, title: s.engine, onclick: () => browse(s.root) },
+        h("div", { class: "nm", html: ICONS.server }, h("span", { class: "ellip", text: driveName(s.root) })),
+        s.total ? h("div", { class: "meter" + (s.free < 20e9 ? " low" : "") }, h("div", { style: "width:" + (used * 100).toFixed(1) + "%" })) : null,
+        s.total ? h("div", { class: "free", text: t("{size} free", { size: bytes(s.free) }) }) : null));
+    }
+    // Places: this engine's, then paired engines' (the ones added by hand and
+    // the ones they suggest, like a PS5's homebrew folder; not their drives,
+    // listed above), each with the engine's name under it.
+    const peerRoots = new Set((state.peerDrives || []).map((d) => d.root));
+    const short = (label) => placeLabel(label.replace(/ · homebrew.*$/, " · homebrew").replace(/^Internal storage$/, "Internal"));
+    const places = state.locations.filter((l) => l.exists && !l.ftp && !l.peer && !state.space.some((s) => s.root === l.path));
+    const theirs = state.locations.filter((l) => l.peer && l.exists && !peerRoots.has(l.path));
+    const recent = (store.get("recent") || []).filter((p) => rootOf(p) && !peerDriveOf(p) && !places.some((l) => l.path === p)).slice(0, 4);
+    if (places.length || theirs.length || recent.length) box.append(h("h3", { text: t("Places") }));
+    // With other engines' places listed too, this engine's get its name as well.
+    if (theirs.length && (places.length || recent.length)) box.append(h("h4", { text: state.info && state.info.platform === "ps5" ? "PS5" : (state.info && state.info.host_name) || t("This engine") }));
+    for (const l of places) box.append(h("button", { class: "ritem" + (state.cwd === l.path ? " on" : ""), "data-key": "p:" + l.path, title: l.path, onclick: () => browse(l.path) },
+      h("div", { class: "nm", html: ICONS.place }, h("span", { class: "ellip", text: short(l.label) }))));
+    for (const p of recent) box.append(h("button", { class: "ritem" + (state.cwd === p ? " on" : ""), "data-key": "c:" + p, title: p, onclick: () => browse(p) },
+      h("div", { class: "nm", html: ICONS.clock }, h("span", { class: "ellip", text: base(p) }))));
+    // Each paired engine's under its name.
+    const engines = [];
+    for (const l of theirs) if (!engines.includes(l.peer)) engines.push(l.peer);
+    for (const id of engines) {
+      const list = theirs.filter((l) => l.peer === id);
+      box.append(h("h4", { text: list[0].engine }));
+      for (const l of list) box.append(h("button", { class: "ritem" + (state.cwd === l.path ? " on" : ""), "data-key": "p:" + l.path, title: shownPath(l.path), onclick: () => browse(l.path) },
+        h("div", { class: "nm", html: ICONS.place }, h("span", { class: "ellip", text: short(l.place) }))));
+    }
+  });
+}
+function crumbs(box, path, onPick) {
+  box.textContent = "";
+  box.append(h("button", { "data-key": "c:/", onclick: () => onPick("/"), text: t("Drives") }));
+  if (!path || path === "/") return;
+  const f = rootOf(path) ? null : ftpOf(path);
+  const root = rootOf(path) || (f ? { root: f.path } : { root: path });
+  const parts = [root.root];
+  let acc = root.root;
+  for (const p of path.slice(root.root.length).split("/").filter(Boolean)) { acc += "/" + p; parts.push(acc); }
+  for (const p of parts) {
+    box.append(h("span", { class: "sep", text: "›" }));
+    box.append(h("button", { "data-key": "c:" + p, onclick: () => onPick(p), title: shownPath(p), text: p === root.root ? driveName(p) : base(p) }));
+  }
+}
+async function browse(path, push, focusKey) {
+  let data;
+  try { data = await api("GET", "/api/browse?path=" + encodeURIComponent(path || "/")); }
+  catch (e) { toast(tMsg(e.message), "bad"); return; }
+  const from = state.cwd;
+  if (push !== false && data.path !== state.cwd) pushNav({ view: "files", path: data.path, from: from });
+  else if (history.state && !history.state.overlay) history.replaceState(Object.assign({}, history.state, { view: "files", path: data.path }), "");
+  const same = data.path === state.cwd;
+  state.cwd = data.path; state.listing = data;
+  crumbs($("#crumbs"), data.path, (p) => browse(p));
+  $("#btn-mkdir").disabled = data.path === "/";
+  $("#btn-here").disabled = data.path === "/";
+  const files = data.entries.filter((e) => e.kind !== "folder"), folders = data.entries.length - files.length;
+  const total = files.reduce((n, e) => n + (e.size || 0), 0);
+  const r = data.path === "/" ? null : rootOf(data.path);
+  $("#summary").textContent = data.path === "/" ? t("Pick a drive") :
+    [folders ? plural(folders, "{n} folder", "{n} folders") : "", files.length ? plural(files.length, "{n} file", "{n} files") + " · " + bytes(total) : "", r && (r.total || !r.engine) ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) : ftpOf(data.path) ? t("On an FTP server") : ""].filter(Boolean).join("  ·  ") || t("Empty");
+  // Back from a folder: land on that folder's row.
+  const key = same ? (document.activeElement && document.activeElement.getAttribute("data-key")) : (focusKey || (from && dir(from) === data.path ? from : null));
+  renderList(key, same);
+  renderRail();
+}
+/* Game icons and titles: fetched for rows on screen, two at a time. */
+const meta = { cache: new Map(), queue: [], active: 0, waiting: new Map() };
+function metaKey(e) { return e.path + "|" + (e.mtime || 0) + "|" + (e.size || 0); }
+function iconUrl(e) { return "/api/icon?path=" + encodeURIComponent(e.path) + "&v=" + (e.mtime || 0); }
+function setIcon(ico, e) {
+  if (ico.querySelector("img")) return;
+  const img = new Image(); img.alt = "";
+  img.onload = () => { ico.textContent = ""; ico.classList.add("has-img"); ico.append(img); };
+  img.src = iconUrl(e);
+}
+function applyMeta(e, m, row) {
+  if (!m) return;
+  if (m.icon) setIcon($(".ico", row), e);
+  const tl = $(".t", row), s = $(".s", row);
+  if (m.title) { tl.textContent = m.title; tl.title = m.title; }
+  s.textContent = "";
+  s.append(h("span", { class: "fmt " + (e.game ? "folder" : e.kind), text: e.game ? t("FOLDER") : KIND_LABEL[e.kind] || "" }));
+  s.append([m.title ? e.name : "", m.version ? "v" + m.version.replace(/^0+(?=\d)/, "") : "", m.title_id].filter(Boolean).join("  ·  "));
+}
+function getMeta(e) {
+  const k = metaKey(e);
+  if (meta.cache.has(k)) return Promise.resolve(meta.cache.get(k));
+  if (meta.waiting.has(k)) return meta.waiting.get(k);
+  const p = new Promise((res) => { meta.queue.push({ e, res }); pumpMeta(); });
+  meta.waiting.set(k, p);
+  return p;
+}
+function pumpMeta() {
+  while (meta.active < 2 && meta.queue.length) {
+    const job = meta.queue.shift();
+    meta.active++;
+    api("GET", "/api/meta?path=" + encodeURIComponent(job.e.path))
+      .then((m) => { meta.cache.set(metaKey(job.e), m); job.res(m); })
+      .catch(() => { meta.cache.set(metaKey(job.e), null); job.res(null); })
+      .then(() => { meta.waiting.delete(metaKey(job.e)); meta.active--; pumpMeta(); });
+  }
+}
+function wantMeta(e, row) {
+  const go = () => getMeta(e).then((m) => { if (row.isConnected) applyMeta(e, m, row); });
+  if (meta.cache.has(metaKey(e))) { applyMeta(e, meta.cache.get(metaKey(e)), row); return; }
+  if (!("IntersectionObserver" in window)) { go(); return; }
+  const io = new IntersectionObserver((list) => { if (list.some((x) => x.isIntersecting)) { io.disconnect(); go(); } }, { rootMargin: "300px" });
+  io.observe(row);
+}
+function openEntry(e) {
+  if (state.cwd === "/" || e.kind === "folder" && !e.game) return browse(e.path);
+  if (isConvertible(e)) return openConvert(e);
+  openActions(e);
+}
+// keepPlace (a refresh): leave the focus where it is when it's outside the list.
+function renderList(focusKey, keepPlace) {
+  const box = $("#list"), data = state.listing; box.textContent = "";
+  box.scrollTop = 0;
+  if (!data.entries.length) {
+    box.append(h("div", { class: "empty", text: t("This folder is empty.") }));
+    state.focusEntry = null; renderHints();
+    return;
+  }
+  const top = data.path === "/";
+  let toFocus = null;
+  for (const e of data.entries) {
+    const conv = isConvertible(e) && !top;
+    const fs = top ? ftpOf(e.path) : null;
+    const s = top ? (rootOf(e.path) ? t("{free} free of {total}", { free: bytes(rootOf(e.path).free), total: bytes(rootOf(e.path).total) }) : fs ? "FTP · " + fs.user + "@" + fs.host + ":" + fs.port : e.path) :
+      [e.kind === "folder" ? "" : bytes(e.size), date(e.mtime)].filter(Boolean).join("  ·  ");
+    const row = h("div", { class: "row", tabindex: "0", "data-key": e.path, onclick: () => openEntry(e), onfocus: () => onRowFocus(e),
+      oncontextmenu: top ? null : (ev) => { ev.preventDefault(); openActions(e); } }, // a right-click: its options
+      top ? h("div", { class: "ico folder", html: fs ? ICONS.server : /usb|ext/.test(e.path) ? ICONS.usb : ICONS.drive }) : icoFor(e),
+      h("div", { style: "min-width:0" }, h("div", { class: "t ellip", title: e.name, text: top ? driveName(e.path) : e.name }), h("div", { class: "s ellip", text: s })),
+      h("div", { class: "sz", text: !top && e.kind !== "folder" ? bytes(e.size) : "" }),
+      top ? h("span", {}) : h("button", { class: "more", tabindex: "-1", "data-nonav": true, title: t("Options"), text: "⋯", onclick: (ev) => { ev.stopPropagation(); openActions(e); } }));
+    if (conv) wantMeta(e, row);
+    box.append(row);
+    if (focusKey && e.path === focusKey) toFocus = row;
+  }
+  const first = toFocus || box.querySelector(".row");
+  zoneLast.list = first;
+  const a = document.activeElement, elsewhere = a && a !== document.body && a.isConnected && visible(a) && zoneOf(a) !== "list";
+  if (overlays.length || state.tab !== "files" || (keepPlace && elsewhere)) onRowFocus(data.entries[toFocus ? data.entries.findIndex((e) => e.path === focusKey) : 0]);
+  else focusEl(first);
+}
+function onRowFocus(e) {
+  state.focusEntry = e;
+  renderHints();
+}
+async function openActions(e) {
+  if (state.cwd === "/") return;
+  const conv = isConvertible(e), items = [];
+  if (e.kind === "folder" && e.path !== state.cwd) items.push({ label: t("Open"), value: () => browse(e.path) });
+  if (conv) items.push({ label: t("Convert…"), sub: t("To FFPFSC, FFPKG, exFAT or a folder"), value: () => openConvert(e) });
+  if (e.kind === "fpkg") items.push({ label: t("Install"), sub: t("Hand it to the console's installer"), value: () => installPkg(e) });
+  if (conv && e.kind !== "fpkg") items.push({ label: t("Add the AMPR emulator…"), sub: t("For games that stop at start from an image or folder"), value: () => addAmpr(e) });
+  if (conv && e.kind !== "fpkg") items.push(isHiddenName(e.name)
+    ? { label: t("Show to ShadowMount+ again"), sub: t("Renames it back to {name}", { name: e.name.slice(1) }), value: () => toggleHidden(e.path) }
+    : { label: t("Hide from ShadowMount+"), sub: t("Renames it to .{name}, so ShadowMount+ uses another copy of this game", { name: e.name }), value: () => toggleHidden(e.path) });
+  // Places (this engine's or a paired one's): shared with every paired engine.
+  if (e.kind === "folder" && state.cwd !== "/") {
+    const isPlace = state.locations.some((l) => l.custom && l.path === e.path);
+    items.push(isPlace ? { label: t("Remove from Places"), value: () => setPlace(e.path, false) }
+      : { label: t("Add to Places"), sub: t("Shows it in Places and Save to, here and on paired engines"), value: () => setPlace(e.path, true) });
+  }
+  // A paired engine's usual destination (Settings > Other engines), for a copy without converting.
+  const peerPlace = state.locations.find((l) => l.peer) || (state.peerDrives || []).map((d) => ({ path: d.root, label: d.engine }))[0];
+  if (peerPlace && !e.shared) items.push({ label: t("Send to another engine…"), sub: t("A copy as it is, without converting"), value: () => openDest(e, "copy", peerPlace.path) });
+  items.push({ label: t("Copy to…"), value: () => openDest(e, "copy") }, { label: t("Move to…"), value: () => openDest(e, "move") },
+    { label: t("Rename…"), value: () => renameEntry(e) }, { label: t("Delete…"), danger: true, value: () => deleteEntry(e) });
+  const fn = await choose(e.name, items);
+  if (fn) fn();
+}
+$("#btn-refresh").addEventListener("click", () => { browse(state.cwd, false); loadInfo().catch(() => {}); });
+// The folder you are in: Add to Places, Copy to..., and the rest.
+$("#btn-here").addEventListener("click", () => {
+  if (!state.cwd || state.cwd === "/") return;
+  openActions({ path: state.cwd, name: base(state.cwd), kind: "folder" });
+});
+$("#btn-mkdir").addEventListener("click", async () => {
+  const name = await ask({ title: t("New folder"), input: t("New folder"), ok: t("Create") });
+  if (!name) return;
+  try { await api("POST", "/api/fs/mkdir", { path: state.cwd + "/" + name }); browse(state.cwd, false, state.cwd + "/" + name); }
+  catch (e) { toast(tMsg(e.message), "bad"); }
+});
+/* ---------- files shared from this computer (not on the console) ---------- */
+// The console reads a picked file through this page: it asks for pieces
+// (want, a long poll) and the page posts them. The page must stay open.
+const shares = new Map(); // engine path -> {file, sent, loops}
+function kindOfName(name) {
+  const n = name.toLowerCase();
+  for (const [ext, kind] of [[".pkg", "fpkg"], [".exfat", "exfat"], [".ffpfsc", "ffpfsc"], [".ffpkg", "ffpkg"], [".ffpfs", "ffpfs"]])
+    if (n.endsWith(ext)) return kind;
+  return "file";
+}
+function isShared(path) { return typeof path === "string" && path.startsWith("/remote/"); }
+async function relay(share, id) {
+  for (;;) {
+    let want;
+    try { want = await api("POST", "/api/remote/" + id + "/want"); }
+    catch (e) { await new Promise((r) => setTimeout(r, 2000)); continue; }
+    for (const p of want.pieces || []) {
+      const blob = share.file.slice(p.offset, p.offset + p.length);
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const r = await fetch("/api/remote/" + id + "/data?offset=" + p.offset, { method: "POST", body: blob });
+          if (r.ok) { share.sent += p.length; break; }
+        } catch (e) { await new Promise((res) => setTimeout(res, 1000)); }
+      }
+    }
+    renderShareBar();
+  }
+}
+function renderShareBar() {
+  const bar = $("#sharebar");
+  if (!shares.size) { bar.hidden = true; return; }
+  bar.hidden = false;
+  bar.textContent = [...shares.values()].map((s) => t("Sharing {name} with the console ({sent} sent). Keep this page open until its job is done.",
+    { name: s.file.name, sent: bytes(s.sent) })).join(" ");
+}
+async function shareFile(file) {
+  const r = await api("POST", "/api/remote", { name: file.name, size: file.size, last_modified: file.lastModified });
+  if (!shares.has(r.path)) {
+    const share = { file, sent: 0 };
+    shares.set(r.path, share);
+    const id = r.path.split("/")[2];
+    for (let i = 0; i < 3; i++) relay(share, id); // three pieces in flight
+  } else {
+    shares.get(r.path).file = file;
+  }
+  renderShareBar();
+  return r.path;
+}
+if (!IS_PS5) {
+  $("#btn-share").hidden = false;
+  $("#btn-share").addEventListener("click", () => $("#share-pick").click());
+  $("#share-pick").addEventListener("change", async (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    ev.target.value = "";
+    if (!file) return;
+    try {
+      const path = await shareFile(file);
+      openConvert({ name: file.name, path, kind: kindOfName(file.name), size: file.size, shared: true });
+    } catch (err) { toast(tMsg(err.message), "bad"); }
+  });
+  window.addEventListener("beforeunload", (ev) => {
+    const busy = state.jobs.some((j) => isActive(j) && isShared(j.spec.input) && shares.has(j.spec.input));
+    if (busy) { ev.preventDefault(); ev.returnValue = ""; }
+  });
+}
+
+async function installPkg(e) {
+  if (state.info && state.info.platform !== "ps5") { toast(t("Installing needs the engine running on a PS5"), "bad"); return; }
+  const body = h("div", {}, h("div", { class: "mono", text: shownPath(e.path) }),
+    h("p", { class: "muted", text: t("The console installs it in the background; follow it in Downloads. Keep the file until the install has finished.") }));
+  if (!await ask({ title: t("Install this package?"), body, ok: t("Install") })) return;
+  try { await api("POST", "/api/jobs", { kind: "install", input: e.path }); toast(t("Install queued"), "ok"); refreshJobs(); }
+  catch (err) { toast(tMsg(err.message), "bad"); }
+}
+// ShadowMount+ skips names that start with "." and keeps one source per
+// game while that source exists: hiding the old one makes it switch.
+function isHiddenName(name) { return name.length > 1 && name[0] === "."; }
+async function toggleHidden(path, quiet) {
+  const n = base(path), name = isHiddenName(n) ? n.slice(1) : "." + n;
+  try {
+    await api("POST", "/api/fs/rename", { path, name });
+    let scanned = true;
+    try { await api("POST", "/api/smp/scan"); } catch (e) { scanned = false; }
+    if (!quiet) toast(isHiddenName(name) ? (scanned ? t("Hidden from ShadowMount+; it is rescanning") : t("Hidden from ShadowMount+"))
+      : (scanned ? t("Visible to ShadowMount+ again; it is rescanning") : t("Visible to ShadowMount+ again")), "ok");
+    if (state.tab === "files" && state.cwd === dir(path)) browse(state.cwd, false, dir(path) + "/" + name);
+    return true;
+  } catch (err) { toast(tMsg(err.message), "bad"); return false; }
+}
+// Downloads the components a planned job needs, after asking. False when declined.
+async function getNeeds(plan, intro) {
+  for (const dep of plan.needs || []) {
+    const body = h("div", {}, h("p", { style: "margin-top:0", text: t(intro, { name: t(dep.label) }) }),
+      h("div", { class: "facts" }, h("div", { text: t("Why") }), h("div", { text: t(dep.purpose) }), h("div", { text: t("Source") }), h("div", { text: dep.source }),
+        h("div", { text: t("Size") }), h("div", { text: bytes(dep.bytes) })),
+      h("p", { class: "muted", text: t("It's checked against a pinned SHA-256 before it's saved.") }));
+    if (!await ask({ title: t("Download {name}?", { name: t(dep.label) }), body, ok: t("Download and continue") })) return false;
+    toast(t("Downloading {name}…", { name: t(dep.label) }));
+    await api("POST", "/api/deps/" + dep.id + "/install");
+    toast(t("{name} downloaded", { name: t(dep.label) }), "ok");
+    loadInfo().catch(() => {});
+  }
+  return true;
+}
+// ampr_emu into an existing game: a folder gets it in place, an image a
+// ShadowMount+ backport folder (the image is not changed).
+async function addAmpr(e) {
+  const isFolder = e.kind === "folder";
+  let plan;
+  try { plan = await api("POST", "/api/plan", { kind: "ampr_emu", input: e.path }); }
+  catch (err) { toast(tMsg(err.message), "bad"); return; }
+  if (plan.ships_emulator) { toast(t("This game already has the AMPR emulator"), "ok"); return; }
+  const body = h("div", {}, h("div", { class: "mono", text: shownPath(e.path) }),
+    h("p", { text: plan.imports_ampr === false ? t("This game does not seem to use the console's APR, so it may not need the emulator. It does no harm to add it.")
+      : t("This game reads its files through the console's APR, which doesn't work when it runs from an image or folder. ampr_emu's libSceAmpr.sprx stands in for it.") }),
+    h("p", { class: "muted", text: isFolder ? t("It goes into the game folder's fakelib (and ampr_emu.index, if the game has none).")
+      : t("The image is not changed: ShadowMount+ gets a backport folder for this title (the game's fakelib files plus the emulator), which it lays over the game when it starts.") }));
+  if (!await ask({ title: t("Add the AMPR emulator?"), body, ok: t("Add") })) return;
+  try {
+    if (!await getNeeds(plan, "This needs {name}, which isn't downloaded yet.")) return;
+    await api("POST", "/api/jobs", { kind: "ampr_emu", input: e.path });
+    toast(t("Queued: {name}", { name: e.name }), "ok"); refreshJobs();
+  } catch (err) { toast(tMsg(err.message), "bad"); }
+}
+async function renameEntry(e) {
+  const name = await ask({ title: t("Rename"), input: e.name, ok: t("Rename") });
+  if (!name || name === e.name) return;
+  try { await api("POST", "/api/fs/rename", { path: e.path, name }); toast(t("Renamed to {name}", { name }), "ok"); browse(state.cwd, false, dir(e.path) + "/" + name); }
+  catch (err) { toast(tMsg(err.message), "bad"); }
+}
+async function deleteEntry(e) {
+  const body = h("div", {},
+    h("div", { class: "warnbox" }, h("b", { text: e.kind === "folder" ? t("Delete this folder and everything in it?") : t("Delete this file?") }),
+      h("div", { class: "mono", style: "margin-top:.4rem", text: shownPath(e.path) }),
+      e.size != null ? h("div", { class: "muted", style: "margin-top:.2rem", text: bytes(e.size) }) : null),
+    h("p", { class: "muted", text: t("This can't be undone.") }));
+  if (!await ask({ title: t("Delete"), body, ok: t("Delete"), danger: true })) return;
+  try { await api("POST", "/api/fs/delete", { path: e.path }); toast(t("Deleted {name}", { name: e.name }), "ok"); browse(state.cwd, false); loadInfo().catch(() => {}); }
+  catch (err) { toast(tMsg(err.message), "bad"); }
+}
+
+/* ---------- folder picker (copy, move, "save to") ---------- */
+// kind "copy"/"move" queues a job; "pick" resolves with the folder.
+function openDest(entry, kind, start) {
+  const pick = kind === "pick";
+  let cur = null;
+  const chips = h("div", { class: "chips" }), cr = h("div", { class: "crumbs", style: "font-size:1rem;margin-bottom:.5rem" }), list = h("div", { class: "picker scroll" });
+  const space = h("div", { class: "muted", style: "font-size:.88rem;margin-top:.6rem" }), msg = h("span", { class: "msg" });
+  const name = h("input", { class: "input mono", value: entry ? entry.name : "", spellcheck: "false", autocapitalize: "off" });
+  const over = switchRow(t("Replace if it already exists"), null, false);
+  const go = h("button", { class: "btn primary", text: pick ? t("Use this folder") : kind === "copy" ? t("Copy here") : t("Move here") });
+  async function load(path) {
+    let data;
+    try { data = await api("GET", "/api/browse?path=" + encodeURIComponent(path || "/")); } catch (e) { msg.textContent = tMsg(e.message); msg.className = "msg err"; return; }
+    cur = data.path; msg.textContent = "";
+    chips.textContent = "";
+    // Places by engine: this one's, then each paired engine's under its name.
+    const here = state.info && state.info.platform === "ps5" ? "PS5" : (state.info && state.info.host_name) || t("This engine");
+    const groups = [];
+    for (const l of state.locations.filter((x) => x.exists)) {
+      const who = l.peer ? l.engine : here;
+      let g = groups.find((x) => x.who === who);
+      if (!g) groups.push(g = { who, list: [] });
+      g.list.push(l);
+    }
+    for (const g of groups)
+      chips.append(h("div", { class: "chipgroup" }, groups.length > 1 ? h("span", { class: "who", text: g.who }) : null,
+        ...g.list.map((l) => h("button", { class: "chip" + (cur === l.path ? " on" : ""), text: placeLabel((l.peer ? l.place : l.label).replace(/ · homebrew.*$/, " · homebrew")), title: shownPath(l.path), onclick: () => load(l.path) }))));
+    crumbs(cr, cur, load);
+    list.textContent = "";
+    const folders = data.entries.filter((x) => x.kind === "folder");
+    if (!folders.length) list.append(h("div", { class: "empty", style: "padding:1.2rem", text: cur === "/" ? t("No drives.") : t("No folders here.") }));
+    for (const f of folders) list.append(h("div", { class: "row", tabindex: "0", onclick: () => load(f.path) },
+      h("div", { class: "ico folder", html: cur === "/" ? ICONS.drive : ICONS.folder }), h("div", { class: "t ellip", text: cur === "/" ? driveName(f.path) : f.name })));
+    const r = cur === "/" ? null : rootOf(cur);
+    space.textContent = !r && /^\/ftp\//.test(cur) ? t("On an FTP server") + "  ·  " + cur : r ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) + (entry && entry.size ? " · " + t("needs {size}", { size: bytes(entry.size) }) : "") + "  ·  " + shownPath(cur) : t("Pick a drive and folder.");
+    go.disabled = cur === "/";
+    if (overlays.length && !list.contains(document.activeElement)) { const f = list.querySelector(".row"); if (f) focusEl(f); }
+  }
+  go.addEventListener("click", () => closeOverlay(cur));
+  const body = h("div", {}, chips, cr, list, pick ? null : h("div", {}, h("div", { class: "lbl", text: t("Name") }), name, h("div", { style: "margin-top:.5rem" }, over)), space);
+  const title = pick ? t("Choose a folder") : t(kind === "copy" ? "Copy {name}" : "Move {name}", { name: entry.name });
+  const p = openOverlay(sheet(title, body, [msg, h("button", { class: "btn", text: t("Cancel"), onclick: () => closeOverlay(null) }), go]),
+    { hints: [["x", t("Open folder")], ["o", t("Cancel"), goBack], ["s", pick ? t("Use this folder") : kind === "copy" ? t("Copy here") : t("Move here"), () => go.click()]], onSquare: () => { if (!go.disabled) go.click(); } });
+  load(start || (entry ? dir(entry.path) : "/"));
+  return p.then(async (folder) => {
+    if (!folder || pick) return folder;
+    const n = name.value.trim();
+    if (!n || n.indexOf("/") >= 0) { toast(t("Enter a plain name"), "bad"); return null; }
+    try {
+      await api("POST", "/api/jobs", { kind, input: entry.path, output: folder + "/" + n, overwrite: over.isOn() });
+      toast(kind === "copy" ? t("Copy queued") : t("Move queued"), "ok"); refreshJobs();
+    } catch (e) { toast(tMsg(e.message), "bad"); }
+    return folder;
+  });
+}
+
+/* ---------- convert ---------- */
+const FORMATS = [
+  { value: "ffpfsc", label: "FFPFSC", hint: "Compressed image, smallest" },
+  { value: "ffpkg", label: "FFPKG", hint: "UFS2 image, ShadowMount+'s pick" },
+  { value: "ffpfs", label: "FFPFS", hint: "PFS image, uncompressed (experimental in ShadowMount+)" },
+  { value: "exfat", label: "exFAT", hint: "Plain image, fastest to load" },
+  { value: "folder", label: "Folder", hint: "Loose files" },
+  { value: "fpkg", label: "FPKG", hint: "Debug package to install, uncompressed" },
+];
+function rememberFolder(path) {
+  if (state.locations.some((l) => l.path === path)) return;
+  store.set("recent", [path].concat((store.get("recent") || []).filter((p) => p !== path)).slice(0, 5));
+}
+function destLabel(v) {
+  if (!v) return t("Next to the source");
+  const l = state.locations.filter((x) => x.path === v)[0];
+  return l ? placeLabel(l.label) : shownPath(v);
+}
+async function openConvert(entry) {
+  const cv = { to: entry.kind === "ffpfsc" ? "ffpkg" : "ffpfsc", dest: store.get("dest") || "", inspect: null, timer: 0 };
+  // A shared file has no folder on the console: it goes to a place here.
+  if (entry.shared && !cv.dest) cv.dest = (state.locations[0] || {}).path || "";
+  if (cv.dest && !rootOf(cv.dest) && !ftpOf(cv.dest)) cv.dest = "";
+  const m = meta.cache.get(metaKey(entry));
+  const rt = state.info ? state.info.lz4_runtime : null;
+  // Left column: the choices.
+  const fmts = h("div", { class: "opts" });
+  // The source's own format is no conversion, except when packing or unpacking
+  // LZ4 (an exFAT game into an LZ4-packed exFAT, say).
+  const sameFormat = entry.game ? "folder" : entry.kind;
+  let lz4On = false;
+  const offered = () => FORMATS.filter((f) => f.value !== sameFormat || lz4On);
+  function renderFormats() {
+    if (!offered().some((f) => f.value === cv.to)) cv.to = offered()[0].value;
+    keepFocus(fmts, () => {
+      fmts.textContent = "";
+      for (const f of offered()) fmts.append(h("button", { class: "opt" + (cv.to === f.value ? " sel" : ""), "data-key": f.value, "data-autofocus": cv.to === f.value ? true : null,
+        onclick: () => { cv.to = f.value; renderFormats(); sync(); } }, h("b", { text: f.label }), h("span", { text: t(f.hint) })));
+    });
+  }
+  renderFormats();
+  const level = choiceRow(t("Compression"), [{ value: 1, label: t("1 · fastest") }, { value: 6, label: t("6 · balanced") }, { value: 9, label: t("9 · smallest") }], 6, () => sync(), t("Level 9 matches PS5PKGTool byte for byte"));
+  const profiles = [{ value: "auto", label: t("Automatic") }].concat((state.info ? state.info.lz4_profiles : []).map((p) => ({ value: p.id, label: p.label }))).concat([{ value: "scan", label: t("Scan (untested)") }]);
+  const profile = choiceRow(t("Profile"), profiles, "auto", () => sync(), t("Automatic uses a console-tested profile when one matches"));
+  const lz4level = choiceRow(t("LZ4 level"), [{ value: 1, label: t("1 · fast") }, { value: 9, label: t("9 · default") }, { value: 12, label: t("12 · smallest") }], 9, () => sync());
+  const rtNote = h("div", { class: "note" });
+  if (rt && !rt.present) rtNote.append(t("No ampr_emu runtime yet: only games that ship it can be packed.") + " ", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); closeOverlay("deps"); }, text: t("Get it in Components") }));
+  else if (rt && !rt.pinned) rtNote.textContent = t("The runtime file is not the pinned ampr_emu 0.4.2.1 build.");
+  const lz4Opts = h("div", { class: "indent" }, profile, lz4level, rtNote.childNodes.length || rtNote.textContent ? rtNote : null);
+  const lz4 = switchRow(t("Pack into LZ4 asset packs"), t("For ampr_emu games"), false, () => sync());
+  // ampr_emu for games that use the console's APR (not packages: installed, they have the real one).
+  const ampr = switchRow(t("Add the AMPR emulator when the game needs it"), t("Games that use the console's APR stop at start from an image or folder without it"), true, () => sync());
+  const amprNote = h("div", { class: "note", hidden: true });
+  // Shown instead of the pack switch for a game that is already packed.
+  const unpack = switchRow(t("Unpack LZ4 asset packs"), t("Turns the packs back into ordinary files; ampr_emu's runtime stays in fakelib"), false, () => sync());
+  unpack.hidden = true;
+  // LZ4 packs inside an FFPFSC work, but the console then undoes zlib and LZ4.
+  const lz4Note = h("div", { class: "note", hidden: true });
+  const verify = switchRow(t("Check the output first"), t("Compares every file before deleting; recommended"), true, () => sync());
+  const del = switchRow(t("Delete the source when done"), entry.kind === "fpkg" || entry.kind === "ffpkg" ? t("Frees {size} after a successful conversion", { size: bytes(entry.size) }) : t("Frees its space after a successful conversion"), false, () => sync());
+  const delOpts = h("div", { class: "indent" }, verify);
+  // ShadowMount+ never scans packages, so only images and folders need hiding.
+  const hide = switchRow(t("Hide the source from ShadowMount+"), t("Renames it to .name when done, so ShadowMount+ switches to the new image"), !!store.get("hideSource"), () => { store.set("hideSource", hide.isOn()); sync(); });
+  hide.hidden = entry.kind === "fpkg" || isHiddenName(entry.name);
+  const destVal = h("span", { class: "ellip", style: "max-width:16rem" });
+  const destRow = h("button", { class: "frow" }, h("div", { class: "fl" }, h("b", { text: t("Save to") })), h("div", { class: "val" }, destVal, h("span", { class: "arr", text: "›" })));
+  const name = h("input", { class: "input mono", spellcheck: "false", autocapitalize: "off", placeholder: "" });
+  const over = switchRow(t("Replace the output if it exists"), null, false, () => sync());
+  // Which engine does the work (Settings > Other engines); the source and the output can be on any.
+  const paired = ((state.peers && state.peers.engines) || []).filter((e) => e.paired);
+  const onChoices = [{ value: "", label: t("This engine") }].concat(paired.map((e) => ({ value: e.id, label: e.name })));
+  const savedOn = store.get("convertOn") || "";
+  const where = choiceRow(t("Convert on"), onChoices, onChoices.some((c) => c.value === savedOn) ? savedOn : "", () => sync(),
+    t("The engine that does the work; the source and the output can be on any paired engine"));
+  where.hidden = !paired.length || !!entry.shared;
+  const onEngine = () => (where.hidden ? "" : where.getValue());
+  const form = h("div", {},
+    h("div", { class: "lbl", text: t("Convert to") }), fmts,
+    h("div", { class: "lbl", text: t("Options") }), level, lz4, lz4Opts, unpack, lz4Note, ampr, del, delOpts, hide,
+    h("div", { class: "lbl", text: t("Output") }), destRow, h("div", { style: "margin-bottom:.5rem" }, name), over, where);
+  // Right column: what it is and where it goes.
+  const facts = h("div", { class: "facts" }, h("div", { text: t("Reading") }), h("div", { class: "muted", text: "…" }));
+  const headIco = icoFor(entry);
+  if (m && m.icon) setIcon(headIco, entry);
+  const outPath = h("div", { class: "mono" }), outSpace = h("div", { class: "muted" }), needs = h("div", { class: "note", hidden: true }), warn = h("div", { class: "note", hidden: true });
+  const side = h("div", { class: "side" },
+    h("div", { class: "head" }, headIco, h("div", { style: "min-width:0" }, h("b", { text: m && m.title ? m.title : entry.name }), h("div", { class: "muted mono", text: m && m.title ? entry.name : "" }))),
+    facts, h("div", { class: "out" }, h("div", { class: "lbl", style: "margin-top:.4rem", text: t("Output") }), outPath, outSpace), amprNote, needs, warn);
+  const msg = h("span", { class: "msg" });
+  const go = h("button", { class: "btn primary", text: t("Add to queue") });
+  const cancel = h("button", { class: "btn", text: t("Cancel"), onclick: () => closeOverlay(null) });
+  function spec() {
+    return { input: entry.path, to: cv.to, output_dir: cv.dest, output_name: name.value.trim(), level: level.getValue(), lz4: lz4.isOn(), lz4_unpack: unpack.isOn(),
+      lz4_profile: profile.getValue(), lz4_level: lz4level.getValue(), delete_source: !entry.shared && del.isOn(), verify: verify.isOn(), overwrite: over.isOn(),
+      ampr_emu: ampr.isOn() ? "auto" : "off", hide_source: !hide.hidden && hide.isOn() && !del.isOn() };
+  }
+  function sync() {
+    // An LZ4-packed game can't be packed again, only unpacked.
+    const packedSrc = !!(cv.inspect && cv.inspect.lz4_packed);
+    lz4.hidden = packedSrc; unpack.hidden = !packedSrc;
+    if (packedSrc && lz4.isOn()) lz4.setOn(false);
+    if (!packedSrc && unpack.isOn()) unpack.setOn(false);
+    const changesTree = lz4.isOn() || unpack.isOn();
+    if (changesTree !== lz4On) { lz4On = changesTree; renderFormats(); }
+    level.hidden = cv.to !== "ffpfsc";
+    ampr.hidden = cv.to === "fpkg" || lz4.isOn(); // packing adds its runtime anyway
+    lz4Opts.hidden = !lz4.isOn(); delOpts.hidden = !del.isOn();
+    hide.hidden = entry.kind === "fpkg" || isHiddenName(entry.name) || del.isOn() || cv.to === "fpkg" || entry.shared;
+    del.hidden = !!entry.shared; // the file is on another computer
+    lz4Note.hidden = !(cv.to === "ffpfsc" && (lz4.isOn() || (packedSrc && !unpack.isOn())));
+    lz4Note.textContent = (packedSrc ? t("This game is already LZ4-packed.") + " " : "") +
+      t("FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data.");
+    destVal.textContent = destLabel(cv.dest);
+    clearTimeout(cv.timer);
+    cv.timer = setTimeout(async () => {
+      try {
+        const p = await api("POST", "/api/plan", spec());
+        name.placeholder = base(p.output);
+        outPath.textContent = shownPath(p.output);
+        const r = rootOf(p.output), need = cv.inspect ? cv.inspect.bytes : 0;
+        outSpace.textContent = r ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) + (need ? " · " + t("the game is {size} unpacked", { size: bytes(need) }) : "") : ftpOf(p.output) ? t("On an FTP server") : "";
+        msg.textContent = ""; msg.className = "msg"; go.disabled = false;
+        const w = p.warnings || [];
+        warn.hidden = !w.length; warn.textContent = w.map(tMsg).join(" ");
+        const amprShown = !ampr.hidden && p.ampr_needed;
+        amprNote.hidden = !amprShown;
+        amprNote.textContent = !amprShown ? "" : ampr.isOn() ? t("This game uses the console's APR and ships no emulator: ampr_emu goes into its fakelib.")
+          : t("This game uses the console's APR and ships no emulator: without it, it will likely stop at start.");
+        const n = p.needs || [];
+        needs.hidden = !n.length;
+        needs.textContent = n.length ? t("Needs {list}. You'll be asked to download it when you add this to the queue.", { list: n.map((d) => t(d.label) + " (" + bytes(d.bytes) + ")").join(", ") }) : "";
+      } catch (e) { msg.textContent = tMsg(e.message); msg.className = "msg err"; go.disabled = true; }
+    }, 150);
+  }
+  destRow.addEventListener("click", async () => {
+    const items = entry.shared ? [] : [{ label: t("Next to the source"), value: "", selected: cv.dest === "" }];
+    // This engine's places and recent folders, then each paired engine's under its name.
+    const here = state.info && state.info.platform === "ps5" ? "PS5" : (state.info && state.info.host_name) || t("This engine");
+    const groups = [{ who: here, list: [] }];
+    const groupOf = (who) => groups.find((g) => g.who === who) || (groups.push({ who, list: [] }), groups[groups.length - 1]);
+    const onEngine = (p) => { const s = shownPath(p); const i = s.indexOf(": "); return p.indexOf("/peer/") === 0 && i > 0 ? s.slice(i + 2) : s; };
+    for (const l of state.locations) groupOf(l.peer ? l.engine : here).list.push({ label: placeLabel((l.peer ? l.place : l.label).replace(/ · homebrew.*$/, " · homebrew")), sub: onEngine(l.path), value: l.path, selected: cv.dest === l.path });
+    for (const p of (store.get("recent") || []).filter((p) => rootOf(p) && !state.locations.some((l) => l.path === p))) {
+      const pd = peerDriveOf(p);
+      groupOf(pd ? pd.engine : here).list.push({ label: base(p), sub: onEngine(p), value: p, selected: cv.dest === p });
+    }
+    const shown = groups.filter((g) => g.list.length);
+    for (const g of shown) {
+      if (shown.length > 1) items.push({ heading: g.who });
+      items.push(...g.list);
+    }
+    items.push({ label: t("Choose a folder…"), value: "__pick" });
+    let v = await choose(t("Save to"), items);
+    if (v === "__pick") v = await openDest(null, "pick", cv.dest || dir(entry.path));
+    if (v != null) { cv.dest = v; if (v) rememberFolder(v); }
+    sync();
+  });
+  name.addEventListener("input", sync);
+  name.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); name.blur(); } });
+  // Add to queue: download what the job needs (after asking), then queue it.
+  go.addEventListener("click", async () => {
+    if (go.disabled) return;
+    go.disabled = true;
+    const s = spec();
+    try {
+      const on = onEngine(), engine = paired.find((e) => e.id === on);
+      // Components are the converting engine's own: only this engine's are fetched from here.
+      if (!on) {
+        const plan = await api("POST", "/api/plan", s);
+        if (!await getNeeds(plan, "This conversion needs {name}, which isn't downloaded yet.")) {
+          msg.className = "msg"; msg.textContent = t("Not queued: a component is needed."); return;
+        }
+      }
+      const job = on ? await api("POST", "/api/peers/" + encodeURIComponent(on) + "/jobs", s) : await api("POST", "/api/jobs", s);
+      store.set("dest", s.output_dir);
+      store.set("convertOn", on);
+      closeOverlay(true);
+      toast(engine ? t("Queued on {engine}: {name}", { engine: engine.name, name: base(job.spec.output) }) : t("Queued: {name}", { name: base(job.spec.output) }), "ok");
+      refreshJobs(true);
+    } catch (e) { msg.className = "msg err"; msg.textContent = tMsg(e.message); }
+    finally { go.disabled = false; }
+  });
+  const body = h("div", { class: "cv" }, form, side);
+  openOverlay(sheet(t("Convert"), body, [msg, cancel, go], "wide"),
+    { hints: [["dpad", t("Move, change")], ["x", t("Choose")], ["o", t("Cancel"), goBack], ["s", t("Add to queue"), () => go.click()]], onSquare: () => go.click() })
+    .then((v) => { if (v === "deps") showTab("deps"); });
+  sync();
+  try {
+    const i = cv.inspect = await api("GET", "/api/inspect?path=" + encodeURIComponent(entry.path));
+    facts.textContent = "";
+    const add = (k, v) => facts.append(h("div", { text: k }), h("div", { text: v }));
+    add(t("Format"), i.format + (i.lz4_packed ? " · " + t("LZ4-packed") : ""));
+    add(t("Title ID"), i.title_id || "—");
+    add(t("Contents"), plural(i.files, "{n} file", "{n} files") + " · " + bytes(i.bytes));
+    add(t("LZ4 profile"), i.lz4_profile === "scan" ? t("no tested profile") : i.lz4_profile);
+    sync();
+  } catch (e) {
+    facts.textContent = "";
+    facts.append(h("div", { text: t("Problem") }), h("div", { class: "err", text: tMsg(e.message) }));
+    go.disabled = true;
+  }
+}
+
+/* ---------- components ---------- */
+const DEP_STATE = { installed: ["done", "installed"], missing: ["queued", "not installed"], partial: ["failed", "incomplete"], modified: ["failed", "changed"] };
+async function loadDeps() {
+  let deps;
+  try { deps = await api("GET", "/api/deps"); } catch (e) { toast(tMsg(e.message), "bad"); return; }
+  const box = $("#deps");
+  keepFocus(box, () => {
+    box.textContent = "";
+    for (const d of deps) {
+      const st = DEP_STATE[d.state] || ["queued", d.state];
+      const busy = h("span", { class: "muted" });
+      const run = async (action) => {
+        for (const b of $$("button", box)) b.disabled = true;
+        busy.textContent = action === "install" ? t("Downloading…") : t("Removing…");
+        try { await api("POST", "/api/deps/" + d.id + "/" + action); toast(t(action === "install" ? "{name} installed" : "{name} removed", { name: t(d.label) }), "ok"); }
+        catch (e) { toast(tMsg(e.message), "bad"); }
+        await loadInfo().catch(() => {}); loadDeps();
+      };
+      const buttons = [];
+      if (d.state !== "installed") buttons.push(h("button", { class: "btn sm primary", "data-key": d.id + ":get", text: d.state === "missing" ? t("Download ({size})", { size: bytes(d.bytes) }) : t("Download again"), onclick: () => run("install") }));
+      if (d.state !== "missing") buttons.push(h("button", { class: "btn sm", "data-key": d.id + ":rm", text: t("Remove"), onclick: () => run("remove") }));
+      box.append(h("div", { class: "card" },
+        h("div", { class: "hd" }, h("div", { class: "ttl", text: t(d.label) }), h("span", { class: "state " + st[0], text: t(st[1]) })),
+        h("p", { style: "margin:.5rem 0 .8rem", text: t(d.purpose) }),
+        h("div", { class: "facts" }, h("div", { text: t("Source") }), h("div", { text: d.source }), h("div", { text: t("License") }), h("div", { text: d.license }),
+          h("div", { text: t("Files") }), h("div", { class: "mono" }, d.files.map((f) => h("div", { text: f.path, title: f.url + "\nSHA-256 " + f.sha256 })))),
+        h("div", { class: "btns" }, busy, buttons)));
+    }
+  });
+  if (state.tab === "deps" && !overlays.length && zoneOf(document.activeElement) !== "deps") focusFirst();
+}
+
+/* ---------- settings ---------- */
+const SCALES = [{ value: 0.85, label: "Small" }, { value: 1, label: "Normal" }, { value: 1.15, label: "Large" }, { value: 1.3, label: "Larger" }];
+function applyScale() {
+  const w = window.innerWidth, s = store.get("scale") || 1;
+  const px = w >= 2400 ? 26 : w >= 1700 ? 20 : w >= 1200 ? 17 : w >= 760 ? 16 : 15;
+  document.documentElement.style.fontSize = (px * s).toFixed(1) + "px";
+}
+window.addEventListener("resize", applyScale);
+applyScale();
+function renderSettings() {
+  const box = $("#settings"), i = state.info;
+  keepFocus(box, () => {
+    box.textContent = "";
+    box.append(h("div", { class: "head2" }, h("div", { class: "sect", text: t("Console") })));
+    const l = i && i.launcher;
+    if (l && l.supported) {
+      const row = switchRow(t("Shortcut in Media"), t("Adds Alembic to the Media tab of the home screen; it opens this page in the console's browser"), l.installed, async (on) => {
+        try { state.info = await api("POST", "/api/launcher", { enabled: on }); toast(on ? t("Added to Media on the home screen") : t("Shortcut removed"), "ok"); }
+        catch (e) { toast(tMsg(e.message), "bad"); row.setOn(!on); }
+      });
+      row.setAttribute("data-key", "s:launcher");
+      const again = h("button", { class: "btn sm", "data-key": "s:again", text: t("Register again"), onclick: async () => {
+        again.disabled = true;
+        try { state.info = await api("POST", "/api/launcher", { enabled: true, again: true }); toast(t("Shortcut registered again; check Media on the home screen"), "ok"); }
+        catch (e) { toast(tMsg(e.message), "bad"); }
+        loadInfo().catch(() => {});
+      } });
+      box.append(row, h("div", { class: "card" },
+        h("div", { class: "facts" }, h("div", { text: t("Status") }), h("div", { class: /failed|not available/.test(l.status) ? "err" : "", text: tStatus(l.status || "") }),
+          h("div", { text: t("Title ID") }), h("div", { class: "mono", text: l.title_id })),
+        h("div", { class: "btns" }, again)));
+    } else box.append(h("div", { class: "frow" }, h("div", { class: "fl" }, h("b", { text: t("Shortcut in Media") }),
+      h("small", { text: l && state.info.platform === "ps5" ? tStatus(l.status || "not available") : t("Only when the engine runs on a PS5.") }))));
+    const scale = choiceRow(t("Text size"), SCALES.map((x) => ({ value: x.value, label: t(x.label) })), store.get("scale") || 1, (v) => { store.set("scale", v); applyScale(); }, t("For reading from the couch"));
+    scale.setAttribute("data-key", "s:scale");
+    const language = choiceRow(t("Language"), LANGS.map((l) => ({ value: l[0], label: l[1] })), lang, (v) => setLang(v));
+    language.setAttribute("data-key", "s:lang");
+    const test = h("button", { class: "frow", "data-key": "s:test", onclick: openControllerTest },
+      h("div", { class: "fl" }, h("b", { text: t("Controller test") }), h("small", { text: t("Shows what each button sends to this page") })), h("span", { class: "arr", text: "›" }));
+    box.append(h("div", { class: "head2" }, h("div", { class: "sect", text: t("Page") })), language, scale, test);
+    // Places the person added, here and on paired engines.
+    box.append(h("div", { class: "head2" }, h("div", { class: "sect", text: t("Places") })));
+    const mine = state.locations.filter((l) => l.custom);
+    const placeCard = h("div", { class: "card" });
+    if (!mine.length) placeCard.append(h("p", { class: "muted", style: "margin:0", text: t("No places yet: in Files, open a folder's Options and choose Add to Places. They show here and on paired engines.") }));
+    for (const l of mine)
+      placeCard.append(h("div", { class: "ftprow" },
+        h("div", { class: "nm", html: ICONS.place }),
+        h("div", { style: "min-width:0;flex:1" }, h("div", { class: "ellip", text: l.place || l.label }), h("div", { class: "muted mono ellip", style: "font-size:.85rem", text: shownPath(l.path) })),
+        h("button", { class: "btn sm danger", "data-key": "place:rm:" + l.path, text: t("Remove"), onclick: () => setPlace(l.path, false) })));
+    box.append(placeCard);
+    // Other Alembic engines on the network (discovery is off until switched on here).
+    box.append(h("div", { class: "head2" }, h("div", { class: "sect", text: t("Other engines") })));
+    const p = state.peers || { enabled: false, engines: [] };
+    const find = switchRow(t("Find engines on this network"),
+      t("Announces this engine on the local network every few seconds and lists the other Alembic engines that do the same. Off by default."),
+      p.enabled, async (on) => {
+        try { state.peers = await api("POST", "/api/peers/discovery", { enabled: on }); setTimeout(() => loadPeers().catch(() => {}), 1500); renderSettings(); }
+        catch (e) { toast(tMsg(e.message), "bad"); find.setOn(!on); }
+      });
+    find.setAttribute("data-key", "s:discovery");
+    box.append(find);
+    const engines = h("div", { class: "card" });
+    if (p.enabled && p.listening === false)
+      engines.append(h("p", { class: "err", style: "margin:0 0 .5rem", text: t("The discovery port could not be opened; another program may be using it.") }));
+    if (!p.engines.length)
+      engines.append(h("p", { class: "muted", style: "margin:0 0 .5rem", text: p.enabled ? t("No other engines found yet.") : t("Switch on finding engines, or add one by its address.") }));
+    for (const e of p.engines) {
+      const sub = [e.os || e.platform, e.address + ":" + e.port, e.version ? "v" + e.version : ""].filter(Boolean).join(" · ");
+      const open = h("a", { class: "btn sm", "data-key": "peer:open:" + e.id, href: e.url, target: "_blank", rel: "noopener", text: t("Open its page") });
+      const btn = (key, text, fn, cls) => h("button", { class: "btn sm" + (cls ? " " + cls : ""), "data-key": "peer:" + key + ":" + e.id, text, onclick: fn });
+      const actions = e.paired ? [btn("check", t("Check"), () => checkPeer(e)), btn("unpair", t("Unpair"), () => unpairPeer(e), "danger")]
+        : [e.waiting_for_code ? btn("code", t("Enter the code"), () => codeDialog(e)) : btn("pair", t("Pair"), () => pairPeer(e), "primary"),
+           e.manual ? btn("rm", t("Remove"), () => removePeer(e), "danger") : null];
+      const note = e.manual && !e.reachable ? h("div", { class: "err ellip", style: "font-size:.85rem", text: t("Not reachable: {why}", { why: tMsg(e.problem || "") }) })
+        : e.paired ? h("div", { class: "good", style: "font-size:.85rem", text: t("Paired") })
+        : e.manual ? h("div", { class: "muted", style: "font-size:.85rem", text: t("Added by address") }) : null;
+      engines.append(h("div", { class: "ftprow" },
+        h("div", { class: "nm", html: ICONS.server }),
+        h("div", { style: "min-width:0;flex:1" }, h("div", { class: "ellip", text: e.name }), h("div", { class: "muted mono ellip", style: "font-size:.85rem", text: sub }), note),
+        open, ...actions));
+    }
+    engines.append(h("div", { class: "btns" }, h("button", { class: "btn sm", "data-key": "peer:add", text: t("Add an engine by address…"), onclick: peerDialog })));
+    box.append(engines);
+    box.append(h("div", { class: "head2" }, h("div", { class: "sect", text: t("FTP servers") })));
+    const servers = h("div", { class: "card" },
+      h("p", { class: "muted", style: "margin:0 0 .5rem", text: t("Games on another computer's FTP server can be converted from there, and exFAT, FFPKG, FFPFS and folder outputs saved there. FFPFSC and PKG outputs must be saved on the console first. Plain FTP: the password crosses the network unencrypted and is kept on the console.") }));
+    for (const s of state.ftp || []) {
+      const edit = h("button", { class: "btn sm", "data-key": "ftp:ed:" + s.id, text: t("Edit"), onclick: () => ftpDialog(s) });
+      const remove = h("button", { class: "btn sm danger", "data-key": "ftp:rm:" + s.id, text: t("Remove"), onclick: () => removeFtp(s) });
+      servers.append(h("div", { class: "ftprow" },
+        h("div", { class: "nm", html: ICONS.server }),
+        h("div", { style: "min-width:0;flex:1" }, h("div", { class: "ellip", text: s.name }), h("div", { class: "muted mono ellip", style: "font-size:.85rem", text: s.user + "@" + s.host + ":" + s.port })),
+        edit, remove));
+    }
+    servers.append(h("div", { class: "btns" }, h("button", { class: "btn sm", "data-key": "ftp:add", text: t("Add an FTP server…"), onclick: () => ftpDialog(null) })));
+    box.append(servers);
+    box.append(h("div", { class: "head2" }, h("div", { class: "sect", text: t("Engine") })));
+    const facts = h("div", { class: "facts" });
+    const add = (k, v, cls) => facts.append(h("div", { text: k }), h("div", { class: cls || "", text: v }));
+    if (i) {
+      add(t("Version"), i.version); add(t("Running on"), i.platform === "ps5" ? t("PS5 (payload)") : i.os || t("PC"));
+      if (i.host_name && i.platform !== "ps5") add(t("Computer"), i.host_name);
+      if (i.cpu_instructions) add(t("CPU instructions"), i.cpu_instructions === "none" ? "–" : i.cpu_instructions);
+      add(t("Address"), location.host, "mono");
+      add(t("From other devices"), i.network_urls && i.network_urls.length ? i.network_urls.join("\n") : i.open_to_network ? "–" : t("This computer only"), "mono");
+      if (i.roots && i.roots.length) add(t("Shared folders"), i.roots.join("\n"), "mono");
+      add(t("State folder"), i.state_dir, "mono");
+      add(t("LZ4 runtime"), i.lz4_runtime && i.lz4_runtime.present ? (i.lz4_runtime.pinned ? "ampr_emu 0.4.2.1" : t("present, not the pinned build")) : t("not downloaded"));
+    } else add(t("Engine"), t("not connected"));
+    box.append(h("div", { class: "card" }, facts,
+      h("div", { class: "btns" }, h("button", { class: "btn sm danger", "data-key": "s:quit", text: t("Stop the engine"), onclick: quitEngine }))));
+    if (i && i.cache) {
+      // Titles and icons the engine read from games; read again when needed.
+      const c = i.cache;
+      const clear = h("button", { class: "btn sm", "data-key": "s:cache", text: t("Clear cache"), disabled: c.games || c.bytes ? null : true, onclick: async () => {
+        clear.disabled = true;
+        try {
+          state.info.cache = await api("POST", "/api/cache/clear");
+          meta.cache.clear(); meta.waiting.clear();
+          toast(t("Cache cleared"), "ok");
+        } catch (e) { toast(tMsg(e.message), "bad"); }
+        renderSettings();
+      } });
+      box.append(h("div", { class: "head2" }, h("div", { class: "sect", text: t("Cache") })),
+        h("div", { class: "card" },
+          h("div", { class: "facts" }, h("div", { text: t("Game info") }), h("div", { text: plural(c.games, "{n} game", "{n} games") + " · " + bytes(c.bytes) })),
+          h("p", { class: "muted", style: "margin:.5rem 0 0", text: t("Titles and icons, so lists open quickly. Entries unused for 30 days are removed at start, and the cache is kept under 100 MB.") }),
+          h("div", { class: "btns" }, clear)));
+    }
+  });
+}
+function setLang(v) {
+  lang = v; store.set("lang", v);
+  api("POST", "/api/lang", { lang: v }).catch(() => {});
+  document.documentElement.lang = v;
+  applyStatic(); renderHints(); renderStatus(); renderRail();
+  if (state.listing) browse(state.cwd, false);
+  for (const c of cards.values()) c.__sig = null;
+  renderJobs(); renderSettings();
+}
+// Shows what each button sends; nothing acts while it is open, except ✕ on Close.
+function openControllerTest() {
+  const list = h("div", { class: "mono", style: "font-size:.85rem;line-height:1.7" });
+  const start = Date.now();
+  const done = h("button", { class: "btn primary", "data-test-done": true, "data-autofocus": true, text: t("Close"),
+    onclick: () => { inputLog.test = null; inputLog.closing = true; closeOverlay(null); } });
+  inputLog.test = () => {
+    list.textContent = "";
+    const items = inputLog.items.filter((x) => x.t >= start);
+    if (!items.length) list.append(h("div", { class: "muted", text: t("Waiting for a button…") }));
+    for (const x of items.slice(0, 16)) list.append(h("div", { text: ((x.t - start) / 1000).toFixed(1) + " s  " + x.text }));
+  };
+  const body = h("div", {},
+    h("p", { style: "margin-top:0", text: t("Press each button once: D-pad, ○, △, □, L1, R1, L2, R2, Options. Each one shows below what the browser sends. Press ✕ last: it closes this.") }),
+    h("div", { class: "card", style: "min-height:16rem" }, list));
+  openOverlay(sheet(t("Controller test"), body, [done], "wide"), { hints: [["x", t("Close (press it last)")]] });
+  inputLog.test();
+}
+// Adds an FTP server, or changes `server`; the engine logs in once before keeping it.
+async function setPlace(path, add) {
+  try {
+    state.locations = await api("POST", "/api/places", { path, remove: !add });
+    toast(add ? t("Added to Places") : t("Removed from Places"), "ok");
+  } catch (e) { toast(tMsg(e.message), "bad"); }
+  renderRail();
+  if (state.tab === "settings") renderSettings();
+}
+async function loadPeers() {
+  state.peers = await api("GET", "/api/peers");
+  if (state.tab === "settings" && !overlays.length) renderSettings();
+}
+function peerDialog() {
+  const field = (label, attrs) => { const i = h("input", Object.assign({ class: "input mono", spellcheck: "false", autocapitalize: "off" }, attrs)); return [h("div", { class: "lbl", text: label }), i]; };
+  const [hl, host] = field(t("Address"), { placeholder: "192.168.1.10" });
+  const [pl, port] = field(t("Port"), { value: "5940", inputmode: "numeric" });
+  const msg = h("span", { class: "msg" });
+  const add = h("button", { class: "btn primary", text: t("Add"), onclick: async () => {
+    if (!host.value.trim()) { msg.textContent = t("Enter the engine's address"); msg.className = "msg err"; return; }
+    add.disabled = true; msg.textContent = t("Connecting…"); msg.className = "msg";
+    try {
+      state.peers = await api("POST", "/api/peers", { address: host.value.trim(), port: parseInt(port.value, 10) || 5940 });
+      toast(t("Engine added"), "ok");
+      closeOverlay(true);
+      renderSettings();
+    } catch (e) { msg.textContent = tMsg(e.message); msg.className = "msg err"; add.disabled = false; }
+  } });
+  openOverlay(sheet(t("Add an engine"), h("div", {}, hl, host, pl, port), [msg, h("button", { class: "btn", text: t("Cancel"), onclick: () => closeOverlay(null) }), add], "narrow"),
+    { hints: [["x", t("Choose")], ["o", t("Cancel"), goBack]] });
+}
+async function removePeer(e) {
+  if (!await ask({ title: t("Remove {name}?", { name: e.name }), body: h("p", { style: "margin-top:0", text: t("Nothing changes on that engine; it can be added again.") }), ok: t("Remove"), danger: true })) return;
+  try { state.peers = await api("DELETE", "/api/peers/" + encodeURIComponent(e.id)); toast(t("Engine removed"), "ok"); } catch (err) { toast(tMsg(err.message), "bad"); }
+  renderSettings();
+}
+// Pairing (pairing.hpp): started here, the code is typed here.
+async function pairPeer(e) {
+  toast(t("Connecting…"), "ok");
+  try { state.peers = await api("POST", "/api/peers/" + encodeURIComponent(e.id) + "/pair", {}); codeDialog(e); }
+  catch (err) { toast(tMsg(err.message), "bad"); }
+}
+function codeDialog(e) {
+  const code = h("input", { class: "input mono", inputmode: "numeric", autocomplete: "off", maxlength: "7", placeholder: "123 456", style: "font-size:1.6rem;letter-spacing:.2em;text-align:center" });
+  const msg = h("span", { class: "msg" });
+  let done = false;
+  const ok = h("button", { class: "btn primary", text: t("Pair"), onclick: async () => {
+    if (code.value.replace(/\D/g, "").length !== 6) { msg.textContent = t("Enter the six-digit code"); msg.className = "msg err"; return; }
+    ok.disabled = true; msg.textContent = t("Connecting…"); msg.className = "msg";
+    try {
+      state.peers = await api("POST", "/api/peers/" + encodeURIComponent(e.id) + "/pair/confirm", { code: code.value });
+      done = true; closeOverlay(true); toast(t("Paired with {name}", { name: e.name }), "ok"); renderSettings();
+    } catch (err) {
+      msg.textContent = tMsg(err.message); msg.className = "msg err"; ok.disabled = false;
+      loadPeers().then(() => { if (!state.peers.engines.some((x) => x.id === e.id && x.waiting_for_code)) { done = true; closeOverlay(null); } }).catch(() => {});
+    }
+  } });
+  const cancel = h("button", { class: "btn", text: t("Cancel"), onclick: () => closeOverlay(null) });
+  const body = h("div", {}, h("p", { style: "margin-top:0", text: t("Enter the code {name} shows. On a PS5 it is a notification on the screen; on a computer, it is in the engine's window, or in its page opened on that computer.", { name: e.name }) }), code);
+  openOverlay(sheet(t("Pair with {name}", { name: e.name }), body, [msg, cancel, ok], "narrow"), { hints: [["x", t("Choose")], ["o", t("Cancel"), goBack]] })
+    .then(() => { if (!done) api("DELETE", "/api/peers/" + encodeURIComponent(e.id) + "/pair/session").then((p) => { state.peers = p; renderSettings(); }).catch(() => {}); });
+}
+async function checkPeer(e) {
+  try { await api("GET", "/api/peers/" + encodeURIComponent(e.id) + "/pair/check"); toast(t("The pairing works"), "ok"); }
+  catch (err) { toast(tMsg(err.message), "bad"); }
+}
+async function unpairPeer(e) {
+  if (!await ask({ title: t("Unpair {name}?", { name: e.name }), body: h("p", { style: "margin-top:0", text: t("Both engines forget their shared key; pair them again to use them together.") }), ok: t("Unpair"), danger: true })) return;
+  try { state.peers = await api("DELETE", "/api/peers/" + encodeURIComponent(e.id) + "/pair"); toast(t("Unpaired"), "ok"); } catch (err) { toast(tMsg(err.message), "bad"); }
+  renderSettings();
+}
+// Started there, the code is shown here: only in a browser on this computer
+// (the engine shows it to nobody else).
+const LOCAL_PAGE = /^(127\.0\.0\.1|localhost)$/.test(location.hostname);
+let incomingOpen = null;
+async function watchIncoming() {
+  if (!LOCAL_PAGE) return;
+  const r = await api("GET", "/api/pair/incoming").catch(() => null);
+  const p = r && r.pairing;
+  if (p && p.code && !incomingOpen) {
+    const codeBox = h("div", { class: "mono", style: "font-size:2.6rem;letter-spacing:.15em;text-align:center;margin:.6rem 0", text: p.code });
+    const cancel = h("button", { class: "btn", text: t("Cancel"), onclick: () => { api("POST", "/api/pair/incoming/cancel", {}).catch(() => {}); closeOverlay(null); } });
+    incomingOpen = { from: p.from, box: codeBox };
+    openOverlay(sheet(t("{name} wants to pair with this engine", { name: p.from }),
+      h("div", {}, h("p", { style: "margin-top:0", text: t("Enter this code on {name}:", { name: p.from }) }), codeBox), [cancel], "narrow"),
+      { hints: [["o", t("Cancel"), goBack]] }).then(() => { incomingOpen = null; });
+  } else if (!p && incomingOpen) {
+    const from = incomingOpen.from, top = overlays[overlays.length - 1];
+    if (top && top.el.contains(incomingOpen.box)) closeOverlay(true); // paired or expired: only our dialog
+    incomingOpen = null;
+    await loadPeers().catch(() => {});
+    if (state.peers && state.peers.engines.some((x) => x.name === from && x.paired)) toast(t("Paired with {name}", { name: from }), "ok");
+  }
+}
+function ftpDialog(server) {
+  const field = (label, attrs) => { const i = h("input", Object.assign({ class: "input mono", spellcheck: "false", autocapitalize: "off" }, attrs)); return [h("div", { class: "lbl", text: label }), i]; };
+  const [nl, name] = field(t("Name"), { placeholder: t("My PC"), value: server ? server.name : null });
+  const [hl, host] = field(t("Address"), { placeholder: "192.168.1.10", value: server ? server.host : null });
+  const [pl, port] = field(t("Port"), { value: String(server ? server.port : 21), inputmode: "numeric" });
+  const [ul, user] = field(t("User"), { value: server ? server.user : "anonymous" });
+  // Editing: an empty password keeps the saved one.
+  const [wl, pass] = field(t("Password"), { type: "password", placeholder: server ? t("Unchanged") : null });
+  const msg = h("span", { class: "msg" });
+  const save = h("button", { class: "btn primary", text: server ? t("Save") : t("Add"), onclick: async () => {
+    if (!host.value.trim()) { msg.textContent = t("Enter the server's address"); msg.className = "msg err"; return; }
+    save.disabled = true; msg.textContent = t("Connecting…"); msg.className = "msg";
+    try {
+      const body = { name: name.value.trim() || host.value.trim(), host: host.value.trim(), port: parseInt(port.value, 10) || 21,
+        user: user.value.trim() || "anonymous" };
+      if (!server || pass.value) body.password = pass.value;
+      if (server) await api("PUT", "/api/ftp/" + encodeURIComponent(server.id), body);
+      else await api("POST", "/api/ftp", body);
+      toast(server ? t("FTP server saved") : t("FTP server added"), "ok");
+      closeOverlay(true);
+      loadInfo().catch(() => {});
+    } catch (e) { msg.textContent = tMsg(e.message); msg.className = "msg err"; save.disabled = false; }
+  } });
+  const form = h("div", {}, nl, name, hl, host, pl, port, ul, user, wl, pass);
+  openOverlay(sheet(server ? t("Edit {name}", { name: server.name }) : t("Add an FTP server"), form, [msg, h("button", { class: "btn", text: t("Cancel"), onclick: () => closeOverlay(null) }), save], "narrow"),
+    { hints: [["x", t("Choose")], ["o", t("Cancel"), goBack]] });
+}
+async function removeFtp(s) {
+  if (!await ask({ title: t("Remove {name}?", { name: s.name }), body: h("p", { style: "margin-top:0", text: t("Its files stay on the server; jobs that use it will fail.") }), ok: t("Remove"), danger: true })) return;
+  try { await api("DELETE", "/api/ftp/" + encodeURIComponent(s.id)); toast(t("FTP server removed"), "ok"); } catch (e) { toast(tMsg(e.message), "bad"); }
+  loadInfo().catch(() => {});
+}
+async function quitEngine() {
+  const running = state.jobs.some((j) => j.state === "running");
+  const body = h("div", {}, h("p", { style: "margin-top:0", text: t("This page stops working until the engine is loaded again.") }),
+    running ? h("div", { class: "warnbox", text: t("A job is running; it will be cancelled.") }) : null);
+  if (!await ask({ title: t("Stop the engine?"), body, ok: t("Stop"), danger: true })) return;
+  try { await api("POST", "/api/quit"); toast(t("Engine stopped"), "ok"); } catch (e) { toast(tMsg(e.message), "bad"); }
+}
+
+/* ---------- queue ---------- */
+// A path as people read it: another engine's "/peer/<id>/data/x" is
+// "PS5: /data/x" (paths keep their real form everywhere else).
+function shownPath(p) {
+  if (!p || String(p).indexOf("/peer/") !== 0) return p;
+  const rest = p.slice(6), slash = rest.indexOf("/"), id = slash < 0 ? rest : rest.slice(0, slash);
+  const e = ((state.peers && state.peers.engines) || []).find((x) => x.id === id) || (state.peerDrives || []).find((x) => x.id === id);
+  const name = e ? e.name || e.engine : t("another engine");
+  let local = slash < 0 ? "/" : rest.slice(slash);
+  if (/^\/[A-Za-z]:\//.test(local)) local = local.slice(1); // a Windows engine's C:/...
+  return name + ": " + local;
+}
+function jobText(j) {
+  const s = j.spec;
+  if (s.kind === "copy" || s.kind === "move") return { title: base(s.input), to: t(s.kind === "copy" ? "Copy to {path}" : "Move to {path}", { path: shownPath(s.output) }) };
+  if (s.kind === "install") return { title: base(s.input), to: t("Install on this console") };
+  if (s.kind === "ampr_emu") return { title: base(s.input), to: (j.result && j.result.output) ? t("AMPR emulator into {path}", { path: shownPath(j.result.output) }) : t("Add the AMPR emulator") };
+  return { title: base(s.input), to: "→ " + shownPath(s.output) };
+}
+const cards = new Map();
+// Running, or still to run (queued or paused), in the order they run.
+function isActive(j) { return j.state === "running" || j.state === "queued" || j.state === "paused"; }
+// Where a waiting job continues from, in percent (null without a checkpoint).
+function cpPct(j) { return j.checkpoint && j.checkpoint.total ? Math.floor(100 * j.checkpoint.done / j.checkpoint.total) : null; }
+function cpText(j) { return cpPct(j) == null ? "" : t("{n}%", { n: cpPct(j) }); }
+function renderJobs() {
+  renderStatus();
+  if (state.tab !== "queue") return;
+  const active = state.jobs.filter((j) => isActive(j));
+  const done = state.jobs.filter((j) => !isActive(j)).reverse();
+  const seen = new Set();
+  // Cards are updated in place so the focus stays put while jobs run.
+  const fill = (box, list, empty) => {
+    let e = $(".empty", box);
+    if (!list.length) { if (!e) { box.textContent = ""; box.append(h("div", { class: "card empty", text: empty })); } return; }
+    if (e) e.remove();
+    list.forEach((j, idx) => {
+      const key = jobKey(j);
+      seen.add(key);
+      let c = cards.get(key);
+      if (!c) { c = h("div", { class: "card click", tabindex: "0", "data-key": "j" + key, onclick: () => jobActions(c.__job) }); cards.set(key, c); }
+      c.__job = j;
+      fillJob(c, j);
+      if (box.children[idx] !== c) box.insertBefore(c, box.children[idx] || null);
+    });
+    while (box.children.length > list.length) box.lastChild.remove();
+  };
+  const hadFocus = document.activeElement;
+  fill($("#active"), active, t("Nothing running. Pick a package in Files and choose Convert."));
+  fill($("#history"), done, t("No finished jobs."));
+  for (const id of Array.from(cards.keys())) if (!seen.has(id)) cards.delete(id);
+  if (hadFocus && !hadFocus.isConnected) focusFirst();
+}
+// The game's title, title ID, version and icon, as in the file list: read
+// from the input, or from the output once the input is gone.
+function jobMeta(c, j) {
+  if (c.__metaTried) return;
+  const s = j.spec;
+  c.__metaTried = true;
+  const tryPath = (path, next) => getMeta({ path: path, mtime: 0, size: 0 }).then((m) => {
+    if (m) { c.__meta = Object.assign({ from: { path: path, mtime: 0 } }, m); c.__sig = null; fillJob(c, c.__job); }
+    else if (next) tryPath(next);
+  });
+  const out = j.result && j.result.output ? j.result.output : null;
+  tryPath(s.input, j.state === "done" && out && out !== s.input ? out : null);
+}
+function fillJob(c, j) {
+  jobMeta(c, j);
+  const s = j.spec, r = j.result || {}, jt = jobText(j);
+  const pct = j.total ? Math.min(100, 100 * j.done / j.total) : 0;
+  let detail = "";
+  if (j.state === "running") {
+    // Per engine and job (job numbers repeat across engines). A sample counts
+    // when the progress moved: another engine's jobs come every two seconds,
+    // so a refresh in between is no news, not a stop (after 10 s it is).
+    const key = jobKey(j), now = Date.now() / 1000, sp = state.speeds[key];
+    let rate = sp && sp.stage === j.stage ? sp.rate : 0;
+    if (sp && sp.stage === j.stage && j.done >= sp.done && now - sp.t > 0.5 && (j.done !== sp.done || now - sp.t > 10)) {
+      const inst = (j.done - sp.done) / (now - sp.t); rate = rate ? rate * 0.75 + inst * 0.25 : inst;
+      state.speeds[key] = { t: now, done: j.done, rate, stage: j.stage };
+    } else if (!sp || sp.stage !== j.stage) state.speeds[key] = { t: now, done: j.done, rate: 0, stage: j.stage };
+    detail = [t(j.stage), j.total ? t("{n}%", { n: pct.toFixed(1) }) : "", rate > 1 ? bytes(rate) + "/s" : "",
+      rate > 1 && j.total ? t("{time} left", { time: duration((j.total - j.done) / rate) }) : "", j.elapsed != null ? t("{time} so far", { time: duration(j.elapsed) }) : ""].filter(Boolean).join("  ·  ");
+  } else if (j.state === "done") {
+    detail = [tMethod(r.method), r.output_bytes ? bytes(r.output_bytes) : "", j.elapsed != null ? duration(j.elapsed) : "", r.source_deleted ? t("source deleted") : ""].filter(Boolean).join("  ·  ");
+  } else if (j.state === "queued") detail = cpText(j) ? t("Waiting · continues from {p}", { p: cpText(j) }) : t("Waiting for the job before it");
+  else if (j.state === "paused") detail = cpText(j) ? t("Paused at {p} · resume to continue", { p: cpText(j) }) : t(j.stage || "Paused");
+  else detail = j.finished ? date(j.finished) : "";
+  const tags = [];
+  if (j.engine) tags.push(t("on {engine}", { engine: j.engine.name }));
+  if (s.kind === "convert") {
+    tags.push(s.to);
+    if (s.to === "ffpfsc") tags.push(t("level {n}", { n: s.level }));
+    if (s.lz4) tags.push("LZ4 · " + s.lz4_profile);
+    if (s.delete_source) tags.push(s.verify ? t("check, then delete source") : t("delete source"));
+  }
+  const notes = r.lz4 && r.lz4.profile && r.lz4.profile.notes ? r.lz4.profile.notes : [];
+  const m = c.__meta;
+  const sig = JSON.stringify([j.state, detail, pct.toFixed(1), j.error, r.source_kept, !!m, lang]);
+  if (c.__sig === sig) return;
+  c.__sig = sig;
+  c.textContent = "";
+  const kind = s.kind === "convert" ? s.to : s.kind;
+  // Keep the icon element across updates: a new one would load the picture
+  // again and flash the format label meanwhile.
+  const icoKey = kind + "|" + (m && m.icon ? iconUrl(m.from) : "");
+  if (!c.__ico || c.__icoKey !== icoKey) {
+    c.__ico = CONVERTIBLE.indexOf(kind) >= 0 ? h("div", { class: "ico " + kind, text: KIND_LABEL[kind] }) : h("div", { class: "ico folder", html: ICONS.folder });
+    c.__icoKey = icoKey;
+    if (m && m.icon) setIcon(c.__ico, m.from);
+  }
+  const ico = c.__ico;
+  const sub = h("div", { class: "s ellip" });
+  if (m) sub.append([base(s.input), m.version ? "v" + m.version.replace(/^0+(?=\d)/, "") : "", m.title_id].filter(Boolean).join("  ·  "));
+  put(c, h("div", { class: "hd" }, ico,
+      h("div", { style: "min-width:0;flex:1" }, h("div", { class: "ttl ellip", text: m && m.title ? m.title : jt.title }), m ? sub : null, h("div", { class: "to mono ellip", text: jt.to })),
+      h("span", { class: "state " + j.state, text: t(j.state) })),
+    j.state === "running" ? h("div", { class: "pbar" + (j.total ? "" : " indet") }, h("div", { style: "width:" + pct + "%" }))
+      : cpText(j) && isActive(j) ? h("div", { class: "pbar", style: "opacity:.5" }, h("div", { style: "width:" + cpPct(j) + "%" })) : null,
+    h("div", { class: "line" }, h("span", { text: detail }), h("span", {}, tags.map((x) => h("span", { class: "tag", text: x })))),
+    r.ampr_emulator ? h("div", { class: "line", text: t("AMPR emulator added: {path}", { path: shownPath(r.ampr_emulator) }) }) : null,
+    r.source_hidden ? h("div", { class: "line", text: t("Source hidden from ShadowMount+ as {name}", { name: base(r.source_hidden) }) }) : null,
+    isShared(s.input) && isActive(j) && !shares.has(s.input)
+      ? h("div", { class: "note", text: t("Reads {name} from a computer: keep Alembic open there, or pick the file again with From this computer…", { name: base(s.input) }) }) : null,
+    r.smp_source ? h("div", { class: "note", text: t("ShadowMount+ still uses {path} for this game. Hide it (⋯ on this job) to switch to the new one.", { path: shownPath(r.smp_source) }) }) : null,
+    r.lz4 ? h("div", { class: "line", text: t("LZ4: {a} of {b} files packed", { a: r.lz4.files_packed, b: r.lz4.files_total }) + " · " + bytes(r.lz4.packed_bytes) + " → " + bytes(r.lz4.volume_bytes) }) : null,
+    r.source_kept ? h("div", { class: "note", text: t("Source kept: {why}", { why: t(r.source_kept) }) }) : null,
+    notes.length ? h("div", { class: "note", text: notes.map(tMsg).join(" ") }) : null,
+    r.warnings && r.warnings.length ? h("div", { class: "note", text: r.warnings.map(tMsg).join(" ") }) : null,
+    j.error && j.state !== "cancelled" ? h("div", { class: "err", text: tMsg(j.error) }) : null);
+}
+async function jobActions(j) {
+  const r = j.result || {}, items = [];
+  // Its place among the waiting jobs of the same engine's queue.
+  const engineOf = (x) => (x.engine ? x.engine.id : "");
+  const waiting = state.jobs.filter((x) => (x.state === "queued" || x.state === "paused") && engineOf(x) === engineOf(j));
+  const pos = waiting.findIndex((x) => jobKey(x) === jobKey(j));
+  if (j.state === "running") items.push({ label: t("Pause"), value: "pause",
+    sub: j.keeps_progress ? t("Keeps its progress; other jobs run meanwhile") : t("This kind of job can't keep its progress: it starts over when resumed") });
+  if (j.state === "paused") items.push({ label: t("Resume"), value: "resume", sub: cpText(j) ? t("Continues from {p}", { p: cpText(j) }) : t("Starts from the beginning") });
+  if (j.state === "queued") items.push({ label: t("Hold"), value: "pause", sub: t("Keep it waiting until you resume it") });
+  if (pos > 0) items.push({ label: t("Move up"), value: "up", sub: t("Run it before {name}", { name: jobText(waiting[pos - 1]).title }) });
+  if (pos >= 0 && pos < waiting.length - 1) items.push({ label: t("Move down"), value: "down", sub: t("Run it after {name}", { name: jobText(waiting[pos + 1]).title }) });
+  if (isActive(j)) items.push({ label: t("Cancel"), danger: true, sub: j.state === "running" || j.checkpoint ? t("Its partial output is deleted") : null, value: "cancel" });
+  if (["failed", "cancelled", "interrupted"].indexOf(j.state) >= 0) items.push({ label: t("Retry"), value: "retry", sub: cpText(j) ? t("Continues from {p}", { p: cpText(j) }) : null });
+  if (j.state === "done" && r.output) items.push({ label: t("Show in Files"), value: "show" });
+  if (r.smp_source) items.push({ label: t("Hide {name} from ShadowMount+", { name: base(r.smp_source) }), value: "smp-hide", sub: t("So ShadowMount+ switches to the new image") });
+  if (r.source_hidden) items.push({ label: t("Show the source to ShadowMount+ again"), value: "smp-show", sub: t("Renames it back to {name}", { name: base(r.source_hidden).slice(1) }) });
+  if (!isActive(j)) items.push({ label: t("Remove from history"), value: "remove", sub: cpText(j) ? t("Also deletes its partial output") : null });
+  if (!items.length) return;
+  const v = await choose(jobText(j).title, items, jobText(j).to);
+  if (v === "pause" || v === "resume") await act("POST", jobPath(j) + "/" + v);
+  if (v === "up" || v === "down") await act("POST", jobPath(j) + "/move", { direction: v === "up" ? -1 : 1 });
+  if (v === "cancel") await act("POST", jobPath(j) + "/cancel");
+  if (v === "retry") await act("POST", jobPath(j) + "/retry");
+  if (v === "remove") await act("DELETE", jobPath(j));
+  if (v === "show") { showTab("files"); browse(dir(r.output), true, r.output); }
+  if (v === "smp-hide") await toggleHidden(r.smp_source);
+  if (v === "smp-show") await toggleHidden(r.source_hidden);
+}
+async function act(method, path, body) {
+  try { await api(method, path, body); } catch (e) { toast(tMsg(e.message), "bad"); }
+  refreshJobs();
+}
+$("#btn-clear").addEventListener("click", () => act("POST", "/api/jobs/clear"));
+
+// Jobs sent to other engines: their paths as this engine names them.
+function jobKey(j) { return j.engine ? j.engine.id + ":" + j.id : String(j.id); }
+function jobPath(j) { return j.engine ? "/api/peers/" + encodeURIComponent(j.engine.id) + "/jobs/" + j.id : "/api/jobs/" + j.id; }
+function fromEngine(eid, p) {
+  if (!p) return p;
+  const self = state.info && state.info.id ? "/peer/" + state.info.id : null;
+  if (self && (p === self || p.indexOf(self + "/") === 0)) return p.slice(self.length) || "/";
+  if (p.indexOf("/peer/") === 0) return p;
+  return "/peer/" + eid + (p[0] === "/" ? "" : "/") + p;
+}
+function localView(j) {
+  const id = j.engine.id, sp = Object.assign({}, j.spec), r = j.result ? Object.assign({}, j.result) : j.result;
+  for (const k of ["input", "output", "output_dir"]) sp[k] = fromEngine(id, sp[k]);
+  if (r) for (const k of ["output", "source_hidden", "smp_source"]) if (r[k]) r[k] = fromEngine(id, r[k]);
+  return Object.assign({}, j, { spec: sp, result: r, __raw: j.__raw || j });
+}
+let lastFinished = null, remoteJobs = [], remoteAt = 0, remoteBusy = false;
+async function refreshJobs(remoteNow) {
+  let jobs;
+  // Only a failed request means the engine is gone; a page error is logged as one.
+  try { jobs = await api("GET", "/api/jobs"); }
+  catch (e) { $("#status-text").textContent = t("Engine not reachable"); $("#status").className = "status off"; return; }
+  // Other engines' jobs: every second while one of them works or waits, or
+  // the queue is open; else every five seconds. One request at a time.
+  const anyPaired = state.peers && state.peers.engines.some((e) => e.paired);
+  const busy = state.tab === "queue" || remoteJobs.some((j) => isActive(j));
+  if (anyPaired && !remoteBusy && (remoteNow || Date.now() - remoteAt > (busy ? 900 : 5000))) {
+    remoteAt = Date.now();
+    remoteBusy = true;
+    try { remoteJobs = (await api("GET", "/api/peers/jobs").catch(() => null) || remoteJobs.map((j) => j.__raw)).map(localView); }
+    finally { remoteBusy = false; }
+  } else if (!anyPaired) remoteJobs = [];
+  jobs = jobs.concat(remoteJobs);
+  {
+    // Toast and refresh the listing when a job finishes.
+    const finished = jobs.filter((j) => !isActive(j)).map((j) => jobKey(j) + j.state).join();
+    if (lastFinished !== null && finished !== lastFinished) {
+      const newest = jobs.filter((j) => j.finished).sort((a, b) => b.finished - a.finished)[0];
+      if (newest && newest.state === "done") toast(t("Finished: {name}", { name: base(newest.spec.input) }), "ok");
+      if (newest && newest.state === "failed") toast(t("Failed: {name}", { name: base(newest.spec.input) }), "bad");
+      if (state.cwd && !overlays.length) browse(state.cwd, false);
+      loadInfo().catch(() => {});
+    }
+    lastFinished = finished;
+    state.jobs = jobs; renderJobs();
+  }
+}
+
+/* ---------- start ---------- */
+history.replaceState({ view: "files", path: "/", depth: 0 }, "");
+applyStatic();
+renderHints();
+loadInfo().then(() => browse("/", false)).catch((e) => { $("#status-text").textContent = t("Engine not reachable: {error}", { error: tMsg(e.message) }); browse("/", false); });
+refreshJobs();
+setInterval(refreshJobs, 1000);
+setInterval(() => loadInfo().catch(() => {}), 15000);
+setInterval(() => watchIncoming().catch(() => {}), 2000);
+setInterval(() => { if (state.tab === "settings" && state.peers && (state.peers.enabled || state.peers.engines.length)) loadPeers().catch(() => {}); }, 4000);
+// For tools/screenshots (driven over DevTools).
+window.__alembic = { state, browse, showTab, openConvert, closeOverlay };

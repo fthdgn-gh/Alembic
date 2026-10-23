@@ -7,7 +7,8 @@ import json, re, subprocess, sys
 from pathlib import Path
 
 web = Path(__file__).resolve().parent.parent / "src/engine/web"
-page = (web / "index.html").read_text()
+# The page's sources: the HTML shell and everything under src/.
+page = "\n".join(f.read_text() for f in [web / "index.html"] + sorted(p for p in (web / "src").rglob("*") if p.suffix in (".ts", ".tsx", ".js")))
 
 keys = set(re.findall(r'\bt\("((?:[^"\\]|\\.)*)"', page))
 keys |= set(re.findall(r'data-i18n(?:-title)?="([^"]*)"', page))

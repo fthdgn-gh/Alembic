@@ -37,6 +37,12 @@ jobs:
       - name: Install zlib (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      # The engine's web page is built with Node (src/engine/web/build.mjs).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/engine/web/package-lock.json
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - name: Build
@@ -77,6 +83,12 @@ jobs:
           echo "$LLVM_MINGW_SHA256  $RUNNER_TEMP/llvm-mingw.tar.xz" | sha256sum -c -
           tar -xf "$RUNNER_TEMP/llvm-mingw.tar.xz" -C "$RUNNER_TEMP"
           echo "LLVM_MINGW=$RUNNER_TEMP/llvm-mingw-20261006-ucrt-ubuntu-22.04-x86_64" >> "$GITHUB_ENV"
+      # The engine's web page is built with Node (src/engine/web/build.mjs).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/engine/web/package-lock.json
       - name: Configure
         run: cmake -S . -B build-win -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake
       - name: Build
@@ -125,6 +137,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install LLVM 18
         run: sudo apt-get update && sudo apt-get install -y clang-18 lld-18 llvm-18
+      # The engine's web page is built with Node (src/engine/web/build.mjs).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/engine/web/package-lock.json
       - name: Download the PS5 payload SDK
         run: |
           curl -fsSL -o "$RUNNER_TEMP/sdk.zip" "$SDK_URL"
