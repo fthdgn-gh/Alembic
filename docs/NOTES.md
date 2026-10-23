@@ -1761,8 +1761,12 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   sub-pixel anti-aliasing. Against a real engine: convert, rename, new
   folder, add to Places, delete, discovery, language kept after a reload.
   The bundle has no `?.`, `??` or regex lookbehind; 120 KB (145 KB before).
-- **Not checked:** the PS5 browser itself (old firmwares' WebKit), and the
-  incoming-pairing dialog (needs two engines on the network).
+- **Console (owner, 2026-10-23):** the Preact page works in the PS5
+  browser: an image converted, and Check on an already paired engine
+  passed. The payload now shows as `alembic.elf` in the process list
+  (`platform::set_process_name`; the ELF loader names every payload
+  `payload.elf`). Not tried yet: copy/move, pause/resume, package installs,
+  pairing from scratch (and its incoming-code dialog), older firmwares.
 
 ### 2026-10-23: README screenshots, redone
 
