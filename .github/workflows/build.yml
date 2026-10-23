@@ -223,8 +223,23 @@ jobs:
           cp README.md LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
           (cd dist && zip -qr "$name.zip" "$name")
           cp "artifacts/$elf" dist/
-          (cd dist && sha256sum "$name.zip" "$elf" > SHA256SUMS)
-          (cd dist && find "$name" -type f | sort && cat SHA256SUMS)
+          # Each PC build on its own too, with the README and licenses:
+          # .tar.gz for Linux and macOS (it keeps the executable bits), .zip for Windows.
+          packages=()
+          for platform in linux-x64 macos-arm64 windows-x64; do
+            pkg="$name-$platform"
+            mkdir -p "dist/pkg/$pkg"
+            cp -p "dist/$name/$platform/"* "dist/pkg/$pkg/"
+            cp README.md LICENSE THIRD_PARTY_NOTICES.md "dist/pkg/$pkg/"
+            if [[ $platform == windows-* ]]; then
+              (cd dist/pkg && zip -qr "../$pkg.zip" "$pkg"); packages+=("$pkg.zip")
+            else
+              tar -czf "dist/$pkg.tar.gz" -C dist/pkg "$pkg"; packages+=("$pkg.tar.gz")
+            fi
+          done
+          echo "PACKAGES=${packages[*]}" >> "$GITHUB_ENV"
+          (cd dist && sha256sum "$name.zip" "$elf" "${packages[@]}" > SHA256SUMS)
+          (cd dist && find "$name" -type f | sort && ls -la "${packages[@]}" && cat SHA256SUMS)
       # The zip itself (archive: false), not a zip inside a zip; it keeps the
       # executable bits.
       - name: Upload the bundle
@@ -242,5 +257,7 @@ jobs:
         run: |
           git fetch --force origin "$GITHUB_REF:$GITHUB_REF"
           git tag -l --format='%(contents:body)' "$GITHUB_REF_NAME" > dist/notes.md
-          gh release create "$GITHUB_REF_NAME" "dist/$BUNDLE.zip" "dist/alembic-$VERSION.elf" dist/SHA256SUMS \
+          assets=("dist/$BUNDLE.zip" "dist/alembic-$VERSION.elf" dist/SHA256SUMS)
+          for p in $PACKAGES; do assets+=("dist/$p"); done
+          gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" --title "Alembic $GITHUB_REF_NAME" --notes-file dist/notes.md

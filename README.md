@@ -130,6 +130,12 @@ engines can't reach it then.
 
 ## On a PC
 
+Each release has a package per system: `alembic-<version>-linux-x64.tar.gz`,
+`-macos-arm64.tar.gz` (Apple silicon) and `-windows-x64.zip`, each with
+`alembic` and `alembic-engine`. The macOS builds are not signed: after a
+download from a browser, run `xattr -d com.apple.quarantine alembic
+alembic-engine` once in their folder, or macOS refuses to start them.
+
 ```sh
 alembic convert game.pkg game.ffpfsc              # format from the extension
 alembic convert game.exfat game/ --to folder      # unpack to a folder
@@ -182,8 +188,8 @@ Each run has the payload as a download of its own, `alembic-<version>.elf`,
 and a bundle, `alembic-<version>.zip`: the payload in `ps5/`, `alembic` and
 `alembic-engine` in `linux-x64/`, `macos-arm64/` and `windows-x64/` (`.exe`),
 with the README and license files. The version is the tag (`v0.1.0`), else the branch and commit
-(`main-a2fab12`). A `v*` tag publishes the payload, the bundle and
-`SHA256SUMS` as a release.
+(`main-a2fab12`). A `v*` tag publishes the payload, the bundle, a package per
+PC system and `SHA256SUMS` as a release.
 
 ### The web page
 
