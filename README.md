@@ -66,8 +66,11 @@ it adds to the Media tab, or from any browser on your network at
 
 Also on the page:
 
-- **Controller first:** D-pad, ✕/○, L1/R1, L2/R2 and △/□ all work in the
-  console's browser; a controller test is in Settings.
+- **Controller first:** the D-pad moves, ✕ chooses, ○ goes back, □ opens a
+  file's options, L1/R1 switch sections and L2/R2 page through lists. To
+  leave, press L2 + R2 together, then ○ (a page cannot close the console's
+  browser itself). Settings has a controller test. On a PC: arrow keys,
+  Enter, Esc, S, Q/E and Page Up/Down.
 - **Places:** add any folder to Places from its Options; they show in the
   rail, in Save to, and on paired engines.
 - **FTP servers** (Settings): convert straight from a PC or NAS without
@@ -103,7 +106,8 @@ console and a PC.
    engine; data streams between them, with no copy made first.
 
 A job shows in the queue of every engine whose files it uses ("on Living
-room PC"), and can be paused, resumed or cancelled from any of them. When a
+room PC"), and can be paused, resumed, cancelled or cleared from the history
+on any of them. When a
 job deletes its source after checking the output, engines compare SHA-256
 digests instead of sending the files back. Files can also be sent between
 engines without converting (Options → Send to another engine).
@@ -162,8 +166,8 @@ export PS5_PAYLOAD_SDK=/path/to/ps5-payload-sdk   # default: .refs/ps5-payload-s
 tools/ps5/build.sh                                # → build-ps5/alembic.elf
 ```
 
-GitHub Actions builds and tests everything on every push (see
-[.github/workflows/build.yml](.github/workflows/build.yml)). Each run has the
+GitHub Actions builds and tests everything on every push that changes more
+than the docs (see [.github/workflows/build.yml](.github/workflows/build.yml)). Each run has the
 payload as a download of its own, `alembic-<version>.elf`, and a bundle,
 `alembic-<version>.zip`: the payload in `ps5/`, `alembic` and
 `alembic-engine` in `linux-x64/`, `macos-arm64/` and `windows-x64/` (`.exe`),
@@ -171,6 +175,25 @@ with the README and
 license files. The version is the tag (`v0.1.0`), else the branch and commit
 (`main-a2fab12`). A `v*` tag publishes the payload, the bundle and
 `SHA256SUMS` as a release.
+
+### The web page
+
+The engine's page is `src/engine/web`: Preact components in TypeScript
+(`src/pages/` has one folder per section; `src/main.tsx` maps the rest),
+bundled for the PS5's older browser into one HTML file that the engine
+embeds. To work on it, run an engine and let the page rebuild on every
+change:
+
+```sh
+build/alembic-engine --listen 127.0.0.1 &   # its API, on port 5940
+cd src/engine/web
+node build.mjs --serve                      # the page at http://127.0.0.1:5950
+npx tsc --noEmit                            # type check (CI runs it too)
+python3 ../../../tools/i18n_keys.py --check # every text translated
+```
+
+`tools/screenshots/shoot.sh` makes the README's screenshots against a
+stand-in engine with made-up games.
 
 ### Checking against the reference tools
 
