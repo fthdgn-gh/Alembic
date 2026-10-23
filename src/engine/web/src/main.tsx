@@ -19,10 +19,13 @@ import { browse } from "./pages/files/browse";
 import { applyScale } from "./pages/settings/prefs";
 import { watchIncoming } from "./pages/settings/Engines";
 import "./input/controller"; // the controller's keys and buttons
+import { depth } from "./input/history";
 
 applyScale();
 window.addEventListener("resize", applyScale);
-history.replaceState({ view: "files", path: "/", depth: 0 }, "");
+// A reload keeps its place in the history: the entries before it are the
+// page's too, and leaving (L2 + R2) goes back through them.
+history.replaceState({ view: "files", path: "/", depth: depth() }, "");
 render(<App />, document.getElementById("app")!);
 
 loadInfo().then(() => browse("/", false))

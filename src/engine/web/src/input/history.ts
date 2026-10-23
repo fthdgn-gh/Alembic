@@ -16,16 +16,25 @@ export function goBack() {
   if (overlays.value.length || depth() > 0) { lastNative.back = Date.now(); history.back(); }
 }
 
-// Leaving (L2 + R2): everything open is closed and the page returns to its
-// first entry, where one more Back leaves the browser (a page cannot close it).
-const hold = { unwinding: false };
+// Leaving (L2 + R2): everything open is closed and the page goes back to
+// its first entry, where one more Back leaves the browser (a page cannot
+// close it). One step at a time, checking each: on the console a jump of
+// several steps (history.go(-n)) went back only one, and the next ○ then
+// went back a page instead of leaving.
+const hold = { unwinding: false, steps: 0, timer: 0 };
 export function leaveAll() {
-  if (inputLog.test) return; // the controller test listens to every button
-  const d = depth();
+  if (inputLog.test || hold.unwinding) return; // the controller test listens to every button
   const open = overlays.value;
   overlays.value = [];
   for (const o of open) o.resolve(null);
-  if (d > 0) { hold.unwinding = true; history.go(-d); } else afterLeave();
+  if (depth() > 0) { hold.unwinding = true; hold.steps = 0; stepBack(); } else afterLeave();
+}
+function stepBack() {
+  hold.steps++;
+  // A browser that stops answering: say how to leave anyway.
+  clearTimeout(hold.timer);
+  hold.timer = window.setTimeout(() => { if (hold.unwinding) { hold.unwinding = false; afterLeave(); } }, 1500);
+  history.back();
 }
 function afterLeave() {
   if (tab.value !== "files") showTab("files", false);
@@ -34,7 +43,13 @@ function afterLeave() {
   try { window.close(); } catch (e) { /* works only where the browser allows it */ }
 }
 window.addEventListener("popstate", (e) => {
-  if (hold.unwinding) { hold.unwinding = false; afterLeave(); return; }
+  if (hold.unwinding) {
+    if (depth() > 0 && hold.steps < 100) { stepBack(); return; }
+    clearTimeout(hold.timer);
+    hold.unwinding = false;
+    afterLeave();
+    return;
+  }
   lastNative.back = Date.now();
   logInput("history back/forward (popstate)");
   if (inputLog.test && !inputLog.closing) { history.pushState({ overlay: true, depth: depth() + 1 }, ""); return; }
