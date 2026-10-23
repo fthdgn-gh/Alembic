@@ -54,8 +54,8 @@ it adds to the Media tab, or from any browser on your network at
 1. Send `alembic-<version>.elf` (from the releases) to your console's ELF loader.
 2. Open Alembic from the Media tab (or the address above).
 3. In **Files**, pick a game on internal storage, USB, an FTP server or a
-   paired engine, then **Convert**, **Install** (packages), **Copy** or
-   **Move**.
+   paired engine's drive, then **Convert**, **Install** (packages), **Copy**
+   or **Move**.
 4. Jobs run one at a time in **Queue**: pause, resume (long jobs continue
    from a checkpoint), reorder, cancel. You get a notification when one
    finishes.
@@ -73,9 +73,12 @@ Also on the page:
   Enter, Esc, S, Q/E and Page Up/Down.
 - **Places:** add any folder to Places from its Options; they show in the
   rail, in Save to, and on paired engines.
-- **FTP servers** (Settings): convert straight from a PC or NAS without
-  copying the game to the console first. exFAT, FFPKG, FFPFS and folder
-  outputs can be saved back to the server.
+- **FTP servers** (Settings): games on a PC or NAS that runs an FTP server
+  can be converted without copying them to the console first. The server
+  only stores the files: the engine reads the game over the network and does
+  the converting itself. exFAT, FFPKG, FFPFS and folder outputs can be saved
+  back to the server. To have a PC do the work, run Alembic's engine on it
+  instead (see [Working across engines](#working-across-engines)).
 - **From this computer:** opened in a PC's browser, the page can share a
   file from that PC for the console to convert.
 - **ShadowMount+:** new images can be picked up without a restart, and
