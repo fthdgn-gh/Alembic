@@ -14,11 +14,13 @@ keys = set(re.findall(r'\bt\("((?:[^"\\]|\\.)*)"', page))
 keys |= set(re.findall(r'data-i18n(?:-title)?="([^"]*)"', page))
 keys |= {k for pair in re.findall(r'plural\([^,]+, "([^"]+)", "([^"]+)"\)', page) for k in pair}
 # templates chosen inside t(a ? "..." : "...")
-keys |= {k for k in re.findall(r'"([^"\n\\]*\{\w+\}[^"\n\\]*)"', page) if k == k.strip()}
+# (not the text between two JSX attributes: no text has <, > or =)
+keys |= {k for k in re.findall(r'"([^"\n\\]*\{\w+\}[^"\n\\]*)"', page) if k == k.strip() and not re.search(r'[<>=]', k)}
 # Texts that reach t() through a variable: list tables in the page and what the engine sends.
 keys |= set(re.findall(r'hint: "([^"]+)"', page))                            # FORMATS
 keys |= set(re.findall(r'\{ value: [0-9.]+, label: "([^"]+)" \}', page))     # SCALES
-keys |= {m for pair in re.findall(r'\["(\w+)", "([^"]+)"\]', page[page.index("const DEP_STATE"):]) for m in pair[1:]}
+dep_state = page[page.index("const DEP_STATE"):]
+keys |= {m for pair in re.findall(r'\["(\w+)", "([^"]+)"\]', dep_state[:dep_state.index(";")]) for m in pair[1:]}
 ENGINE = [
     # job states and stages
     "queued", "running", "done", "failed", "cancelled", "interrupted", "paused",

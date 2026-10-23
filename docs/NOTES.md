@@ -1721,6 +1721,45 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   A (it lands in A's places.json) and removes another; outside the shared
   folders, the state folder and unsigned requests refused.
 
+### 2026-10-23: the web page in Preact and TypeScript
+
+- Owner: clean up the page with a framework. Chosen (owner): Preact +
+  TypeScript, built by CMake (so building the engine needs Node 20+ and npm;
+  CI sets up Node 22).
+- **Build** (`src/engine/web/build.mjs`): esbuild bundles `src/main.tsx` and
+  `src/style.css` for `safari12` (destructuring marked as supported: esbuild
+  counts it missing before Safari 14.1 over an edge case, and the page has
+  used it on the console all along), minified, inlined into `index.html` at
+  its `<!-- alembic:... -->` markers; CMake embeds the result as before. It
+  runs `npm ci` itself when `package-lock.json` changed since the last
+  install (`node_modules/.alembic-lock`). Pinned: preact 10.29.8 (not 11,
+  out a month and of unknown old-WebKit support), @preact/signals 2.11.3,
+  esbuild 0.28.2, typescript 6.0.3 (type checks only: `npx tsc --noEmit`,
+  in CI on Linux). `node build.mjs --serve [--engine URL]`: rebuilds on each
+  change, `/api` from a running engine. `i18n.js` is unchanged (the engine
+  reads it too); `tools/i18n_keys.py` scans `index.html` and `src/`.
+- **Code** (`src/`): `state.ts` (signals: info, drives, places, peers, tab,
+  folder, jobs), `nav.ts` (D-pad focus, keys, gamepad, pointer, history: a
+  straight port, DOM-based), `overlay.tsx` (dialog stack; `ask`/`choose`
+  still return promises), `files.tsx`, `dest.tsx` (folder picker),
+  `convert.tsx`, `queue.tsx` (speeds sampled per refresh, not per draw),
+  `deps.tsx`, `settings.tsx`, `ui.tsx` (icons, glyphs, rows, game info),
+  `app.tsx`, `main.tsx`. Same markup and class names as before, so the CSS
+  moved unchanged. `window.__alembic` (debug.ts) is for the screenshot tool.
+- **Checked:** two commits. First the old script moved as it was into the
+  build: 19 states pixel-identical. Then the rewrite, against the old page
+  on the mock (`tools/screenshots/mock.mjs` with `MOCK_FROZEN=1`, and
+  `MOCK_PAGE` for another build): 44 states walked with keys (files, menus,
+  convert and its options, queue and job menus, components, settings and
+  every dialog, Spanish, larger text, phone width) land the focus on the
+  same element at every step; the screenshots are pixel-identical except
+  a caret position, a scroll position after changing the text size and
+  sub-pixel anti-aliasing. Against a real engine: convert, rename, new
+  folder, add to Places, delete, discovery, language kept after a reload.
+  The bundle has no `?.`, `??` or regex lookbehind; 120 KB (145 KB before).
+- **Not checked:** the PS5 browser itself (old firmwares' WebKit), and the
+  incoming-pairing dialog (needs two engines on the network).
+
 ### 2026-10-23: README screenshots, redone
 
 - The README was from before engines could pair. It now covers working

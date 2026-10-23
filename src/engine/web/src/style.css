@@ -12,6 +12,8 @@ html { font-size: 16px; }
 body { margin: 0; background: radial-gradient(ellipse at 20% -10%, #1a2340 0%, rgba(11,14,20,0) 55%), var(--bg); background-color: var(--bg);
   color: var(--text); font: 1rem/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden;
   display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
+/* The page's root (main.tsx renders into it) is body's column. */
+#app { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 button, input { font: inherit; color: inherit; }
 button { cursor: pointer; }
 a { color: var(--accent); }

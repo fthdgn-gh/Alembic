@@ -47,6 +47,10 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - name: Build
         run: cmake --build build -j 4
+      # The page's TypeScript (the build itself only strips the types).
+      - name: Check the web page's types
+        if: runner.os == 'Linux'
+        run: cd src/engine/web && npx tsc --noEmit
       # -v names each test as it starts, so one that hangs shows in the log.
       - name: Unit tests
         run: ./build/alembic_tests -v

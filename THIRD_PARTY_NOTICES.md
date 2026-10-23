@@ -24,6 +24,17 @@ Ported files say where they come from in their header comment.
 | [zlib](https://zlib.net) 1.3.1 (release tarball, SHA-256 `9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23`) | zlib (`third_party/zlib/LICENSE`) | `third_party/zlib/`: the library sources needed for deflate/inflate, unchanged; built for the PS5 (the payload SDK has no zlib), or on a PC with `-DALEMBIC_BUNDLED_ZLIB=ON` |
 | [lz4/lz4](https://github.com/lz4/lz4) v1.10.0 (tag commit `ebb370ca`) | BSD-2-Clause (notice below) | `third_party/lz4/`: `lz4.c`, `lz4.h`, `lz4hc.c`, `lz4hc.h`, `xxhash.c`, `xxhash.h`, unchanged |
 
+## Bundled into the engine's web page
+
+The page (`src/engine/web`) is bundled by esbuild into one HTML file that is
+embedded in the engine, so these libraries ship inside `alembic.elf` and
+`alembic-engine`. Versions are pinned in `src/engine/web/package-lock.json`.
+
+| Project | License | What Alembic uses |
+| --- | --- | --- |
+| [Preact](https://github.com/preactjs/preact) 10.29.8 | MIT (notice below) | the page's components and rendering |
+| [@preact/signals](https://github.com/preactjs/signals) 2.11.3 and @preact/signals-core 1.14.4 | MIT (notice below) | the page's shared state |
+
 ## PS5 build
 
 | Project | License | What Alembic uses |
@@ -60,6 +71,33 @@ or in Alembic's binaries.
 | pearlxcore/PS5PKGTool, pearlxcore/ProsperoPkgTool, drakmor/ampr_emu | as above | `tools/oracle/compare.sh` compares Alembic's output with theirs |
 | [zlib](https://zlib.net) | zlib | linked for PFSC compression and CRC-32 |
 | drakmor/ampr_emu `tools/ampr_pack.py` | GPL-3.0 | `tools/lz4-oracle/compare.sh` packs and verifies with it |
+
+## Preact license
+
+Preact is Copyright (c) 2015-present Jason Miller; @preact/signals and
+@preact/signals-core are Copyright (c) 2022-present Preact Team. Both under:
+
+```
+The MIT License (MIT)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
 ## LZ4 license
 

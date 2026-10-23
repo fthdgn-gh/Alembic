@@ -50,6 +50,7 @@ const options = {
   jsxImportSource: "preact",
   minify: true,
   legalComments: "inline",
+  banner: { js: "/*! Alembic (GPL-3.0-or-later). Includes Preact (c) Jason Miller and @preact/signals (c) Preact Team, MIT: see THIRD_PARTY_NOTICES.md */" },
   logLevel: "warning",
 };
 

@@ -15,60 +15,7 @@
 <!-- alembic:style -->
 </head>
 <body>
-<header class="top">
-  <div class="logo"><img src="/icon.svg" alt="">Alembic</div>
-  <nav class="tabs" id="tabs">
-    <span class="shoulder" data-pad>L1</span>
-    <button class="tab on" data-tab="files" data-key="tab-files" data-i18n="Files">Files</button>
-    <button class="tab" data-tab="queue" data-key="tab-queue"><span data-i18n="Queue">Queue</span><span class="badge" id="qcount" hidden>0</span></button>
-    <button class="tab" data-tab="deps" data-key="tab-deps" data-i18n="Components">Components</button>
-    <button class="tab" data-tab="settings" data-key="tab-settings" data-i18n="Settings">Settings</button>
-    <span class="shoulder" data-pad>R1</span>
-  </nav>
-  <div class="status" id="status"><span class="dot"></span><span id="status-text" data-i18n="connecting…">connecting…</span></div>
-</header>
-
-<section class="view files" id="view-files">
-  <nav class="rail scroll" id="rail" data-zone="rail" data-column></nav>
-  <div class="main">
-    <div class="bar1">
-      <div class="where"><div class="crumbs" id="crumbs" data-zone="crumbs"></div><div class="summary" id="summary"></div></div>
-      <div class="tools" data-zone="tools">
-        <button class="btn sm" id="btn-share" data-i18n="From this computer…" hidden>From this computer…</button>
-        <input type="file" id="share-pick" accept=".pkg,.exfat,.ffpfsc,.ffpkg,.ffpfs" hidden>
-        <button class="btn sm" id="btn-here" data-i18n-title="Options for this folder" title="Options for this folder">⋯</button>
-        <button class="btn sm" id="btn-mkdir" data-i18n="New folder">New folder</button>
-        <button class="btn sm ghost" id="btn-refresh" data-i18n="Refresh" data-i18n-title="Refresh">Refresh</button>
-      </div>
-    </div>
-    <div class="note sharebar" id="sharebar" hidden></div>
-    <div class="list scroll" id="list" data-zone="list" data-column></div>
-  </div>
-</section>
-
-<section class="view scroll" id="view-queue" hidden>
-  <div class="page" data-zone="queue">
-    <div class="head2"><div class="sect" data-i18n="Active">Active</div></div>
-    <div id="active"></div>
-    <div class="head2"><div class="sect" data-i18n="History">History</div><button class="btn sm ghost" id="btn-clear" data-i18n="Clear history">Clear history</button></div>
-    <div id="history"></div>
-  </div>
-</section>
-
-<section class="view scroll" id="view-deps" hidden>
-  <div class="page" data-zone="deps">
-    <p class="muted" style="margin:.3rem .2rem 1rem" data-i18n="Files from other projects that Alembic doesn't ship. Each one is downloaded from the source shown and kept only if its SHA-256 matches.">Files from other projects that Alembic doesn't ship. Each one is downloaded from the source shown and kept only if its SHA-256 matches.</p>
-    <div id="deps"></div>
-  </div>
-</section>
-
-<section class="view scroll" id="view-settings" hidden>
-  <div class="page" data-zone="settings" id="settings"></div>
-</section>
-
-<footer class="hints" id="hints"></footer>
-<div id="toasts"></div>
-
+<div id="app"></div>
 <script src="/i18n.js"></script>
 <!-- alembic:script -->
 </body>

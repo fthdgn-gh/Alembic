@@ -1,5 +1,7 @@
-// A stand-in engine for README screenshots: serves the real page and answers
+// A stand-in engine for README screenshots: serves the built page and answers
 // its API with made-up games, a paired PC engine, an FTP server and jobs.
+// MOCK_FROZEN=1 keeps the jobs still and MOCK_PAGE=FILE serves another build
+// (for comparing two builds of the page screenshot by screenshot).
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";

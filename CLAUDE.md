@@ -19,6 +19,13 @@ cmake -S . -B build-win -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake \
       -DLLVM_MINGW=$PWD/.refs/llvm-mingw-20261006-ucrt-macos-universal && cmake --build build-win   # Windows .exe
 ```
 
+The engine's web page is `src/engine/web` (Preact + TypeScript, bundled by
+esbuild into one HTML file that CMake embeds; needs Node.js 20+ and npm).
+After changing it: `cd src/engine/web && npx tsc --noEmit` and
+`python3 tools/i18n_keys.py --check`. `node build.mjs --serve` there rebuilds
+on every change and sends `/api` to a running engine. It must keep working in
+the PS5's Safari-12-era browser: no regex lookbehind, no APIs newer than that.
+
 Output must stay byte-identical to PS5PKGTool (the AMPR index with
 `--ampr-scheme ps5pkgtool`), to ampr_emu's index builder (default scheme) and,
 for `.ffpfs`, to MkPFS `pack folder --raw --no-compress`.
