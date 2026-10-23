@@ -56,7 +56,8 @@ std::string canonical(const std::string& method, const std::string& path, const 
 
 // The other engine's JSON reply, or its error message.
 Result<JsonValue> post(const std::string& host, std::uint16_t port, const std::string& path, const JsonValue& body,
-                       const net::Headers& headers = {}) {
+                       net::Headers headers = {}) {
+    headers.emplace_back(peers::kProtocolHeader, std::to_string(peers::kPeerProtocol));
     ALEMBIC_ASSIGN(net::HttpReply r, net::http_request(host, port, "POST", path, body.dump(), 5000, 1u << 20, headers));
     auto v = parse_json(r.body);
     if (r.status != 200) {
@@ -104,6 +105,7 @@ std::string Pairing::t(const std::string& text, const std::map<std::string, std:
 
 Status Pairing::start(const peers::Peer& other) {
     if (other.who.id == self_.id) return make_error(Errc::invalid_argument, "that is this engine");
+    if (std::string why = peers::protocol_problem(other.who); !why.empty()) return make_error(Errc::unsupported, why);
     ALEMBIC_ASSIGN(keys::Key secret, random_key());
     keys::Key pub = keys::x25519_base(secret);
     std::array<std::uint8_t, 16> nonce{};
@@ -379,7 +381,8 @@ Result<std::vector<std::pair<std::string, std::string>>> Pairing::sign(const std
     std::string time = std::to_string(now()), nonce = keys::to_hex(Bytes(n.data(), n.size()));
     keys::Key mac = keys::hmac_sha256(key, canonical(method, path, query, time, nonce, body));
     return std::vector<std::pair<std::string, std::string>>{
-        {kPeerHeader, self_.id}, {kTimeHeader, time}, {kNonceHeader, nonce}, {kSignHeader, keys::to_hex(mac)}};
+        {kPeerHeader, self_.id}, {kTimeHeader, time}, {kNonceHeader, nonce}, {kSignHeader, keys::to_hex(mac)},
+        {peers::kProtocolHeader, std::to_string(peers::kPeerProtocol)}};
 }
 
 Result<std::string> Pairing::verify(const HttpRequest& r) {

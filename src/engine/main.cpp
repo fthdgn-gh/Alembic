@@ -222,6 +222,7 @@ public:
         self.platform = platform::name();
         self.version = ALEMBIC_VERSION;
         self.port = server_.port();
+        self.protocol = peers::kPeerProtocol;
         discovery_ = std::make_unique<peers::Discovery>(config_.state_dir, self, discovery_port,
                                                         [](const std::string& m) { log_line(m); });
         discovery_->start();
@@ -381,6 +382,13 @@ private:
         if (r.path == "/api/ftp" || r.path.rfind("/api/ftp/", 0) == 0) return ftp_action(r);
         if (r.path == "/api/peers" || r.path.rfind("/api/peers/", 0) == 0) return peers_action(r);
         if (r.path == "/api/peer-drives" && r.method == "GET") return peer_drives_json();
+        // Other engines' requests: refused when they speak another protocol
+        // (peers.hpp). The page's own pairing requests come from a browser.
+        if ((r.path.rfind("/api/pair/", 0) == 0 && r.path.rfind("/api/pair/incoming", 0) != 0) || r.path.rfind("/api/peer/", 0) == 0) {
+            auto it = r.headers.find("x-alembic-protocol");
+            if (std::string why = peers::protocol_problem(it == r.headers.end() ? std::string() : it->second); !why.empty())
+                return error(409, why);
+        }
         if (r.path.rfind("/api/pair/", 0) == 0) return pair_action(r);
         if (r.path.rfind("/api/peer/fs/", 0) == 0) return peer_fs_action(r);
         if (r.path == "/api/peer/jobs" || r.path.rfind("/api/peer/jobs/", 0) == 0) return peer_jobs_action(r);
@@ -533,6 +541,7 @@ private:
         v.set("cache", cache_json());
         v.set("port", static_cast<std::uint64_t>(port()));
         v.set("enter_button", platform::enter_button());
+        v.set("protocol", static_cast<std::int64_t>(peers::kPeerProtocol)); // how it talks to other engines
         v.set("lang", l10n::language());
         return json(200, v);
     }

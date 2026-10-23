@@ -58,7 +58,23 @@ Result<Identity> identity_from_json(const JsonValue& v) {
     who.os = clean(v["os"].str());
     who.platform = clean(v["platform"].str());
     who.version = clean(v["version"].str());
+    std::int64_t protocol = v["protocol"].integer(1);
+    who.protocol = protocol >= 1 && protocol <= 1000000 ? static_cast<int>(protocol) : 1;
     return who;
+}
+
+std::string protocol_problem(const Identity& other) {
+    if (other.protocol == kPeerProtocol) return "";
+    const std::string numbers = " (engine protocol " + std::to_string(other.protocol) + ", this one " + std::to_string(kPeerProtocol) + ")";
+    return other.protocol < kPeerProtocol ? other.name + " has an older Alembic" + numbers + ": update it to use them together"
+                                          : other.name + " has a newer Alembic" + numbers + ": update this engine to use them together";
+}
+
+std::string protocol_problem(const std::string& header_value) {
+    int theirs = header_value.empty() ? 1 : std::atoi(header_value.c_str());
+    if (theirs == kPeerProtocol) return "";
+    return "the other engine speaks engine protocol " + std::to_string(theirs) + " and this one " + std::to_string(kPeerProtocol) +
+           ": update Alembic on the older one";
 }
 
 JsonValue identity_json(const Identity& who) {
@@ -69,6 +85,7 @@ JsonValue identity_json(const Identity& who) {
     v.set("platform", who.platform);
     v.set("version", who.version);
     v.set("port", static_cast<std::int64_t>(who.port));
+    v.set("protocol", static_cast<std::int64_t>(who.protocol));
     return v;
 }
 
@@ -276,6 +293,7 @@ Result<Identity> ask_info(const std::string& host, std::uint16_t port) {
     who.set("platform", info["platform"].str());
     who.set("version", info["version"].str());
     who.set("port", static_cast<std::int64_t>(port));
+    who.set("protocol", info["protocol"].integer(1));
     auto id = identity_from_json(who);
     if (!id.ok()) return make_error(Errc::invalid_data, host + ":" + std::to_string(port) + " is an older engine (no id); update it");
     return id;

@@ -30,6 +30,15 @@ namespace alembic::engine::peers {
 inline constexpr std::uint16_t kDiscoveryPort = 5940; // UDP (the page is on TCP 5940)
 
 // What an engine says about itself.
+// How engines talk to each other: pairing, files, jobs, places
+// (/api/pair/..., /api/peer/...). Raise it when a request or a reply changes
+// in a way the other engine must understand; engines with different numbers
+// refuse each other with a message saying which one to update. A page fix or
+// a new format never changes it. v0.2.0 had none and counts as 1.
+inline constexpr int kPeerProtocol = 1;
+// Sent with every request to another engine.
+inline constexpr const char* kProtocolHeader = "X-Alembic-Protocol";
+
 struct Identity {
     std::string id;       // 32 hex digits, kept in <state>/engine_id
     std::string name;     // the computer's name, or "PS5"
@@ -37,7 +46,13 @@ struct Identity {
     std::string platform; // "ps5" or "host"
     std::string version;
     std::uint16_t port = 0; // its page and API (TCP)
+    int protocol = 1;       // kPeerProtocol of that engine (1 when it does not say)
 };
+
+// Why this engine and `other` cannot work together, or "" when they can.
+std::string protocol_problem(const Identity& other);
+// The same for a request: the protocol its header names (1 without one).
+std::string protocol_problem(const std::string& header_value);
 
 struct Peer {
     Identity who;

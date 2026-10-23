@@ -22,6 +22,7 @@ export interface Info {
   port: number;
   enter_button: string; // "circle" where ○ confirms
   lang: string;
+  protocol?: number; // how it talks to other engines (peers.hpp kPeerProtocol); none before v0.2.1
 }
 
 export interface Space { root: string; total: number; free: number }
@@ -58,6 +59,7 @@ export interface Peer {
   paired: boolean;
   waiting_for_code: boolean;
   problem?: string;
+  protocol?: number; // 1 when it does not say (v0.2.0)
 }
 export interface Peers { enabled: boolean; listening?: boolean; engines: Peer[] }
 

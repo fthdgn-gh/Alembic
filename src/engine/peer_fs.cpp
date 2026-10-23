@@ -81,6 +81,7 @@ Result<std::string> request(peers::Discovery& discovery, pairing::Pairing& pairi
     auto peer = discovery.find(id);
     if (!peer) return make_error(Errc::io, "engine " + id + " is not known here (is it on the network?)");
     if (!pairing.is_paired(id)) return make_error(Errc::io, peer->who.name + " is not paired with this engine");
+    if (std::string why = peers::protocol_problem(peer->who); !why.empty()) return make_error(Errc::unsupported, why);
     ALEMBIC_ASSIGN(auto headers, pairing.sign(id, method, path, query, body));
     std::string target = path;
     char sep = '?';

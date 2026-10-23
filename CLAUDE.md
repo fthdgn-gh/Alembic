@@ -71,6 +71,12 @@ environment in `.refs/mkpfs-venv`).
   `ampr_emu.index`; `alembic ampr-emu` / the page's "Add the AMPR emulator"
   add it to an existing game (in place for a folder, as a ShadowMount+
   backport folder for an image). Never for FPKG output.
+- **Engine protocol:** engines talk to each other through `/api/pair/...`
+  and `/api/peer/...`, numbered by `peers::kPeerProtocol` (peers.hpp).
+  Raise it whenever one of those requests or replies changes in a way the
+  other engine must understand (a new required field, a changed meaning, a
+  removed endpoint); engines with different numbers refuse each other and
+  say which to update. Page fixes and new formats never change it.
 - **Language rules:** C++20 with no exceptions and no RTTI (the PS5 build
   forbids them), so errors are returned as values.
 - **Windows:** cross-built with llvm-mingw, tested on a GitHub Windows runner

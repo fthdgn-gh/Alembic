@@ -341,3 +341,36 @@ TEST_CASE(engine_pairing_protocol) {
     pairing::Pairing again(dir, identity(a_id, "Console"), {});
     CHECK(again.is_paired(b_id));
 }
+
+// How engines talk to each other has a number (peers::kPeerProtocol);
+// engines with different numbers refuse each other, saying which to update.
+TEST_CASE(engine_peer_protocol) {
+    peers::Identity self;
+    self.id = "0123456789abcdef0123456789abcdef";
+    self.name = "Desk PC";
+    self.port = 5940;
+    self.protocol = peers::kPeerProtocol;
+    // Sent in beacons and read back.
+    auto b = peers::decode_beacon(peers::encode_beacon(self, false));
+    CHECK(b.ok() && b->who.protocol == peers::kPeerProtocol);
+    // v0.2.0 sent no number: it speaks protocol 1.
+    auto old = peers::decode_beacon(R"({"alembic":"engine","v":1,"id":"0123456789abcdef0123456789abcdef","port":5940})");
+    CHECK(old.ok() && old->who.protocol == 1);
+    // Nonsense counts as 1 too.
+    auto odd = peers::decode_beacon(R"({"alembic":"engine","v":1,"id":"0123456789abcdef0123456789abcdef","port":5940,"protocol":-3})");
+    CHECK(odd.ok() && odd->who.protocol == 1);
+
+    CHECK(peers::protocol_problem(self).empty());
+    peers::Identity older = self, newer = self;
+    older.protocol = peers::kPeerProtocol - 1;
+    newer.protocol = peers::kPeerProtocol + 1;
+    CHECK(peers::protocol_problem(older).find("Desk PC has an older Alembic") == 0);
+    CHECK(peers::protocol_problem(older).find("update it") != std::string::npos);
+    CHECK(peers::protocol_problem(newer).find("Desk PC has a newer Alembic") == 0);
+    CHECK(peers::protocol_problem(newer).find("update this engine") != std::string::npos);
+
+    // A request's header: none is protocol 1, as v0.2.0 sends none.
+    CHECK(peers::protocol_problem(std::to_string(peers::kPeerProtocol)).empty());
+    CHECK(peers::protocol_problem(std::string()).empty() == (peers::kPeerProtocol == 1));
+    CHECK(!peers::protocol_problem(std::to_string(peers::kPeerProtocol + 1)).empty());
+}

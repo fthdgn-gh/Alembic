@@ -1778,6 +1778,29 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   kill it. The PS button still goes home at once (the browser stays open
   in the background).
 
+### 2026-10-24: engine protocol number
+
+- Owner: what if a v0.2.1 engine pairs with a v0.2.0 one? Today they work
+  (nothing between engines changed since v0.2.0), but nothing checked: a
+  later change could fail with "not found", or worse, an older engine could
+  ignore a new job option and report success.
+- `peers::kPeerProtocol` (1) numbers how engines talk (pairing, files,
+  jobs, places), apart from the app version: same-version-only would break
+  pairing over a page fix, and pairing goes both ways. It is in beacons,
+  `/api/info` (`protocol`), identities (a missing one is 1: v0.2.0), and an
+  `X-Alembic-Protocol` header on every request to another engine (signed
+  ones and the pairing handshake). An engine refuses `/api/pair/...` and
+  `/api/peer/...` with another number (409, "update Alembic on the older
+  one"); the sender checks first and names the engine ("{name} has an
+  older Alembic ... update it"); Settings > Other engines shows "Older/Newer
+  Alembic" and no Pair button. Rule in CLAUDE.md: raise it with any
+  incompatible change to those requests.
+- Checked: unit test (beacons with and without it, nonsense, messages, a
+  header-less request counts as 1); a running engine refuses protocol 2 on
+  peer and pairing paths, lets a header-less request through to the
+  signature check, and leaves the page's own pairing poll alone; the page
+  with a protocol-2 engine on the mock.
+
 ### 2026-10-23: README screenshots, redone
 
 - The README was from before engines could pair. It now covers working

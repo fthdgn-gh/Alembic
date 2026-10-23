@@ -4,7 +4,7 @@
 import { useState } from "preact/hooks";
 import type { Peer, Peers } from "../../api/types";
 import { api } from "../../api/client";
-import { peers, loadPeers } from "../../state/engine";
+import { info, peers, loadPeers } from "../../state/engine";
 import { LOCAL_PAGE } from "../../lib/env";
 import { t, tMsg } from "../../lib/i18n";
 import { ICONS } from "../../components/Icons";
@@ -40,10 +40,14 @@ function EngineRow(props: { e: Peer }) {
   const e = props.e;
   const sub = [e.os || e.platform, e.address + ":" + e.port, e.version ? "v" + e.version : ""].filter(Boolean).join(" · ");
   const btn = (key: string, text: string, fn: () => void, cls?: string) => <SmallBtn k={"peer:" + key + ":" + e.id} text={text} cls={cls} onClick={fn} />;
+  // Engines that talk another way (another protocol) cannot work with this one.
+  const ours = (info.value && info.value.protocol) || 1, theirs = e.protocol || 1;
+  const mismatch = theirs !== ours;
   const actions = e.paired ? [btn("check", t("Check"), () => checkPeer(e)), btn("unpair", t("Unpair"), () => unpairPeer(e), "danger")]
-    : [e.waiting_for_code ? btn("code", t("Enter the code"), () => codeDialog(e)) : btn("pair", t("Pair"), () => pairPeer(e), "primary"),
+    : [mismatch ? null : e.waiting_for_code ? btn("code", t("Enter the code"), () => codeDialog(e)) : btn("pair", t("Pair"), () => pairPeer(e), "primary"),
       e.manual ? btn("rm", t("Remove"), () => removePeer(e), "danger") : null];
-  const note = e.manual && !e.reachable ? <div class="err ellip" style="font-size:.85rem">{t("Not reachable: {why}", { why: tMsg(e.problem || "") })}</div>
+  const note = mismatch ? <div class="err" style="font-size:.85rem">{theirs < ours ? t("Older Alembic: update it to use it with this engine") : t("Newer Alembic: update this engine to use them together")}</div>
+    : e.manual && !e.reachable ? <div class="err ellip" style="font-size:.85rem">{t("Not reachable: {why}", { why: tMsg(e.problem || "") })}</div>
     : e.paired ? <div class="good" style="font-size:.85rem">{t("Paired")}</div>
     : e.manual ? <div class="muted" style="font-size:.85rem">{t("Added by address")}</div> : null;
   return (
