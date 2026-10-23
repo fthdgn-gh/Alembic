@@ -15,6 +15,7 @@
 #include <mutex>
 #include <sys/mount.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 #include <ps5/kernel.h>
@@ -109,6 +110,11 @@ const char* name() { return "ps5"; }
 std::string os_description() { return "PS5"; }
 
 void pause_before_exit() {}
+
+// The loader names a payload with thr_set_name on its main thread
+// (ps5-payload-dev/elfldr, elfldr_set_procname); process lists show that
+// thread's name. Called from the main thread, so -1 (this thread) is it.
+void set_process_name(const char* name) { syscall(SYS_thr_set_name, -1, name); }
 
 
 

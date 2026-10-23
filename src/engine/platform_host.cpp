@@ -162,6 +162,8 @@ Status secure_random(std::uint8_t* out, std::size_t size) {
     return {};
 }
 
+void set_process_name(const char*) {}
+
 void pause_before_exit() {
 #ifdef _WIN32
     DWORD pids[2];

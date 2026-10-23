@@ -1873,6 +1873,7 @@ private:
 
 int main(int argc, char** argv) {
     using namespace alembic::engine;
+    platform::set_process_name("alembic.elf"); // not "payload.elf" in the console's process list
     // UTF-8 arguments on Windows too (main() gets the ANSI code page there).
     alembic::use_utf8_console();
     std::vector<std::string> utf8 = alembic::program_arguments(argc, argv);
