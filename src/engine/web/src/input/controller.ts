@@ -60,8 +60,10 @@ export function press(action: string): void {
 export const lastNative: Record<string, number> = {};
 // The PS5 browser's keys the page uses. △ (F1), Options (F3), L3 (F9) and R3
 // (F10) belong to the browser: never mapped, never stopped.
-const PS_KEYS: Record<string, string> = { F2: "s", F5: "l1", F6: "r1", F7: "l2", F8: "r2" };
-const BROWSER_KEYS: Record<string, boolean> = { F1: true, F3: true, F9: true, F10: true };
+// Only in the console's browser: on a PC the function keys keep their own
+// meanings (F5 reloads), and Q/E/S and Page Up/Down stand in for them.
+const PS_KEYS: Record<string, string> = IS_PS5 ? { F2: "s", F5: "l1", F6: "r1", F7: "l2", F8: "r2" } : {};
+const BROWSER_KEYS: Record<string, boolean> = IS_PS5 ? { F1: true, F3: true, F9: true, F10: true } : {};
 
 // What the browser sends, for Settings → Controller test.
 export const inputLog = { items: [] as { t: number; text: string }[], test: null as null | (() => void), closing: false };
@@ -109,6 +111,8 @@ document.addEventListener("keydown", (e) => {
   // on △, Options, L3 and R3 itself, so the page uses only ✕ ○ □, the D-pad,
   // L1/R1 and L2/R2.
   else if (PS_KEYS[k]) a = PS_KEYS[k];
+  else if (!typing && (k === "PageUp" || code === 33)) a = "page-up"; // L2 and R2 on a keyboard
+  else if (!typing && (k === "PageDown" || code === 34)) a = "page-down";
   else if (!typing && (k === "q" || k === "Q")) a = "l1";
   else if (!typing && (k === "e" || k === "E")) a = "r1";
   else if (!typing && (k === "s" || k === "S" || k === "a" || k === "A" || k === "ContextMenu")) a = "s";
