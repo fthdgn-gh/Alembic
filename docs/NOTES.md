@@ -1811,6 +1811,14 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
    for FFPFSC inputs, SHA-NI/ARM SHA-256. Owner: the ~90 GB package took
    1.5 h to become an image on the console before this; time it again.
 
+## Making a release
+
+1. **Update the README first** (owner): new features, limits, options;
+   remake the screenshots if the page changed (`tools/screenshots/shoot.sh`).
+2. Bump the version in `CMakeLists.txt` and the "Where we are" heading
+   above ("Version X.Y.Z" commit).
+3. Tag `vX.Y.Z` and push the tag: CI builds and publishes the release.
+
 ## Next session
 
 **Settled (owner, 2026-10-22):**
