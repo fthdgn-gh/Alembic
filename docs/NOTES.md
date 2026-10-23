@@ -1767,6 +1767,15 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   (`platform::set_process_name`; the ELF loader names every payload
   `payload.elf`). Not tried yet: copy/move, pause/resume, package installs,
   pairing from scratch (and its incoming-code dialog), older firmwares.
+- **Leaving the browser (owner: L2 + R2 then ○ missed more than it hit):**
+  the page jumped back with `history.go(-n)`, which on the console went back
+  one step only; it now steps back one entry at a time to the first one.
+  Closing the browser from the engine is not possible safely: with the page
+  open, `sceLncUtilGetAppIdOfRunningBigApp` reports no app and the focused
+  app (`sceLncUtilGetAppFocusedAppStatus`) is NPXS40087, ShellUI itself
+  (kstuff-lite's `shellui_patch.c` and others look for that ID). Do not
+  kill it. The PS button still goes home at once (the browser stays open
+  in the background).
 
 ### 2026-10-23: README screenshots, redone
 
