@@ -49,7 +49,10 @@ function sample(j: Job) {
 // Bytes a second, 0 until known.
 export const rateOf = (j: Job) => { const sp = speeds[jobKey(j)]; return sp && sp.stage === j.stage ? sp.rate : 0; };
 
-let lastFinished: string | null = null, remoteJobs: Job[] = [], remoteAt = 0, remoteBusy = false;
+// Jobs seen running or waiting, every job seen, and the engines whose lists arrived.
+let wasActive = new Set<string>(), known = new Set<string>();
+const listed = new Set<string>();
+let remoteJobs: Job[] = [], remoteAt = 0, remoteBusy = false;
 export async function refreshJobs(remoteNow?: boolean) {
   let list: Job[];
   // Only a failed request means the engine is gone.
@@ -68,15 +71,23 @@ export async function refreshJobs(remoteNow?: boolean) {
   } else if (!anyPaired.value) remoteJobs = [];
   list = list.concat(remoteJobs);
   for (const j of list) if (j.state === "running") sample(j);
-  // Toast and refresh the listing when a job finishes.
-  const finished = list.filter((j) => !isActive(j)).map((j) => jobKey(j) + j.state).join();
-  if (lastFinished !== null && finished !== lastFinished) {
-    const newest = list.filter((j) => j.finished).sort((a, b) => b.finished - a.finished)[0];
-    if (newest && newest.state === "done") toast(t("Finished: {name}", { name: base(newest.spec.input) }), "ok");
-    if (newest && newest.state === "failed") toast(t("Failed: {name}", { name: base(newest.spec.input) }), "bad");
+  // Toast and refresh the listing when a job finishes: one this page saw
+  // running or waiting, or a new one already done (a quick copy between two
+  // refreshes); not the finished jobs in an engine's first list, which are
+  // history (on reload, or when another engine's jobs first arrive).
+  const engineOf = (j: Job) => (j.engine ? j.engine.id : "");
+  const fresh = (j: Job) => !known.has(jobKey(j)) && listed.has(engineOf(j));
+  const ended = list.filter((j) => !isActive(j) && (wasActive.has(jobKey(j)) || fresh(j))).sort((a, b) => b.finished - a.finished);
+  if (ended.length) {
+    const newest = ended[0];
+    if (newest.state === "done") toast(t("Finished: {name}", { name: base(newest.spec.input) }), "ok");
+    if (newest.state === "failed") toast(t("Failed: {name}", { name: base(newest.spec.input) }), "bad");
     if (cwd.value && !overlays.value.length) browse(cwd.value, false);
     loadInfo().catch(() => {});
   }
-  lastFinished = finished;
+  wasActive = new Set(list.filter(isActive).map(jobKey));
+  known = new Set(list.map(jobKey));
+  listed.add("");
+  for (const j of list) listed.add(engineOf(j));
   jobs.value = list;
 }
