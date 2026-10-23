@@ -114,6 +114,10 @@ engines without converting (Options → Send to another engine).
 
 ![Settings: Places, a paired PC and a Mac found on the network, and an FTP server](docs/screenshots/engines.png)
 
+Engines of different Alembic versions work together as long as they talk to
+each other the same way; when that changes in a release, Settings shows which
+engine to update, and they refuse each other until it is.
+
 The page itself has no password: anyone on your network can open it. Start
 a PC engine with `--listen 127.0.0.1` to keep it to that computer; other
 engines can't reach it then.
