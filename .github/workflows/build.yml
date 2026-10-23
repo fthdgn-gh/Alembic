@@ -5,10 +5,20 @@
 name: Build
 
 on:
+  # Changes that only touch the docs or the screenshot tool build nothing.
+  # Tags ignore path filters, so a release always builds.
   push:
     branches: [main]
     tags: ["v*"]
+    paths-ignore:
+      - README.md
+      - docs/**
+      - tools/screenshots/**
   pull_request:
+    paths-ignore:
+      - README.md
+      - docs/**
+      - tools/screenshots/**
   workflow_dispatch:
 
 permissions:
