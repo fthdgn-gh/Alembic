@@ -94,7 +94,7 @@ const running = (id, s, stage, total, startPct, rate, elapsed0) => () => {
   const e = process.env.MOCK_FROZEN ? 0 : now() - T0; // frozen: for comparing two builds
   return { id, spec: s, state: "running", stage, done: Math.min(total, Math.round(total * startPct + rate * e)), total, created: mt, started: mt, finished: 0, error: "", result: null, elapsed: Math.round(elapsed0 + e), keeps_progress: true };
 };
-const LOCAL = [
+let LOCAL = [
   () => ({ id: 3, spec: spec({ input: "/data/homebrew/Paper Kingdoms", output: "/data/homebrew/Paper Kingdoms.ffpfsc", to: "ffpfsc" }), state: "done", stage: "Done", done: 1, total: 1, created: mt, started: mt, finished: mt + 3600, error: "", elapsed: 41,
     result: { from: "folder", to: "FFPFSC", output: "/data/homebrew/Paper Kingdoms.ffpfsc", method: "built a new exFAT image from the folder and compressed it", output_bytes: 1.3 * GB } }),
   () => ({ id: 4, spec: spec({ input: "/ftp/nas/Neon Harbor.pkg", output: "/data/homebrew/Neon Harbor.ffpkg", to: "ffpkg" }), state: "done", stage: "Done", done: 1, total: 1, created: mt, started: mt, finished: mt + 7200, error: "", elapsed: 1514,
@@ -104,7 +104,9 @@ const LOCAL = [
   () => ({ id: 7, spec: spec({ input: "/data/homebrew/Echoes of Arden.exfat", output: "/ftp/nas/Echoes of Arden.exfat", kind: "copy" }), state: "queued", stage: "", done: 0, total: 0, created: mt, started: 0, finished: 0, error: "", result: null }),
 ];
 // The PC's own jobs, with paths as it sees them.
-const REMOTE = [
+let REMOTE = [
+  () => ({ id: 1, spec: spec({ input: "D:/Games/Mossback.ffpfsc", output: "/peer/" + SELF + "/mnt/usb0/homebrew/Mossback.ffpfsc", kind: "copy" }), state: "done", stage: "Done", done: 1, total: 1, created: mt, started: mt, finished: mt + 5400, error: "", elapsed: 66,
+    result: { output: "/peer/" + SELF + "/mnt/usb0/homebrew/Mossback.ffpfsc", output_bytes: 8.2 * GB } }),
   running(2, spec({ input: "D:/Games/Ember Lane.pkg", output: "D:/Games/Ember Lane.exfat", to: "exfat" }), "Building exFAT", 31.5 * GB, 0.42, 380e6, 248),
 ];
 
@@ -164,6 +166,15 @@ http.createServer((req, res) => {
     if (p === "/api/lang") return send(res, 200, {});
     if (p === "/api/jobs" && !T0) T0 = now();
     if (p === "/api/jobs") return send(res, 200, LOCAL.map((f) => f()));
+    // Clearing and removing finished jobs, here and on the paired PC.
+    const finished = (f) => ["done", "failed", "cancelled", "interrupted"].includes(f().state);
+    if (p === "/api/jobs/clear" && req.method === "POST") { LOCAL = LOCAL.filter((f) => !finished(f)); return send(res, 200, {}); }
+    const del = /^\/api\/(peers\/([0-9a-f]+)\/)?jobs\/(\d+)$/.exec(p);
+    if (del && req.method === "DELETE") {
+      const n = Number(del[3]), keep = (f) => f().id !== n;
+      if (del[2]) REMOTE = REMOTE.filter(keep); else LOCAL = LOCAL.filter(keep);
+      return send(res, 200, {});
+    }
     if (p === "/api/peers/jobs") return send(res, 200, REMOTE.map((f) => Object.assign(f(), { engine: { id: PC, name: "Living room PC" } })));
     if (p === "/api/browse") { const b = browse(q("path")); return b ? send(res, 200, b) : send(res, 404, { error: "no such folder" }); }
     if (p === "/api/meta") {

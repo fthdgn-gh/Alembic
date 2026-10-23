@@ -4,7 +4,7 @@
 import { jobs, isActive, jobKey } from "../../state/jobs";
 import { t } from "../../lib/i18n";
 import { JobCard } from "./JobCard";
-import { act } from "./jobActions";
+import { clearHistory } from "./jobActions";
 
 export function QueuePage(props: { hidden: boolean }) {
   const list = jobs.value;
@@ -17,7 +17,7 @@ export function QueuePage(props: { hidden: boolean }) {
         <div id="active">
           {active.length ? active.map((j) => <JobCard key={jobKey(j)} j={j} />) : <div class="card empty">{t("Nothing running. Pick a package in Files and choose Convert.")}</div>}
         </div>
-        <div class="head2"><div class="sect">{t("History")}</div><button class="btn sm ghost" id="btn-clear" onClick={() => act("POST", "/api/jobs/clear")}>{t("Clear history")}</button></div>
+        <div class="head2"><div class="sect">{t("History")}</div><button class="btn sm ghost" id="btn-clear" onClick={clearHistory}>{t("Clear history")}</button></div>
         <div id="history">
           {done.length ? done.map((j) => <JobCard key={jobKey(j)} j={j} />) : <div class="card empty">{t("No finished jobs.")}</div>}
         </div>

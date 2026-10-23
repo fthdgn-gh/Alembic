@@ -45,3 +45,17 @@ export async function act(method: string, path: string, body?: unknown) {
   try { await api(method, path, body); } catch (e: any) { toast(tMsg(e.message), "bad"); }
   refreshJobs();
 }
+
+// Clears the finished jobs listed: this engine's, and those other engines
+// show here (jobs that use this engine's files). Those live on the other
+// engine, so they leave its history too, as with Remove from history.
+export async function clearHistory() {
+  const theirs = jobs.value.filter((j) => j.engine && !isActive(j));
+  let problem: string | null = null;
+  try { await api("POST", "/api/jobs/clear"); } catch (e: any) { problem = e.message; }
+  for (const j of theirs) {
+    try { await api("DELETE", jobPath(j)); } catch (e: any) { if (!problem) problem = e.message; }
+  }
+  if (problem) toast(tMsg(problem), "bad");
+  refreshJobs(true);
+}
