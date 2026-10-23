@@ -1769,7 +1769,8 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   pairing from scratch (and its incoming-code dialog), older firmwares.
 - **Leaving the browser (owner: L2 + R2 then ○ missed more than it hit):**
   the page jumped back with `history.go(-n)`, which on the console went back
-  one step only; it now steps back one entry at a time to the first one.
+  one step only; it now steps back one entry at a time to the first one
+  (owner: reliable now; ○ after the message leaves every time).
   Closing the browser from the engine is not possible safely: with the page
   open, `sceLncUtilGetAppIdOfRunningBigApp` reports no app and the focused
   app (`sceLncUtilGetAppFocusedAppStatus`) is NPXS40087, ShellUI itself
