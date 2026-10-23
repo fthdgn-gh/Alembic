@@ -1,0 +1,15 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* ---------- header ---------- */
+.top { display: flex; align-items: center; padding: 1.1rem 2.5rem .9rem; flex: 0 0 auto; }
+.logo { display: flex; align-items: center; font-weight: 700; font-size: 1.3rem; letter-spacing: .01em; margin-right: 2rem; }
+.logo img { width: 2rem; height: 2rem; margin-right: .65rem; display: block; }
+.tabs { display: flex; align-items: center; }
+.tab { background: none; border: 0; color: var(--muted); padding: .45rem .9rem; border-radius: .6rem; font-size: 1.05rem; position: relative; margin-right: .25rem; }
+.tab.on { color: var(--text); }
+.tab.on::after { content: ""; position: absolute; left: .9rem; right: .9rem; bottom: .05rem; height: .16rem; border-radius: .1rem; background: var(--accent); }
+.badge { display: inline-block; background: var(--accent); color: #fff; font-size: .72rem; border-radius: 99px; padding: 0 .45rem; min-width: 1.2rem; text-align: center; margin-left: .35rem; vertical-align: .1rem; }
+.tabs .shoulder { font-size: .7rem; color: var(--dim); border: 1px solid var(--line2); border-radius: .35rem; padding: .05rem .35rem; margin: 0 .5rem; }
+.status { margin-left: auto; font-size: .85rem; color: var(--muted); display: flex; align-items: center; white-space: nowrap; }
+.status .dot { width: .55rem; height: .55rem; border-radius: 50%; background: var(--dim); margin-right: .5rem; }
+.status.live .dot { background: var(--accent); box-shadow: 0 0 .6rem var(--accent); }
+.status.off .dot { background: var(--bad); }

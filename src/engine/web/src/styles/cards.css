@@ -1,0 +1,31 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* cards (queue, components, settings) */
+.head2 { display: flex; align-items: center; justify-content: space-between; margin: 1rem .2rem .6rem; }
+.head2 .sect { margin: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem 1.2rem; margin-bottom: .75rem; display: block; width: 100%; text-align: left; }
+.card.click { cursor: pointer; }
+.card.click:hover { border-color: var(--line2); }
+.card .hd { display: flex; align-items: center; }
+.card .hd .ico { width: 3.4rem; height: 3.4rem; margin-right: 1rem; }
+.card .ttl { font-weight: 600; font-size: 1.05rem; flex: 1; min-width: 0; }
+.card .to { font-size: .85rem; color: var(--muted); }
+.card .s { font-size: .85rem; color: var(--text); opacity: .8; }
+.card .hd .ico { flex: 0 0 auto; }
+.card .line { display: flex; justify-content: space-between; align-items: center; margin-top: .6rem; font-size: .88rem; color: var(--muted); flex-wrap: wrap; }
+.card .btns { margin-top: .8rem; text-align: right; }
+.card .btns .btn { margin-left: .5rem; }
+.pbar { height: .55rem; background: #0a0d13; border-radius: .3rem; overflow: hidden; margin-top: .8rem; }
+.pbar div { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-transition: width .5s; transition: width .5s; }
+.pbar.indet div { width: 30% !important; -webkit-animation: slide 1.4s ease-in-out infinite; animation: slide 1.4s ease-in-out infinite; }
+@-webkit-keyframes slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+@keyframes slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+.state { font-size: .7rem; padding: .15rem .6rem; border-radius: 99px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; margin-left: .75rem; white-space: nowrap; }
+.state.running { background: rgba(111,147,255,.15); color: var(--accent); }
+.state.queued, .state.cancelled { background: #232a3a; color: var(--muted); }
+.state.paused { background: rgba(240,180,80,.15); color: var(--warn); }
+.state.done { background: rgba(63,194,130,.15); color: var(--ok); }
+.state.failed, .state.interrupted { background: rgba(240,106,98,.14); color: var(--bad); }
+.tag { display: inline-block; font-size: .72rem; color: var(--muted); border: 1px solid var(--line2); border-radius: .4rem; padding: .05rem .45rem; margin: .15rem 0 0 .35rem; }
+.note { color: var(--warn); font-size: .88rem; margin-top: .5rem; }
+.sharebar { margin: 0 0 .5rem; }
+.card .err { font-size: .88rem; margin-top: .5rem; word-break: break-word; }

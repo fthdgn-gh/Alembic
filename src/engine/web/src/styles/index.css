@@ -1,0 +1,13 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* The page's CSS, in cascade order. */
+@import "./base.css";
+@import "./header.css";
+@import "./views.css";
+@import "./files.css";
+@import "./icons.css";
+@import "./buttons.css";
+@import "./cards.css";
+@import "./overlays.css";
+@import "./forms.css";
+@import "./hints.css";
+@import "./small-screens.css";

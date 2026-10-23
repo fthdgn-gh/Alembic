@@ -1,0 +1,24 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* ---------- smaller screens ---------- */
+@media (max-width: 1250px) { .files { grid-template-columns: 13rem minmax(0, 1fr); } }
+@media (max-width: 760px) {
+  body { overflow: auto; }
+  .top { padding: .8rem 1rem .6rem; flex-wrap: wrap; }
+  .logo { margin-right: 1rem; }
+  .tabs { order: 3; width: 100%; overflow-x: auto; margin-top: .5rem; }
+  .tabs .shoulder { display: none; }
+  .view { padding: 0 1rem; }
+  .files { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .rail { display: flex; overflow-x: auto; padding: 0 0 .5rem; }
+  .rail h3, .rail h4 { display: none; }
+  .ritem { width: auto; flex: 0 0 auto; margin-right: .4rem; border: 1px solid var(--line); }
+  .ritem .meter, .ritem .free { display: none; }
+  .ritem.on::before { display: none; }
+  .row { grid-template-columns: 2.8rem minmax(0, 1fr) auto; }
+  .row .sz { display: none; }
+  .ico { width: 2.8rem; height: 2.8rem; }
+  .cv, .opts { grid-template-columns: minmax(0, 1fr); }
+  .hints { display: none; }
+  #toasts { left: 1rem; right: 1rem; bottom: 1rem; }
+  .overlay { padding: .75rem; }
+}

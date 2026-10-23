@@ -1738,14 +1738,18 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   in CI on Linux). `node build.mjs --serve [--engine URL]`: rebuilds on each
   change, `/api` from a running engine. `i18n.js` is unchanged (the engine
   reads it too); `tools/i18n_keys.py` scans `index.html` and `src/`.
-- **Code** (`src/`): `state.ts` (signals: info, drives, places, peers, tab,
-  folder, jobs), `nav.ts` (D-pad focus, keys, gamepad, pointer, history: a
-  straight port, DOM-based), `overlay.tsx` (dialog stack; `ask`/`choose`
-  still return promises), `files.tsx`, `dest.tsx` (folder picker),
-  `convert.tsx`, `queue.tsx` (speeds sampled per refresh, not per draw),
-  `deps.tsx`, `settings.tsx`, `ui.tsx` (icons, glyphs, rows, game info),
-  `app.tsx`, `main.tsx`. Same markup and class names as before, so the CSS
-  moved unchanged. `window.__alembic` (debug.ts) is for the screenshot tool.
+- **Code** (`src/`, map at the top of `main.tsx`): `api/` (requests,
+  types, the game-info cache), `state/` (signals: the engine's data, the
+  view, path naming, jobs and their speeds), `lib/` (i18n, formats,
+  storage, env, kinds), `input/` (focus movement, controller keys and
+  gamepad, history: a straight port, DOM-based), `components/` (dialog
+  stack and sheet, `ask`/`choose` returning promises, icons and glyphs,
+  form rows, crumbs, toasts), `hooks/`, `dialogs/` (Convert, folder picker,
+  component downloads), `pages/<section>/` (files, queue, deps, settings),
+  `app/` (App, header, hints), `styles/` (the CSS in cascade order). Same
+  markup and class names as before, so the CSS moved unchanged.
+  `window.__alembic` (`debug.ts`) is for the screenshot tool. tsconfig has
+  `noUnusedLocals`/`noUnusedParameters` on.
 - **Checked:** two commits. First the old script moved as it was into the
   build: 19 states pixel-identical. Then the rewrite, against the old page
   on the mock (`tools/screenshots/mock.mjs` with `MOCK_FROZEN=1`, and

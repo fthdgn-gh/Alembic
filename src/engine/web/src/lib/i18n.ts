@@ -46,7 +46,7 @@ export function plural(n: number, one: string, many: string): string {
 // The engine's place names: "Internal storage", "USB 0 · homebrew", ...
 export function placeLabel(s: string): string {
   return String(s).replace(/^Internal storage$/, t("Internal storage")).replace(/^Internal\b/, t("Internal"))
-    .replace(/^USB (\d+)/, (m, n) => t("USB {n}", { n })).replace(/^Extended (\d+)/, (m, n) => t("Extended {n}", { n }));
+    .replace(/^USB (\d+)/, (_m, n) => t("USB {n}", { n })).replace(/^Extended (\d+)/, (_m, n) => t("Extended {n}", { n }));
 }
 
 // How the engine did a conversion ("LZ4-packed and built a new exFAT image ...").

@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Components: third-party files the engine downloads on request, pinned by SHA-256.
 import { useEffect, useState } from "preact/hooks";
-import type { Dep } from "./types";
-import { tab, loadInfo } from "./state";
-import { api, bytes } from "./util";
-import { t, tMsg } from "./i18n";
-import { toast } from "./toasts";
-import { overlays } from "./overlay";
-import { focusFirst, zoneOf } from "./nav";
+import type { Dep } from "../../api/types";
+import { api } from "../../api/client";
+import { loadInfo } from "../../state/engine";
+import { tab } from "../../state/view";
+import { bytes } from "../../lib/format";
+import { t, tMsg } from "../../lib/i18n";
+import { toast } from "../../components/Toasts";
+import { overlays } from "../../components/Overlay";
+import { focusFirst, zoneOf } from "../../input/focus";
 
 const DEP_STATE: Record<string, [string, string]> = { installed: ["done", "installed"], missing: ["queued", "not installed"], partial: ["failed", "incomplete"], modified: ["failed", "changed"] };
 
-export function DepsView(props: { hidden: boolean }) {
+export function DepsPage(props: { hidden: boolean }) {
   const [deps, setDeps] = useState<Dep[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // "Downloading…" while one runs
   async function load() {

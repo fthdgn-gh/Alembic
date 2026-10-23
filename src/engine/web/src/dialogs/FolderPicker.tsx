@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The folder picker: copy and move queue a job; "pick" resolves with a folder.
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { Entry, Listing } from "./types";
-import { locations, rootOf, driveName, shownPath, hereName } from "./state";
-import { api, bytes, dir } from "./util";
-import { t, tMsg, placeLabel } from "./i18n";
-import { ICONS, SwitchRow } from "./ui";
-import { Sheet, openOverlay, closeOverlay } from "./overlay";
-import { focusEl, goBack } from "./nav";
-import { Crumbs } from "./files";
-import { toast } from "./toasts";
-import { refreshJobs } from "./queue";
+import type { Entry, Listing } from "../api/types";
+import { api } from "../api/client";
+import { locations } from "../state/engine";
+import { rootOf, driveName, shownPath, hereName } from "../state/paths";
+import { refreshJobs } from "../state/jobs";
+import { bytes, dir } from "../lib/format";
+import { t, tMsg, placeLabel } from "../lib/i18n";
+import { ICONS } from "../components/Icons";
+import { SwitchRow } from "../components/Rows";
+import { Sheet, openOverlay, closeOverlay } from "../components/Overlay";
+import { Crumbs } from "../components/Crumbs";
+import { toast } from "../components/Toasts";
+import { focusEl } from "../input/focus";
+import { goBack } from "../input/history";
 
 type Kind = "copy" | "move" | "pick";
 interface Chosen { folder: string; name: string; overwrite: boolean }

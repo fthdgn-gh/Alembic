@@ -1,15 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The engine's web page: Preact components (app.tsx) over the engine's API.
-import "./style.css";
+// The engine's web page: Preact components over the engine's API.
+//   api/         requests and the API's types
+//   state/       what the page knows, as signals
+//   lib/         i18n, formats, storage, where the page runs
+//   input/       the controller: focus, keys and buttons, history (○ is Back)
+//   components/  shared pieces: dialogs, icons, form rows, toasts
+//   dialogs/     Convert, the folder picker, downloading components
+//   pages/       one folder per section: files, queue, deps, settings
+//   app/         the page around them: header, button hints
+import "./styles/index.css";
 import { render } from "preact";
-import { App } from "./app";
+import { App } from "./app/App";
 import "./debug";
-import { loadInfo, notConnected } from "./state";
-import { t, tMsg } from "./i18n";
-import { browse } from "./files";
-import { refreshJobs } from "./queue";
-import { applyScale, watchIncoming } from "./settings";
-import "./nav"; // the controller's keys and buttons
+import { loadInfo, notConnected } from "./state/engine";
+import { refreshJobs } from "./state/jobs";
+import { t, tMsg } from "./lib/i18n";
+import { browse } from "./pages/files/browse";
+import { applyScale } from "./pages/settings/prefs";
+import { watchIncoming } from "./pages/settings/Engines";
+import "./input/controller"; // the controller's keys and buttons
 
 applyScale();
 window.addEventListener("resize", applyScale);

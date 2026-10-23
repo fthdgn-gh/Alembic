@@ -1,0 +1,12 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* buttons */
+.btn { background: var(--panel2); border: 1px solid var(--line2); border-radius: .65rem; padding: .55rem 1.05rem; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; color: var(--text); }
+.btn:hover { border-color: var(--accent); }
+a.btn { text-decoration: none; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn.danger { color: var(--bad); }
+.btn.danger.solid { background: var(--bad); border-color: var(--bad); color: #fff; }
+.btn.ghost { background: none; border-color: transparent; }
+.btn.block { display: flex; width: 100%; }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.sm { padding: .35rem .75rem; font-size: .9rem; }

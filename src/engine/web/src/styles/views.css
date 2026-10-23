@@ -1,0 +1,15 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* ---------- views ---------- */
+.view { flex: 1 1 auto; min-height: 0; padding: 0 2.5rem; }
+.files { display: grid; grid-template-columns: 15rem minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); grid-column-gap: 1.75rem; }
+.files > * { min-height: 0; }
+.scroll { overflow-y: auto; }
+/* Thin scrollbars that suit a TV. */
+.scroll::-webkit-scrollbar { width: .45rem; height: .45rem; }
+.scroll::-webkit-scrollbar-track { background: transparent; }
+.scroll::-webkit-scrollbar-thumb { background: rgba(142,152,173,.28); border-radius: .3rem; }
+.scroll::-webkit-scrollbar-thumb:hover { background: rgba(142,152,173,.45); }
+/* What an overlay covers loses its scrollbars: the console's WebKit can draw a
+   scrolling area's bar above a fixed layer. Scroll positions are kept. */
+body.covered .view.scroll, body.covered .view .scroll, .overlay.under .scroll { overflow: hidden; }
+.page { max-width: 62rem; margin: 0 auto; padding-bottom: 2rem; }

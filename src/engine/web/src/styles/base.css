@@ -1,0 +1,31 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Colours, the page body, text helpers and the focus ring. */
+:root {
+  --bg: #0b0e14; --bg2: #111621; --panel: #151b27; --panel2: #1b2231; --raise: #222b3d; --line: #263044; --line2: #34405a;
+  --text: #e9edf5; --muted: #8e98ad; --dim: #5d677c;
+  --accent: #6f93ff; --accent2: #9a7bff; --ok: #3fc282; --bad: #f06a62; --warn: #e6b445;
+  --focus: #8fb0ff; --radius: .75rem;
+  --x: #8aa7ff; --o: #ff6f8f; --t: #45d6a8; --s: #e993dc;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+html { font-size: 16px; }
+body { margin: 0; background: radial-gradient(ellipse at 20% -10%, #1a2340 0%, rgba(11,14,20,0) 55%), var(--bg); background-color: var(--bg);
+  color: var(--text); font: 1rem/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden;
+  display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
+/* The page's root (main.tsx renders into it) is body's column. */
+#app { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+a { color: var(--accent); }
+[hidden] { display: none !important; }
+.muted { color: var(--muted); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; word-break: break-all; }
+.err { color: var(--bad); }
+.good { color: var(--ok); }
+.ellip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp > * + * { margin-left: .5rem; }
+
+/* Focus: one clear ring, the same everywhere. */
+:focus { outline: none; }
+.fx:focus, button:focus, input:focus, .row:focus, .card:focus { box-shadow: 0 0 0 .14rem var(--bg), 0 0 0 .3rem var(--focus); }

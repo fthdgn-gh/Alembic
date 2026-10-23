@@ -2,18 +2,24 @@
 // The Convert dialog: the target format and options on the left; what the
 // source is and where the output goes on the right.
 import { useEffect, useState } from "preact/hooks";
-import type { Entry, Inspect, Plan, Job } from "./types";
-import { info, peers, locations, rootOf, ftpOf, driveName, shownPath, peerDriveOf, hereName } from "./state";
-import { api, base, bytes, dir, store } from "./util";
-import { t, tMsg, plural, placeLabel } from "./i18n";
-import { ChoiceRow, SwitchRow, EntryIco, cachedMeta } from "./ui";
-import { Sheet, openOverlay, closeOverlay, choose, type ChoiceItem } from "./overlay";
-import { goBack } from "./nav";
-import { getNeeds, isHiddenName } from "./files";
-import { openDest } from "./dest";
-import { toast } from "./toasts";
-import { refreshJobs } from "./queue";
-import { showTab } from "./app";
+import type { Entry, Inspect, Plan, Job } from "../api/types";
+import { api } from "../api/client";
+import { cachedMeta } from "../api/meta";
+import { info, peers, locations } from "../state/engine";
+import { rootOf, ftpOf, driveName, shownPath, peerDriveOf, hereName } from "../state/paths";
+import { refreshJobs } from "../state/jobs";
+import { isHiddenName } from "../lib/kinds";
+import { base, bytes, dir } from "../lib/format";
+import { store } from "../lib/storage";
+import { t, tMsg, plural, placeLabel } from "../lib/i18n";
+import { ChoiceRow, SwitchRow } from "../components/Rows";
+import { EntryIco } from "../components/Icons";
+import { Sheet, openOverlay, closeOverlay } from "../components/Overlay";
+import { choose, type ChoiceItem } from "../components/Dialogs";
+import { toast } from "../components/Toasts";
+import { goBack, showTab } from "../input/history";
+import { openDest } from "./FolderPicker";
+import { getNeeds } from "./getNeeds";
 
 export const FORMATS = [
   { value: "ffpfsc", label: "FFPFSC", hint: "Compressed image, smallest" },
