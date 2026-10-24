@@ -50,6 +50,14 @@ export function openConvert(entry: Entry) {
     .then((v) => { if (v === "deps") showTab("deps"); });
 }
 
+// The plan usually comes back at once; past these many seconds the footer says why the button waits.
+const PLAN_SLOW = 2, PLAN_LATE = 60;
+function waitText(waited: number, ready: boolean): string {
+  if (ready || waited < PLAN_SLOW) return "";
+  if (waited < PLAN_LATE) return t("Reading the source… ({n} s)", { n: waited });
+  return t("The engine hasn't answered for {n} s. It may be busy with the disk; this keeps waiting, or cancel and try again.", { n: waited });
+}
+
 function initialDest(entry: Entry): string {
   let d = store.get<string>("dest") || "";
   // A shared file has no folder on the console: it goes to a place here.
@@ -78,12 +86,17 @@ function Convert(props: { entry: Entry; ctl: Control }) {
   const [name, setName] = useState("");
   const [over, setOver] = useState(false);
   // Which engine does the work (Settings > Other engines); the source and the output can be on any.
-  const paired = ((peers.value && peers.value.engines) || []).filter((e) => e.paired);
+  // Only engines that answer right now: an offline one can't take the job.
+  const paired = ((peers.value && peers.value.engines) || []).filter((e) => e.paired && e.reachable);
   const onChoices = [{ value: "", label: t("This engine") }].concat(paired.map((e) => ({ value: e.id, label: e.name })));
-  const [where, setWhere] = useState(() => { const s = store.get<string>("convertOn") || ""; return onChoices.some((c) => c.value === s) ? s : ""; });
+  const [whereWant, setWhere] = useState(() => store.get<string>("convertOn") || "");
+  // An engine that went offline (or was the last choice) falls back to this one.
+  const where = onChoices.some((c) => c.value === whereWant) ? whereWant : "";
   const whereHidden = !paired.length || !!entry.shared;
-  const [plan, setPlan] = useState<Plan | null>(null);
+  // The engine's plan and the choices it was made for: queueing uses it as is.
+  const [planned, setPlanned] = useState<{ key: string; plan: Plan } | null>(null);
   const [planErr, setPlanErr] = useState<string | null>(null); // the engine refuses these choices
+  const [waited, setWaited] = useState(0); // seconds without an answer to the latest plan request
   const [msg, setMsg] = useState<{ text: string; err: boolean }>({ text: "", err: false });
   const [busy, setBusy] = useState(false);
 
@@ -104,27 +117,39 @@ function Convert(props: { entry: Entry; ctl: Control }) {
     ampr_emu: ampr ? "auto" : "off", hide_source: !hideHidden && hideWant && !del,
   };
   const specKey = JSON.stringify(spec);
+  // Only a plan for the current choices counts; an older one still names the output while the new one loads.
+  const plan = planned ? planned.plan : null;
+  const planReady = !!planned && planned.key === specKey && !planErr;
 
   useEffect(() => {
     api<Inspect>("GET", "/api/inspect?path=" + encodeURIComponent(entry.path)).then(setInspect, (e) => setProblem(tMsg(e.message)));
   }, []);
   // The engine's plan for these choices: the output's name, what it needs, warnings.
+  // A slow engine (busy disk, a big package read for the first time) must not
+  // look like a dead dialog: count the wait and say so.
   useEffect(() => {
+    let live = true, ticker = 0;
+    const key = specKey, started = Date.now();
+    setWaited(0);
     const timer = setTimeout(() => {
-      api<Plan>("POST", "/api/plan", spec).then((p) => { setPlan(p); setPlanErr(null); setMsg({ text: "", err: false }); },
-        (e) => setPlanErr(tMsg(e.message)));
+      ticker = setInterval(() => { if (live) setWaited(Math.floor((Date.now() - started) / 1000)); }, 1000) as unknown as number;
+      api<Plan>("POST", "/api/plan", spec).then((p) => {
+        if (!live) return; // the choices changed meanwhile: a newer request is on its way
+        setPlanned({ key, plan: p }); setPlanErr(null); setMsg({ text: "", err: false });
+      }, (e) => { if (live) setPlanErr(tMsg(e.message)); })
+        .then(() => { clearInterval(ticker); if (live) setWaited(0); });
     }, 150);
-    return () => clearTimeout(timer);
+    return () => { live = false; clearTimeout(timer); clearInterval(ticker); };
   }, [specKey]);
 
   async function go() {
-    if (busy || planErr || problem) return;
+    if (busy || !planReady || problem) return;
+    const p = planned!.plan;
     setBusy(true);
     try {
       const on = whereHidden ? "" : where, engine = paired.find((e) => e.id === on);
       // Components are the converting engine's own: only this engine's are fetched from here.
       if (!on) {
-        const p = await api<Plan>("POST", "/api/plan", spec);
         if (!await getNeeds(p, "This conversion needs {name}, which isn't downloaded yet.")) {
           setMsg({ text: t("Not queued: a component is needed."), err: false }); return;
         }
@@ -178,9 +203,9 @@ function Convert(props: { entry: Entry; ctl: Control }) {
 
   return (
     <Sheet title={t("Convert")} cls="wide" foot={<>
-      <span class={"msg" + (planErr || msg.err ? " err" : "")}>{planErr || msg.text}</span>
+      <span class={"msg" + (planErr || msg.err || waited >= PLAN_LATE ? " err" : "")}>{planErr || msg.text || waitText(waited, planReady)}</span>
       <button class="btn" onClick={() => closeOverlay(null)}>{t("Cancel")}</button>
-      <button class="btn primary" disabled={busy || !!planErr || !!problem} onClick={go}>{t("Add to queue")}</button>
+      <button class="btn primary" disabled={busy || !planReady || !!problem} onClick={go}>{t("Add to queue")}</button>
     </>}>
       <div class="cv">
         <div>
