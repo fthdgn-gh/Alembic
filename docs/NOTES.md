@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (2026-10-24, release 0.2.1)
+## Where we are (2026-10-24, release 0.2.2)
 
 ### What works
 
@@ -34,14 +34,16 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   ShadowMount+; games that use APR start once the AMPR emulator is added;
   some LZ4 packs run (Unity with `unity.toml`); the console and a PC pair,
   and convert for each other (2026-10-24). FPKG → uncompressed exFAT
-  of a ~90 GB package: about 30 min on the console.
+  of a ~90 GB package: about 30 min on the console. Install hands a
+  debug package to the system installer; a conversion paused, the engine
+  updated, and resumed from its checkpoint (2026-10-24).
 - Mac speeds (14-core M-series): package B (2.8 GB) → exFAT 1.7 s, →
   FFPFSC 5.5 s, → FPKG 9.5 s.
 
 ### How it is checked
 
 ```sh
-cmake -S . -B build && cmake --build build && ./build/alembic_tests   # 72 unit tests
+cmake -S . -B build && cmake --build build && ./build/alembic_tests   # 80 unit tests
 tools/oracle/compare.sh             # byte-for-byte checks vs PS5PKGTool, MkPFS (.ffpfs) + ampr_emu builder
 tools/pkg-oracle/compare.sh         # FPKG reading/writing vs ProsperoPkgTool/LibProsperoPKG
 tools/pkg-oracle/check_samples.sh   # owner's real files in .refs/samples/ (~4 min; skips files over
@@ -746,7 +748,7 @@ is about the USB drive's own format (shown on connect), not about the image.
   `sceAppInstUtilInstallByPackage` with the local path, as in
   ps5-payload-dev/shsrv `bundles/pkg_install` (GPL-3.0); the system installs
   in the background (Downloads). The engine links `libSceAppInstUtil`.
-  Not tried on a console yet.
+  Works on a console since 0.2.2 (see 2026-10-24: the installer's path).
 - **FPKG output is the owner's priority** (image → installable PKG and back).
   Key material: both reference builders embed Sony publishing-tool blobs
   (ProsperoPkgTool `Keys/passcode.bin`, `mount_image.bin`,
@@ -1801,6 +1803,27 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   peer and pairing paths, lets a header-less request through to the
   signature check, and leaves the page's own pairing poll alone; the page
   with a protocol-2 engine on the mock.
+
+### 2026-10-24: the installer's path, and a dialog that waits visibly (0.2.2)
+
+- **Install** failed on the console: the system installer refused a
+  package in `/data/packages` with 0x80b2150f. It runs in another process
+  that sees the internal drive as `/user/data`; ps5-web-file-manager's
+  `src/pkg_installer.c` passes `/user` + path, and the package's content ID
+  and title. Doing the same, the package installs (owner, 2026-10-24).
+- **Convert dialog on a slow engine:** the output name and Add to queue
+  both waited on `/api/plan` with nothing on screen. On the console the
+  first `/api/inspect` of a 68 GB package took about 3 minutes, later
+  3.3 s every time (cause not found: not a full scan of the file, which
+  stays fast with the cache churned). The footer now counts the wait
+  (from 2 s; a warning from 60 s), the button waits for the plan of the
+  current choices, and Add to queue reuses it.
+- **Convert on** listed an offline paired engine; it now lists reachable
+  ones only.
+- **Owner:** paused a conversion, updated the engine, resumed: it carried
+  on from its checkpoint (`ran_before` kept).
+- **Verifying** an output runs only with "Delete the source"; a separate
+  "check against the source" action is an idea, not planned.
 
 ### 2026-10-23: README screenshots, redone
 

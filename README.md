@@ -15,7 +15,9 @@ processor, straight into the console's storage.
 
 **Tried on a console so far:** FFPFSC images made from dumps and from
 packages run through ShadowMount+; games that need the AMPR emulator start
-once it is added; the console and a PC pair and convert for each other.
+once it is added; the console and a PC pair and convert for each other;
+**Install** hands a debug package to the console's installer; a paused
+conversion carries on after the engine is updated.
 **Not yet:** installing an FPKG that Alembic built. LZ4 asset packs work for
 some games and not for others.
 
@@ -108,7 +110,8 @@ paired, each engine can read and write the other's files and hand it jobs.
    Paired engines sign every request with the key they agreed on.
 3. The other engine's drives and Places appear in **Files** under
    *Other engines*, as inputs and as places to save to.
-4. In **Convert**, **Convert on** picks the engine that does the work. The
+4. In **Convert**, **Convert on** picks the engine that does the work (of
+   those online right now). The
    source, the converting engine and the output can each be on a different
    engine; data streams between them, with no copy made first.
 

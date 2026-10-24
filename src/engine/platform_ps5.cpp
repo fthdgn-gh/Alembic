@@ -355,8 +355,8 @@ Status install_package(const std::string& path, const std::string& content_id, c
     std::string name = title.empty() ? path.substr(path.rfind('/') + 1) : title;
     // The installer runs in another process that sees the internal drive as
     // /user/data, not /data: ps5-web-file-manager's src/pkg_installer.c
-    // (GPL-3.0-or-later) passes it that way. (Given /data/..., it refused a
-    // package with 0x80b2150f; whether this is why is not confirmed yet.)
+    // (GPL-3.0-or-later) passes it that way. Given /data/..., it refuses the
+    // package with 0x80b2150f (tried on a console, 2026-10-24).
     std::string uri = path.rfind("/data/", 0) == 0 ? "/user" + path : path;
     meta.uri = uri.c_str();
     meta.ex_uri = meta.playgo_scenario_id = meta.icon_url = "";
