@@ -1809,10 +1809,13 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
 - Notifications showed the console's download arrow (`Predefined` icon).
   As ShadowMount+ does (`src/sm_log.c`: `"icon": {"type": "Url",
   "parameters": {"url": "/user/data/shadowmount/smp_icon.png"}}`), the
-  engine writes the Media shortcut's icon (`icon0.png`, 512 × 512) to
+  engine writes `assets/icon/notify_icon.png` (`alembic.svg`, the page's
+  logo, at 512 × 512 with transparent rounded corners: notifications show
+  the PNG as it is, while the home screen rounds the Media tile itself) to
   `<state>/notify_icon.png` at start (only when it differs) and names it as
   `/user/data/alembic/notify_icon.png`, the path the notification service
-  sees. If writing fails, the download arrow stays. Not tried on a console yet.
+  sees. If writing fails, the download arrow stays. Owner: the icon shows
+  (2026-10-25; first with the square `icon0.png`, then rounded on request).
 
 ### 2026-10-24: the engine updates itself (for 0.2.3)
 

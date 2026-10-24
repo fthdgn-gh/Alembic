@@ -117,6 +117,9 @@ extern const std::size_t kIconSvgSize;
 // assets/icon/icon0.png, the home-screen shortcut's icon
 extern const char* const kIcon0Png;
 extern const std::size_t kIcon0PngSize;
+// assets/icon/notify_icon.png: alembic.svg with its rounded corners, for notifications
+extern const char* const kNotifyIconPng;
+extern const std::size_t kNotifyIconPngSize;
 
 namespace {
 
@@ -2046,8 +2049,9 @@ int main(int argc, char** argv) {
 
     alembic::Status dirs = alembic::make_parent_directories(config.state_dir + "/engine.log");
     if (dirs.ok()) g_log_path = config.state_dir + "/engine.log";
-    // Notifications with Alembic's icon (the Media shortcut's) instead of the download arrow.
-    platform::set_notification_icon(config.state_dir + "/notify_icon.png", reinterpret_cast<const std::uint8_t*>(kIcon0Png), kIcon0PngSize);
+    // Notifications with Alembic's icon (rounded, like the page's) instead of
+    // the download arrow; the home screen rounds the Media shortcut's itself.
+    platform::set_notification_icon(config.state_dir + "/notify_icon.png", reinterpret_cast<const std::uint8_t*>(kNotifyIconPng), kNotifyIconPngSize);
     log_line(std::string("Alembic engine ") + version() + " starting (" + platform::name() + ")");
 
     // Notifications follow the page's language (saved by /api/lang), else the console's.

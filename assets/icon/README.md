@@ -8,3 +8,7 @@ Drawn for Alembic (GPL-3.0-or-later, like the rest of the repo).
 - `icon0.png`: `alembic-square.svg` at 512×512, the PS5 app's `sce_sys/icon0.png`.
   Regenerate on macOS with
   `qlmanage -t -s 512 -o /tmp assets/icon/alembic-square.svg` and copy the result here.
+- `notify_icon.png`: `alembic.svg` at 512×512 with transparent corners, the
+  icon of the engine's console notifications (they show it as it is, unlike
+  the home screen, which rounds app tiles itself). Rendered from the SVG
+  with a transparent background (a browser screenshot with no background).

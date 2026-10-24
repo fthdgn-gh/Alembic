@@ -179,6 +179,15 @@ if(ALEMBIC_BUILD_ENGINE)
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/icon/icon0.png ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_text.cmake
         COMMENT "Embedding the home-screen icon"
         VERBATIM)
+    set(ALEMBIC_NOTIFY_ICON_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/engine_notify_icon_png.cpp)
+    add_custom_command(
+        OUTPUT ${ALEMBIC_NOTIFY_ICON_SOURCE}
+        COMMAND ${CMAKE_COMMAND} -DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/assets/icon/notify_icon.png
+                -DOUTPUT=${ALEMBIC_NOTIFY_ICON_SOURCE} -DSYMBOL=kNotifyIconPng -DNAMESPACE=alembic::engine
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_text.cmake
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/icon/notify_icon.png ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_text.cmake
+        COMMENT "Embedding the notification icon"
+        VERBATIM)
     if(PS5)
         set(ALEMBIC_ENGINE_PLATFORM src/engine/platform_ps5.cpp)
     else()
@@ -215,7 +224,7 @@ if(ALEMBIC_BUILD_ENGINE)
     if(PS5)
         target_link_libraries(alembic_engine_lib PUBLIC SceRandom) # platform::secure_random
     endif()
-    add_executable(alembic_engine src/engine/main.cpp ${ALEMBIC_WEB_SOURCE} ${ALEMBIC_I18N_SOURCE} ${ALEMBIC_ICON_SOURCE} ${ALEMBIC_ICON0_SOURCE})
+    add_executable(alembic_engine src/engine/main.cpp ${ALEMBIC_WEB_SOURCE} ${ALEMBIC_I18N_SOURCE} ${ALEMBIC_ICON_SOURCE} ${ALEMBIC_ICON0_SOURCE} ${ALEMBIC_NOTIFY_ICON_SOURCE})
     target_compile_options(alembic_engine PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
     # The version the engine reports and writes into its payload marker
     # (update.hpp); tests of the updater build one that says it is newer.
