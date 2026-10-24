@@ -42,8 +42,12 @@ if [[ $(uname -s) == Darwin ]]; then
     fi
     export PS5_CLANG_BUILTINS
 fi
-: "${HOST_CXX:=clang++}"
-: "${HOST_CC:=clang}"
+if [[ -z ${HOST_CXX:-} ]]; then
+    for c in clang++ clang++-18 g++; do command -v "$c" >/dev/null 2>&1 && { HOST_CXX=$c; break; }; done
+fi
+if [[ -z ${HOST_CC:-} ]]; then
+    for c in clang clang-18 gcc; do command -v "$c" >/dev/null 2>&1 && { HOST_CC=$c; break; }; done
+fi
 export USE_CCACHE="${USE_CCACHE:-0}"
 export PATH HOST_CXX HOST_CC CXX="${CXX:-$HOST_CXX}"
 for c in ninja python3 curl unzip zip wget; do

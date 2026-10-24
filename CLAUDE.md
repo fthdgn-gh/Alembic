@@ -19,6 +19,12 @@ cmake -S . -B build-win -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake \
       -DLLVM_MINGW=$PWD/.refs/llvm-mingw-20261006-ucrt-macos-universal && cmake --build build-win   # Windows .exe
 ```
 
+The console app is `app/` (a native PS5 title drawn with the vendored
+`third_party/ps5-homebrew-ui`): `app/build.sh` builds it (on a Mac too, see
+NOTES.md), `app/preview.sh [dir] [script]` draws it on this computer
+against the README's stand-in engine. Look at the pictures after every UI
+change. It mirrors the web page: a page change needs its app counterpart.
+
 The engine's web page is `src/engine/web` (Preact + TypeScript, bundled by
 esbuild into one HTML file that CMake embeds; needs Node.js 20+ and npm).
 After changing it: `cd src/engine/web && npx tsc --noEmit` and
@@ -40,11 +46,14 @@ environment in `.refs/mkpfs-venv`).
   pearlxcore/ProsperoPkgTool. The folder may still be called `ProsperoPKGTool`
   until it is renamed.
 - **Architecture:** a portable C++20 core library and a PC command-line tool
-  first, checked byte-for-byte against PS5PKGTool on a PC. A PS5 front end
-  built on blackbearreloaded/ps5-homebrew-ui comes after that.
+  first, checked byte-for-byte against PS5PKGTool on a PC. On the console:
+  the engine payload with its web page, and (from 0.3.0) a native app
+  (`app/`, title PPSA99594) built on ps5-homebrew-ui that draws the same
+  page and talks to the engine on 127.0.0.1:5940.
 - **End goal: a PS5 homebrew.** The CLI is the test bed. Like
-  PS5-LZ4-Compression, the engine will run as a payload ELF (which can reach
-  `/data` and USB) with a ps5-homebrew-ui app as the front end.
+  PS5-LZ4-Compression, the engine runs as a payload ELF (which can reach
+  `/data` and USB); the app is only a front end and sends its bundled
+  payload to the ELF loader (9021) when no engine answers.
 - **Goal:** conversion between exFAT, FFPFSC and FPKG (folders are a side
   feature). folder/exFAT/FFPFSC conversions are done (`alembic convert`),
   byte-identical to PS5PKGTool. FPKG and FFPKG (UFS2) reading are done,

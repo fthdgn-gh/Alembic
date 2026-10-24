@@ -30,6 +30,11 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   downloads third-party files pinned by SHA-256. Inputs can be files shared
   from a PC browser tab or FTP servers; outputs can go to FTP (formats
   written front to back only).
+- **Console app** (`app/`, title `PPSA99594`, work for 0.3.0; see the
+  2026-10-25 entry): the engine's page drawn natively with
+  ps5-homebrew-ui, every section and dialog, talking to the engine on
+  127.0.0.1:5940 and starting the payload it carries when none answers.
+  Builds on a Mac and in CI; **not run on a console yet.**
 - **Console-tested (owner):** FFPFSC images from dumps and packages run via
   ShadowMount+; games that use APR start once the AMPR emulator is added;
   some LZ4 packs run (Unity with `unity.toml`); the console and a PC pair,
@@ -49,6 +54,8 @@ tools/pkg-oracle/compare.sh         # FPKG reading/writing vs ProsperoPkgTool/Li
 tools/pkg-oracle/check_samples.sh   # owner's real files in .refs/samples/ (~4 min; skips files over
                                     # ALEMBIC_SAMPLES_MAX_GB GiB, default 20; cleans up after each step)
 tools/lz4-oracle/compare.sh         # LZ4 packs vs ampr_pack.py (needs .refs/venv, Homebrew lz4)
+app/build.sh                        # the console app: build-app/dist/PPSA99594 (+ .zip)
+app/preview.sh [dir] [script]       # PNGs of the app drawn on this computer (Mesa)
 ```
 
 ### Environment (all git-ignored, recreate if missing)
@@ -1918,6 +1925,59 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   `BROWSER=` for another (the Mac here has Brave). When the page's API
   changes, the mock may need the same change.
 
+### 2026-10-25: the console app (for 0.3.0)
+
+- **Owner decision:** the native app comes back (it was shelved on
+  2026-10-18): the same UI/UX as the page, every section and dialog in
+  0.3.0 ("Everything"), Latin languages first (Japanese shows English until
+  the console's fonts are used), and the Media-tab shortcut stays.
+- **ps5-homebrew-ui is gone from GitHub** (the whole blackbearreloaded
+  account, with ps5-opengl and ps5-native-app-boilerplate). The kit is
+  GPL, so it is vendored in `third_party/ps5-homebrew-ui` from our
+  `.refs` copy at `bbe1905`, the last upstream commit (mirrors with history
+  end there too). The ps5-opengl SDK 1.0.2 comes from two copies of the
+  release (JMUtechnologies, darkxex) that serve exactly the SHA-256 the kit
+  pins (`30d8e51d…`); drakmor still hosts ps5-native-app-boilerplate.
+  Local changes to the kit's scripts are listed in its `UPSTREAM.md`.
+- **Build on a Mac** (`app/build.sh`): Homebrew `llvm@18`, `ninja`, `bash`,
+  `coreutils`, `findutils`; clang's x86-64 Linux builtins come from Ubuntu
+  24.04's `libclang-rt-18-dev_18.1.3-1_amd64.deb` (SHA-256 in
+  `app/tools/host_env.sh`, the noble index's), since Homebrew's LLVM has
+  none. The kit's clean-room `libc.prx` rebuilds byte-identical to its pin
+  (`e6ff45d1…`). The payload SDK for the app is v0.42 (the kit's validated
+  one), the engine keeps v0.44. Output: `build-app/dist/PPSA99594/` and a
+  ZIP whose entries are 0777 (the console refuses other modes:
+  CE-107750-0). `ALEMBIC_ENGINE_ELF` (default `build-ps5/alembic.elf`) goes
+  into `assets/alembic.elf`. CI job "PS5 app" builds it with the payload
+  of the PS5 job; releases get `alembic-app-<version>.zip`.
+- **Preview on a Mac** (`app/preview.sh`): Homebrew's `mesa` has
+  surfaceless EGL with llvmpipe (OpenGL 4.6), so the kit's PC renderer
+  works here too. The preview runs the app against the README's stand-in
+  engine (`tools/screenshots/mock.mjs`, frozen jobs) and writes PNGs from a
+  script of button presses; the pictures match the page's screenshots.
+  The stand-in engine's icons are SVG, which the app cannot draw, so
+  previews show format labels where the console shows game icons.
+- **How the app is built** (`app/src`): `ui/ui.*` is an immediate-mode
+  layer over the kit's draw list: items register with their rectangles,
+  the D-pad moves the focus as the page's `focus.ts` does (columns,
+  remembered items, scroll areas that follow the focus), each dialog is a
+  layer of its own. `ui/draw.*` draws the page's CSS pieces at the page's
+  sizes (one rem is 19.2 canvas units: the page is laid out for the PS5
+  browser's 1600 px). `app/*` follows the page file by file (state,
+  Files, Queue, Components, Settings, Convert, the folder picker, the
+  menus, forms whose fields open the kit's on-screen keyboard). Requests
+  run on two worker threads (`engine/client.*`, quick calls and polling
+  apart) with a minimal HTTP client using only socket/connect/poll/send/
+  recv (`engine/http.*`); icons are decoded and shrunk to 128 px on the
+  worker (stb_image). Texts come from the engine's `i18n.js`; the language
+  is the engine's (`/api/lang`), shared with the page and notifications.
+- The app's imports resolve to the same modules as the kit's demo app (no
+  new system library). A native title has no `localtime_r`: dates show in
+  UTC for now.
+- **Not verified:** anything on a console (start, sockets to the engine,
+  sending the payload to the ELF loader on 9021, controller feel, frame
+  rate, sounds). Before the first run, ask the owner (CLAUDE.md "Never").
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and
@@ -2010,6 +2070,11 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
 - LZ4 packs stay as they are.
 
 **Open:**
+- **Console app (0.3.0):** first console run (ask the owner first): the
+  folder to `/data/homebrew/PPSA99594`, start it from the home screen, see
+  whether it reaches the engine or starts it. Then: game icons in the
+  preview's stand-in engine (PNG), the console's fonts for Japanese, local
+  time for dates, README section and screenshots before the release.
 0. ✓ Updating itself, tried on the console through Payload Manager
    (2026-10-24).
 1. Owner's console test: install an Alembic-made FPKG.

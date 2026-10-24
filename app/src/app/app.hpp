@@ -201,6 +201,7 @@ private:
         std::uint32_t texture = 0;
     };
     void pump_meta();
+    void pump_icons();
     void draw_header(Ui& ui);
     void draw_hints(Ui& ui, const std::vector<Hint>& hints);
     void draw_toasts(Ui& ui);

@@ -95,7 +95,9 @@ bool match(const std::string& pattern, std::string_view text, std::vector<std::p
 
 const std::vector<std::pair<std::string, std::string>>& languages() {
     static const std::vector<std::pair<std::string, std::string>> list = {
-        {"en", "English"}, {"es", "Español"}, {"fr", "Français"}, {"de", "Deutsch"}, {"ja", "日本語"}, {"tr", "Türkçe"}};
+        {"en", "English"}, {"es", "Español"}, {"fr", "Français"}, {"de", "Deutsch"},
+        // The fonts have no Japanese yet: its name in Latin letters.
+        {"ja", "Japanese"}, {"tr", "Türkçe"}};
     return list;
 }
 

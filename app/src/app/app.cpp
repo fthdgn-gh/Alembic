@@ -396,13 +396,21 @@ std::uint32_t App::icon(const std::string& path, std::int64_t mtime) {
     auto it = icons_.find(key);
     if (it != icons_.end()) return it->second.texture;
     icons_[key] = IconSlot{};
-    icon_queue_.push_back({key, path});
+    icon_queue_.push_back({key, path + "|" + std::to_string(mtime)});
+    pump_icons();
+    return 0;
+}
+
+// Two icon fetches at a time; each one that ends starts the next.
+void App::pump_icons() {
     while (icons_active_ < 2 && !icon_queue_.empty()) {
-        auto [k, p] = icon_queue_.front();
+        const std::string key = icon_queue_.front().first;
+        const std::string spec = icon_queue_.front().second;
         icon_queue_.erase(icon_queue_.begin());
+        const std::size_t bar = spec.rfind('|');
         ++icons_active_;
         engine.fetch(
-            url("/api/icon", {{"path", p}, {"v", std::to_string(mtime)}}),
+            url("/api/icon", {{"path", spec.substr(0, bar)}, {"v", spec.substr(bar + 1)}}),
             [](int status, std::string& body) {
                 Image img;
                 if (status == 200 && decode_png(body, 128, &img))
@@ -410,17 +418,18 @@ std::uint32_t App::icon(const std::string& path, std::int64_t mtime) {
                 else
                     body.clear();
             },
-            [this, k = k](int, std::string body) {
+            [this, key](int, std::string body) {
                 --icons_active_;
-                IconSlot& slot = icons_[k];
-                slot.done = true;
-                Image img;
-                if (unpack_image(body, &img) && platform.make_texture)
-                    slot.texture = platform.make_texture(img.width, img.height, img.rgba.data());
-                // The next ones wait for a frame that asks for an icon.
+                auto slot = icons_.find(key);
+                if (slot != icons_.end()) {
+                    slot->second.done = true;
+                    Image img;
+                    if (unpack_image(body, &img) && platform.make_texture)
+                        slot->second.texture = platform.make_texture(img.width, img.height, img.rgba.data());
+                }
+                pump_icons();
             });
     }
-    return 0;
 }
 
 void App::clear_meta() {
