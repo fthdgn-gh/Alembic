@@ -1,0 +1,3 @@
+Inter-Regular.ttf inter-regular 56 8
+Inter-SemiBold.ttf inter-semibold 56 8
+DejaVuSansMono.ttf dejavu-sans-mono 52 8

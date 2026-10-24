@@ -43,8 +43,25 @@ embedded in the engine, so these libraries ship inside `alembic.elf` and
 | [drakmor/ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus) | GPL-3.0 | HTTPS downloads with `libSceHttp`/`libSceSsl` (from `src/sm_ampr_updater.c`) and its public CA certificates for GitHub (`src/engine/github_ca.inc`, from `src/sm_ampr_ca.inc`); notifications with the app's own icon, a PNG in `/user/data` named by a `Url` icon (from `src/sm_log.c`) |
 | [ps5-payload-dev/shsrv](https://github.com/ps5-payload-dev/shsrv), [owendswang/ps5-web-file-manager](https://github.com/owendswang/ps5-web-file-manager) | GPL-3.0-or-later | installing a `.pkg` with `sceAppInstUtilInstallByPackage` (shsrv `bundles/pkg_install`); a file on the internal drive passed as `/user/data/...`, with its content ID and title (ps5-web-file-manager `src/pkg_installer.c`) |
 | [ps5-payload-dev/websrv](https://github.com/ps5-payload-dev/websrv), [owendswang/ps5-web-file-manager](https://github.com/owendswang/ps5-web-file-manager) | GPL-3.0-or-later | the Media-tab shortcut: a stub title in `/user/app` with a `deeplinkUri` param.json, registered with `sceAppInstUtilAppInstallTitleDir` (websrv `src/ps5/sys.c`, ps5-web-file-manager `src/app_installer.c`); category 65536 as in ps5-web-file-manager and [itsPLK/ps5-payload-manager](https://github.com/itsPLK/ps5-payload-manager) |
-| [blackbearreloaded/ps5-homebrew-ui](https://github.com/blackbearreloaded/ps5-homebrew-ui) | GPL-3.0-or-later | design reference only (no code): the web page's Files layout, focus ring and button-hint bar follow its Files and Settings screens |
+| [blackbearreloaded/ps5-homebrew-ui](https://github.com/blackbearreloaded/ps5-homebrew-ui) | GPL-3.0-or-later | the web page's Files layout, focus ring and button-hint bar follow its Files and Settings screens; the console app is built on it (below) |
 | theghostonline/PS5-LZ4-Compression | GPL-3.0-or-later | keeping the console awake during a job (`sceSystemServicePowerTick`), from `src/lzc_power_guard.c`; the engine/app split and the job/web API idea |
+
+## Console app (`app/`)
+
+The native PS5 app draws the engine's page with ps5-homebrew-ui. Its upstream
+repository (and the ps5-opengl and boilerplate repositories) left GitHub in
+October 2026; the kit is vendored from the last upstream commit, and the
+ps5-opengl SDK comes from copies of its release, accepted only with the
+SHA-256 the kit pins.
+
+| Project | License | What Alembic uses |
+| --- | --- | --- |
+| [blackbearreloaded/ps5-homebrew-ui](https://github.com/blackbearreloaded/ps5-homebrew-ui) at `bbe1905` | GPL-3.0-or-later (`third_party/ps5-homebrew-ui/LICENSE`) | `third_party/ps5-homebrew-ui/`: the renderer, fonts, controller glyphs, input model, sound mixer and the "glass" sound set, the on-screen keyboard and the other components, the PS5 platform layer, and the native toolchain from ps5-native-app-boilerplate (the executable converter, FSELF signing, the clean-room `libc.prx` generator); local changes in its `UPSTREAM.md`. `app/src/main.cpp`, `app/build.sh` and `app/src/host/preview_main.cpp` are adapted from its `src/main.cpp`, `tools/build.sh` and `host/snapshot_main.cpp` |
+| Inter, DejaVu Sans Mono (as shipped by ps5-homebrew-ui) | SIL OFL 1.1; Bitstream Vera / DejaVu license (`third_party/ps5-homebrew-ui/third_party/fonts/`) | the app's text, baked into distance-field fonts at build time; the licences ship in the app folder |
+| [nothings/stb](https://github.com/nothings/stb) `stb_image.h` v2.30 at `2c980bb` | public domain or MIT | `third_party/stb/`: PNG decoding of game icons in the app, unchanged |
+| ps5-opengl SDK 1.0.2 (blackbearreloaded; archive SHA-256 `30d8e51d…`) | GPL-3.0-or-later; Mesa and the other parts under their own licences | downloaded at build time (never committed) and linked into the app's `eboot.bin`; its `LICENSE`, `LICENSES/` and `THIRD_PARTY_NOTICES.md` ship in the app folder |
+| [ps5-payload-dev/sdk](https://github.com/ps5-payload-dev/sdk) v0.42 | GPL-3.0-or-later; libc++ Apache-2.0 WITH LLVM-exception | the toolchain and libc++ the app is built with (the version ps5-homebrew-ui validated on hardware) |
+| LLVM compiler-rt builtins 18.1.3 (Ubuntu 24.04 `libclang-rt-18-dev`, SHA-256 pinned in `app/tools/host_env.sh`) | Apache-2.0 WITH LLVM-exception | linked into the app; downloaded only on a Mac, whose clang has no x86-64 Linux builtins |
 
 ## Bundled data
 
