@@ -1858,9 +1858,11 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   0.2.3 about 4 s after Update. Also: an older engine started next to a
   newer one stops; a second engine of the same version takes over; with no
   loader the engine reports it and keeps running. 82 unit tests.
-- **Not tried on a console yet:** the real ELF loader, Payload Manager's real
-  slot. The first release that can update itself is 0.2.3: going from 0.2.2
-  to 0.2.3 is still by hand.
+- **Console (owner, 2026-10-24):** works. A 0.2.3 build that said it was
+  0.2.2 (`-DALEMBIC_ENGINE_VERSION=0.2.2`), uploaded to Payload Manager as
+  `alembic-v0.2.2.elf`, found the published 0.2.3, replaced and renamed its
+  slot's file and handed over through the ELF loader. The first release that
+  can update itself is 0.2.3: going from 0.2.2 to 0.2.3 is still by hand.
 
 ### 2026-10-24: the installer's path, and a dialog that waits visibly (0.2.2)
 
@@ -1991,9 +1993,8 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
 - LZ4 packs stay as they are.
 
 **Open:**
-0. Owner's console test of updating itself (0.2.3 → a later release): the
-   real ELF loader, Payload Manager's slot renamed and its meta.json fixed,
-   a running job continuing.
+0. ✓ Updating itself, tried on the console through Payload Manager
+   (2026-10-24).
 1. Owner's console test: install an Alembic-made FPKG.
 2. ✓ zlib read-ahead for FFPFSC inputs, hardware SHA-256, CPU instructions
    on every x86-64 PC (2026-10-22).

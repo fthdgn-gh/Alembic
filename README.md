@@ -17,7 +17,8 @@ processor, straight into the console's storage.
 packages run through ShadowMount+; games that need the AMPR emulator start
 once it is added; the console and a PC pair and convert for each other;
 **Install** hands a debug package to the console's installer; a paused
-conversion carries on after the engine is updated.
+conversion carries on after the engine is updated; the engine updates
+itself from a release (loaded through Payload Manager).
 **Not yet:** installing an FPKG that Alembic built. LZ4 asset packs work for
 some games and not for others.
 
