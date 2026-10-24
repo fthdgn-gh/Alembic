@@ -94,6 +94,16 @@ Also on the page:
 - **Components:** third-party files Alembic needs but doesn't ship (ampr_emu's
   runtime, ProsperoPkgTool's FPKG key files) are downloaded on request from
   their official source and kept only if their SHA-256 matches.
+- **Updates** (from 0.2.3): the engine looks for a newer release on GitHub
+  when it starts and says so; **Settings → Updates** shows its notes.
+  **Update** downloads the payload, checks it against the release's
+  `SHA256SUMS` and the version written inside it, and replaces the copies
+  your loader starts it from: Payload Manager's (renamed to the new version,
+  with the name fixed in that payload's `meta.json`) and `ps5_autoloader`
+  folders (same name); **Search the drives** finds copies elsewhere. Then
+  the new engine starts through the ELF loader (port 9021) and takes over;
+  a running job that keeps its progress continues. Sending a newer
+  `alembic.elf` by hand also replaces a running engine.
 - Languages: English, Español, Français, Deutsch, 日本語, Türkçe.
 
 State (queue, settings, downloaded components) is kept in `/data/alembic`.
@@ -152,6 +162,8 @@ alembic --help                                    # every command and option
 (`http://localhost:5940`), for converting on a PC or pairing with the
 console. `--root DIR` (repeatable) chooses the folders it shares (your
 home folder by default); `alembic-engine --help` lists the other options.
+Settings → Updates says when a newer release is out; on a PC, download it
+and replace the files yourself.
 
 ## Building
 

@@ -43,7 +43,7 @@ Chronological log below; **read "Where we are" and "Next session" first.**
 ### How it is checked
 
 ```sh
-cmake -S . -B build && cmake --build build && ./build/alembic_tests   # 80 unit tests
+cmake -S . -B build && cmake --build build && ./build/alembic_tests   # 82 unit tests
 tools/oracle/compare.sh             # byte-for-byte checks vs PS5PKGTool, MkPFS (.ffpfs) + ampr_emu builder
 tools/pkg-oracle/compare.sh         # FPKG reading/writing vs ProsperoPkgTool/LibProsperoPKG
 tools/pkg-oracle/check_samples.sh   # owner's real files in .refs/samples/ (~4 min; skips files over
@@ -1804,6 +1804,64 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   signature check, and leaves the page's own pairing poll alone; the page
   with a protocol-2 engine on the mock.
 
+### 2026-10-24: the engine updates itself (for 0.2.3)
+
+- **What it does** (`src/engine/update.{hpp,cpp}`, Settings → Updates):
+  at start the engine asks `api.github.com/repos/fthdgn-gh/Alembic/releases/latest`
+  (same Sectigo/USERTrust chain as github.com, already in `github_ca.inc`).
+  When newer: download `alembic-vX.Y.Z.elf` and `SHA256SUMS`, check the
+  hash and the version marker inside the ELF, save it in
+  `<state>/update/`, replace the chosen payload files, send the ELF to the
+  ELF loader (`127.0.0.1:9021`), then quit. Owner decisions: pause/resume a
+  running job automatically (quitting keeps a job with a checkpoint queued,
+  so the new engine continues it), check once at start, signing releases
+  later.
+- **Version marker:** `ALEMBIC_PAYLOAD_VERSION:X.Y.Z` (main.cpp, read back for
+  `/api/info` so the linker keeps it). Releases 0.1.0–0.2.2 have none; they
+  are recognised by SHA-256 (table in update.cpp), and builds from source by
+  "Alembic engine " + "Alembic is ready". The bare prefix is in every
+  engine too (the code that looks for it): only a prefix followed by a digit
+  counts.
+- **Where the payload lives:** a running payload has no file (the loader
+  gets the bytes over a socket). Searched: Payload Manager
+  (`/data/pldmgr`, `/mnt/usbN/pldmgr`: `payloads/{local,repo}/<slot>/<file>`
+  with a `meta.json`; it checks a checksum only when downloading from a
+  repository, never at launch; its `autoload.txt` names slots, not files),
+  the autoloaders' `ps5_autoloader` folders (`autoload.txt` names files),
+  `/data/payloads`; "Search the drives" walks every root (6 levels, `.elf`
+  only: games are full of `.bin`). Files already at the new version are not
+  listed.
+- **Renaming (owner):** where the folder's `meta.json` names the file, the
+  file gets the new version in its name and every occurrence of the old
+  name in `meta.json` is replaced as plain text (its schema is Payload
+  Manager's and may change). Elsewhere only the contents change.
+- **Taking over (main.cpp `take_over_port`):** before starting its queue, a
+  new engine asks `/api/info` on its port; an older or equal Alembic gets
+  `/api/quit` and is waited for (up to 90 s); a newer one is left running and
+  this one exits. Always on the console, `--take-over` on a PC. So sending a
+  newer ELF by hand also works. Like Payload Manager, which kills an older
+  `pldmgr.elf` by process name at start and hands self-updates to the loader
+  (DEVELOPMENT.md "Payload Manager self-updates"; ideas only, no code taken).
+- **API:** `GET /api/update`, `POST /api/update/check`, `/find {everywhere}`,
+  `/install {paths}` (only paths the last search found). `/api/info` has
+  `update: {state, latest, newer}`; the page says once per version that one
+  is out. Page-only: the engine protocol number stays.
+- **Test hooks:** `--loader HOST:PORT`, `--update-url URL` (the PC downloader
+  accepts `http://127.0.0.1:`/`localhost:` for this), `--no-update-check`,
+  `-DALEMBIC_ENGINE_VERSION=X` (an engine that says it is newer).
+- **Checked on the Mac** (fake release server, a fake loader that starts a
+  Mac engine built as 0.2.3, folders laid out like a Payload Manager slot
+  with the real 0.2.2 release ELF and an autoloader folder): the slot's file
+  renamed and replaced and its `meta.json` fixed, the autoloader's replaced
+  under its name, an unrelated ELF untouched; a running conversion paused at
+  its checkpoint and continued in the new engine; the page reloaded on
+  0.2.3 about 4 s after Update. Also: an older engine started next to a
+  newer one stops; a second engine of the same version takes over; with no
+  loader the engine reports it and keeps running. 82 unit tests.
+- **Not tried on a console yet:** the real ELF loader, Payload Manager's real
+  slot. The first release that can update itself is 0.2.3: going from 0.2.2
+  to 0.2.3 is still by hand.
+
 ### 2026-10-24: the installer's path, and a dialog that waits visibly (0.2.2)
 
 - **Install** failed on the console: the system installer refused a
@@ -1933,6 +1991,9 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
 - LZ4 packs stay as they are.
 
 **Open:**
+0. Owner's console test of updating itself (0.2.3 → a later release): the
+   real ELF loader, Payload Manager's slot renamed and its meta.json fixed,
+   a running job continuing.
 1. Owner's console test: install an Alembic-made FPKG.
 2. ✓ zlib read-ahead for FFPFSC inputs, hardware SHA-256, CPU instructions
    on every x86-64 PC (2026-10-22).

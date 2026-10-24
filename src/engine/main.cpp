@@ -5,6 +5,12 @@
 //
 //   alembic-engine [--port N] [--listen ADDR] [--state DIR] [--root DIR]...
 //                  [--runtime libSceAmpr.sprx] [--shadowmount HOST:PORT]
+//                  [--loader HOST:PORT] [--update-url URL] [--no-update-check] [--take-over]
+//
+// --loader: the ELF loader an update goes to (the console: 127.0.0.1:9021;
+// tests on a PC give one). --update-url: another "latest release" JSON
+// (tests). --take-over: stop an engine already on the port first (always on
+// the console).
 //
 // API (JSON):
 //   GET  /api/info                    engine, folders, LZ4 runtime state
@@ -41,7 +47,13 @@
 //   POST /api/remote  {name, size, last_modified}   share one: {path} to use as a job input
 //   POST /api/remote/ID/want          (long poll) the pieces to send: [{offset, length}]
 //   POST /api/remote/ID/data?offset=N one piece, as the raw body
-//   POST /api/quit                    stop the engine (cancels a running job)
+//   POST /api/quit                    stop the engine (a running job with a checkpoint continues
+//                                     at the next start)
+//   GET  /api/update                  this version, the latest release, payload files found
+//   POST /api/update/check            ask GitHub again
+//   POST /api/update/find {everywhere}  look for the payload files loaders start (PS5)
+//   POST /api/update/install {paths}  download the latest payload, replace those files, start it
+//                                     through the ELF loader and stop (PS5)
 #include "deps.hpp"
 #include "l10n.hpp"
 #include "fs_ops.hpp"
@@ -59,6 +71,7 @@
 #include "ftp.hpp"
 #include "remote.hpp"
 #include "runner.hpp"
+#include "update.hpp"
 
 #include "alembic/bytes.hpp"
 #include "alembic/convert.hpp"
@@ -72,10 +85,12 @@
 #include <atomic>
 #include <cctype>
 #include <charconv>
+#include <chrono>
 #include <condition_variable>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <mutex>
 #include <system_error>
@@ -84,6 +99,10 @@
 #ifndef ALEMBIC_VERSION
 #define ALEMBIC_VERSION "dev"
 #endif
+
+// Read by the updater (update.hpp) in payload files to recognise Alembic and
+// its version. Used below, so the linker keeps it.
+extern "C" const char alembic_payload_version[] = "ALEMBIC_PAYLOAD_VERSION:" ALEMBIC_VERSION;
 
 namespace alembic::engine {
 
@@ -102,6 +121,9 @@ extern const std::size_t kIcon0PngSize;
 namespace {
 
 constexpr std::uint16_t kDefaultPort = 5940;
+
+// This engine's version, as the marker the updater reads says it.
+std::string version() { return alembic_payload_version + std::strlen("ALEMBIC_PAYLOAD_VERSION:"); }
 
 std::mutex g_log_mutex;
 std::string g_log_path;
@@ -220,7 +242,7 @@ public:
         if (self.name.empty()) self.name = "Alembic";
         self.os = platform::os_description();
         self.platform = platform::name();
-        self.version = ALEMBIC_VERSION;
+        self.version = version();
         self.port = server_.port();
         self.protocol = peers::kPeerProtocol;
         discovery_ = std::make_unique<peers::Discovery>(config_.state_dir, self, discovery_port,
@@ -237,6 +259,18 @@ public:
         // Paired engines' files: "/peer/<id>/..." (peer_fs.hpp), and a game's
         // digests worked out on the engine that has it.
         alembic::mount(peer_fs::kPrefix, peer_fs::make(*discovery_, *pairing_));
+        // Updates from GitHub: checked once now, again from Settings.
+        update::Updater::Options u;
+        u.state_dir = config_.state_dir;
+        u.current_version = version();
+        if (!config_.update_url.empty()) u.release_url = config_.update_url;
+        u.loader = config_.loader;
+        u.get = [](const std::string& url, std::size_t max) { return platform::http_get(url, max); };
+        u.log = [](const std::string& m) { log_line(m); };
+        u.quit = [this] { request_quit(); };
+        u.roots = [this] { return config_.available_roots(); };
+        updater_ = std::make_unique<update::Updater>(std::move(u));
+        if (config_.check_updates) updater_->check();
         return {};
     }
 
@@ -259,6 +293,14 @@ public:
     }
     bool open_to_network() const { return listen_address_.rfind("127.", 0) != 0; }
     const EngineConfig& config() const { return config_; }
+
+    void request_quit() {
+        {
+            std::lock_guard<std::mutex> lock(quit_mutex_);
+            quit_ = true;
+        }
+        quit_cv_.notify_all();
+    }
 
     void wait_for_quit() {
         std::unique_lock<std::mutex> lock(quit_mutex_);
@@ -408,13 +450,10 @@ private:
         }
         if (r.path == "/api/quit" && r.method == "POST") {
             log_line("quit requested by " + r.peer);
-            {
-                std::lock_guard<std::mutex> lock(quit_mutex_);
-                quit_ = true;
-            }
-            quit_cv_.notify_all();
+            request_quit();
             return json(200, JsonValue::object());
         }
+        if (r.path.rfind("/api/update", 0) == 0) return update_action(r);
         if (r.path == "/api/launcher" && r.method == "POST") return launcher(r);
         if (r.path == "/api/lang" && r.method == "POST") {
             auto body = parse_json(r.body);
@@ -491,11 +530,32 @@ private:
         return info();
     }
 
+    HttpResponse update_action(const HttpRequest& r) {
+        if (!updater_) return error(503, "the engine is starting");
+        if (r.path == "/api/update" && r.method == "GET") return json(200, updater_->status());
+        if (r.method != "POST") return error(404, "not found");
+        auto body = parse_json(r.body.empty() ? "{}" : r.body);
+        if (!body.ok()) return error(400, body.error().message);
+        if (r.path == "/api/update/check") {
+            updater_->check();
+        } else if (r.path == "/api/update/find") {
+            updater_->find((*body)["everywhere"].boolean(false));
+        } else if (r.path == "/api/update/install") {
+            std::vector<std::string> paths;
+            for (const JsonValue& p : (*body)["paths"].items()) paths.push_back(p.str());
+            if (Status s = updater_->install(paths); !s.ok()) return error(400, s.error().message);
+            log_line("update requested by " + r.peer);
+        } else {
+            return error(404, "not found");
+        }
+        return json(200, updater_->status());
+    }
+
     HttpResponse info() {
         JsonValue v = JsonValue::object();
         v.set("name", "Alembic");
         v.set("id", id_);
-        v.set("version", ALEMBIC_VERSION);
+        v.set("version", version());
         v.set("platform", platform::name());
         v.set("os", platform::os_description());
         v.set("cpu_instructions", alembic::crypto::accelerations());
@@ -543,6 +603,7 @@ private:
         v.set("enter_button", platform::enter_button());
         v.set("protocol", static_cast<std::int64_t>(peers::kPeerProtocol)); // how it talks to other engines
         v.set("lang", l10n::language());
+        if (updater_) v.set("update", updater_->summary());
         return json(200, v);
     }
 
@@ -1875,7 +1936,38 @@ private:
     std::mutex quit_mutex_;
     std::condition_variable quit_cv_;
     bool quit_ = false;
+    std::unique_ptr<update::Updater> updater_; // last: its worker may call request_quit()
 };
+
+// Another engine already on our port (the one that started this one through
+// the ELF loader, or one loaded earlier): ask it to stop and wait until it has,
+// so the two never run the same queue. A newer engine is left alone and this
+// one stops instead. Returns false when this engine should not start.
+bool take_over_port(std::uint16_t port) {
+    auto info = net::http_request("127.0.0.1", port, "GET", "/api/info", "", 1500);
+    if (!info.ok() || info->status != 200) return true; // nobody there, or not an engine: start as usual
+    auto v = parse_json(info->body);
+    if (!v.ok() || (*v)["name"].str() != "Alembic") return true;
+    std::string running = (*v)["version"].str();
+    if (update::compare_versions(running, version()) > 0) {
+        log_line("Alembic " + running + " is already running on port " + std::to_string(port) + "; this older one stops");
+        platform::notify(l10n::t("Alembic {version} is already running", {{"version", running}}));
+        return false;
+    }
+    log_line("Alembic " + running + " is running on port " + std::to_string(port) + "; asking it to stop");
+    (void)net::http_request("127.0.0.1", port, "POST", "/api/quit", "", 3000);
+    // It pauses its job at a checkpoint first; that can take a moment.
+    for (int i = 0; i < 180; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        auto again = net::http_request("127.0.0.1", port, "GET", "/api/info", "", 1000);
+        if (!again.ok()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            return true;
+        }
+    }
+    log_line("the engine on port " + std::to_string(port) + " did not stop");
+    return true; // starting fails with "port taken", as before
+}
 
 } // namespace
 } // namespace alembic::engine
@@ -1902,6 +1994,10 @@ int main(int argc, char** argv) {
     std::uint16_t port = kDefaultPort;
     std::string runtime, shadowmount;
     std::uint16_t discovery_port = peers::kDiscoveryPort;
+    // On the console the payload replaces an engine already running; on a PC
+    // only when asked (--take-over), as two may run on purpose.
+    bool take_over = std::string(platform::name()) == "ps5";
+    if (take_over) config.loader = "127.0.0.1:9021";
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
@@ -1927,8 +2023,17 @@ int main(int argc, char** argv) {
             auto r = std::from_chars(v.data(), v.data() + v.size(), value);
             if (r.ec != std::errc() || value == 0 || value > 65535) return std::fprintf(stderr, "bad --discovery-port\n"), 2;
             discovery_port = static_cast<std::uint16_t>(value);
+        } else if (a == "--loader") {
+            config.loader = next();
+        } else if (a == "--update-url") {
+            config.update_url = next();
+        } else if (a == "--no-update-check") {
+            config.check_updates = false;
+        } else if (a == "--take-over") {
+            take_over = true;
         } else {
-            std::fprintf(stderr, "usage: %s [--port N] [--listen ADDR] [--state DIR] [--root DIR]... [--runtime FILE] [--shadowmount HOST:PORT] [--discovery-port N]\n",
+            std::fprintf(stderr, "usage: %s [--port N] [--listen ADDR] [--state DIR] [--root DIR]... [--runtime FILE] [--shadowmount HOST:PORT] [--discovery-port N]\n"
+                                 "       [--loader HOST:PORT] [--update-url URL] [--no-update-check] [--take-over]\n",
                          argv[0]);
             return 2;
         }
@@ -1941,7 +2046,7 @@ int main(int argc, char** argv) {
 
     alembic::Status dirs = alembic::make_parent_directories(config.state_dir + "/engine.log");
     if (dirs.ok()) g_log_path = config.state_dir + "/engine.log";
-    log_line(std::string("Alembic engine ") + ALEMBIC_VERSION + " starting (" + platform::name() + ")");
+    log_line(std::string("Alembic engine ") + version() + " starting (" + platform::name() + ")");
 
     // Notifications follow the page's language (saved by /api/lang), else the console's.
     l10n::load(kI18nJs, kI18nJsSize);
@@ -1954,6 +2059,7 @@ int main(int argc, char** argv) {
         }
         l10n::set_language(code);
     }
+    if (take_over && !take_over_port(port)) return 0;
     Engine engine(config);
     alembic::Status started = engine.start(address, port, discovery_port);
     if (!started.ok()) {

@@ -27,6 +27,12 @@ struct EngineConfig {
     std::string shadowmount_config;
     std::string shadowmount_address;
     unsigned threads = 0;           // compression threads, 0 = all cores
+    // Updates (update.hpp): the ELF loader the new payload goes to ("host:port";
+    // "" on a PC, which only says a release is out), the release to look at
+    // ("" = Alembic's latest on GitHub) and whether to look at start.
+    std::string loader;
+    std::string update_url;
+    bool check_updates = true;
     // True when a queued job other than the running one reads `path`; the
     // source is then kept even with delete_source.
     std::function<bool(const std::string& path)> needed_by_other_jobs;

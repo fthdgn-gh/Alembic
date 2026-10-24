@@ -8,6 +8,8 @@
 #include "runner.hpp"
 #include "smp.hpp"
 #include "test.hpp"
+#include "text_file.hpp"
+#include "update.hpp"
 
 using namespace alembic;
 using namespace alembic::engine;
@@ -373,4 +375,92 @@ TEST_CASE(engine_peer_protocol) {
     CHECK(peers::protocol_problem(std::to_string(peers::kPeerProtocol)).empty());
     CHECK(peers::protocol_problem(std::string()).empty() == (peers::kPeerProtocol == 1));
     CHECK(!peers::protocol_problem(std::to_string(peers::kPeerProtocol + 1)).empty());
+}
+
+TEST_CASE(update_versions_and_release) {
+    using namespace alembic::engine::update;
+    CHECK(compare_versions("0.2.10", "0.2.9") > 0);
+    CHECK(compare_versions("v0.2.2", "0.2.2") == 0);
+    CHECK(compare_versions("0.2", "0.2.1") < 0);
+    CHECK(compare_versions("1.0.0", "0.9.9") > 0);
+    auto r = parse_release(R"({"tag_name":"v0.2.3","body":"Notes","html_url":"https://x/r","assets":[
+        {"name":"alembic-v0.2.3.zip","browser_download_url":"https://x/z","size":9},
+        {"name":"alembic-v0.2.3.elf","browser_download_url":"https://x/e","size":4321},
+        {"name":"SHA256SUMS","browser_download_url":"https://x/s","size":100}]})");
+    REQUIRE_OK(r);
+    CHECK(r->version == "0.2.3");
+    CHECK(r->elf_name == "alembic-v0.2.3.elf");
+    CHECK(r->elf_url == "https://x/e");
+    CHECK_EQ(r->elf_size, 4321u);
+    CHECK(r->sums_url == "https://x/s");
+    CHECK(!parse_release(R"({"tag_name":"v0.2.3","assets":[]})").ok());
+    std::string sums = std::string(64, 'a') + "  alembic-v0.2.3.zip\n" + std::string(64, 'B') + " *alembic-v0.2.3.elf\r\n";
+    CHECK(checksum_for(sums, "alembic-v0.2.3.elf") == std::string(64, 'b'));
+    CHECK(checksum_for(sums, "other").empty());
+}
+
+TEST_CASE(update_recognises_and_renames_payloads) {
+    using namespace alembic::engine::update;
+    auto bytes = [](const std::string& s) { return Bytes(reinterpret_cast<const std::uint8_t*>(s.data()), s.size()); };
+    // The bare prefix (the updater's own code) comes first in a real engine.
+    std::string elf = std::string("\x7f" "ELF") + "ALEMBIC_PAYLOAD_VERSION:" + std::string(100, '\0') + "ALEMBIC_PAYLOAD_VERSION:0.2.3" + std::string(4, '\0');
+    PayloadId id = identify(bytes(elf));
+    CHECK(id.alembic);
+    CHECK(id.version == "0.2.3");
+    CHECK(!identify(bytes(std::string("\x7f" "ELF") + "something else")).alembic);
+    CHECK(!identify(bytes("ALEMBIC_PAYLOAD_VERSION:0.2.3")).alembic); // not an ELF
+    std::string old = std::string("\x7f" "ELF") + "Alembic engine  ... Alembic is ready";
+    CHECK(identify(bytes(old)).alembic);
+    CHECK(identify(bytes(old)).version.empty());
+
+    CHECK(renamed("alembic-v0.2.2.elf", "0.2.2", "0.2.3") == "alembic-v0.2.3.elf");
+    CHECK(renamed("alembic.elf", "0.2.2", "0.2.3") == "alembic.elf");
+    CHECK(renamed("alembic-v0.2.2.elf", "", "0.2.3") == "alembic-v0.2.2.elf");
+    int n = 0;
+    CHECK(replace_all("a-x-a", "a", "bb", &n) == "bb-x-bb");
+    CHECK_EQ(n, 2);
+
+    // A Payload Manager slot (renamed, meta.json fixed), an autoloader folder
+    // (name kept), and an unrelated payload (left alone).
+    std::string root = test::make_temp_dir();
+    std::string slot = root + "/pldmgr/payloads/local/alembic", auto_dir = root + "/ps5_autoloader";
+    REQUIRE_OK(make_parent_directories(slot + "/x"));
+    REQUIRE_OK(make_parent_directories(auto_dir + "/x"));
+    std::string v2 = std::string("\x7f" "ELF") + "ALEMBIC_PAYLOAD_VERSION:0.2.2";
+    test::write_file(slot + "/alembic-v0.2.2.elf", std::vector<std::uint8_t>(v2.begin(), v2.end()));
+    std::string meta = "{\n  \"schema\": 2,\n  \"payload_path\": \"" + slot + "/alembic-v0.2.2.elf\",\n  \"filename\": \"alembic-v0.2.2.elf\",\n  \"later\": [1]\n}\n";
+    test::write_file(slot + "/meta.json", std::vector<std::uint8_t>(meta.begin(), meta.end()));
+    test::write_file(auto_dir + "/alembic-v0.2.2.elf", std::vector<std::uint8_t>(v2.begin(), v2.end()));
+    std::string other = std::string("\x7f" "ELF") + "kstuff";
+    test::write_file(auto_dir + "/kstuff.elf", std::vector<std::uint8_t>(other.begin(), other.end()));
+    test::write_file(auto_dir + "/autoload.txt", {'a'});
+
+    std::vector<Found> found = find_payloads({root + "/pldmgr", auto_dir}, 3, "0.2.3");
+    CHECK_EQ(found.size(), 2u);
+    if (found.size() != 2) return;
+    const Found* in_slot = found[0].loader == "Payload Manager" ? &found[0] : &found[1];
+    const Found* in_auto = in_slot == &found[0] ? &found[1] : &found[0];
+    CHECK(in_slot->version == "0.2.2");
+    CHECK(in_slot->rename_to == "alembic-v0.2.3.elf");
+    CHECK(in_auto->loader == "autoloader");
+    CHECK(in_auto->rename_to.empty());
+
+    std::string v3 = elf;
+    REQUIRE_OK(replace_payload(*in_slot, v3));
+    REQUIRE_OK(replace_payload(*in_auto, v3));
+    CHECK(!path_exists(slot + "/alembic-v0.2.2.elf"));
+    auto moved = read_text(slot + "/alembic-v0.2.3.elf");
+    REQUIRE_OK(moved);
+    CHECK(*moved == v3);
+    auto fixed = read_text(slot + "/meta.json");
+    REQUIRE_OK(fixed);
+    CHECK(*fixed == replace_all(meta, "alembic-v0.2.2.elf", "alembic-v0.2.3.elf"));
+    auto kept = read_text(auto_dir + "/alembic-v0.2.2.elf");
+    REQUIRE_OK(kept);
+    CHECK(*kept == v3);
+    auto untouched = read_text(auto_dir + "/kstuff.elf");
+    REQUIRE_OK(untouched);
+    CHECK(*untouched == other);
+    // Both are 0.2.3 now: nothing left to update.
+    CHECK(find_payloads({root + "/pldmgr", auto_dir}, 3, "0.2.3").empty());
 }

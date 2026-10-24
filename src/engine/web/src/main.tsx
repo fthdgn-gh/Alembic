@@ -12,12 +12,14 @@ import "./styles/index.css";
 import { render } from "preact";
 import { App } from "./app/App";
 import "./debug";
-import { loadInfo, notConnected } from "./state/engine";
+import { effect } from "@preact/signals";
+import { info, loadInfo, notConnected } from "./state/engine";
 import { refreshJobs } from "./state/jobs";
 import { t, tMsg } from "./lib/i18n";
 import { browse } from "./pages/files/browse";
 import { applyScale } from "./pages/settings/prefs";
 import { watchIncoming } from "./pages/settings/Engines";
+import { noticeUpdate } from "./pages/settings/Updates";
 import "./input/controller"; // the controller's keys and buttons
 import { depth } from "./input/history";
 
@@ -34,3 +36,5 @@ refreshJobs();
 setInterval(refreshJobs, 1000);
 setInterval(() => loadInfo().catch(() => {}), 15000);
 setInterval(() => watchIncoming().catch(() => {}), 2000);
+// A newer release (the engine checks GitHub at start): said once per version.
+effect(() => noticeUpdate(info.value));

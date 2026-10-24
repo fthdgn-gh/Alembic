@@ -203,6 +203,7 @@ if(ALEMBIC_BUILD_ENGINE)
         src/engine/runner.cpp
         src/engine/smp.cpp
         src/engine/text_file.cpp
+        src/engine/update.cpp
         ${ALEMBIC_ENGINE_PLATFORM}
     )
     target_include_directories(alembic_engine_lib PUBLIC src/engine)
@@ -216,7 +217,14 @@ if(ALEMBIC_BUILD_ENGINE)
     endif()
     add_executable(alembic_engine src/engine/main.cpp ${ALEMBIC_WEB_SOURCE} ${ALEMBIC_I18N_SOURCE} ${ALEMBIC_ICON_SOURCE} ${ALEMBIC_ICON0_SOURCE})
     target_compile_options(alembic_engine PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
-    target_compile_definitions(alembic_engine PRIVATE ALEMBIC_VERSION="${PROJECT_VERSION}")
+    # The version the engine reports and writes into its payload marker
+    # (update.hpp); tests of the updater build one that says it is newer.
+    # (-DALEMBIC_ENGINE_VERSION=X; not cached by default, so a version bump
+    # always reaches existing build folders).
+    if(NOT ALEMBIC_ENGINE_VERSION)
+        set(ALEMBIC_ENGINE_VERSION "${PROJECT_VERSION}")
+    endif()
+    target_compile_definitions(alembic_engine PRIVATE ALEMBIC_VERSION="${ALEMBIC_ENGINE_VERSION}")
     target_link_libraries(alembic_engine PRIVATE alembic_engine_lib)
     if(PS5)
         set_target_properties(alembic_engine PROPERTIES OUTPUT_NAME alembic.elf)

@@ -20,6 +20,7 @@ import { SCALES, applyScale, setLang } from "./prefs";
 import { Head, SmallBtn } from "./parts";
 import { Engines } from "./Engines";
 import { FtpServers } from "./FtpServers";
+import { Updates } from "./Updates";
 import { openControllerTest } from "./ControllerTest";
 
 export function SettingsPage(props: { hidden: boolean }) {
@@ -61,6 +62,7 @@ export function SettingsPage(props: { hidden: boolean }) {
           ].filter(Boolean) as [string, string, string?][])} />
           <div class="btns"><SmallBtn k="s:quit" cls="danger" text={t("Stop the engine")} onClick={quitEngine} /></div>
         </div>
+        <Updates />
         {i && i.cache ? <Cache /> : null}
       </div>
     </section>

@@ -104,8 +104,10 @@ bool root_available(const std::string& root) { return is_directory(root); }
 std::vector<Location> suggested_locations() { return {}; } // the engine lists its roots instead
 
 Result<std::vector<std::uint8_t>> http_get(const std::string& url, std::size_t max_bytes) {
-    // Only https URLs of the fixed dependency list come here; still, refuse quotes.
-    if (url.rfind("https://", 0) != 0 || url.find_first_of("'\"\\ ") != std::string::npos)
+    // Only https URLs of the fixed dependency list and GitHub's releases come
+    // here (plain http to this computer: tests of the updater); still, refuse quotes.
+    bool local = url.rfind("http://127.0.0.1:", 0) == 0 || url.rfind("http://localhost:", 0) == 0;
+    if ((url.rfind("https://", 0) != 0 && !local) || url.find_first_of("'\"\\ ") != std::string::npos)
         return make_error(Errc::invalid_argument, "bad URL");
 #ifdef _WIN32
     // curl.exe comes with Windows 10 (1803) and later; "rb": binary data.

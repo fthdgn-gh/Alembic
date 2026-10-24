@@ -23,6 +23,21 @@ export interface Info {
   enter_button: string; // "circle" where ○ confirms
   lang: string;
   protocol?: number; // how it talks to other engines (peers.hpp kPeerProtocol); none before v0.2.1
+  update?: { state: string; latest: string | null; newer: boolean }; // none before v0.2.3
+}
+
+// GET /api/update (update.hpp): this version, GitHub's latest, payload files found.
+export interface UpdatePayload { path: string; version: string; rename_to: string; loader: string }
+export interface UpdateStatus {
+  current: string;
+  state: string; // idle, checking, searching, downloading, replacing, starting
+  error: string;
+  checked: number; // Unix seconds, 0 = never
+  can_install: boolean; // the engine runs on a console with an ELF loader
+  latest: { version: string; notes: string; url: string } | null;
+  newer: boolean;
+  searched: string; // "no", "usual", "everywhere"
+  payloads: UpdatePayload[];
 }
 
 export interface Space { root: string; total: number; free: number }

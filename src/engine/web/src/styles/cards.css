@@ -29,3 +29,5 @@
 .note { color: var(--warn); font-size: .88rem; margin-top: .5rem; }
 .sharebar { margin: 0 0 .5rem; }
 .card .err { font-size: .88rem; margin-top: .5rem; word-break: break-word; }
+/* A release's notes (Settings > Updates): its own text, kept as written. */
+.notes { white-space: pre-wrap; font-size: .85rem; color: var(--muted); max-height: 16rem; overflow-y: auto; margin-top: .6rem; padding: .6rem .8rem; background: var(--bg2); border-radius: .6rem; }
