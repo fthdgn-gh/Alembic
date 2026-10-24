@@ -342,7 +342,7 @@ int appinst_init() {
 
 } // namespace
 
-Status install_package(const std::string& path) {
+Status install_package(const std::string& path, const std::string& content_id, const std::string& title) {
     if (!appinst().initialize || !appinst().install_by_package)
         return make_error(Errc::unsupported, "the system installer is not available");
     int init = appinst_init();
@@ -352,9 +352,15 @@ Status install_package(const std::string& path) {
         return make_error(Errc::io, std::string("sceAppInstUtilInitialize failed: ") + code);
     }
     PkgMetadata meta{};
-    std::string name = path.substr(path.rfind('/') + 1);
-    meta.uri = path.c_str();
-    meta.ex_uri = meta.playgo_scenario_id = meta.content_id = meta.icon_url = "";
+    std::string name = title.empty() ? path.substr(path.rfind('/') + 1) : title;
+    // The installer runs in another process that sees the internal drive as
+    // /user/data, not /data: ps5-web-file-manager's src/pkg_installer.c
+    // (GPL-3.0-or-later) passes it that way. (Given /data/..., it refused a
+    // package with 0x80b2150f; whether this is why is not confirmed yet.)
+    std::string uri = path.rfind("/data/", 0) == 0 ? "/user" + path : path;
+    meta.uri = uri.c_str();
+    meta.ex_uri = meta.playgo_scenario_id = meta.icon_url = "";
+    meta.content_id = content_id.c_str();
     meta.content_name = name.c_str();
     PkgInfo info{};
     static PlaygoInfo playgo; // ~10 KB; one install at a time (the queue runs jobs in order)

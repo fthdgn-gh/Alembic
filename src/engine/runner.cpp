@@ -2,6 +2,7 @@
 #include "runner.hpp"
 #include "deps.hpp"
 #include "fs_ops.hpp"
+#include "game_meta.hpp"
 #include "platform.hpp"
 #include "smp.hpp"
 
@@ -721,8 +722,12 @@ Result<JsonValue> run_install(const JobSpec& spec, const EngineConfig& config, c
     if (progress) progress({"Checking the package", 0, 0});
     ALEMBIC_ASSIGN(convert::Format format, convert::detect(input));
     if (format != convert::Format::fpkg) return make_error(Errc::invalid_argument, "not a PKG file");
+    // Its name in Downloads; the installer reads the package itself either way.
+    std::string content_id, title;
+    GameMetaCache cache(config.state_dir);
+    if (auto m = cache.meta(input); m.ok()) { content_id = m->content_id; title = m->title; }
     if (progress) progress({"Handing it to the system installer", 0, 0});
-    ALEMBIC_TRY(platform::install_package(input));
+    ALEMBIC_TRY(platform::install_package(input, content_id, title));
     JsonValue r = JsonValue::object();
     r.set("method", "handed to the system installer; it installs in the background (see Downloads)");
     return r;

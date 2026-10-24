@@ -37,8 +37,9 @@ struct Location {
 };
 std::vector<Location> suggested_locations();
 // Hands a .pkg file to the system installer (it appears in Downloads and
-// installs in the background). Not available on a PC.
-Status install_package(const std::string& path);
+// installs in the background). `content_id` and `title` (from the package's
+// param.json; may be empty) name it in Downloads. Not available on a PC.
+Status install_package(const std::string& path, const std::string& content_id, const std::string& title);
 // Downloads `url` (HTTPS, redirects followed) into memory, at most
 // `max_bytes`. On the PS5 the trust anchors are the GitHub CA certificates in
 // github_ca.inc; on a PC it runs curl.

@@ -131,7 +131,7 @@ Result<std::vector<std::uint8_t>> http_get(const std::string& url, std::size_t m
     return data;
 }
 
-Status install_package(const std::string&) {
+Status install_package(const std::string&, const std::string&, const std::string&) {
     return make_error(Errc::unsupported, "installing packages needs a PS5");
 }
 
