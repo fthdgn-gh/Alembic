@@ -141,7 +141,7 @@ std::string t(std::string_view text, Vars vars) { return fill(t(text), vars); }
 std::string number(long long n) {
     std::string digits = std::to_string(n < 0 ? -n : n);
     const std::string& lang = language();
-    const char* sep = lang == "en" || lang == "ja" ? "," : lang == "fr" ? "\xE2\x80\xAF" : ".";
+    const char* sep = lang == "en" || lang == "ja" ? "," : lang == "fr" ? "\xC2\xA0" : ".";
     std::string out;
     const int len = static_cast<int>(digits.size());
     for (int i = 0; i < len; ++i) {
