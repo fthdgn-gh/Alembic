@@ -2051,7 +2051,15 @@ int main(int argc, char** argv) {
     if (dirs.ok()) g_log_path = config.state_dir + "/engine.log";
     // Notifications with Alembic's icon (rounded, like the page's) instead of
     // the download arrow; the home screen rounds the Media shortcut's itself.
-    platform::set_notification_icon(config.state_dir + "/notify_icon.png", reinterpret_cast<const std::uint8_t*>(kNotifyIconPng), kNotifyIconPngSize);
+    // The name carries a hash of the picture: the console caches icons by
+    // path, so a changed icon needs a new one (or the old picture shows once more).
+    {
+        const auto* png = reinterpret_cast<const std::uint8_t*>(kNotifyIconPng);
+        alembic::Sha256 h;
+        h.update(alembic::Bytes(png, kNotifyIconPngSize));
+        std::string tag = alembic::Sha256::hex(h.finish()).substr(0, 8);
+        platform::set_notification_icon(config.state_dir + "/notify_icon-" + tag + ".png", png, kNotifyIconPngSize);
+    }
     log_line(std::string("Alembic engine ") + version() + " starting (" + platform::name() + ")");
 
     // Notifications follow the page's language (saved by /api/lang), else the console's.

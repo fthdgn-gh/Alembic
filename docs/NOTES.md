@@ -1816,6 +1816,10 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   `/user/data/alembic/notify_icon.png`, the path the notification service
   sees. If writing fails, the download arrow stays. Owner: the icon shows
   (2026-10-25; first with the square `icon0.png`, then rounded on request).
+- The console caches notification icons by path: after the icon changed,
+  the first notification still showed the old picture. The file is now
+  `notify_icon-<first 8 hex of its SHA-256>.png`, so a new icon has a new
+  path; other `notify_icon*.png` files in the state folder are removed.
 
 ### 2026-10-24: the engine updates itself (for 0.2.3)
 

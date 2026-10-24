@@ -8,6 +8,7 @@
 #include <algorithm>
 #include "json_value.hpp"
 #include "text_file.hpp"
+#include "alembic/io.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -132,6 +133,12 @@ void set_notification_icon(const std::string& path, const std::uint8_t* png, std
             return;
         }
     }
+    // Earlier icons (other names in the same folder: notify_icon*.png) go.
+    std::string dir = path.substr(0, path.rfind('/')), name = base_name(path);
+    if (auto names = list_directory(dir); names.ok())
+        for (const std::string& n : *names)
+            if (n != name && n.rfind("notify_icon", 0) == 0 && n.size() > 4 && n.compare(n.size() - 4, 4, ".png") == 0)
+                (void)remove_file(dir + "/" + n);
     // The notification service sees the internal drive as /user/data, as
     // ShadowMount+ (/user/data/shadowmount/smp_icon.png) and the installer do.
     std::lock_guard<std::mutex> lock(g_icon_mutex);
