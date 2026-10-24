@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // PS5 payload side. Notifications follow ps5-payload-dev/sdk's samples/notify
+// (GPL-3.0-or-later), their own icon drakmor/ShadowMountPlus's src/sm_log.c
 // (GPL-3.0-or-later); keeping the console awake follows PS5-LZ4-Compression's
 // src/lzc_power_guard.c (GPL-3.0-or-later).
 #include "platform.hpp"
 
 #include <algorithm>
 #include "json_value.hpp"
+#include "text_file.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -103,6 +105,8 @@ namespace alembic::engine::platform {
 
 namespace {
 constexpr int kSystemUser = 0xFE; // SCE_NOTIFICATION_LOCAL_USER_ID_SYSTEM
+std::mutex g_icon_mutex;
+std::string g_icon_url; // "" = the predefined download icon
 }
 
 const char* name() { return "ps5"; }
@@ -118,14 +122,36 @@ void set_process_name(const char* name) { syscall(SYS_thr_set_name, -1, name); }
 
 
 
+void set_notification_icon(const std::string& path, const std::uint8_t* png, std::size_t size) {
+    // Written only when it differs (the same file every start).
+    std::string data(reinterpret_cast<const char*>(png), size);
+    auto old = read_text(path, size + 1);
+    if (!old.ok() || *old != data) {
+        if (Status s = write_text(path, data); !s.ok()) {
+            std::fprintf(stderr, "notification icon not written: %s\n", s.error().message.c_str());
+            return;
+        }
+    }
+    // The notification service sees the internal drive as /user/data, as
+    // ShadowMount+ (/user/data/shadowmount/smp_icon.png) and the installer do.
+    std::lock_guard<std::mutex> lock(g_icon_mutex);
+    g_icon_url = path.rfind("/data/", 0) == 0 ? "/user" + path : path;
+}
+
 void notify(const std::string& message) {
     std::fprintf(stderr, "[notify] %s\n", message.c_str());
     if (!sceNotificationSend) return;
-    // A plain toast with the predefined download icon.
+    std::string icon;
+    {
+        std::lock_guard<std::mutex> lock(g_icon_mutex);
+        icon = g_icon_url.empty() ? "{\"type\":\"Predefined\",\"parameters\":{\"icon\":\"download\"}}"
+                                  : "{\"type\":\"Url\",\"parameters\":{\"url\":" + json_quote(g_icon_url) + "}}";
+    }
+    // A plain toast with Alembic's icon (or the predefined download icon).
     std::string payload = "{\"rawData\":{\"viewTemplateType\":\"InteractiveToastTemplateB\","
                           "\"channelType\":\"Downloads\",\"useCaseId\":\"IDC\",\"toastOverwriteType\":\"No\","
                           "\"isImmediate\":true,\"priority\":100,\"viewData\":{"
-                          "\"icon\":{\"type\":\"Predefined\",\"parameters\":{\"icon\":\"download\"}},"
+                          "\"icon\":" + icon + ","
                           "\"message\":{\"body\":" +
                           json_quote(message) +
                           "},\"subMessage\":{\"body\":\"Alembic\"}}},"

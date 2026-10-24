@@ -1804,6 +1804,16 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   signature check, and leaves the page's own pairing poll alone; the page
   with a protocol-2 engine on the mock.
 
+### 2026-10-24: notifications with Alembic's icon
+
+- Notifications showed the console's download arrow (`Predefined` icon).
+  As ShadowMount+ does (`src/sm_log.c`: `"icon": {"type": "Url",
+  "parameters": {"url": "/user/data/shadowmount/smp_icon.png"}}`), the
+  engine writes the Media shortcut's icon (`icon0.png`, 512 × 512) to
+  `<state>/notify_icon.png` at start (only when it differs) and names it as
+  `/user/data/alembic/notify_icon.png`, the path the notification service
+  sees. If writing fails, the download arrow stays. Not tried on a console yet.
+
 ### 2026-10-24: the engine updates itself (for 0.2.3)
 
 - **What it does** (`src/engine/update.{hpp,cpp}`, Settings → Updates):

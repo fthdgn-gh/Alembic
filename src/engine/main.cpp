@@ -2046,6 +2046,8 @@ int main(int argc, char** argv) {
 
     alembic::Status dirs = alembic::make_parent_directories(config.state_dir + "/engine.log");
     if (dirs.ok()) g_log_path = config.state_dir + "/engine.log";
+    // Notifications with Alembic's icon (the Media shortcut's) instead of the download arrow.
+    platform::set_notification_icon(config.state_dir + "/notify_icon.png", reinterpret_cast<const std::uint8_t*>(kIcon0Png), kIcon0PngSize);
     log_line(std::string("Alembic engine ") + version() + " starting (" + platform::name() + ")");
 
     // Notifications follow the page's language (saved by /api/lang), else the console's.

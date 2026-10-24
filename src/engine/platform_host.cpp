@@ -69,6 +69,7 @@ std::string os_description() {
 }
 
 void notify(const std::string& message) { std::fprintf(stderr, "[notify] %s\n", message.c_str()); }
+void set_notification_icon(const std::string&, const std::uint8_t*, std::size_t) {}
 
 void keep_awake() {}
 std::string enter_button() { return ""; }

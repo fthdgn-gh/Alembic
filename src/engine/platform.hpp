@@ -16,6 +16,11 @@ const char* name(); // "ps5" or "host"
 std::string os_description();
 // A system notification on the PS5; a line on stderr elsewhere.
 void notify(const std::string& message);
+// The icon notifications show from now on: the PNG is written to `path` (in
+// the state folder) for the console's notification service to read. Until
+// then, or when writing fails, they show the console's download icon. Does
+// nothing on a PC.
+void set_notification_icon(const std::string& path, const std::uint8_t* png, std::size_t size);
 // Keeps the console out of rest mode while a job runs; call every few seconds.
 void keep_awake();
 // The console's "Enter button" setting: "cross" or "circle" ("" when unknown,
