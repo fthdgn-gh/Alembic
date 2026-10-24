@@ -54,6 +54,16 @@ keys |= set(re.findall(r'l10n::t\(\s*"((?:[^"\\]|\\.)*)"', engine_src))
 keys |= set(re.findall(r'\? "((?:[^"\\]|\\.)*\{name\})"', engine_src))  # l10n::t(a ? "Copied {name}" : ...)
 # Pairing's notifications go through its own t() (pairing.cpp).
 keys |= set(re.findall(r'\bt\(\s*"((?:[^"\\]|\\.)*)"', (web.parent / "pairing.cpp").read_text()))
+# The console app (app/src/app): t("...") and plural(n, "...", "...") in C++,
+# with split literals joined and \xHH escapes decoded.
+def _cpp_text(lit):
+    return re.sub(rb"\\x([0-9A-Fa-f]{2})", lambda m: bytes([int(m.group(1), 16)]), lit.encode()).decode("utf-8")
+app_src = "\n".join(f.read_text() for f in sorted((web.parent.parent.parent / "app/src/app").glob("*.cpp")))
+app_src = re.sub(r'"\s+"', "", app_src)
+app_keys = set(re.findall(r'\bt\(\s*"((?:[^"\\]|\\.)*)"', app_src))
+app_keys |= {k for pair in re.findall(r'plural\([^,]+, "([^"]+)", "([^"]+)"\)', app_src) for k in pair}
+app_keys |= set(re.findall(r'\{"\w+", "[^"]+", "([^"]* [^"]*)"\}', app_src))  # the Convert formats
+keys |= {_cpp_text(k).replace('\\"', '"') for k in app_keys}
 _js = (web / "i18n.js").read_text()
 keys |= set(json.loads(_js[_js.index("{", _js.index("var I18N =")):_js.rindex("}") + 1]).get("messages", []))
 keys = sorted(k.encode().decode("unicode_escape") if "\\" in k else k for k in keys)

@@ -134,6 +134,10 @@ else
 fi
 cp "$HUI_WORK/runtime/libc.prx" "$out/sce_module/libc.prx"
 "$tool" self --inspect --file "$out/eboot.bin" | grep -E 'integrity' >&2
-(cd "$dist" && rm -f "$title_id.zip" && zip -qr -X "$title_id.zip" "$title_id")
+# The console starts an app only when its files are open to every user
+# (0777; else CE-107750-0): in the folder, and stored so in the ZIP.
+chmod -R 0777 "$out"
+(cd "$dist" && rm -f "$title_id.zip" && python3 -m zipfile -c "$title_id.zip" "$title_id")
+python3 "$kit/tools/zip-open-modes.py" "$dist/$title_id.zip"
 echo "App folder: $out"
 echo "ZIP: $dist/$title_id.zip"

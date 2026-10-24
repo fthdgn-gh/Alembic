@@ -103,6 +103,7 @@ float btns(Ui& ui, float x, float y, float w, const std::vector<RowButton>& butt
 
 class FtpForm : public Overlay {
 public:
+    std::vector<Hint> hints(App&) override { return {{Glyph::cross, t("Choose")}, {Glyph::circle, t("Cancel")}}; }
     JsonValue server;  // null: a new one
     std::string name, host, port = "21", user = "anonymous", pass;
     std::string msg;
@@ -171,6 +172,7 @@ public:
 
 class AddEngineForm : public Overlay {
 public:
+    std::vector<Hint> hints(App&) override { return {{Glyph::cross, t("Choose")}, {Glyph::circle, t("Cancel")}}; }
     std::string host, port = "5940", msg;
     bool err = false, busy = false;
     Sheet sheet;
@@ -215,6 +217,7 @@ public:
 
 class PairCodeForm : public Overlay {
 public:
+    std::vector<Hint> hints(App&) override { return {{Glyph::cross, t("Choose")}, {Glyph::circle, t("Cancel")}}; }
     std::string id, name, code, msg;
     bool err = false, busy = false, done = false;
     Sheet sheet;

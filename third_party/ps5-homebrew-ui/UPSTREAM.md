@@ -10,7 +10,7 @@ Kept: `src/{gfx,ui,core,audio,platform,runtime,third_party}` (the kit and the
 PS5 platform layer), `tooling/` and the build scripts in `tools/` (from
 ps5-native-app-boilerplate), `runtime/libc.prx.sha256`, `host/platform_host.cpp`,
 the baked fonts and their sources and licences, the "glass" sound set, and
-the font baker. Left out: the demo app (`src/app`, `src/concepts`,
+the font baker and `tools/zip-open-modes.py`. Left out: the demo app (`src/app`, `src/concepts`,
 `src/demo`, `src/main.cpp`), its tests, docs, music, home-screen art and the
 other sound set.
 

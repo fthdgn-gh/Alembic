@@ -172,11 +172,43 @@ jobs:
           archive: false
           if-no-files-found: error
 
+  # The console app (app/): a native PS5 title drawn with ps5-homebrew-ui,
+  # carrying the payload the job above built, as a folder for ShadowMount+
+  # (zipped). Its build fetches the payload SDK v0.42 and the ps5-opengl SDK
+  # itself, checked against pinned SHA-256s.
+  app:
+    name: PS5 app
+    needs: ps5
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install LLVM 18 and ninja
+        run: sudo apt-get update && sudo apt-get install -y clang-18 lld-18 llvm-18 libclang-rt-18-dev ninja-build
+      - name: Version
+        run: |
+          version="${GITHUB_REF_NAME//\//-}"
+          [[ $GITHUB_REF == refs/tags/* ]] || version="$version-${GITHUB_SHA::7}"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v8
+        with:
+          name: alembic-${{ env.VERSION }}.elf
+          path: payload
+      - name: Build the app
+        run: ALEMBIC_ENGINE_ELF="$PWD/payload/alembic-$VERSION.elf" app/build.sh
+      - name: Name it alembic-app-<version>.zip
+        run: mkdir -p dist && cp build-app/dist/PPSA99594.zip "dist/alembic-app-$VERSION.zip"
+      - name: Upload the app
+        uses: actions/upload-artifact@v7
+        with:
+          path: dist/alembic-app-${{ env.VERSION }}.zip
+          archive: false
+          if-no-files-found: error
+
   # Everything in one archive: the payload, the PC builds and the license
   # files. Every run uploads it; a "v*" tag also publishes it as a release.
   bundle:
     name: Bundle
-    needs: [pc, ps5, windows-test]
+    needs: [pc, ps5, app, windows-test]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -200,6 +232,11 @@ jobs:
         with:
           name: alembic-macos-arm64.tar.gz
           path: artifacts
+      # A .zip artifact is unpacked: the app folder lands here.
+      - uses: actions/download-artifact@v8
+        with:
+          name: alembic-app-${{ env.VERSION }}.zip
+          path: artifacts/app
       # download-artifact unpacks a .zip artifact: the .exe files land here.
       - uses: actions/download-artifact@v8
         with:
@@ -221,8 +258,15 @@ jobs:
           mkdir -p "dist/$name/windows-x64"
           cp artifacts/windows-x64/alembic.exe artifacts/windows-x64/alembic-engine.exe "dist/$name/windows-x64/"
           cp README.md LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
-          (cd dist && zip -qr "$name.zip" "$name")
           cp "artifacts/$elf" dist/
+          # The console app: its folder (PPSA99594) in the bundle, and zipped on its own.
+          cp -R artifacts/app/PPSA99594 "dist/$name/ps5/"
+          app="alembic-app-$VERSION.zip"
+          # Stored 0777: the console starts an app only when its files are open to all.
+          (cd artifacts/app && python3 -m zipfile -c "../../dist/$app" PPSA99594)
+          python3 third_party/ps5-homebrew-ui/tools/zip-open-modes.py "dist/$app"
+          echo "APP=$app" >> "$GITHUB_ENV"
+          (cd dist && zip -qr "$name.zip" "$name")
           # Each PC build on its own too, with the README and licenses:
           # .tar.gz for Linux and macOS (it keeps the executable bits), .zip for Windows.
           packages=()
@@ -238,7 +282,7 @@ jobs:
             fi
           done
           echo "PACKAGES=${packages[*]}" >> "$GITHUB_ENV"
-          (cd dist && sha256sum "$name.zip" "$elf" "${packages[@]}" > SHA256SUMS)
+          (cd dist && sha256sum "$name.zip" "$elf" "$app" "${packages[@]}" > SHA256SUMS)
           (cd dist && find "$name" -type f | sort && ls -la "${packages[@]}" && cat SHA256SUMS)
       # The zip itself (archive: false), not a zip inside a zip; it keeps the
       # executable bits.
@@ -257,7 +301,7 @@ jobs:
         run: |
           git fetch --force origin "$GITHUB_REF:$GITHUB_REF"
           git tag -l --format='%(contents:body)' "$GITHUB_REF_NAME" > dist/notes.md
-          assets=("dist/$BUNDLE.zip" "dist/alembic-$VERSION.elf" dist/SHA256SUMS)
+          assets=("dist/$BUNDLE.zip" "dist/alembic-$VERSION.elf" "dist/$APP" dist/SHA256SUMS)
           for p in $PACKAGES; do assets+=("dist/$p"); done
           gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" --title "Alembic $GITHUB_REF_NAME" --notes-file dist/notes.md
