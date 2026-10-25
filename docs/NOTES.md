@@ -2173,6 +2173,12 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   write): `gh attestation verify FILE --repo fthdgn-gh/Alembic`. The catalog
   scan reports "attested" for the app ZIP from the next release on (v0.3.0
   has none).
+- 0.3.1 released (attestations only); PR #740 moved to it (record from
+  `tools/catalog_record.py v0.3.1`, description with the new payload hash
+  `c3c95466…`); checks pass, the attestation note is gone, the payload
+  still waits for a maintainer's approval. `gh pr edit` fails on GitHub's
+  classic Projects deprecation: edit PR text with
+  `gh api -X PATCH repos/<repo>/pulls/<n> -F body=@file`.
 
 ### 2026-10-19: open items from that day (all solved)
 
