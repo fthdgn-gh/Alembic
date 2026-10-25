@@ -189,7 +189,7 @@ if(ALEMBIC_BUILD_ENGINE)
         COMMENT "Embedding the notification icon"
         VERBATIM)
     if(PS5)
-        set(ALEMBIC_ENGINE_PLATFORM src/engine/platform_ps5.cpp)
+        set(ALEMBIC_ENGINE_PLATFORM src/engine/platform_ps5.cpp src/engine/https_ps5.cpp)
     else()
         set(ALEMBIC_ENGINE_PLATFORM src/engine/platform_host.cpp)
     endif()

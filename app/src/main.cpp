@@ -12,6 +12,9 @@
 #include "core/input.hpp"
 #include "core/save_file.hpp"
 #include "app_version.h"
+#include "alembic/sha256.hpp"
+#include "https_ps5.hpp"
+#include "json_value.hpp"
 #include "engine/client.hpp"
 #include "engine/http.hpp"
 #include "gfx/renderer.hpp"
@@ -25,8 +28,11 @@
 #include <GL/glcorearb.h>
 
 #include <cstdint>
+#include <functional>
 #include <span>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace {
 
@@ -35,6 +41,84 @@ constexpr const char* kAssets = "/app0/assets";
 constexpr const char* kDataRoot = "/download0/alembic";
 constexpr std::uint16_t kEnginePort = 5940;
 constexpr std::uint16_t kLoaderPort = 9021;
+// Alembic's release of this app's version (engine and app share one).
+constexpr const char* kReleaseByTag = "https://api.github.com/repos/fthdgn-gh/Alembic/releases/tags/v";
+constexpr std::size_t kMaxPayload = 64u << 20;
+
+// The version an engine payload says it is ("ALEMBIC_PAYLOAD_VERSION:X.Y.Z"),
+// "" when it says none (the bare marker is in the updater's own code too).
+std::string payload_version(std::string_view elf) {
+    constexpr std::string_view kMarker = "ALEMBIC_PAYLOAD_VERSION:";
+    if (elf.size() < 4 || elf.substr(0, 4) != "\x7f" "ELF") return "";
+    for (std::size_t at = elf.find(kMarker); at != std::string_view::npos; at = elf.find(kMarker, at + 1)) {
+        std::size_t p = at + kMarker.size();
+        std::string v;
+        while (p < elf.size() && ((elf[p] >= '0' && elf[p] <= '9') || elf[p] == '.')) v += elf[p++];
+        if (!v.empty() && v[0] != '.') return v;
+    }
+    return "";
+}
+
+std::string sha256_hex(std::string_view data) {
+    alembic::Sha256 h;
+    h.update(alembic::Bytes(reinterpret_cast<const std::uint8_t*>(data.data()), data.size()));
+    return alembic::Sha256::hex(h.finish());
+}
+
+// The engine to start: the app's own (assets/alembic.elf), else the one it
+// downloaded before (same version as the app), else Alembic's release of the
+// app's version from GitHub, checked against its SHA256SUMS and kept for next time.
+bool engine_payload(std::string* elf, std::string* why, const std::function<void(const std::string&)>& status) {
+    const std::string version = ALEMBIC_APP_VERSION;
+    if (hui::save::read_file(std::string(kAssets) + "/alembic.elf", elf, kMaxPayload) && elf->size() >= 64) return true;
+    const std::string kept = std::string(kDataRoot) + "/alembic.elf";
+    if (hui::save::read_file(kept, elf, kMaxPayload) && payload_version(*elf) == version) return true;
+    status(alembic::app::t("Downloading Alembic {version} from GitHub\xE2\x80\xA6", {{"version", version}}));
+    auto text = [](const alembic::Result<std::vector<std::uint8_t>>& r) { return std::string(r->begin(), r->end()); };
+    auto release = alembic::engine::https_get(kReleaseByTag + version, 1u << 20);
+    if (!release.ok()) {
+        *why = "Cannot reach GitHub for Alembic " + version + ": " + release.error().message;
+        return false;
+    }
+    auto json = alembic::engine::parse_json(text(release));
+    std::string elf_name, elf_url, sums_url;
+    if (json.ok())
+        for (const auto& a : (*json)["assets"].items()) {
+            const std::string name = a["name"].str();
+            if (name == "SHA256SUMS") sums_url = a["browser_download_url"].str();
+            else if (name.size() > 4 && name.compare(name.size() - 4, 4, ".elf") == 0 && elf_url.empty()) {
+                elf_name = name;
+                elf_url = a["browser_download_url"].str();
+            }
+        }
+    if (elf_url.empty() || sums_url.empty()) {
+        *why = "Alembic " + version + " on GitHub has no engine payload.";
+        return false;
+    }
+    auto sums = alembic::engine::https_get(sums_url, 1u << 20);
+    auto data = sums.ok() ? alembic::engine::https_get(elf_url, kMaxPayload) : sums;
+    if (!data.ok()) {
+        *why = "Downloading the engine failed: " + data.error().message;
+        return false;
+    }
+    status(alembic::app::t("Checking the download\xE2\x80\xA6"));
+    const std::string list = text(sums), got = text(data), hash = sha256_hex(got);
+    // SHA256SUMS: "<64 hex>  <name>" per line.
+    bool listed = false;
+    for (std::size_t at = 0; at < list.size();) {
+        std::size_t end = list.find('\n', at);
+        std::string line = list.substr(at, end == std::string::npos ? std::string::npos : end - at);
+        at = end == std::string::npos ? list.size() : end + 1;
+        if (line.size() > 66 && line.compare(0, 64, hash) == 0 && line.find(elf_name, 64) != std::string::npos) listed = true;
+    }
+    if (!listed || payload_version(got) != version) {
+        *why = "The downloaded engine is not Alembic " + version + " as GitHub lists it; it was not started.";
+        return false;
+    }
+    if (std::string e = hui::save::write_atomic(kept, got); !e.empty()) hui::sys::log("[ALEMBIC] keeping the engine failed: %s", e.c_str());
+    *elf = got;
+    return true;
+}
 
 bool load_font(hui::gfx::Renderer& renderer, const char* name, hui::gfx::Font* font, hui::ui::FontRef* ref) {
     std::string data;
@@ -97,12 +181,13 @@ int main() {
         GLuint name = texture;
         glDeleteTextures(1, &name);
     };
-    platform.start_engine = [](std::string* why) {
+    platform.start_engine = [](std::string* why, const std::function<void(const std::string&)>& status) {
         std::string elf;
-        if (!save::read_file(std::string(kAssets) + "/alembic.elf", &elf, 64u << 20) || elf.size() < 64) {
-            *why = "This app carries no engine. Load alembic.elf with your payload loader.";
+        if (!engine_payload(&elf, why, status)) {
+            *why += " Load alembic.elf with your payload loader.";
             return false;
         }
+        status(alembic::app::t("Sending the engine to the ELF loader\xE2\x80\xA6"));
         std::string error;
         if (!alembic::app::send_bytes("127.0.0.1", kLoaderPort, elf, &error)) {
             *why = "No ELF loader answers on port 9021 (" + error + "). Load alembic.elf with your payload loader.";

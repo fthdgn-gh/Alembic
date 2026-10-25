@@ -14,7 +14,9 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <set>
+#include <thread>
 #include <string>
 #include <vector>
 
@@ -25,9 +27,11 @@ struct Platform {
     // Uploads RGBA pixels as a texture; 0 on failure.
     std::function<std::uint32_t(int w, int h, const std::uint8_t* rgba)> make_texture;
     std::function<void(std::uint32_t)> free_texture;
-    // Sends the bundled engine payload to the ELF loader; false (and why) when
-    // there is none or the loader does not answer. Empty on a PC.
-    std::function<bool(std::string* why)> start_engine;
+    // Sends an engine payload to the ELF loader: the app's own, else one it
+    // downloaded before, else Alembic's release of the app's version from
+    // GitHub (`status` says what it is doing). False (and why) when there is
+    // none or the loader does not answer. Runs on a worker thread. Empty on a PC.
+    std::function<bool(std::string* why, const std::function<void(const std::string&)>& status)> start_engine;
     // Closes the app the clean way (PS5: the system closes the title).
     std::function<void()> quit;
     // Reads and writes the app's own small files (preferences).
@@ -253,16 +257,25 @@ private:
     double clock_ = 0.0;  // seconds since start
 
     // starting the engine
-    enum class Start { waiting, sent, failed, none };
+    enum class Start { waiting, launching, sent, failed, none };
     Start start_ = Start::waiting;
     float start_timer_ = 0.0f;
     std::string start_error_;
     // restarting the engine: until it went away and answers again
-    enum class Restart { none, waiting, start_own };
+    enum class Restart { none, waiting, start_own, launching };
     Restart restart_ = Restart::none;
     float restart_timer_ = 0.0f;
     bool restart_gone_ = false;
     std::string restart_from_;  // the engine's "started" before the restart
+    // platform.start_engine on a worker (a download can take a while); `done`
+    // runs on the main thread. False when one is already running.
+    bool launch(std::function<void(bool ok, const std::string& why)> done);
+    void finish_launch();
+    std::thread launch_thread_;
+    std::mutex launch_mutex_;
+    bool launching_ = false, launch_finished_ = false, launch_ok_ = false;
+    std::string launch_why_, launch_status_;
+    std::function<void(bool, const std::string&)> launch_done_;
     float restart_poll_ = 0.0f;
     bool i18n_loaded_ = false;
     bool i18n_busy_ = false;

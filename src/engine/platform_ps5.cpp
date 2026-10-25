@@ -4,6 +4,7 @@
 // (GPL-3.0-or-later); keeping the console awake follows PS5-LZ4-Compression's
 // src/lzc_power_guard.c (GPL-3.0-or-later).
 #include "platform.hpp"
+#include "https_ps5.hpp"
 
 #include <algorithm>
 #include "json_value.hpp"
@@ -52,44 +53,6 @@ struct PlaygoInfo {
 };
 static_assert(sizeof(PlaygoInfo) == 0x2700, "sceAppInstUtil PlayGoInfo ABI");
 
-// HTTPS through the system libraries, following drakmor/ShadowMountPlus's
-// src/sm_ampr_updater.c (GPL-3.0).
-struct SceSslData {
-    char* ptr;
-    std::size_t size;
-};
-
-extern "C" {
-int sceNetInit(void) __attribute__((weak));
-int sceNetPoolCreate(const char* name, int size, int flags) __attribute__((weak));
-int sceNetPoolDestroy(int pool_id) __attribute__((weak));
-int sceSslInit(std::size_t pool_size) __attribute__((weak));
-int sceSslTerm(int ssl_id) __attribute__((weak));
-int sceSslLoadCert(int ssl_id, int ca_count, const SceSslData** ca_list, const SceSslData* cert,
-                   const SceSslData* private_key) __attribute__((weak));
-int sceSslUnloadCert(int ssl_id) __attribute__((weak));
-int sceHttpInit(int net_pool_id, int ssl_id, std::size_t pool_size) __attribute__((weak));
-int sceHttpTerm(int http_id) __attribute__((weak));
-int sceHttpCreateTemplate(int http_id, const char* user_agent, int http_version, int auto_proxy_config)
-    __attribute__((weak));
-int sceHttpDeleteTemplate(int template_id) __attribute__((weak));
-int sceHttpCreateConnectionWithURL(int template_id, const char* url, int keepalive) __attribute__((weak));
-int sceHttpDeleteConnection(int connection_id) __attribute__((weak));
-int sceHttpCreateRequestWithURL2(int connection_id, const char* method, const char* url, std::uint64_t length)
-    __attribute__((weak));
-int sceHttpDeleteRequest(int request_id) __attribute__((weak));
-int sceHttpSendRequest(int request_id, const void* data, std::size_t size) __attribute__((weak));
-int sceHttpGetStatusCode(int request_id, int* status) __attribute__((weak));
-int sceHttpReadData(int request_id, void* buffer, std::size_t size) __attribute__((weak));
-int sceHttpSetAutoRedirect(int id, int enabled) __attribute__((weak));
-int sceHttpSetResponseHeaderMaxSize(int id, std::size_t size) __attribute__((weak));
-int sceHttpSetResolveTimeOut(int id, std::uint32_t us) __attribute__((weak));
-int sceHttpSetConnectTimeOut(int id, std::uint32_t us) __attribute__((weak));
-int sceHttpSetSendTimeOut(int id, std::uint32_t us) __attribute__((weak));
-int sceHttpSetRecvTimeOut(int id, std::uint32_t us) __attribute__((weak));
-}
-
-#include "github_ca.inc"
 
 extern "C" {
 int sceAppInstUtilInitialize(void) __attribute__((weak));
@@ -217,77 +180,7 @@ std::string hex_code(int rc) {
 } // namespace
 
 Result<std::vector<std::uint8_t>> http_get(const std::string& url, std::size_t max_bytes) {
-    if (!sceHttpInit || !sceSslInit || !sceNetPoolCreate) return make_error(Errc::unsupported, "the system HTTP library is not available");
-    // One download at a time keeps the pools small.
-    static std::mutex mutex;
-    std::lock_guard<std::mutex> lock(mutex);
-    static bool net_ready = false;
-    if (!net_ready) {
-        int rc = sceNetInit ? sceNetInit() : 0;
-        if (rc != 0) return make_error(Errc::io, "sceNetInit failed: " + hex_code(rc));
-        net_ready = true;
-    }
-    constexpr std::uint32_t kTimeout = 30u * 1000u * 1000u;
-    int pool = -1, ssl = -1, http = -1, tmpl = -1, conn = -1, req = -1;
-    bool certs = false;
-    Result<std::vector<std::uint8_t>> result = make_error(Errc::io, "download failed");
-    auto fail = [&](const char* what, int rc) {
-        result = make_error(Errc::io, std::string(what) + " failed: " + hex_code(rc) + " (" + url + ")");
-    };
-    do {
-        if ((pool = sceNetPoolCreate("alembic_http", 32 * 1024, 0)) < 0) { fail("sceNetPoolCreate", pool); break; }
-        if ((ssl = sceSslInit((256 + 16) * 1024)) < 0) { fail("sceSslInit", ssl); break; }
-        SceSslData ca[] = {
-            {g_ampr_ca_sectigo_e46_usertrust, sizeof g_ampr_ca_sectigo_e46_usertrust - 1},
-            {g_ampr_ca_isrg_root_yr_by_x1, sizeof g_ampr_ca_isrg_root_yr_by_x1 - 1},
-            {g_ampr_ca_usertrust_ecc, sizeof g_ampr_ca_usertrust_ecc - 1},
-            {g_ampr_ca_isrg_root_x1, sizeof g_ampr_ca_isrg_root_x1 - 1},
-        };
-        const SceSslData* list[] = {&ca[0], &ca[1], &ca[2], &ca[3]};
-        if (int rc = sceSslLoadCert(ssl, 4, list, nullptr, nullptr); rc != 0) { fail("sceSslLoadCert", rc); break; }
-        certs = true;
-        // Blocking HTTP/1.1 (version 2), as SMP does.
-        if ((http = sceHttpInit(pool, ssl, 256 * 1024)) < 0) { fail("sceHttpInit", http); break; }
-        if ((tmpl = sceHttpCreateTemplate(http, "Alembic/1.0", 2, 1)) < 0) { fail("sceHttpCreateTemplate", tmpl); break; }
-        sceHttpSetAutoRedirect(tmpl, 1);
-        sceHttpSetResponseHeaderMaxSize(tmpl, 32 * 1024); // GitHub redirects carry large headers
-        sceHttpSetResolveTimeOut(tmpl, kTimeout);
-        sceHttpSetConnectTimeOut(tmpl, kTimeout);
-        sceHttpSetSendTimeOut(tmpl, kTimeout);
-        sceHttpSetRecvTimeOut(tmpl, kTimeout);
-        if ((conn = sceHttpCreateConnectionWithURL(tmpl, url.c_str(), 1)) < 0) { fail("sceHttpCreateConnectionWithURL", conn); break; }
-        if ((req = sceHttpCreateRequestWithURL2(conn, "GET", url.c_str(), 0)) < 0) { fail("sceHttpCreateRequestWithURL2", req); break; }
-        if (int rc = sceHttpSendRequest(req, nullptr, 0); rc != 0) { fail("sceHttpSendRequest", rc); break; }
-        int status = 0;
-        if (int rc = sceHttpGetStatusCode(req, &status); rc != 0) { fail("sceHttpGetStatusCode", rc); break; }
-        if (status != 200) {
-            result = make_error(Errc::io, "the server answered HTTP " + std::to_string(status) + " (" + url + ")");
-            break;
-        }
-        std::vector<std::uint8_t> data;
-        std::vector<std::uint8_t> buf(64 * 1024);
-        bool ok = true;
-        for (;;) {
-            int n = sceHttpReadData(req, buf.data(), buf.size());
-            if (n < 0) { fail("sceHttpReadData", n); ok = false; break; }
-            if (n == 0) break;
-            if (data.size() + static_cast<std::size_t>(n) > max_bytes) {
-                result = make_error(Errc::too_large, "the download is larger than expected");
-                ok = false;
-                break;
-            }
-            data.insert(data.end(), buf.begin(), buf.begin() + n);
-        }
-        if (ok) result = std::move(data);
-    } while (false);
-    if (req >= 0) sceHttpDeleteRequest(req);
-    if (conn >= 0) sceHttpDeleteConnection(conn);
-    if (tmpl >= 0) sceHttpDeleteTemplate(tmpl);
-    if (http >= 0) sceHttpTerm(http);
-    if (certs) sceSslUnloadCert(ssl);
-    if (ssl >= 0) sceSslTerm(ssl);
-    if (pool >= 0) sceNetPoolDestroy(pool);
-    return result;
+    return https_get(url, max_bytes);
 }
 
 namespace {

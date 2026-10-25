@@ -2099,6 +2099,35 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   `.ffpkg`) and lists both in SHA256SUMS. The updater only looks at the
   `.ffpkg` (`alembic-app-*.ffpkg`), so the ZIP changes nothing there.
 
+### 2026-10-25: the app downloads its engine when it carries none
+
+- **Owner:** the store does not take the engine payload as a separate file,
+  so the app must get it itself when it is not there.
+- **App** (`main.cpp` `engine_payload`): the engine it starts is its own
+  `assets/alembic.elf`, else the copy it downloaded before
+  (`/download0/alembic/alembic.elf`, used only when its
+  `ALEMBIC_PAYLOAD_VERSION:` marker is the app's version), else the GitHub
+  release of the app's own version (`releases/tags/v<version>`, one version
+  for both): the `.elf` asset, checked against the release's SHA256SUMS and
+  its marker, then kept. The connecting screen says what it is doing
+  ("Downloading Alembic X from GitHub…", "Checking the download…", "Sending
+  the engine to the ELF loader…"). Starting runs on a worker thread now
+  (`App::launch`), also for Settings' Start the engine and the restart
+  fallback.
+- **HTTPS shared** (`src/engine/https_ps5.cpp`, from the engine's
+  `platform_ps5.cpp`): the payload keeps its weakly linked libSceHttp/Ssl/Net
+  (proven on the console); the app (`ALEMBIC_HTTPS_DYNAMIC`) imports none of
+  them and loads them with `sceKernelLoadStartModule` + `sceKernelDlsym` on
+  first use (also the payload's fallback when its loader left them empty),
+  so a title that cannot load them still starts. The app's imports are the
+  same nine modules as before. `app/build.sh` adds `https_ps5.cpp` and
+  `src/core/sha256.cpp`; `ALEMBIC_ENGINE_ELF=none` builds an app without a
+  payload. `tools/i18n_keys.py` now reads `app/src/main.cpp` too.
+- Checked: both build cleanly; the steps run against the real v0.2.3 release
+  with curl (asset names, SHA256SUMS line, marker 0.2.3). **Not checked:**
+  loading libSceHttp from a native title, and the download itself, on a
+  console.
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and

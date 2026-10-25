@@ -54,11 +54,12 @@ keys |= set(re.findall(r'l10n::t\(\s*"((?:[^"\\]|\\.)*)"', engine_src))
 keys |= set(re.findall(r'\? "((?:[^"\\]|\\.)*\{name\})"', engine_src))  # l10n::t(a ? "Copied {name}" : ...)
 # Pairing's notifications go through its own t() (pairing.cpp).
 keys |= set(re.findall(r'\bt\(\s*"((?:[^"\\]|\\.)*)"', (web.parent / "pairing.cpp").read_text()))
-# The console app (app/src/app): t("...") and plural(n, "...", "...") in C++,
+# The console app (app/src/app and its main.cpp): t("...") and plural(n, "...", "...") in C++,
 # with split literals joined and \xHH escapes decoded.
 def _cpp_text(lit):
     return re.sub(rb"\\x([0-9A-Fa-f]{2})", lambda m: bytes([int(m.group(1), 16)]), lit.encode()).decode("utf-8")
-app_src = "\n".join(f.read_text() for f in sorted((web.parent.parent.parent / "app/src/app").glob("*.cpp")))
+app_dir = web.parent.parent.parent / "app/src"
+app_src = "\n".join(f.read_text() for f in sorted((app_dir / "app").glob("*.cpp")) + [app_dir / "main.cpp"])
 app_src = re.sub(r'"\s+"', "", app_src)
 app_keys = set(re.findall(r'\bt\(\s*"((?:[^"\\]|\\.)*)"', app_src))
 app_keys |= {k for pair in re.findall(r'plural\([^,]+, "([^"]+)", "([^"]+)"\)', app_src) for k in pair}

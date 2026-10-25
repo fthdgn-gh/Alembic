@@ -72,7 +72,50 @@ App::App(Engine& e, Platform p) : engine(e), platform(std::move(p)) {
     refresh_jobs();
 }
 
-App::~App() = default;
+App::~App() {
+    if (launch_thread_.joinable()) launch_thread_.join();
+}
+
+bool App::launch(std::function<void(bool ok, const std::string& why)> done) {
+    if (!platform.start_engine || launching_) return false;
+    if (launch_thread_.joinable()) launch_thread_.join();
+    launching_ = true;
+    launch_done_ = std::move(done);
+    {
+        std::lock_guard<std::mutex> lock(launch_mutex_);
+        launch_finished_ = false;
+        launch_status_.clear();
+    }
+    launch_thread_ = std::thread([this] {
+        std::string why;
+        const bool ok = platform.start_engine(&why, [this](const std::string& s) {
+            std::lock_guard<std::mutex> lock(launch_mutex_);
+            launch_status_ = s;
+        });
+        std::lock_guard<std::mutex> lock(launch_mutex_);
+        launch_ok_ = ok;
+        launch_why_ = why;
+        launch_finished_ = true;
+    });
+    return true;
+}
+
+void App::finish_launch() {
+    if (!launching_) return;
+    bool ok = false;
+    std::string why;
+    {
+        std::lock_guard<std::mutex> lock(launch_mutex_);
+        if (!launch_finished_) return;
+        ok = launch_ok_;
+        why = launch_why_;
+    }
+    launching_ = false;
+    if (launch_thread_.joinable()) launch_thread_.join();
+    auto done = std::move(launch_done_);
+    launch_done_ = nullptr;
+    if (done) done(ok, why);
+}
 
 // ---------------------------------------------------------------- requests
 
@@ -611,19 +654,22 @@ void App::tick(float dt) {
             watch_incoming();
         }
     }
+    finish_launch();
     // No engine answers: start the one in the app (PS5) once.
     if (!answered && start_ == Start::waiting) {
         start_timer_ += dt;
         if (start_timer_ > 1.5f) {
-            if (platform.start_engine) {
-                std::string why;
-                if (platform.start_engine(&why)) {
-                    start_ = Start::sent;
-                    start_timer_ = 0.0f;
-                } else {
-                    start_ = Start::failed;
-                    start_error_ = why;
-                }
+            if (platform.start_engine && launch([this](bool ok, const std::string& why) {
+                    if (start_ != Start::launching) return;
+                    if (ok) {
+                        start_ = Start::sent;
+                        start_timer_ = 0.0f;
+                    } else {
+                        start_ = Start::failed;
+                        start_error_ = why;
+                    }
+                })) {
+                start_ = Start::launching;
             } else {
                 start_ = Start::failed;
             }
@@ -640,13 +686,18 @@ void App::tick(float dt) {
             load_info();
         }
         if (restart_ == Restart::start_own && restart_gone_) {
-            std::string why;
-            if (platform.start_engine && platform.start_engine(&why)) {
-                restart_ = Restart::waiting;
-            } else {
-                restart_ = Restart::none;
-                toast(why, Toast::bad);
-            }
+            restart_ = Restart::launching;
+            launch([this](bool ok, const std::string& why) {
+                restart_timer_ = 0.0f;
+                if (ok) {
+                    restart_ = Restart::waiting;
+                } else {
+                    restart_ = Restart::none;
+                    toast(why, Toast::bad);
+                }
+            });
+        } else if (restart_ == Restart::launching) {
+            // A download may take a while: no time limit until it is sent.
         } else if (restart_ == Restart::waiting && restart_gone_ && not_connected.empty()) {
             restart_ = Restart::none;
             toast(t("Engine restarted"), Toast::ok);
@@ -695,16 +746,19 @@ void App::restart_engine() {
 
 void App::start_own_engine() {
     if (restart_ != Restart::none || !platform.start_engine) return;
-    std::string why;
-    if (!platform.start_engine(&why)) {
-        toast(why, Toast::bad);
-        return;
-    }
-    restart_ = Restart::waiting;
-    restart_timer_ = 0.0f;
+    restart_ = Restart::launching;
     restart_gone_ = true;
     restart_from_.clear();
     toast(t("Starting the engine\xE2\x80\xA6"), Toast::ok);
+    launch([this](bool ok, const std::string& why) {
+        restart_timer_ = 0.0f;
+        if (ok) {
+            restart_ = Restart::waiting;
+        } else {
+            restart_ = Restart::none;
+            toast(why, Toast::bad);
+        }
+    });
 }
 
 void App::frame(Ui& ui) {
@@ -992,6 +1046,10 @@ void App::draw_connecting(Ui& ui) {
                   ? t("No engine answers on port {port}. Load alembic.elf with your payload loader, then try again.",
                       {{"port", std::to_string(engine.port())}})
                   : start_error_;
+    } else if (start_ == Start::launching) {
+        title = t("Starting the engine\xE2\x80\xA6");
+        std::lock_guard<std::mutex> lock(launch_mutex_);
+        sub = launch_status_;
     } else if (start_ == Start::sent) {
         title = t("Starting the engine\xE2\x80\xA6");
         sub = t("The app sent its engine to the ELF loader on port 9021.");

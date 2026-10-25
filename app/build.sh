@@ -16,7 +16,8 @@
 # into param.json's contentVersion and the app's code.
 # ALEMBIC_ENGINE_ELF=FILE puts that engine payload into the app, which sends
 # it to the ELF loader when no engine answers (default: build-ps5/alembic.elf
-# when it exists).
+# when it exists; "none" for an app without one, which downloads its
+# version's payload from GitHub the first time instead).
 set -euo pipefail
 
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -67,6 +68,9 @@ while IFS= read -r -d '' source; do sources+=("$source"); done < <(
     find "$kit/src" "$app/src" -type f \( -name '*.c' -o -name '*.cpp' \) \
         ! -path "$app/src/host/*" -print0 | sort -z)
 sources+=("$repo/src/engine/json_value.cpp")
+# HTTPS with the console's libraries and SHA-256: the app downloads its engine
+# when it carries none (shared with the engine payload).
+sources+=("$repo/src/engine/https_ps5.cpp" "$repo/src/core/sha256.cpp")
 
 includes=(-I"$build/gen" -I"$kit/src" -I"$app/src" -I"$repo/src/engine" -I"$repo/src/core/include" -I"$opengl/include")
 objects=()
@@ -74,7 +78,9 @@ for source in "${sources[@]}"; do
     relative=${source#"$repo/"}
     object="$build/obj/${relative//\//_}.o"
     if [[ $source == *.c ]]; then standard=-std=c11; else standard=-std=c++20; fi
-    args=("$standard" -O2 -Wall -Wextra -ffunction-sections -fdata-sections -DGL_GLEXT_PROTOTYPES=1)
+    # ALEMBIC_HTTPS_DYNAMIC: the HTTPS libraries are loaded when the app first
+    # downloads, not imported (a title that cannot load them still starts).
+    args=("$standard" -O2 -Wall -Wextra -ffunction-sections -fdata-sections -DGL_GLEXT_PROTOTYPES=1 -DALEMBIC_HTTPS_DYNAMIC=1)
     [[ $source == *.c ]] || args+=(-fno-exceptions -fno-rtti)
     # Vendored upstream code is built as published.
     [[ $source != "$kit/src/third_party/"* ]] || args+=(-w)
@@ -157,10 +163,12 @@ cp "$kit/LICENSE" "$kit/THIRD_PARTY_NOTICES.md" "$out/licenses/ps5-homebrew-ui/"
 opengl_release=$(cd -P "$opengl/.." && pwd)
 cp -R "$opengl_release/LICENSE" "$opengl_release/LICENSES" "$opengl_release/THIRD_PARTY_NOTICES.md" "$out/licenses/ps5-opengl/"
 engine_elf=${ALEMBIC_ENGINE_ELF:-$repo/build-ps5/alembic.elf}
-if [[ -f $engine_elf ]]; then
+if [[ $engine_elf == none ]]; then
+    echo "note: no engine payload in the app (ALEMBIC_ENGINE_ELF=none); it downloads its version's from GitHub" >&2
+elif [[ -f $engine_elf ]]; then
     cp "$engine_elf" "$out/assets/alembic.elf"
 else
-    echo "note: no engine payload ($engine_elf); the app will not start one itself" >&2
+    echo "note: no engine payload ($engine_elf); the app downloads its version's from GitHub" >&2
 fi
 cp "$HUI_WORK/runtime/libc.prx" "$out/sce_module/libc.prx"
 "$tool" self --inspect --file "$out/eboot.bin" | grep -E 'integrity' >&2
