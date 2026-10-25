@@ -2053,6 +2053,20 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   in a browser, anything on a console (ShadowMount+ switching the app's
   image while installed, closing the app from the home screen).
 
+### 2026-10-25: the app's home-screen background
+
+- `sce_sys/pic0.dds` (behind the selected tile) and `pic1.dds` (while it
+  starts), the same picture: `app/tools/background.cpp` draws it from the
+  icon's shapes (a large glass retort with its liquid and drop on the right,
+  on the app's navy with blue and violet light; the left stays calm for the
+  title and Play button) and encodes BC7 mode 6 itself (principal-axis
+  endpoints, a least-squares pass, p-bits 1 so alpha is 255), into the
+  single 3840×2160 BC7_UNORM DX10 DDS the kit validates. No image tools and
+  no committed binaries: `app/build.sh` compiles it with the host compiler
+  and the kit's `validate-assets.sh` checks the result. Checked by decoding
+  a crop with an independent Python decoder. The `.ffpkg` grows to ~65 MB.
+  Not yet seen on a TV.
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and

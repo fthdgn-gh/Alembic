@@ -126,6 +126,16 @@ rm -rf -- "$out"
 mkdir -p "$out/sce_sys" "$out/sce_module" "$out/assets/fonts" "$out/assets/audio/sfx"
 "$tool" self --sign --in "$build/eboot.elf" --out "$out/eboot.bin" --magic "$fself_magic"
 cp "$app/sce_sys/icon0.png" "$out/sce_sys/"
+# The home screen's backgrounds (behind the selected tile, and while it
+# starts): drawn and BC7-encoded by app/tools/background.cpp.
+background_tool="$build/background"
+if [[ ! -x $background_tool || $app/tools/background.cpp -nt $background_tool ]]; then
+    "${HOST_CXX:-c++}" -std=c++20 -O2 -o "$background_tool" "$app/tools/background.cpp"
+fi
+[[ -f $build/pic0.dds && $build/pic0.dds -nt $background_tool ]] || "$background_tool" "$build/pic0.dds"
+cp "$build/pic0.dds" "$out/sce_sys/pic0.dds"
+cp "$build/pic0.dds" "$out/sce_sys/pic1.dds"
+bash "$kit/tools/validate-assets.sh" "$out/sce_sys"
 python3 - "$param" "$out/sce_sys/param.json" "$content_version" <<'PY'
 import re, sys
 text = open(sys.argv[1]).read()
