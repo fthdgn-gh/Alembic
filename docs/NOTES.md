@@ -2270,9 +2270,14 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
      requests) must keep working in every later engine;
   4. the console test fakes a lower local version (as with the payload),
      and needs a release after the first one that carries the image.
-  Then: game icons in the preview's stand-in engine (PNG), the console's
-  fonts for Japanese, local time for dates, README section and screenshots
-  before the release.
+  ✓ Released as 0.3.0 (2026-10-25): `.ffpkg` and store ZIP in the release;
+  the catalog record from `tools/catalog_record.py v0.3.0` is ready for a PR
+  to darkxex/ps5-homebrew-catalog (owner opens it from fthdgn-gh).
+  Console tests still to do: the app from the `.ffpkg`, Restart the engine,
+  an app without its engine downloading it, and (after the next release)
+  the app's image being replaced by an update. Then: game icons in the
+  preview's stand-in engine (PNG), the console's fonts for Japanese, local
+  time for dates.
 0. ✓ Updating itself, tried on the console through Payload Manager
    (2026-10-24).
 1. Owner's console test: install an Alembic-made FPKG.
