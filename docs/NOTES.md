@@ -1974,9 +1974,10 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
 - The app's imports resolve to the same modules as the kit's demo app (no
   new system library). A native title has no `localtime_r`: dates show in
   UTC for now.
-- **Not verified:** anything on a console (start, sockets to the engine,
-  sending the payload to the ELF loader on 9021, controller feel, frame
-  rate, sounds). Before the first run, ask the owner (CLAUDE.md "Never").
+- **On the console (owner, 2026-10-25):** the app starts, talks to the
+  engine and ran a conversion on a paired PC engine with the output on
+  the console. Not yet confirmed: sending the payload to the ELF loader
+  on 9021, controller feel, frame rate, sounds.
 
 ### 2026-10-19: open items from that day (all solved)
 
@@ -2070,9 +2071,10 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
 - LZ4 packs stay as they are.
 
 **Open:**
-- **Console app (0.3.0):** first console run (ask the owner first): the
-  folder to `/data/homebrew/PPSA99594`, start it from the home screen, see
-  whether it reaches the engine or starts it. Then: game icons in the
+- **Console app (0.3.0):** ✓ first console run (owner, 2026-10-25): the
+  app starts, reaches the engines and ran a PC-engine conversion to the
+  console. Still to hear: whether it started the engine itself (ELF
+  loader on 9021), controller feel, frame rate, sounds. Then: game icons in the
   preview's stand-in engine (PNG), the console's fonts for Japanese, local
   time for dates, README section and screenshots before the release.
 0. ✓ Updating itself, tried on the console through Payload Manager
@@ -2086,7 +2088,8 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
    as inputs and outputs, choosing the converting engine) done 2026-10-22;
    ✓ owner: the console and a PC pair and work together (2026-10-24).
    ✓ owner: an FPKG on the PC converted by the PC engine into an FFPFSC
-   written to the console works (2026-10-25).
+   written to the console works, started from the console app
+   (2026-10-25).
 5. Smaller: retail/patch packages, NAPS shuffle layouts, Kraken-compressed
    FPKG output, less pass-1 memory for LZ4.
 
