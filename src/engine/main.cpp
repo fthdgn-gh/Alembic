@@ -2158,7 +2158,7 @@ int main(int argc, char** argv) {
     std::thread([&engine] { engine.prune_cache(); }).detach();
     const std::string port_text = std::to_string(engine.port());
     platform::notify(platform::launcher_supported()
-                         ? l10n::t("Alembic is ready: open it from Media on the home screen (port {port})", {{"port", port_text}})
+                         ? l10n::t("Alembic is ready: open the Alembic app, or the shortcut in Media (port {port})", {{"port", port_text}})
                          : l10n::t("Alembic engine ready on port {port}", {{"port", port_text}}));
     engine.wait_for_quit();
     engine.stop();
