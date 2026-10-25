@@ -2160,6 +2160,20 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   open the PR from the fthdgn-gh account (the repo's owner). Later releases:
   the catalog's daily job proposes them.
 
+### 2026-10-25: catalog PR and build attestations
+
+- Catalog PR: darkxex/ps5-homebrew-catalog#740 (apps/PPSA99594.json, from the
+  fthdgn-gh fork, branch add-alembic). Checks pass; the release scan flags,
+  as expected, that the app carries a payload not yet on their approved list
+  (`helpers/approved.json`, by SHA-256: a maintainer reads its source) and
+  that eboot.bin names 127.0.0.1 and port 9021. Every release's payload is
+  a new hash, so each update is flagged until approved.
+- CI's bundle job now attests every release file
+  (`actions/attest-build-provenance@v4`; `id-token` and `attestations`
+  write): `gh attestation verify FILE --repo fthdgn-gh/Alembic`. The catalog
+  scan reports "attested" for the app ZIP from the next release on (v0.3.0
+  has none).
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and

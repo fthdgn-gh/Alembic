@@ -230,6 +230,8 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      id-token: write     # build attestations (signed with the run's identity)
+      attestations: write
     steps:
       - uses: actions/checkout@v7
       # The version in file names: the tag (v0.1.0), else branch-commit (main-a2fab12).
@@ -310,6 +312,20 @@ jobs:
           echo "PACKAGES=${packages[*]}" >> "$GITHUB_ENV"
           (cd dist && sha256sum "$name.zip" "$elf" "$app" "$app_zip" "${packages[@]}" > SHA256SUMS)
           (cd dist && find "$name" -type f | sort && ls -la "${packages[@]}" && cat SHA256SUMS)
+      # A signed statement that this workflow run, at this commit, built exactly
+      # these files: `gh attestation verify FILE --repo fthdgn-gh/Alembic`
+      # checks it (the homebrew catalog's release scan does, for the app ZIP).
+      - name: Attest the files
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            dist/${{ env.BUNDLE }}.zip
+            dist/alembic-${{ env.VERSION }}.elf
+            dist/${{ env.APP }}
+            dist/${{ env.APP_ZIP }}
+            dist/SHA256SUMS
+            dist/alembic-${{ env.VERSION }}-*.tar.gz
+            dist/alembic-${{ env.VERSION }}-*.zip
       # The zip itself (archive: false), not a zip inside a zip; it keeps the
       # executable bits.
       - name: Upload the bundle
