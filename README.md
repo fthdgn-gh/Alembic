@@ -4,9 +4,10 @@
 
 Alembic converts PS5 games between the formats homebrew loaders use: debug
 packages (FPKG), dump folders, exFAT images, FFPKG (UFS2), FFPFS (PFS) and
-FFPFSC (compressed PFS). It runs **on the console** as a payload with a web
-page you drive with the controller, and on a PC (Windows, macOS, Linux) as a
-command-line tool or the same engine and page. Engines on your network can
+FFPFSC (compressed PFS). It runs **on the console** as an app on the home
+screen (from 0.3.0) or as a payload with a web page, both driven with the
+controller, and on a PC (Windows, macOS, Linux) as a command-line tool or the
+same engine and page. Engines on your network can
 pair and work together: convert a package that sits on your PC, on the PC's
 processor, straight into the console's storage.
 
@@ -18,7 +19,9 @@ packages run through ShadowMount+; games that need the AMPR emulator start
 once it is added; the console and a PC pair and convert for each other;
 **Install** hands a debug package to the console's installer; a paused
 conversion carries on after the engine is updated; the engine updates
-itself from a release (loaded through Payload Manager).
+itself from a release (loaded through Payload Manager); the console app
+starts from ShadowMount+, starts and restarts the engine, and drives a
+conversion on a paired PC.
 **Not yet:** installing an FPKG that Alembic built. LZ4 asset packs work for
 some games and not for others.
 
@@ -55,10 +58,25 @@ some games and not for others.
 
 ## On the PS5
 
-The engine (`alembic.elf`) runs as a payload and keeps working after you
-close the browser. Its page opens in the console's browser, from a shortcut
-it adds to the Media tab, or from any browser on your network at
-`http://<console-ip>:5940`.
+The work is done by the engine (`alembic.elf`), a payload that keeps running
+after you close what you drive it with: the **Alembic app** on the home
+screen, or its web page in the console's browser (from a shortcut it adds to
+the Media tab) or in any browser on your network at `http://<console-ip>:5940`.
+The app and the page show the same things and work the same way.
+
+![The Alembic app on the PS5: a homebrew folder with games in several formats, drives, an FTP server and a paired PC on the left](docs/screenshots/app.png)
+
+**The app** (`PPSA99594`, from 0.3.0) runs through
+[ShadowMount+](https://github.com/drakmor/ShadowMountPlus):
+
+1. Copy `alembic-app-<version>.ffpkg` from the releases to `/data/homebrew/`
+   (or unzip `alembic-app-<version>.zip` there: the `PPSA99594` folder). Its
+   tile shows up on the home screen after ShadowMount+'s next scan.
+2. Start it. When no engine answers, it sends its own to the ELF loader on
+   port 9021 (an app without one downloads the engine of its own version from
+   the GitHub release first, checked against `SHA256SUMS`).
+
+**Without the app:**
 
 1. Send `alembic-<version>.elf` (from the releases) to your console's ELF loader.
 2. Open Alembic from the Media tab (or the address above).
@@ -95,6 +113,9 @@ Also on the page:
 - **Components:** third-party files Alembic needs but doesn't ship (ampr_emu's
   runtime, ProsperoPkgTool's FPKG key files) are downloaded on request from
   their official source and kept only if their SHA-256 matches.
+- **Engine** (Settings): **Restart the engine** starts the same version again
+  through the ELF loader; the app also offers **Start the engine** once it
+  has stopped.
 - **Updates** (from 0.2.3): the engine looks for a newer release on GitHub
   when it starts and says so; **Settings → Updates** shows its notes.
   **Update** downloads the payload, checks it against the release's
@@ -104,7 +125,12 @@ Also on the page:
   folders (same name); **Search the drives** finds copies elsewhere. Then
   the new engine starts through the ELF loader (port 9021) and takes over;
   a running job that keeps its progress continues. Sending a newer
-  `alembic.elf` by hand also replaces a running engine.
+  `alembic.elf` by hand also replaces a running engine. From 0.3.0 the same
+  update replaces the app's `.ffpkg` too when the release's differs; while
+  the app is open, that waits until it is closed. An app older than its
+  engine says so and offers **Update the app**.
+- **Other engines:** a paired engine that is switched off stays listed as
+  offline instead of disappearing.
 - Languages: English, Español, Français, Deutsch, 日本語, Türkçe.
 
 State (queue, settings, downloaded components) is kept in `/data/alembic`.
