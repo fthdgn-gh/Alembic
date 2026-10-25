@@ -264,6 +264,7 @@ private:
     bool i18n_busy_ = false;
     bool first_browse_ = false;
     std::string update_told_;
+    std::string mismatch_told_;  // the engine version the app-is-older notice was shown for
     int incoming_key_ = 0;
     std::string incoming_from_;
 

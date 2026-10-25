@@ -78,13 +78,22 @@ std::string lower(std::string text) {
 
 }  // namespace
 
+namespace {
+std::string& user_agent() {
+    static std::string agent = "Alembic-app";
+    return agent;
+}
+}  // namespace
+
+void set_user_agent(const std::string& agent) { user_agent() = agent; }
+
 HttpReply http_request(const std::string& host, std::uint16_t port, const std::string& method,
                        const std::string& path, const std::string& body, int timeout_ms, std::size_t max_body) {
     HttpReply reply;
     const int s = open_socket(host, port, timeout_ms, &reply.body);
     if (s < 0) return reply;
     std::string head = method + " " + path + " HTTP/1.1\r\nHost: " + host + ":" + std::to_string(port) +
-                       "\r\nConnection: close\r\nUser-Agent: Alembic-app\r\n";
+                       "\r\nConnection: close\r\nUser-Agent: " + user_agent() + "\r\n";
     if (!body.empty() || method == "POST" || method == "PUT")
         head += "Content-Type: application/json\r\nContent-Length: " + std::to_string(body.size()) + "\r\n";
     head += "\r\n";

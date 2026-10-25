@@ -2020,6 +2020,39 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   check is a text search and the app's Components page names libSceAmpr.
   Not yet tried on a console: the app started from the image.
 
+### 2026-10-25: the app's image in the update
+
+- **Engine** (`update.cpp`): a release's `alembic-app-*.ffpkg` asset is the
+  app. On a console the check also finds the installed app: ShadowMount+'s
+  source for PPSA99594, else its scan folders (`/data/homebrew`,
+  `/mnt/usbN/homebrew`; on a PC with `--loader`, `<state>/homebrew`),
+  `.ffpkg` files and folders whose param.json has that title ID, names with
+  "alembic" first; it hashes the image and compares with SHA256SUMS
+  (`/api/update` `app`: path, image, version, in_release, current).
+  `install {paths, app}` (app defaults to true) and `POST /api/update/app`
+  (only when the latest release is this engine's version) download and check
+  the image and stage it as `.alembic-app-<v>.ffpkg.new` next to the old one,
+  noted in `<state>/update/app-pending.json`. A watcher (every 3 s, consoles
+  only) swaps once the app has been quiet for 15 s: the staged file becomes
+  `alembic-app-<v>.ffpkg`, the old image is deleted (ShadowMount+ then drops
+  its link and mounts the new one) and a rescan is requested. The app is
+  told by its User-Agent (`Alembic-app/<version>`); quiet counts from the
+  engine's start, so a new engine waits for an open app too, and
+  `POST /api/app/closing` (sent when the app quits) makes it 3 s.
+  Folders (development installs) are never replaced.
+- **Page and app:** Updates shows "Console app" (version, up to date or
+  not, a folder, not found) and its path; "Update the app" when the release
+  is the engine's version and the image differs; a switch for the app in the
+  list of files an update replaces; a note while a new image waits. The app
+  says when the engine is newer than itself (once per engine version).
+- Checked on the Mac (stand-in GitHub on 127.0.0.1, `--update-url`,
+  `--loader`): "Update the app" from the app preview staged the image while
+  the preview ran and swapped it 17 s after it closed; a full update staged
+  it, handed off, and a new engine finished the swap 17 s after it started.
+  Unit test `update_replaces_the_console_app_image`. Not checked: the page
+  in a browser, anything on a console (ShadowMount+ switching the app's
+  image while installed, closing the app from the home screen).
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and
@@ -2124,7 +2157,8 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
      update was started (page or app); an open app is swapped when it
      closes (staged under a dot name ShadowMount+ skips, then rescan), or
      at the engine's next start;
-  3. an app older than the engine shows a banner with "Update the app";
+  2a. ✓ done the same day (log entry "the app's image in the update");
+  3. ✓ an app older than the engine says so (a notice) and offers "Update the app";
      the requests it needs for that (`/api/info` version, the update
      requests) must keep working in every later engine;
   4. the console test fakes a lower local version (as with the payload),

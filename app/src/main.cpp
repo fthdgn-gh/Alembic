@@ -89,6 +89,7 @@ int main() {
     alembic::app::Platform platform;
     platform.console = true;
     platform.version = ALEMBIC_APP_VERSION;
+    alembic::app::set_user_agent(std::string("Alembic-app/") + ALEMBIC_APP_VERSION);
     platform.make_texture = [&renderer](int w, int h, const std::uint8_t* rgba) {
         return renderer.batch().create_texture(w, h, rgba);
     };
@@ -112,6 +113,8 @@ int main() {
     };
     platform.quit = [&pad] {
         sys::log("[ALEMBIC] closing");
+        // The engine may now swap the app's image (an update waiting for it).
+        (void)alembic::app::http_request("127.0.0.1", kEnginePort, "POST", "/api/app/closing", "{}", 800);
         pad.close();
         sys::quit();
     };

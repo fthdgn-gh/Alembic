@@ -720,13 +720,31 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
         else
             status = u["newer"].boolean() ? t("Version {version} is available", {{"version", latest["version"].str()}})
                                           : t("Up to date");
+        // The console app's image: replaced when the release's differs.
+        const JsonValue& ap = u["app"];
+        const std::string av = ap["version"].str().empty() ? "?" : ap["version"].str();
+        const bool app_differs = ap.is_object() && ap["image"].boolean() && ap["in_release"].boolean() && !ap["current"].boolean();
+        const bool app_on = app_differs && !off_["app"];
+        std::string app_text;
+        if (ap.is_object())
+            app_text = ap["path"].str().empty()        ? t("not found")
+                       : !ap["image"].boolean()        ? t("{version}, a folder: not replaced", {{"version", av}})
+                       : ap["current"].boolean()       ? t("{version}, up to date", {{"version", av}})
+                       : ap["in_release"].boolean()    ? t("{version}; the release's image differs", {{"version", av}})
+                                                       : av;
         const float top = card_begin(ui, "updates", x, y, w);
         float yy = top;
         const float ix = x + 1.2f * R, iw = w - 2.4f * R;
-        yy += facts(ui, ix, yy, iw,
-                    {{t("This version"), u["current"].str(), ""},
-                     {t("Latest release"), latest.is_object() ? latest["version"].str() : "\xE2\x80\x93", ""},
-                     {t("Status"), status, ""}});
+        std::vector<Fact> update_rows = {{t("This version"), u["current"].str(), ""},
+                                         {t("Latest release"), latest.is_object() ? latest["version"].str() : "\xE2\x80\x93", ""},
+                                         {t("Status"), status, ""}};
+        if (ap.is_object()) update_rows.push_back({t("Console app"), app_text, ""});
+        if (ap.is_object() && !ap["path"].str().empty()) update_rows.push_back({t("App image"), ap["path"].str(), "mono"});
+        yy += facts(ui, ix, yy, iw, update_rows);
+        if (u["app_pending"].boolean())
+            yy += 0.5f * R + draw::paragraph(ui, Face::regular,
+                                             t("A new app image is waiting: close the app on the console to finish its update."),
+                                             ix, yy + 0.5f * R, iw, 0.88f * R, 0.88f * 1.45f * R, warn);
         if (!u["error"].str().empty() && !busy && wait_for_.empty())
             yy += 0.5f * R + draw::paragraph(ui, Face::regular, t_msg(u["error"].str()), ix, yy + 0.5f * R, iw, 0.88f * R,
                                              0.88f * 1.45f * R, bad);
@@ -746,15 +764,29 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
             ui.list->pop_clip();
             yy += nh;
         }
-        yy += btns(ui, ix, yy, iw, {{"u:check", t("Check now"), draw::Button::normal, [this, &app] {
-                                         app.post("/api/update/check", JsonValue::object(), [this, &app](const Reply& r) {
-                                             if (r.ok())
-                                                 update_ = r.json;
-                                             else
-                                                 app.toast(t_msg(r.error()), App::Toast::bad);
-                                         });
-                                     },
-                                     busy || !wait_for_.empty()}});
+        std::vector<RowButton> update_btns = {{"u:check", t("Check now"), draw::Button::normal, [this, &app] {
+                                                   app.post("/api/update/check", JsonValue::object(), [this, &app](const Reply& r) {
+                                                       if (r.ok())
+                                                           update_ = r.json;
+                                                       else
+                                                           app.toast(t_msg(r.error()), App::Toast::bad);
+                                                   });
+                                               },
+                                               busy || !wait_for_.empty()}};
+        if (app_differs && latest.is_object() && latest["version"].str() == u["current"].str() && !u["app_pending"].boolean())
+            update_btns.push_back({"u:app", t("Update the app"), draw::Button::primary, [this, &app] {
+                                       app.post("/api/update/app", JsonValue::object(), [this, &app](const Reply& r) {
+                                           if (!r.ok()) {
+                                               app.toast(t_msg(r.error()), App::Toast::bad);
+                                               return;
+                                           }
+                                           update_ = r.json;
+                                           app.toast(t("The new app image is downloaded; it replaces the app once the app is closed."),
+                                                     App::Toast::ok);
+                                       });
+                                   },
+                                   busy || !wait_for_.empty()});
+        yy += btns(ui, ix, yy, iw, update_btns);
         if (u["newer"].boolean() && !u["can_install"].boolean())
             yy += 0.5f * R + draw::paragraph(ui, Face::regular,
                                              t("On a PC, replace alembic-engine with the new release and start it again."),
@@ -771,6 +803,11 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
                                           : t("No Alembic payload files in the usual places (Payload Manager, the "
                                               "autoloaders). If your loader keeps it elsewhere, search the drives."),
                                       ix, y2, iw, 1.0f * R, 1.45f * R, muted);
+            if (app_differs) {
+                bool on = app_on, changed = false;
+                y2 += switch_row(ui, Id("u:app-on"), ix, y2, iw, t("Console app"), ap["path"].str(), &on, &changed);
+                if (changed) off_["app"] = !on;
+            }
             for (const auto& pl : u["payloads"].items()) {
                 const std::string path = pl["path"].str();
                 bool on = !off_[path];
@@ -808,6 +845,10 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
                              if (chosen.empty())
                                  body += "\n\n!" + t("No payload files are replaced: your loader still starts the old version next time.");
                              for (const auto& c : chosen) body += "\n\n@" + c;
+                             const bool with_app = update_["app"].is_object() && update_["app"]["image"].boolean() &&
+                                                   update_["app"]["in_release"].boolean() && !update_["app"]["current"].boolean() &&
+                                                   !off_["app"];
+                             if (with_app) body += "\n\n~" + t("The console app's image is replaced too, once the app is closed.");
                              bool restarts = false, running = false;
                              for (const auto& j : app.jobs)
                                  if (j["state"].str() == "running") {
@@ -819,11 +860,12 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
                              else if (running)
                                  body += "\n\n~" + t("The running job continues after the update.");
                              ask(app, t("Update to {version}?", {{"version", version}}), text_body(body), t("Update"), false,
-                                 [this, &app, chosen, version] {
+                                 [this, &app, chosen, version, with_app] {
                                      JsonValue paths = JsonValue::array();
                                      for (const auto& c : chosen) paths.push(c);
                                      JsonValue req = JsonValue::object();
                                      req.set("paths", paths);
+                                     req.set("app", with_app);
                                      app.post("/api/update/install", req, [this, &app, version](const Reply& r) {
                                          if (!r.ok()) {
                                              app.toast(t_msg(r.error()), App::Toast::bad);

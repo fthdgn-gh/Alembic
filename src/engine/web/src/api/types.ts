@@ -23,7 +23,7 @@ export interface Info {
   enter_button: string; // "circle" where ○ confirms
   lang: string;
   protocol?: number; // how it talks to other engines (peers.hpp kPeerProtocol); none before v0.2.1
-  update?: { state: string; latest: string | null; newer: boolean }; // none before v0.2.3
+  update?: { state: string; latest: string | null; newer: boolean; app_pending?: boolean }; // none before v0.2.3
   can_restart?: boolean; // a PS5 engine can start itself again (none before v0.3.0)
   started?: number; // when this engine started (ms): changes with a restart
 }
@@ -40,6 +40,9 @@ export interface UpdateStatus {
   newer: boolean;
   searched: string; // "no", "usual", "everywhere"
   payloads: UpdatePayload[];
+  // The console app (0.3.0 and later; null until looked for, or on a PC).
+  app?: { path: string; image: boolean; version: string; in_release: boolean; current: boolean } | null;
+  app_pending?: boolean; // a new app image waits for the app to close
 }
 
 export interface Space { root: string; total: number; free: number }

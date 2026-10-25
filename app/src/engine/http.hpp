@@ -17,6 +17,10 @@ struct HttpReply {
 };
 
 // One request with "Connection: close"; host is an IPv4 address.
+// "Alembic-app/<version>": the engine tells the app's requests by it (it
+// swaps the app's image only while the app is quiet).
+void set_user_agent(const std::string& agent);
+
 HttpReply http_request(const std::string& host, std::uint16_t port, const std::string& method,
                        const std::string& path, const std::string& body = "", int timeout_ms = 5000,
                        std::size_t max_body = 8u << 20);

@@ -11,10 +11,16 @@
 #include "text_file.hpp"
 #include "update.hpp"
 
+#include "alembic/io.hpp"
+#include "alembic/sha256.hpp"
+
 using namespace alembic;
 using namespace alembic::engine;
 
+#include <atomic>
 #include <cctype>
+#include <chrono>
+#include <thread>
 #include <cstring>
 
 TEST_CASE(engine_json_round_trips) {
@@ -397,6 +403,84 @@ TEST_CASE(update_versions_and_release) {
     std::string sums = std::string(64, 'a') + "  alembic-v0.2.3.zip\n" + std::string(64, 'B') + " *alembic-v0.2.3.elf\r\n";
     CHECK(checksum_for(sums, "alembic-v0.2.3.elf") == std::string(64, 'b'));
     CHECK(checksum_for(sums, "other").empty());
+}
+
+TEST_CASE(update_replaces_the_console_app_image) {
+    using namespace alembic::engine::update;
+    CHECK(app_version_text("00.003.000") == "0.3.0");
+    CHECK(app_version_text("01.012.105") == "1.12.105");
+    CHECK(app_version_text("preview") == "preview");
+    auto r = parse_release(R"({"tag_name":"v0.3.1","assets":[
+        {"name":"alembic-app-v0.3.1.ffpkg","browser_download_url":"https://x/a","size":7},
+        {"name":"alembic-v0.3.1.elf","browser_download_url":"https://x/e","size":1},
+        {"name":"SHA256SUMS","browser_download_url":"https://x/s","size":1}]})");
+    REQUIRE_OK(r);
+    CHECK(r->app_name == "alembic-app-v0.3.1.ffpkg");
+    CHECK(r->app_url == "https://x/a");
+
+    // The app runs from an older image in a folder ShadowMount+ scans; the
+    // release (this engine's version) has another.
+    std::string root = test::make_temp_dir(), homebrew = root + "/homebrew", state = root + "/state";
+    REQUIRE_OK(make_directory(homebrew));
+    REQUIRE_OK(alembic::engine::write_text(homebrew + "/alembic-app-v0.3.0.ffpkg", "old image"));
+    REQUIRE_OK(alembic::engine::write_text(homebrew + "/some-game.ffpkg", "a game"));
+    const std::string image = "new image";
+    Sha256 h;
+    h.update(Bytes(reinterpret_cast<const std::uint8_t*>(image.data()), image.size()));
+    const std::string sums = Sha256::hex(h.finish()) + "  alembic-app-v0.3.1.ffpkg\n";
+    CHECK(app_image_name(homebrew, "0.3.0") == "alembic-app-0.3.0.ffpkg");
+
+    std::atomic<double> quiet{0.0};
+    std::atomic<int> rescans{0};
+    Updater::Options o;
+    o.state_dir = state;
+    o.current_version = "0.3.1";
+    o.release_url = "release";
+    o.loader = "127.0.0.1:9"; // a console; nothing is sent in this test
+    o.get = [&](const std::string& url, std::size_t) -> Result<std::vector<std::uint8_t>> {
+        std::string body = url == "release" ? R"({"tag_name":"v0.3.1","assets":[
+            {"name":"alembic-app-v0.3.1.ffpkg","browser_download_url":"app","size":9},
+            {"name":"alembic-v0.3.1.elf","browser_download_url":"elf","size":1},
+            {"name":"SHA256SUMS","browser_download_url":"sums","size":1}]})"
+                       : url == "sums" ? sums : url == "app" ? image : "";
+        return std::vector<std::uint8_t>(body.begin(), body.end());
+    };
+    o.smp_rescan = [&] { ++rescans; };
+    o.scan_dirs = [&] { return std::vector<std::string>{homebrew}; };
+    o.game_info = [](const std::string& path, std::string* id, std::string* version) {
+        *id = path.find("alembic-app") != std::string::npos ? kAppTitleId : "PPSA00001";
+        *version = "00.003.000";
+        return true;
+    };
+    o.app_quiet = [&] { return quiet.load(); };
+    Updater u(std::move(o));
+    auto idle = [&] {
+        for (int i = 0; i < 200 && u.status()["state"].str() != "idle"; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    };
+    u.check();
+    idle();
+    JsonValue st = u.status();
+    CHECK(st["app"]["path"].str() == homebrew + "/alembic-app-v0.3.0.ffpkg");
+    CHECK(st["app"]["version"].str() == "0.3.0");
+    CHECK(st["app"]["in_release"].boolean());
+    CHECK(!st["app"]["current"].boolean());
+
+    // Staged while the app is open; swapped once it is quiet.
+    REQUIRE_OK(u.install_app());
+    idle();
+    CHECK(u.status()["app_pending"].boolean());
+    u.tick();
+    CHECK(path_exists(homebrew + "/alembic-app-v0.3.0.ffpkg"));
+    quiet = 100.0;
+    u.tick();
+    CHECK(!u.status()["app_pending"].boolean());
+    CHECK(!path_exists(homebrew + "/alembic-app-v0.3.0.ffpkg"));
+    auto now = alembic::engine::read_text(homebrew + "/alembic-app-0.3.1.ffpkg");
+    REQUIRE_OK(now);
+    CHECK(*now == image);
+    CHECK(path_exists(homebrew + "/some-game.ffpkg"));
+    CHECK_EQ(rescans.load(), 1);
+    CHECK(u.status()["app"]["current"].boolean());
 }
 
 TEST_CASE(update_recognises_and_renames_payloads) {

@@ -51,6 +51,14 @@ export function Updates() {
     : !latest ? (u.checked ? t("Could not check") : t("Not checked yet"))
     : u.newer ? t("Version {version} is available", { version: latest.version }) : t("Up to date");
   const chosen = u.payloads.filter((p) => !off[p.path]);
+  // The console app's image: replaced when the release's differs.
+  const app = u.app;
+  const appDiffers = !!(app && app.image && app.in_release && !app.current);
+  const appOn = appDiffers && !off["app"];
+  const appText = !app ? "" : !app.path ? t("not found")
+    : !app.image ? t("{version}, a folder: not replaced", { version: app.version || "?" })
+    : app.current ? t("{version}, up to date", { version: app.version || "?" })
+    : app.in_release ? t("{version}; the release's image differs", { version: app.version || "?" }) : app.version || "?";
   const running = jobs.value.filter((j) => j.state === "running");
   const restarts = running.filter((j) => !j.keeps_progress);
 
@@ -58,17 +66,24 @@ export function Updates() {
     try { setU(await api<UpdateStatus>("POST", path, body || {})); }
     catch (e: any) { toast(tMsg(e.message), "bad"); }
   }
+  async function updateApp() {
+    try {
+      setU(await api<UpdateStatus>("POST", "/api/update/app"));
+      toast(t("The new app image is downloaded; it replaces the app once the app is closed."), "ok");
+    } catch (e: any) { toast(tMsg(e.message), "bad"); }
+  }
   async function install() {
     const body = <div>
       <p style="margin-top:0">{t("Alembic {version} is downloaded from GitHub and checked; the files below are replaced, and the new engine starts through the ELF loader (port 9021) and takes over from this one.", { version: latest!.version })}</p>
       {chosen.length ? <ul class="mono" style="font-size:.85rem">{chosen.map((p) => <li>{p.path}{p.rename_to ? " → " + p.rename_to : ""}</li>)}</ul>
         : <div class="warnbox">{t("No payload files are replaced: your loader still starts the old version next time.")}</div>}
+      {appOn ? <p class="muted">{t("The console app's image is replaced too, once the app is closed.")}</p> : null}
       {restarts.length ? <div class="warnbox">{t("A running job can't keep its progress; it starts over after the update.")}</div>
         : running.length ? <p class="muted">{t("The running job continues after the update.")}</p> : null}
     </div>;
     if (!await ask({ title: t("Update to {version}?", { version: latest!.version }), body, ok: t("Update") })) return;
     try {
-      setU(await api<UpdateStatus>("POST", "/api/update/install", { paths: chosen.map((p) => p.path) }));
+      setU(await api<UpdateStatus>("POST", "/api/update/install", { paths: chosen.map((p) => p.path), app: appOn }));
       setWaitFor(latest!.version);
     } catch (e: any) { toast(tMsg(e.message), "bad"); }
   }
@@ -81,12 +96,16 @@ export function Updates() {
           [t("This version"), u.current],
           [t("Latest release"), latest ? latest.version : "–"],
           [t("Status"), status, u.error && !busy && !waitFor ? "" : undefined],
+          ...(app ? [[t("Console app"), appText] as [string, string]] : []),
+          ...(app && app.path ? [[t("App image"), app.path, "mono"] as [string, string, string]] : []),
         ]} />
+        {u.app_pending ? <div class="note">{t("A new app image is waiting: close the app on the console to finish its update.")}</div> : null}
         {u.error && !busy && !waitFor ? <div class="err">{tMsg(u.error)}</div> : null}
         {late ? <div class="note">{t("The new engine hasn't answered yet. If it doesn't start, load Alembic again from your loader: its files were already updated.")}</div> : null}
         {latest && u.newer && latest.notes ? <div class="notes">{latest.notes}</div> : null}
         <div class="btns">
           <SmallBtn k="u:check" text={t("Check now")} disabled={busy || !!waitFor} onClick={() => post("/api/update/check")} />
+          {appDiffers && latest && latest.version === u.current && !u.app_pending ? <SmallBtn k="u:app" text={t("Update the app")} disabled={busy || !!waitFor} onClick={updateApp} /> : null}
           {u.newer && !u.can_install && latest ? <a class="btn sm" data-key="u:get" href={latest.url} target="_blank" rel="noopener">{t("Download from GitHub")}</a> : null}
         </div>
         {u.newer && !u.can_install ? <p class="muted" style="margin:.5rem 0 0">{t("On a PC, replace alembic-engine with the new release and start it again.")}</p> : null}
@@ -96,6 +115,8 @@ export function Updates() {
         <div class="card">
           {u.payloads.length ? null : <p class="muted" style="margin:0">{u.searched === "no" ? t("Not searched yet.")
             : t("No Alembic payload files in the usual places (Payload Manager, the autoloaders). If your loader keeps it elsewhere, search the drives.")}</p>}
+          {appDiffers ? <SwitchRow dataKey="u:app-on" label={t("Console app")} on={appOn} hint={app!.path}
+            onChange={(on) => setOff(Object.assign({}, off, { app: !on }))} /> : null}
           {u.payloads.map((p) => (
             <SwitchRow dataKey={"u:p:" + p.path} label={p.path} on={!off[p.path]}
               hint={[p.loader === "autoloader" ? t("autoloader") : p.loader, p.version ? t("version {version}", { version: p.version }) : t("an older version"),

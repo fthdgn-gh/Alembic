@@ -16,6 +16,15 @@
 //
 // A payload is recognised by the marker "ALEMBIC_PAYLOAD_VERSION:X.Y.Z" in it
 // (0.2.3 and later) or, for older releases, by its SHA-256.
+//
+// The console app (from 0.3.0) shares the version and the release: its image
+// (alembic-app-X.Y.Z.ffpkg) is replaced in the same update when its SHA-256
+// differs from the release's. ShadowMount+ runs it, so the new image is put
+// next to the old one under a new name and the old one deleted: ShadowMount+
+// then mounts the new one. While the app is open that waits (the new image
+// is staged under a '.' name ShadowMount+ skips, noted in
+// <state>/update/app-pending.json) until the app has been quiet for a while;
+// a new engine finishes what an old one staged.
 #pragma once
 
 #include "json_value.hpp"
@@ -23,6 +32,7 @@
 #include "alembic/io.hpp"
 #include "alembic/result.hpp"
 
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -35,6 +45,7 @@ namespace alembic::engine::update {
 
 inline constexpr const char* kLatestReleaseUrl = "https://api.github.com/repos/fthdgn-gh/Alembic/releases/latest";
 inline constexpr const char* kMarker = "ALEMBIC_PAYLOAD_VERSION:";
+inline constexpr const char* kAppTitleId = "PPSA99594";
 
 // < 0, 0, > 0 like strcmp, by number ("0.2.10" > "0.2.9"; a leading "v" is ignored).
 int compare_versions(const std::string& a, const std::string& b);
@@ -46,6 +57,8 @@ struct Release {
     std::string elf_name, elf_url;
     std::uint64_t elf_size = 0;
     std::string sums_url;
+    std::string app_name, app_url; // the console app's image ("" before 0.3.0)
+    std::uint64_t app_size = 0;
 };
 // GitHub's "latest release" reply.
 Result<Release> parse_release(std::string_view json);
@@ -83,6 +96,11 @@ std::vector<std::string> usual_places();
 // name in the folder's meta.json and removes the old file).
 Status replace_payload(const Found& found, const std::string& elf);
 
+// "00.003.000" (param.json's contentVersion) -> "0.3.0"; other text as it is.
+std::string app_version_text(const std::string& content_version);
+// The console app's image name for a version, unused in `dir` (a suffix when taken).
+std::string app_image_name(const std::string& dir, const std::string& version);
+
 // Sends a payload to an ELF loader ("127.0.0.1:9021").
 Status send_to_loader(const std::string& address, const std::string& elf);
 
@@ -101,6 +119,15 @@ public:
         std::function<void()> quit;
         // Folders a search of the drives covers.
         std::function<std::vector<std::string>()> roots;
+        // The console app: where ShadowMount+ runs a title from ("" when it
+        // can't say), a rescan request, the folders it scans, a game's title ID
+        // and contentVersion (false when unreadable), and seconds since the
+        // app last asked this engine anything (since the engine started when never).
+        std::function<std::string(const std::string& title_id)> smp_source;
+        std::function<void()> smp_rescan;
+        std::function<std::vector<std::string>()> scan_dirs;
+        std::function<bool(const std::string& path, std::string* title_id, std::string* version)> game_info;
+        std::function<double()> app_quiet;
     };
     explicit Updater(Options options);
     ~Updater();
@@ -108,19 +135,40 @@ public:
     void check();               // in the background; nothing when busy
     void find(bool everywhere); // the usual places, or every drive too
     // Downloads, checks, replaces the chosen files (paths from the last
-    // search), starts the new engine and stops this one.
-    Status install(const std::vector<std::string>& paths);
+    // search) and, with `app`, the console app's image; starts the new engine
+    // and stops this one.
+    Status install(const std::vector<std::string>& paths, bool app = true);
+    // Only the console app's image, from the latest release, which must be
+    // this engine's version (an app older than its engine).
+    Status install_app();
+    // Finishes a staged app image once the app is quiet (called every few seconds).
+    void tick();
     // Starts this same version again: a copy of its payload (its own update
     // download, or one a loader starts) goes to the ELF loader, and this
     // engine stops. Fails when no copy of this version is found.
     Status restart();
 
     JsonValue status() const;
-    JsonValue summary() const; // for /api/info: {latest, newer, state}
+    JsonValue summary() const; // for /api/info: {latest, newer, state, app_pending}
+
+    struct AppImage {
+        std::string path;        // the image or folder ShadowMount+ runs; "" when not found
+        bool image = false;      // a file (else a folder, which is not replaced)
+        std::string version;     // its contentVersion as X.Y.Z ("" unknown)
+        std::string sha256;      // of the image
+        std::string release_sha; // of the release's image ("" when it has none)
+    };
 
 private:
     void run(std::function<void()> work);
-    Status do_install(const std::vector<Found>& chosen, const Release& release);
+    Status do_install(const std::vector<Found>& chosen, const Release& release, bool app);
+    // Where the app is and, with `hash`, its SHA-256 (images only).
+    AppImage find_app(bool hash) const;
+    // Downloads the release's app image next to `app` under a '.' name and
+    // notes it as pending; then swaps at once when the app is quiet.
+    Status stage_app(const AppImage& app, const Release& release, const std::string& sums);
+    Status finish_app(); // the pending swap; nothing when none
+    bool app_pending() const;
     void set_state(const std::string& state);
 
     Options o_;
@@ -132,7 +180,15 @@ private:
     Release release_;
     std::vector<Found> found_;
     std::string searched_ = "no"; // "usual", "everywhere"
+    AppImage app_;
+    bool app_checked_ = false;
+    std::mutex swap_mutex_; // one swap at a time (tick and an install)
     std::thread thread_;
+    // Calls tick() every few seconds.
+    std::thread watcher_;
+    std::mutex stop_mutex_;
+    std::condition_variable stop_cv_;
+    bool stop_ = false;
 };
 
 } // namespace alembic::engine::update

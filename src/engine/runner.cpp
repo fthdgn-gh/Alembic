@@ -347,6 +347,13 @@ bool shadowmount_rescan(const EngineConfig& config, std::string* why) {
     return s.ok();
 }
 
+std::string shadowmount_source(const EngineConfig& config, const std::string& title_id) {
+    smp::Endpoint endpoint = shadowmount_endpoint(config);
+    if (!endpoint.enabled) return "";
+    auto source = smp::game_source(endpoint, title_id);
+    return source.ok() && *source ? strip_slashes(**source) : "";
+}
+
 // The check before the source is deleted. Both here: the files are compared
 // byte by byte. Either on another engine: each side's file digests are
 // worked out where its files are, both at once, and only the lists compared

@@ -54,7 +54,10 @@
 //   GET  /api/update                  this version, the latest release, payload files found
 //   POST /api/update/check            ask GitHub again
 //   POST /api/update/find {everywhere}  look for the payload files loaders start (PS5)
-//   POST /api/update/install {paths}  download the latest payload, replace those files, start it
+//   POST /api/update/app              replace only the console app's image (release = this version)
+//   POST /api/app/closing             the console app is closing (its image may be swapped)
+//   POST /api/update/install {paths, app}  download the latest payload (and the app's image unless
+//                                     app is false), replace those files, start it
 //                                     through the ELF loader and stop (PS5)
 #include "deps.hpp"
 #include "l10n.hpp"
@@ -274,6 +277,24 @@ public:
         u.log = [](const std::string& m) { log_line(m); };
         u.quit = [this] { request_quit(); };
         u.roots = [this] { return config_.available_roots(); };
+        u.smp_source = [this](const std::string& id) { return shadowmount_source(config_, id); };
+        u.smp_rescan = [this] { (void)shadowmount_rescan(config_); };
+        // ShadowMount+'s default scan folders on the console; on a PC (tests
+        // with --loader) <state>/homebrew stands in, as for backports.
+        u.scan_dirs = [this] {
+            if (std::string(platform::name()) != "ps5") return std::vector<std::string>{config_.state_dir + "/homebrew"};
+            std::vector<std::string> dirs = {"/data/homebrew"};
+            for (int i = 0; i < 8; ++i) dirs.push_back("/mnt/usb" + std::to_string(i) + "/homebrew");
+            return dirs;
+        };
+        u.game_info = [this](const std::string& path, std::string* id, std::string* ver) {
+            auto m = meta_.meta(path);
+            if (!m.ok()) return false;
+            *id = m->title_id;
+            *ver = m->version;
+            return true;
+        };
+        u.app_quiet = [this] { return app_quiet(); };
         updater_ = std::make_unique<update::Updater>(std::move(u));
         if (config_.check_updates) updater_->check();
         return {};
@@ -395,7 +416,21 @@ private:
         }
     }
 
+    // Seconds since the console app (User-Agent "Alembic-app...") last asked
+    // anything; since this engine started when it hasn't.
+    double app_quiet() const {
+        auto now = std::chrono::steady_clock::now();
+        std::lock_guard<std::mutex> lock(app_seen_mutex_);
+        return std::chrono::duration<double>(now - app_seen_).count();
+    }
+
     HttpResponse handle(const HttpRequest& r) {
+        if (auto ua = r.headers.find("user-agent"); ua != r.headers.end() && ua->second.rfind("Alembic-app", 0) == 0) {
+            std::lock_guard<std::mutex> lock(app_seen_mutex_);
+            // Closing: count as quiet a few seconds from now, once it has gone.
+            app_seen_ = r.path == "/api/app/closing" ? std::chrono::steady_clock::now() - std::chrono::seconds(12)
+                                                     : std::chrono::steady_clock::now();
+        }
         if (r.method == "OPTIONS") {
             HttpResponse resp = json(204, JsonValue());
             resp.body.clear();
@@ -467,6 +502,7 @@ private:
             return json(200, v);
         }
         if (r.path.rfind("/api/update", 0) == 0) return update_action(r);
+        if (r.path == "/api/app/closing" && r.method == "POST") return json(200, JsonValue::object());
         if (r.path == "/api/launcher" && r.method == "POST") return launcher(r);
         if (r.path == "/api/lang" && r.method == "POST") {
             auto body = parse_json(r.body);
@@ -556,8 +592,11 @@ private:
         } else if (r.path == "/api/update/install") {
             std::vector<std::string> paths;
             for (const JsonValue& p : (*body)["paths"].items()) paths.push_back(p.str());
-            if (Status s = updater_->install(paths); !s.ok()) return error(400, s.error().message);
+            if (Status s = updater_->install(paths, (*body)["app"].boolean(true)); !s.ok()) return error(400, s.error().message);
             log_line("update requested by " + r.peer);
+        } else if (r.path == "/api/update/app") {
+            if (Status s = updater_->install_app(); !s.ok()) return error(400, s.error().message);
+            log_line("app update requested by " + r.peer);
         } else {
             return error(404, "not found");
         }
@@ -1952,6 +1991,8 @@ private:
     std::mutex quit_mutex_;
     std::condition_variable quit_cv_;
     bool quit_ = false;
+    mutable std::mutex app_seen_mutex_;
+    std::chrono::steady_clock::time_point app_seen_ = std::chrono::steady_clock::now();
     const std::int64_t started_ms_ = std::chrono::duration_cast<std::chrono::milliseconds>(
                                          std::chrono::system_clock::now().time_since_epoch()).count();
     std::unique_ptr<update::Updater> updater_; // last: its worker may call request_quit()

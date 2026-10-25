@@ -974,6 +974,18 @@ void App::draw_connecting(Ui& ui) {
 
 void App::notice_update() {
     const JsonValue& u = info["update"];
+    // An engine newer than this app (updated from the page, or by hand):
+    // once per engine version and run of the app.
+    const std::string engine_version = info["version"].str();
+    if (platform.console && !engine_version.empty() && engine_version != mismatch_told_ &&
+        compare_versions(engine_version, platform.version) > 0) {
+        mismatch_told_ = engine_version;
+        toast(u["app_pending"].boolean()
+                  ? t("Alembic {version} is installed: close the app to finish updating it.", {{"version", engine_version}})
+                  : t("This app is {app}, the engine {engine}: Settings > Updates",
+                      {{"app", platform.version}, {"engine", engine_version}}),
+              Toast::ok);
+    }
     if (!u.is_object() || !u["newer"].boolean()) return;
     const std::string v = u["latest"].str();
     if (v.empty() || v == update_told_ || prefs["updateTold"].str() == v) return;

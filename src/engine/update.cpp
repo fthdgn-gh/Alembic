@@ -17,6 +17,8 @@ namespace alembic::engine::update {
 namespace {
 
 constexpr std::size_t kMaxPayload = 64u << 20; // a payload is ~4 MB
+constexpr std::size_t kMaxAppImage = 512u << 20; // the app's image is ~50 MB
+constexpr double kAppQuietSeconds = 15.0;        // the app polls every few seconds while open
 constexpr int kLoaderTimeoutMs = 3000;
 
 // Releases before the marker, by the SHA-256 of their alembic-vX.Y.Z.elf.
@@ -39,6 +41,22 @@ std::string sha256_hex(Bytes data) {
 }
 
 Bytes bytes_of(const std::string& s) { return Bytes(reinterpret_cast<const std::uint8_t*>(s.data()), s.size()); }
+
+Result<std::string> file_sha256(const std::string& path) {
+    std::FILE* f = open_stdio(path, "rb");
+    if (!f) return make_error(Errc::io, "cannot open " + path + ": " + last_os_error());
+    Sha256 h;
+    std::vector<std::uint8_t> buffer(1u << 20);
+    for (;;) {
+        std::size_t n = std::fread(buffer.data(), 1, buffer.size(), f);
+        if (n > 0) h.update(Bytes(buffer.data(), n));
+        if (n < buffer.size()) break;
+    }
+    bool failed = std::ferror(f) != 0;
+    std::fclose(f);
+    if (failed) return make_error(Errc::io, "cannot read " + path);
+    return Sha256::hex(h.finish());
+}
 
 bool contains(Bytes data, std::string_view needle) {
     if (needle.empty() || data.size() < needle.size()) return false;
@@ -128,7 +146,11 @@ Result<Release> parse_release(std::string_view json) {
     for (const JsonValue& a : (*v)["assets"].items()) {
         std::string name = a["name"].str();
         if (name == "SHA256SUMS") r.sums_url = a["browser_download_url"].str();
-        else if (ends_with(lower(name), ".elf") && r.elf_url.empty()) {
+        else if (lower(name).rfind("alembic-app-", 0) == 0 && ends_with(lower(name), ".ffpkg") && r.app_url.empty()) {
+            r.app_name = name;
+            r.app_url = a["browser_download_url"].str();
+            r.app_size = static_cast<std::uint64_t>(a["size"].integer(0));
+        } else if (ends_with(lower(name), ".elf") && r.elf_url.empty()) {
             r.elf_name = name;
             r.elf_url = a["browser_download_url"].str();
             r.elf_size = static_cast<std::uint64_t>(a["size"].integer(0));
@@ -194,6 +216,29 @@ std::string replace_all(std::string text, const std::string& from, const std::st
         }
     if (count) *count = n;
     return text;
+}
+
+std::string app_version_text(const std::string& content_version) {
+    std::string out, part;
+    auto flush = [&] {
+        std::size_t i = 0;
+        while (i + 1 < part.size() && part[i] == '0') ++i;
+        out += (out.empty() ? "" : ".") + part.substr(i);
+        part.clear();
+    };
+    for (char c : content_version) {
+        if (c == '.') flush();
+        else if (std::isdigit(static_cast<unsigned char>(c))) part += c;
+        else return content_version;
+    }
+    flush();
+    return out;
+}
+
+std::string app_image_name(const std::string& dir, const std::string& version) {
+    std::string name = "alembic-app-" + version + ".ffpkg";
+    for (int i = 2; path_exists(join_path(dir, name)); ++i) name = "alembic-app-" + version + "-" + std::to_string(i) + ".ffpkg";
+    return name;
 }
 
 std::vector<Found> find_payloads(const std::vector<std::string>& dirs, int depth, const std::string& new_version,
@@ -273,10 +318,167 @@ Status send_to_loader(const std::string& address, const std::string& elf) {
 
 // ---------------------------------------------------------------------------
 
-Updater::Updater(Options options) : o_(std::move(options)) {}
+Updater::Updater(Options options) : o_(std::move(options)) {
+    if (o_.loader.empty()) return; // a PC: no app to look after
+    watcher_ = std::thread([this] {
+        std::unique_lock<std::mutex> lock(stop_mutex_);
+        while (!stop_cv_.wait_for(lock, std::chrono::seconds(3), [this] { return stop_; })) {
+            lock.unlock();
+            tick();
+            lock.lock();
+        }
+    });
+}
 
 Updater::~Updater() {
+    {
+        std::lock_guard<std::mutex> lock(stop_mutex_);
+        stop_ = true;
+    }
+    stop_cv_.notify_all();
+    if (watcher_.joinable()) watcher_.join();
     if (thread_.joinable()) thread_.join();
+}
+
+// ---- the console app ----
+
+Updater::AppImage Updater::find_app(bool hash) const {
+    AppImage a;
+    auto ours = [&](const std::string& path, std::string* version) {
+        std::string id;
+        return o_.game_info && o_.game_info(path, &id, version) && id == kAppTitleId;
+    };
+    auto take = [&](const std::string& path, const std::string& version) {
+        a.path = path;
+        a.image = !is_directory(path);
+        a.version = app_version_text(version);
+    };
+    std::string version;
+    std::string source = o_.smp_source ? o_.smp_source(kAppTitleId) : "";
+    if (!source.empty() && path_exists(source)) {
+        take(source, ours(source, &version) ? version : "");
+    } else if (o_.scan_dirs) {
+        // Not known to ShadowMount+ (or its API is off): the folders it scans,
+        // names that look like the app first; only images it mounts as UFS2 and folders.
+        for (const std::string& dir : o_.scan_dirs()) {
+            auto entries = list_directory_entries(dir, true);
+            if (!entries.ok()) continue;
+            std::vector<std::string> likely, rest;
+            for (const DirEntry& e : *entries) {
+                if (e.name.empty() || e.name[0] == '.') continue;
+                std::string n = lower(e.name);
+                if (!e.stat.is_directory() && !ends_with(n, ".ffpkg")) continue;
+                (n.find("alembic") != std::string::npos || n.find(lower(kAppTitleId)) != std::string::npos ? likely : rest)
+                    .push_back(join_path(dir, e.name));
+            }
+            for (auto* list : {&likely, &rest})
+                for (const std::string& p : *list)
+                    if (a.path.empty() && ours(p, &version)) take(p, version);
+            if (!a.path.empty()) break;
+        }
+    }
+    if (hash && a.image) {
+        auto h = file_sha256(a.path);
+        if (h.ok()) a.sha256 = *h;
+    }
+    return a;
+}
+
+static std::string pending_path(const std::string& state_dir) { return state_dir + "/update/app-pending.json"; }
+
+bool Updater::app_pending() const { return path_exists(pending_path(o_.state_dir)); }
+
+Status Updater::stage_app(const AppImage& app, const Release& release, const std::string& sums) {
+    std::string want = checksum_for(sums, release.app_name);
+    if (want.empty()) return make_error(Errc::invalid_data, "SHA256SUMS does not list " + release.app_name);
+    ALEMBIC_ASSIGN(std::vector<std::uint8_t> data, o_.get(release.app_url, kMaxAppImage));
+    std::string got = sha256_hex(data);
+    if (got != want)
+        return make_error(Errc::invalid_data, "the downloaded app has an unexpected SHA-256 (" + got + "); nothing was changed");
+    std::string dir = app.path.substr(0, app.path.rfind('/'));
+    // A '.' name: ShadowMount+ does not see it until it is renamed.
+    std::string staged = join_path(dir, ".alembic-app-" + release.version + ".ffpkg.new");
+    ALEMBIC_TRY(write_text(staged, std::string(data.begin(), data.end())));
+    JsonValue p = JsonValue::object();
+    p.set("staged", staged);
+    p.set("old", app.path);
+    p.set("version", release.version);
+    p.set("sha256", got);
+    if (Status s = write_text(pending_path(o_.state_dir), p.dump()); !s.ok()) {
+        (void)remove_file(staged);
+        return s;
+    }
+    if (o_.log) o_.log("staged the app " + release.version + " as " + staged);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        app_.release_sha = got;
+    }
+    return {};
+}
+
+Status Updater::finish_app() {
+    std::lock_guard<std::mutex> swap(swap_mutex_);
+    std::string path = pending_path(o_.state_dir);
+    auto text = read_text(path, 1u << 16);
+    if (!text.ok()) return {}; // none
+    auto p = parse_json(*text);
+    std::string staged = p.ok() ? (*p)["staged"].str() : "", old = p.ok() ? (*p)["old"].str() : "";
+    std::string version = p.ok() ? (*p)["version"].str() : "";
+    if (staged.empty() || !path_exists(staged)) {
+        (void)remove_file(path);
+        return make_error(Errc::invalid_data, "the staged app image is gone");
+    }
+    std::string dir = staged.substr(0, staged.rfind('/'));
+    std::string final_path = join_path(dir, app_image_name(dir, version));
+    ALEMBIC_TRY(rename_path(staged, final_path));
+    // ShadowMount+ keeps the title on the old image while that exists; once
+    // it is gone, its next scan mounts the new one.
+    if (!old.empty() && old != final_path && is_regular_file(old)) {
+        if (Status s = remove_file(old); !s.ok() && o_.log) o_.log("the old app image stays: " + s.error().message);
+    }
+    (void)remove_file(path);
+    if (o_.log) o_.log("the app is now " + final_path);
+    if (o_.smp_rescan) o_.smp_rescan();
+    std::lock_guard<std::mutex> lock(mutex_);
+    app_.path = final_path;
+    app_.image = true;
+    app_.version = version;
+    app_.sha256 = p.ok() ? (*p)["sha256"].str() : "";
+    return {};
+}
+
+void Updater::tick() {
+    if (!app_pending()) return;
+    if (o_.app_quiet && o_.app_quiet() < kAppQuietSeconds) return;
+    if (Status s = finish_app(); !s.ok() && o_.log) o_.log("app update: " + s.error().message);
+}
+
+Status Updater::install_app() {
+    if (o_.loader.empty()) return make_error(Errc::unsupported, "updating itself needs the engine running on a PS5");
+    AppImage app;
+    Release release;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (state_ != "idle") return make_error(Errc::invalid_argument, "the updater is busy");
+        if (!has_release_ || release_.version != o_.current_version)
+            return make_error(Errc::invalid_argument, "the latest release is not this engine's version; update everything instead");
+        if (release_.app_url.empty()) return make_error(Errc::invalid_argument, "the latest release has no app image");
+        if (app_.path.empty() || !app_.image) return make_error(Errc::invalid_argument, "no app image to replace was found");
+        app = app_;
+        release = release_;
+        state_ = "downloading";
+        error_.clear();
+    }
+    run([this, app, release] {
+        auto sums = o_.get(release.sums_url, 1u << 20);
+        Status s = sums.ok() ? stage_app(app, release, std::string(sums->begin(), sums->end())) : Status(sums.error());
+        if (!s.ok()) {
+            if (o_.log) o_.log("app update failed: " + s.error().message);
+            std::lock_guard<std::mutex> lock(mutex_);
+            error_ = s.error().message;
+        }
+    });
+    return {};
 }
 
 void Updater::set_state(const std::string& state) {
@@ -325,6 +527,18 @@ void Updater::check() {
             found_ = std::move(found);
             searched_ = "usual";
         }
+        // The console app, and whether the release's image differs from it.
+        if (r.ok() && !o_.loader.empty()) {
+            set_state("searching");
+            AppImage app = find_app(true);
+            if (!r->app_name.empty()) {
+                auto sums = o_.get(r->sums_url, 1u << 20);
+                if (sums.ok()) app.release_sha = checksum_for(std::string(sums->begin(), sums->end()), r->app_name);
+            }
+            std::lock_guard<std::mutex> lock(mutex_);
+            app_ = std::move(app);
+            app_checked_ = true;
+        }
     });
 }
 
@@ -348,7 +562,7 @@ void Updater::find(bool everywhere) {
     });
 }
 
-Status Updater::install(const std::vector<std::string>& paths) {
+Status Updater::install(const std::vector<std::string>& paths, bool app) {
     if (o_.loader.empty()) return make_error(Errc::unsupported, "updating itself needs the engine running on a PS5");
     std::vector<Found> chosen;
     Release release;
@@ -367,8 +581,8 @@ Status Updater::install(const std::vector<std::string>& paths) {
         state_ = "downloading";
         error_.clear();
     }
-    run([this, chosen, release] {
-        Status s = do_install(chosen, release);
+    run([this, chosen, release, app] {
+        Status s = do_install(chosen, release, app);
         if (!s.ok()) {
             if (o_.log) o_.log("update failed: " + s.error().message);
             std::lock_guard<std::mutex> lock(mutex_);
@@ -425,7 +639,7 @@ Status Updater::restart() {
     return {};
 }
 
-Status Updater::do_install(const std::vector<Found>& chosen, const Release& release) {
+Status Updater::do_install(const std::vector<Found>& chosen, const Release& release, bool app) {
     // Download and check everything before touching a file.
     ALEMBIC_ASSIGN(std::vector<std::uint8_t> sums, o_.get(release.sums_url, 1u << 20));
     std::string want = checksum_for(std::string(sums.begin(), sums.end()), release.elf_name);
@@ -439,6 +653,18 @@ Status Updater::do_install(const std::vector<Found>& chosen, const Release& rele
     std::string elf(data.begin(), data.end());
     ALEMBIC_TRY(write_text(o_.state_dir + "/update/" + release.elf_name, elf));
     if (o_.log) o_.log("downloaded " + release.elf_name + " (" + got + ")");
+
+    // The app's image too, when it differs; it is swapped once the app is
+    // quiet (by this engine or the new one). A failure here stops nothing.
+    AppImage installed;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        installed = app_;
+    }
+    if (app && installed.image && !release.app_url.empty() && installed.sha256 != checksum_for(std::string(sums.begin(), sums.end()), release.app_name)) {
+        if (Status s = stage_app(installed, release, std::string(sums.begin(), sums.end())); !s.ok() && o_.log)
+            o_.log("the app was not updated: " + s.error().message);
+    }
 
     set_state("replacing");
     for (const Found& f : chosen) {
@@ -487,6 +713,19 @@ JsonValue Updater::status() const {
         list.push(std::move(e));
     }
     v.set("payloads", std::move(list));
+    // The console app: null until looked for (a console only).
+    if (app_checked_) {
+        JsonValue a = JsonValue::object();
+        a.set("path", app_.path);
+        a.set("image", app_.image);
+        a.set("version", app_.version);
+        a.set("in_release", !app_.release_sha.empty());
+        a.set("current", !app_.sha256.empty() && app_.sha256 == app_.release_sha);
+        v.set("app", std::move(a));
+    } else {
+        v.set("app", JsonValue());
+    }
+    v.set("app_pending", app_pending());
     return v;
 }
 
@@ -496,6 +735,7 @@ JsonValue Updater::summary() const {
     v.set("state", state_);
     v.set("latest", has_release_ ? JsonValue(release_.version) : JsonValue());
     v.set("newer", has_release_ && compare_versions(release_.version, o_.current_version) > 0);
+    v.set("app_pending", app_pending());
     return v;
 }
 

@@ -88,13 +88,22 @@ environment in `.refs/mkpfs-venv`).
   other engine must understand (a new required field, a changed meaning, a
   removed endpoint); engines with different numbers refuse each other and
   say which to update. Page fixes and new formats never change it.
+- **Older apps:** an app older than its engine must still be able to notice
+  and fix that. Every later engine keeps `/api/info`'s `version`, `started`
+  and `update`, `GET /api/update` (its `app`, `app_pending`, `latest`,
+  `current`), `POST /api/update/app`, `/api/update/install`,
+  `/api/app/closing` and `/api/restart` working as they are (new fields are
+  fine), and keeps telling the app by its User-Agent (`Alembic-app...`).
 - **Updating itself:** the engine checks GitHub's latest release at start;
   Settings → Updates downloads the payload (checked against `SHA256SUMS` and
   the `ALEMBIC_PAYLOAD_VERSION:` marker in the ELF), replaces the payload
   files loaders start (Payload Manager slots renamed, their `meta.json`
   fixed by plain text replace; autoloader files keep their names), sends it
   to the ELF loader on 9021 and quits; a new engine stops an older one on
-  its port first. See `src/engine/update.hpp`.
+  its port first. The console app's image is replaced in the same update
+  when its SHA-256 differs (staged under a '.' name, swapped once the app
+  has been quiet for 15 s, then a ShadowMount+ rescan). See
+  `src/engine/update.hpp`.
 - **Language rules:** C++20 with no exceptions and no RTTI (the PS5 build
   forbids them), so errors are returned as values.
 - **Windows:** cross-built with llvm-mingw, tested on a GitHub Windows runner

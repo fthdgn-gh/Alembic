@@ -76,6 +76,8 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
 // Asks ShadowMount+ for a rescan (retry counters reset); false with the
 // reason when its API is not there.
 bool shadowmount_rescan(const EngineConfig& config, std::string* why = nullptr);
+// The source ShadowMount+ runs `title_id` from ("" when unknown or no API).
+std::string shadowmount_source(const EngineConfig& config, const std::string& title_id);
 
 // Checkpoints of interrupted conversions, in <state>/resume/<hash of the
 // output>.json, with the partial output at "<output>.alembic-partial". A
