@@ -2128,6 +2128,38 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   loading libSceHttp from a native title, and the download itself, on a
   console.
 
+### 2026-10-25: darkxex/ps5-homebrew-catalog (the store)
+
+- **Its rules** (docs/submitting.md, metadata.md, versioning.md,
+  artifact-formats.md, review-policy.md), against Alembic:
+  - native app with its own title ID: PPSA99594, free in the catalog (138
+    records checked), so is the name "Alembic"; never change the title ID;
+  - public GitHub repo with a license GitHub detects: `GPL-3.0` (the record's
+    `license` must be exactly that);
+  - a published (not draft) release tagged with the version; the record's
+    `version` is the tag without its `v`;
+  - the artifact is a `.zip` of the `PPSA99594/` folder at its top: our
+    `alembic-app-<v>.zip` (only the version changes in its name between
+    releases, as they ask); `.ffpkg` may sit beside it, the catalog ignores
+    it; it never opens or runs the ZIP (only GitHub's SHA-256 of it), so the
+    engine payload inside the app is fine; never replace a listed asset;
+  - `contentVersion` raised every release, `NN.NNN.NNN`, and the committed
+    `app/sce_sys/param.json` at the tag must hold the shipped value:
+    `app/build.sh` now stops when it differs from CMakeLists.txt's version
+    (raise both in a version bump); set to `00.002.003` for now;
+  - icon: square PNG at a URL pinned to the tag (`app/sce_sys/icon0.png`,
+    512×512), next to that param.json, where the catalog looks first;
+  - release notes: what changed first, under short headings with bullet
+    lists (Markdown headings; images, links and HTML are dropped);
+  - GitHub immutable releases are recommended (a repository setting).
+- **Submitting** after the first release with the ZIP:
+  `tools/catalog_record.py v0.3.0 > PPSA99594.json` writes the record
+  (`kind` app, `category` utilities, GitHub's digest, icon pinned to the
+  tag; author from git's user.name unless `--author`); add it as
+  `apps/PPSA99594.json` in a fork of the catalog, changing nothing else, and
+  open the PR from the fthdgn-gh account (the repo's owner). Later releases:
+  the catalog's daily job proposes them.
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and

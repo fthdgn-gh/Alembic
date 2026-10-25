@@ -42,6 +42,14 @@ version=${ALEMBIC_APP_VERSION:-$(sed -n 's/^project(Alembic VERSION \([0-9.]*\).
 [[ $version =~ ^[0-9]{1,2}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || { echo "bad version '$version'" >&2; exit 2; }
 IFS=. read -r v_major v_minor v_patch <<<"$version"
 content_version=$(printf '%02d.%03d.%03d' "$((10#$v_major))" "$((10#$v_minor))" "$((10#$v_patch))")
+# The homebrew catalog reads contentVersion from the committed param.json at
+# the release's tag: it must be the version the build ships (raise both
+# together in a version bump). ALEMBIC_APP_VERSION builds (update tests) skip this.
+committed=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["contentVersion"])' "$param")
+if [[ -z ${ALEMBIC_APP_VERSION:-} && $committed != "$content_version" ]]; then
+    echo "app/sce_sys/param.json has contentVersion $committed, but Alembic is $version ($content_version): update it" >&2
+    exit 2
+fi
 
 bash "$kit/tools/validate-assets.sh" "$app/sce_sys"
 bash "$kit/tools/prepare-opengl.sh" >/dev/null
