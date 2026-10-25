@@ -202,12 +202,23 @@ jobs:
         run: |
           tar -xzf cli/alembic-linux-x64.tar.gz -C cli
           ALEMBIC_CLI="$PWD/cli/alembic" ALEMBIC_ENGINE_ELF="$PWD/payload/alembic-$VERSION.elf" app/build.sh
-      - name: Name it alembic-app-<version>.ffpkg
-        run: mkdir -p dist && cp build-app/dist/PPSA99594.ffpkg "dist/alembic-app-$VERSION.ffpkg"
-      - name: Upload the app
+      - name: Name them alembic-app-<version>.ffpkg and .zip
+        run: |
+          mkdir -p dist
+          cp build-app/dist/PPSA99594.ffpkg "dist/alembic-app-$VERSION.ffpkg"
+          cp build-app/dist/PPSA99594.zip "dist/alembic-app-$VERSION.zip"
+      - name: Upload the app image
         uses: actions/upload-artifact@v7
         with:
           path: dist/alembic-app-${{ env.VERSION }}.ffpkg
+          archive: false
+          if-no-files-found: error
+      # The same app as a folder (zipped, entries 0777), for stores and
+      # loaders that take a folder rather than an image.
+      - name: Upload the app folder
+        uses: actions/upload-artifact@v7
+        with:
+          path: dist/alembic-app-${{ env.VERSION }}.zip
           archive: false
           if-no-files-found: error
 
@@ -243,6 +254,11 @@ jobs:
         with:
           name: alembic-app-${{ env.VERSION }}.ffpkg
           path: artifacts
+      # A .zip artifact is unpacked: the app folder (PPSA99594) lands here.
+      - uses: actions/download-artifact@v8
+        with:
+          name: alembic-app-${{ env.VERSION }}.zip
+          path: artifacts/app
       # download-artifact unpacks a .zip artifact: the .exe files land here.
       - uses: actions/download-artifact@v8
         with:
@@ -270,6 +286,12 @@ jobs:
           cp "artifacts/$app" "dist/$name/ps5/"
           cp "artifacts/$app" dist/
           echo "APP=$app" >> "$GITHUB_ENV"
+          # And as a folder, zipped again with every entry stored 0777 (the
+          # console starts an app only when its files are open to all).
+          app_zip="alembic-app-$VERSION.zip"
+          (cd artifacts/app && python3 -m zipfile -c "../../dist/$app_zip" PPSA99594)
+          python3 third_party/ps5-homebrew-ui/tools/zip-open-modes.py "dist/$app_zip"
+          echo "APP_ZIP=$app_zip" >> "$GITHUB_ENV"
           (cd dist && zip -qr "$name.zip" "$name")
           # Each PC build on its own too, with the README and licenses:
           # .tar.gz for Linux and macOS (it keeps the executable bits), .zip for Windows.
@@ -286,7 +308,7 @@ jobs:
             fi
           done
           echo "PACKAGES=${packages[*]}" >> "$GITHUB_ENV"
-          (cd dist && sha256sum "$name.zip" "$elf" "$app" "${packages[@]}" > SHA256SUMS)
+          (cd dist && sha256sum "$name.zip" "$elf" "$app" "$app_zip" "${packages[@]}" > SHA256SUMS)
           (cd dist && find "$name" -type f | sort && ls -la "${packages[@]}" && cat SHA256SUMS)
       # The zip itself (archive: false), not a zip inside a zip; it keeps the
       # executable bits.
@@ -305,7 +327,7 @@ jobs:
         run: |
           git fetch --force origin "$GITHUB_REF:$GITHUB_REF"
           git tag -l --format='%(contents:body)' "$GITHUB_REF_NAME" > dist/notes.md
-          assets=("dist/$BUNDLE.zip" "dist/alembic-$VERSION.elf" "dist/$APP" dist/SHA256SUMS)
+          assets=("dist/$BUNDLE.zip" "dist/alembic-$VERSION.elf" "dist/$APP" "dist/$APP_ZIP" dist/SHA256SUMS)
           for p in $PACKAGES; do assets+=("dist/$p"); done
           gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" --title "Alembic $GITHUB_REF_NAME" --notes-file dist/notes.md

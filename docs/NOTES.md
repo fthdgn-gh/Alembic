@@ -2091,6 +2091,14 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   drive came back on its own when it restarted. The page was type-checked,
   not looked at in a browser.
 
+### 2026-10-25: the app's folder ZIP back in releases
+
+- **Owner:** releases carry the ZIP again, next to the `.ffpkg`, for a
+  homebrew store that takes no images. CI uploads both; the bundle job zips
+  the downloaded folder again with every entry stored 0777 (as before the
+  `.ffpkg`) and lists both in SHA256SUMS. The updater only looks at the
+  `.ffpkg` (`alembic-app-*.ffpkg`), so the ZIP changes nothing there.
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and

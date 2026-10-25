@@ -51,8 +51,10 @@ environment in `.refs/mkpfs-venv`).
   the engine payload with its web page, and (from 0.3.0) a native app
   (`app/`, title PPSA99594) built on ps5-homebrew-ui that draws the same
   page and talks to the engine on 127.0.0.1:5940. Releases ship it as
-  `alembic-app-<version>.ffpkg` (written by Alembic itself); engine and app
-  share one version and one release.
+  `alembic-app-<version>.ffpkg` (written by Alembic itself; what updates
+  replace) and as `alembic-app-<version>.zip` (the folder, entries 0777, for
+  stores that take no images); engine and app share one version and one
+  release.
 - **End goal: a PS5 homebrew.** The CLI is the test bed. Like
   PS5-LZ4-Compression, the engine runs as a payload ELF (which can reach
   `/data` and USB); the app is only a front end and sends its bundled
