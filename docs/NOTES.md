@@ -2085,6 +2085,8 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
    each any engine on the network. Steps 1-4 (discovery, pairing, peer files
    as inputs and outputs, choosing the converting engine) done 2026-10-22;
    ✓ owner: the console and a PC pair and work together (2026-10-24).
+   ✓ owner: an FPKG on the PC converted by the PC engine into an FFPFSC
+   written to the console works (2026-10-25).
 5. Smaller: retail/patch packages, NAPS shuffle layouts, Kraken-compressed
    FPKG output, less pass-1 memory for LZ4.
 
