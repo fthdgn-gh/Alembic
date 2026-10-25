@@ -109,6 +109,13 @@ public:
 
     void load_info();
     void refresh_jobs(bool remote_now = false);
+    // Settings > Restart the engine (after the question): the engine starts
+    // a copy of itself; an engine that can't (none found, or before 0.3.0)
+    // is stopped and the app's own engine started, when that is not older.
+    void restart_engine();
+    // Sends the app's own engine to the ELF loader (Settings, once the engine stopped).
+    void start_own_engine();
+    bool restarting() const { return restart_ != Restart::none; }
     void load_peers();
 
     // ---- requests ----
@@ -246,6 +253,13 @@ private:
     Start start_ = Start::waiting;
     float start_timer_ = 0.0f;
     std::string start_error_;
+    // restarting the engine: until it went away and answers again
+    enum class Restart { none, waiting, start_own };
+    Restart restart_ = Restart::none;
+    float restart_timer_ = 0.0f;
+    bool restart_gone_ = false;
+    std::string restart_from_;  // the engine's "started" before the restart
+    float restart_poll_ = 0.0f;
     bool i18n_loaded_ = false;
     bool i18n_busy_ = false;
     bool first_browse_ = false;

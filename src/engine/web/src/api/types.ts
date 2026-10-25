@@ -24,6 +24,8 @@ export interface Info {
   lang: string;
   protocol?: number; // how it talks to other engines (peers.hpp kPeerProtocol); none before v0.2.1
   update?: { state: string; latest: string | null; newer: boolean }; // none before v0.2.3
+  can_restart?: boolean; // a PS5 engine can start itself again (none before v0.3.0)
+  started?: number; // when this engine started (ms): changes with a restart
 }
 
 // GET /api/update (update.hpp): this version, GitHub's latest, payload files found.

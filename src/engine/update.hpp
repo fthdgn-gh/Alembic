@@ -110,6 +110,10 @@ public:
     // Downloads, checks, replaces the chosen files (paths from the last
     // search), starts the new engine and stops this one.
     Status install(const std::vector<std::string>& paths);
+    // Starts this same version again: a copy of its payload (its own update
+    // download, or one a loader starts) goes to the ELF loader, and this
+    // engine stops. Fails when no copy of this version is found.
+    Status restart();
 
     JsonValue status() const;
     JsonValue summary() const; // for /api/info: {latest, newer, state}
@@ -121,7 +125,7 @@ private:
 
     Options o_;
     mutable std::mutex mutex_;
-    std::string state_ = "idle"; // checking, searching, downloading, replacing, starting
+    std::string state_ = "idle"; // checking, searching, downloading, replacing, starting, restarting
     std::string error_;
     std::int64_t checked_ = 0;
     bool has_release_ = false;

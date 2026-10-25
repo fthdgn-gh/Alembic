@@ -2,6 +2,7 @@
 #include "app/app.hpp"
 
 #include "app/dialogs.hpp"
+#include "app/format.hpp"
 #include "app/image.hpp"
 #include "app/pages.hpp"
 
@@ -211,11 +212,11 @@ void App::refresh_jobs(bool remote_now) {
                 if (answered || start_ == Start::none) not_connected = t("Engine not reachable");
                 return;
             }
-            const bool first = !answered;
+            const bool first = !answered, back = !not_connected.empty();
             not_connected.clear();
             answered = true;
             start_ = Start::none;
-            if (first || info.is_null()) load_info();
+            if (first || back || info.is_null()) load_info();
             std::vector<JsonValue> list = r.json.items();
             // Other engines' jobs: every second while one of them works or
             // the queue is open, else every five seconds.
@@ -579,6 +580,32 @@ void App::tick(float dt) {
             }
         }
     }
+    if (restart_ != Restart::none) {
+        restart_timer_ += dt;
+        if (!not_connected.empty()) restart_gone_ = true;
+        // The new engine can take over the port between two polls: a new start time tells too.
+        if (!restart_from_.empty() && info.has("started") && info["started"].dump() != restart_from_) restart_gone_ = true;
+        restart_poll_ += dt;
+        if (restart_ == Restart::waiting && restart_poll_ > 1.0f) {
+            restart_poll_ = 0.0f;
+            load_info();
+        }
+        if (restart_ == Restart::start_own && restart_gone_) {
+            std::string why;
+            if (platform.start_engine && platform.start_engine(&why)) {
+                restart_ = Restart::waiting;
+            } else {
+                restart_ = Restart::none;
+                toast(why, Toast::bad);
+            }
+        } else if (restart_ == Restart::waiting && restart_gone_ && not_connected.empty()) {
+            restart_ = Restart::none;
+            toast(t("Engine restarted"), Toast::ok);
+        } else if (restart_timer_ > 90.0f) {
+            restart_ = Restart::none;
+            toast(t("The engine did not answer after it was started."), Toast::bad);
+        }
+    }
     if (start_ == Start::sent) {
         start_timer_ += dt;
         if (start_timer_ > 30.0f) {
@@ -586,6 +613,49 @@ void App::tick(float dt) {
             start_error_ = t("The engine did not answer after it was started.");
         }
     }
+}
+
+void App::restart_engine() {
+    if (restart_ != Restart::none) return;
+    post("/api/restart", JsonValue::object(), [this](const Reply& r) {
+        restart_timer_ = 0.0f;
+        restart_gone_ = false;
+        restart_from_ = info.has("started") ? info["started"].dump() : "";
+        if (r.ok()) {
+            restart_ = Restart::waiting;
+            toast(t("Restarting the engine\xE2\x80\xA6"), Toast::ok);
+            return;
+        }
+        // No copy of its payload, or an engine before 0.3.0: stop it and
+        // start the app's own, unless that one is older than it.
+        const std::string running = info["version"].str();
+        if (!platform.start_engine || running.empty() || compare_versions(platform.version, running) < 0) {
+            toast(t_msg(r.error()), Toast::bad);
+            return;
+        }
+        post("/api/quit", JsonValue::object(), [this](const Reply& q) {
+            if (!q.ok()) {
+                toast(t_msg(q.error()), Toast::bad);
+                return;
+            }
+            restart_ = Restart::start_own;
+            toast(t("Restarting the engine\xE2\x80\xA6"), Toast::ok);
+        });
+    });
+}
+
+void App::start_own_engine() {
+    if (restart_ != Restart::none || !platform.start_engine) return;
+    std::string why;
+    if (!platform.start_engine(&why)) {
+        toast(why, Toast::bad);
+        return;
+    }
+    restart_ = Restart::waiting;
+    restart_timer_ = 0.0f;
+    restart_gone_ = true;
+    restart_from_.clear();
+    toast(t("Starting the engine\xE2\x80\xA6"), Toast::ok);
 }
 
 void App::frame(Ui& ui) {

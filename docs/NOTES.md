@@ -1979,6 +1979,35 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   the console. Not yet confirmed: sending the payload to the ELF loader
   on 9021, controller feel, frame rate, sounds.
 
+### 2026-10-25: restarting the engine, and the app's version
+
+- **Owner (console):** the app stopped the engine; reopened, it started it
+  again through the ELF loader. Asked for a restart button, the app as an
+  `.ffpkg`, and app updates; decided on one version for engine and app.
+- **`POST /api/restart`** (`Updater::restart`, PS5 only): the console
+  started the engine from a socket, so it looks for a copy of its own
+  version (its own update download in `<state>/update/` first, then the
+  Payload Manager and autoloader folders the updater searches; checked by
+  the `ALEMBIC_PAYLOAD_VERSION:` marker), hands it to the ELF loader and
+  stops; the new engine takes over the port. 409 with "no copy of this
+  engine's payload ..." when none is found. `/api/info` gains `can_restart`
+  and `started` (ms): the new engine can take the port between two polls,
+  so the page and the app watch `started` change rather than wait for a gap.
+- **Page and app:** Settings → Engine → "Restart the engine" (question
+  with the running-job notes the update uses). The app falls back, when the
+  engine can't restart itself (none found, or an engine before 0.3.0), to
+  stopping it and sending its own payload, but only when the app's version
+  is not older than the engine's. Once the engine is gone, the app's engine
+  card shows "Start the engine" (its own payload) instead.
+- **One version:** `app/build.sh` takes Alembic's version from
+  CMakeLists.txt (or `ALEMBIC_APP_VERSION`, for update tests), writes it into
+  the copied `param.json` (`contentVersion` `NN.NNN.NNN`) and into
+  `app_version.h`; Settings shows it as "App version".
+- Checked on the Mac: a PC engine with `--loader` pointing at a stand-in
+  loader that starts a new engine; the app preview restarts it ("Restarting
+  the engine…", then "Engine restarted"). Not checked: the page's button in
+  a browser, "Start the engine" (the preview has no loader), the console.
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and
@@ -2072,11 +2101,25 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
 
 **Open:**
 - **Console app (0.3.0):** ✓ first console run (owner, 2026-10-25): the
-  app starts, reaches the engines and ran a PC-engine conversion to the
-  console. Still to hear: whether it started the engine itself (ELF
-  loader on 9021), controller feel, frame rate, sounds. Then: game icons in the
-  preview's stand-in engine (PNG), the console's fonts for Japanese, local
-  time for dates, README section and screenshots before the release.
+  app starts, reaches the engines, ran a PC-engine conversion to the
+  console, stopped the engine and (reopened) started it through the ELF
+  loader; it feels right. ✓ Restart the engine (2026-10-25). Agreed next
+  (owner, 2026-10-25; see the log entry "restarting the engine"):
+  1. the app ships as `alembic-app-<version>.ffpkg` built by our own UFS
+     writer in CI (the folder stays for development);
+  2. one version and one release for engine and app; the engine's updater
+     also replaces the app image (only when its SHA-256 differs), however the
+     update was started (page or app); an open app is swapped when it
+     closes (staged under a dot name ShadowMount+ skips, then rescan), or
+     at the engine's next start;
+  3. an app older than the engine shows a banner with "Update the app";
+     the requests it needs for that (`/api/info` version, the update
+     requests) must keep working in every later engine;
+  4. the console test fakes a lower local version (as with the payload),
+     and needs a release after the first one that carries the image.
+  Then: game icons in the preview's stand-in engine (PNG), the console's
+  fonts for Japanese, local time for dates, README section and screenshots
+  before the release.
 0. ✓ Updating itself, tried on the console through Payload Manager
    (2026-10-24).
 1. Owner's console test: install an Alembic-made FPKG.

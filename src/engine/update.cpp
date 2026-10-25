@@ -378,6 +378,53 @@ Status Updater::install(const std::vector<std::string>& paths) {
     return {};
 }
 
+Status Updater::restart() {
+    if (o_.loader.empty()) return make_error(Errc::unsupported, "restarting needs the engine running on a PS5");
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (state_ != "idle") return make_error(Errc::invalid_argument, "the updater is busy");
+        state_ = "restarting";
+        error_.clear();
+    }
+    // The console started this engine from a socket, not a file: look for a
+    // copy of the same version, its own update download first.
+    std::vector<std::string> dirs = {o_.state_dir + "/update"};
+    for (const std::string& d : usual_places()) dirs.push_back(d);
+    // "" as the new version: the search otherwise leaves out files already at it.
+    std::vector<Found> found = find_payloads(dirs, 3, "");
+    const std::string own = o_.state_dir + "/update/";
+    std::stable_partition(found.begin(), found.end(), [&](const Found& f) { return f.path.rfind(own, 0) == 0; });
+    std::string elf, from;
+    for (const Found& f : found) {
+        if (f.version != o_.current_version) continue;
+        auto data = read_text(f.path, kMaxPayload);
+        if (!data.ok()) continue;
+        PayloadId id = identify(bytes_of(*data));
+        if (!id.alembic || id.version != o_.current_version) continue;
+        elf = std::move(*data);
+        from = f.path;
+        break;
+    }
+    if (elf.empty()) {
+        set_state("idle");
+        return make_error(Errc::unsupported, "no copy of this engine's payload (Alembic " + o_.current_version +
+                                               ") was found; load it again with your payload loader");
+    }
+    if (o_.log) o_.log("restarting from " + from);
+    run([this, elf = std::move(elf)] {
+        if (Status s = send_to_loader(o_.loader, elf); !s.ok()) {
+            if (o_.log) o_.log("restart failed: " + s.error().message);
+            std::lock_guard<std::mutex> lock(mutex_);
+            error_ = s.error().message;
+            return;
+        }
+        if (o_.log) o_.log("Alembic " + o_.current_version + " handed to the ELF loader again; stopping");
+        std::this_thread::sleep_for(std::chrono::milliseconds(800));
+        if (o_.quit) o_.quit();
+    });
+    return {};
+}
+
 Status Updater::do_install(const std::vector<Found>& chosen, const Release& release) {
     // Download and check everything before touching a file.
     ALEMBIC_ASSIGN(std::vector<std::uint8_t> sums, o_.get(release.sums_url, 1u << 20));

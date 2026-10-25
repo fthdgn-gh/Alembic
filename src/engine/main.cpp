@@ -49,6 +49,8 @@
 //   POST /api/remote/ID/data?offset=N one piece, as the raw body
 //   POST /api/quit                    stop the engine (a running job with a checkpoint continues
 //                                     at the next start)
+//   POST /api/restart                 start this version again through the ELF loader (PS5; 409 when
+//                                     no copy of its payload is found)
 //   GET  /api/update                  this version, the latest release, payload files found
 //   POST /api/update/check            ask GitHub again
 //   POST /api/update/find {everywhere}  look for the payload files loaders start (PS5)
@@ -456,6 +458,14 @@ private:
             request_quit();
             return json(200, JsonValue::object());
         }
+        if (r.path == "/api/restart" && r.method == "POST") {
+            if (!updater_) return error(503, "the engine is starting");
+            if (Status s = updater_->restart(); !s.ok()) return error(409, s.error().message);
+            log_line("restart requested by " + r.peer);
+            JsonValue v = JsonValue::object();
+            v.set("restarting", true);
+            return json(200, v);
+        }
         if (r.path.rfind("/api/update", 0) == 0) return update_action(r);
         if (r.path == "/api/launcher" && r.method == "POST") return launcher(r);
         if (r.path == "/api/lang" && r.method == "POST") {
@@ -607,6 +617,9 @@ private:
         v.set("protocol", static_cast<std::int64_t>(peers::kPeerProtocol)); // how it talks to other engines
         v.set("lang", l10n::language());
         if (updater_) v.set("update", updater_->summary());
+        v.set("can_restart", updater_ && !config_.loader.empty());
+        v.set("started", started_ms_); // tells a restarted engine from the one before
+
         return json(200, v);
     }
 
@@ -1939,6 +1952,8 @@ private:
     std::mutex quit_mutex_;
     std::condition_variable quit_cv_;
     bool quit_ = false;
+    const std::int64_t started_ms_ = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                         std::chrono::system_clock::now().time_since_epoch()).count();
     std::unique_ptr<update::Updater> updater_; // last: its worker may call request_quit()
 };
 

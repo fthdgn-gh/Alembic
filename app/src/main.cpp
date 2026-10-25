@@ -11,7 +11,7 @@
 #include "audio/mixer.hpp"
 #include "core/input.hpp"
 #include "core/save_file.hpp"
-#include "core/version.hpp"
+#include "app_version.h"
 #include "engine/client.hpp"
 #include "engine/http.hpp"
 #include "gfx/renderer.hpp"
@@ -88,7 +88,7 @@ int main() {
 
     alembic::app::Platform platform;
     platform.console = true;
-    platform.version = read_content_version("/app0/sce_sys/param.json");
+    platform.version = ALEMBIC_APP_VERSION;
     platform.make_texture = [&renderer](int w, int h, const std::uint8_t* rgba) {
         return renderer.batch().create_texture(w, h, rgba);
     };

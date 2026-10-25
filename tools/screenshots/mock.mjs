@@ -80,6 +80,7 @@ const PEERS = {
 const realInfo = JSON.parse(fs.readFileSync(path.join(DATA, "info.json"), "utf8"));
 const INFO = Object.assign({}, realInfo, {
   id: SELF, platform: "ps5", os: "PS5", host_name: "PS5", state_dir: "/data/alembic", roots: ["/data", "/mnt/usb0"],
+  can_restart: true,
   network_urls: ["http://192.168.1.30:5940/"], local_url: "http://192.168.1.30:5940/", open_to_network: true,
   lz4_runtime: { path: "/data/alembic/runtime/libSceAmpr.sprx", present: true, sha256: "", pinned: true },
   launcher: { supported: true, installed: true, title_id: "ALEM00001", status: "registered", off: false },

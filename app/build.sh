@@ -10,6 +10,9 @@
 # and, on a Mac, GNU coreutils and findutils (Homebrew). The PS5 payload SDK
 # v0.42, zlib, the ps5-opengl SDK and (on a Mac) clang's x86-64 builtins are
 # downloaded into build-app/ and checked against pinned SHA-256s.
+# The app's version is Alembic's (CMakeLists.txt's project version), or
+# ALEMBIC_APP_VERSION=X.Y.Z (an older one tests updating the app); it goes
+# into param.json's contentVersion and the app's code.
 # ALEMBIC_ENGINE_ELF=FILE puts that engine payload into the app, which sends
 # it to the ELF loader when no engine answers (default: build-ps5/alembic.elf
 # when it exists).
@@ -33,6 +36,11 @@ module_sdk=0x02000009
 companion_sdk=0x08050001
 fself_magic=0x1D3D154F
 
+version=${ALEMBIC_APP_VERSION:-$(sed -n 's/^project(Alembic VERSION \([0-9.]*\).*/\1/p' "$repo/CMakeLists.txt")}
+[[ $version =~ ^[0-9]{1,2}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || { echo "bad version '$version'" >&2; exit 2; }
+IFS=. read -r v_major v_minor v_patch <<<"$version"
+content_version=$(printf '%02d.%03d.%03d' "$((10#$v_major))" "$((10#$v_minor))" "$((10#$v_patch))")
+
 bash "$kit/tools/validate-assets.sh" "$app/sce_sys"
 bash "$kit/tools/prepare-opengl.sh" >/dev/null
 sdk_root="$HUI_WORK/.deps/native/ps5-payload-sdk"
@@ -41,7 +49,11 @@ build="$work/build"
 tool="$HUI_WORK/build/host/ps5-native-tool"
 [[ -f $HUI_WORK/runtime/libc.prx ]] || bash "$kit/tools/rebuild-libc.sh" >/dev/null
 bash "$kit/tools/build-host-tools.sh"
-mkdir -p "$build/obj"
+mkdir -p "$build/obj" "$build/gen"
+# The version for the code; rewritten only when it changes (no needless rebuild).
+version_header="$build/gen/app_version.h"
+printf '#pragma once\n#define ALEMBIC_APP_VERSION "%s"\n' "$version" > "$version_header.new"
+if cmp -s "$version_header.new" "$version_header"; then rm "$version_header.new"; else mv "$version_header.new" "$version_header"; fi
 
 source "$kit/tools/ninja-build.sh"
 ninja_begin "$build/app.ninja"
@@ -55,7 +67,7 @@ while IFS= read -r -d '' source; do sources+=("$source"); done < <(
         ! -path "$app/src/host/*" -print0 | sort -z)
 sources+=("$repo/src/engine/json_value.cpp")
 
-includes=(-I"$kit/src" -I"$app/src" -I"$repo/src/engine" -I"$repo/src/core/include" -I"$opengl/include")
+includes=(-I"$build/gen" -I"$kit/src" -I"$app/src" -I"$repo/src/engine" -I"$repo/src/core/include" -I"$opengl/include")
 objects=()
 for source in "${sources[@]}"; do
     relative=${source#"$repo/"}
@@ -112,7 +124,14 @@ out="$dist/$title_id"
 rm -rf -- "$out"
 mkdir -p "$out/sce_sys" "$out/sce_module" "$out/assets/fonts" "$out/assets/audio/sfx"
 "$tool" self --sign --in "$build/eboot.elf" --out "$out/eboot.bin" --magic "$fself_magic"
-cp "$param" "$app/sce_sys/icon0.png" "$out/sce_sys/"
+cp "$app/sce_sys/icon0.png" "$out/sce_sys/"
+python3 - "$param" "$out/sce_sys/param.json" "$content_version" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+text, n = re.subn(r'("contentVersion"\s*:\s*")[0-9.]+(")', lambda m: m.group(1) + sys.argv[3] + m.group(2), text)
+assert n == 1, "param.json has no contentVersion"
+open(sys.argv[2], "w").write(text)
+PY
 cp "$fonts"/*.huifont "$out/assets/fonts/"
 cp "$kit"/third_party/fonts/{Inter,DejaVu}-LICENSE.txt "$out/assets/fonts/"
 cp -R "$kit/assets/audio/sfx/glass" "$out/assets/audio/sfx/"
@@ -139,5 +158,5 @@ cp "$HUI_WORK/runtime/libc.prx" "$out/sce_module/libc.prx"
 chmod -R 0777 "$out"
 (cd "$dist" && rm -f "$title_id.zip" && python3 -m zipfile -c "$title_id.zip" "$title_id")
 python3 "$kit/tools/zip-open-modes.py" "$dist/$title_id.zip"
-echo "App folder: $out"
+echo "App folder: $out (Alembic $version)"
 echo "ZIP: $dist/$title_id.zip"

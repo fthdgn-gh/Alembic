@@ -5,6 +5,7 @@ import { useEffect, useState } from "preact/hooks";
 import { api } from "../../api/client";
 import { clearMeta } from "../../api/meta";
 import { info, locations, peers, loadInfo, loadPeers } from "../../state/engine";
+import type { Info } from "../../api/types";
 import { tab } from "../../state/view";
 import { jobs } from "../../state/jobs";
 import { shownPath } from "../../state/paths";
@@ -60,7 +61,10 @@ export function SettingsPage(props: { hidden: boolean }) {
             [t("State folder"), i.state_dir, "mono"],
             [t("LZ4 runtime"), i.lz4_runtime && i.lz4_runtime.present ? (i.lz4_runtime.pinned ? "ampr_emu 0.4.2.1" : t("present, not the pinned build")) : t("not downloaded")],
           ].filter(Boolean) as [string, string, string?][])} />
-          <div class="btns"><SmallBtn k="s:quit" cls="danger" text={t("Stop the engine")} onClick={quitEngine} /></div>
+          <div class="btns">
+            {i && i.can_restart ? <SmallBtn k="s:restart" text={t("Restart the engine")} onClick={restartEngine} /> : null}
+            <SmallBtn k="s:quit" cls="danger" text={t("Stop the engine")} onClick={quitEngine} />
+          </div>
         </div>
         <Updates />
         {i && i.cache ? <Cache /> : null}
@@ -147,4 +151,24 @@ async function quitEngine() {
     {running ? <div class="warnbox">{t("A job is running; it will be cancelled.")}</div> : null}</div>;
   if (!await ask({ title: t("Stop the engine?"), body, ok: t("Stop"), danger: true })) return;
   try { await api("POST", "/api/quit"); toast(t("Engine stopped"), "ok"); } catch (e: any) { toast(tMsg(e.message), "bad"); }
+}
+
+// The engine hands a copy of its own payload to the ELF loader and stops; the
+// page reloads once another engine answers (a new start time; the new one can
+// take over the port between two polls).
+async function restartEngine() {
+  const running = jobs.value.filter((j) => j.state === "running");
+  const restarts = running.some((j) => !j.keeps_progress);
+  const body = <div><p style="margin-top:0">{t("The engine stops and starts again through the ELF loader (port 9021).")}</p>
+    {restarts ? <div class="warnbox">{t("A running job can't keep its progress; it starts over after the restart.")}</div>
+      : running.length ? <p class="muted">{t("The running job continues after the restart.")}</p> : null}</div>;
+  if (!await ask({ title: t("Restart the engine?"), body, ok: t("Restart") })) return;
+  try { await api("POST", "/api/restart"); } catch (e: any) { toast(tMsg(e.message), "bad"); return; }
+  toast(t("Restarting the engine…"), "ok");
+  const before = info.value && info.value.started, asked = Date.now();
+  let gone = false;
+  const timer = setInterval(() => {
+    if (Date.now() - asked > 90000) { clearInterval(timer); return; }
+    api<Info>("GET", "/api/info").then((i) => { if (gone || i.started !== before) { clearInterval(timer); location.reload(); } }, () => { gone = true; });
+  }, 1000);
 }

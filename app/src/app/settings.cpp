@@ -656,20 +656,45 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
             rows.push_back({t("App version"), app.platform.version, ""});
         }
         yy += facts(ui, ix, yy, iw, rows);
-        yy += btns(ui, ix, yy, iw, {{"s:quit", t("Stop the engine"), draw::Button::danger, [&app] {
-                                         bool running = false;
-                                         for (const auto& j : app.jobs) running = running || j["state"].str() == "running";
-                                         std::string body = t("The app and the page stop working until the engine is loaded again.");
-                                         if (running) body += "\n\n!" + t("A job is running; it will be cancelled.");
-                                         ask(app, t("Stop the engine?"), text_body(body), t("Stop"), true, [&app] {
-                                             app.post("/api/quit", JsonValue::object(), [&app](const Reply& r) {
-                                                 if (r.ok())
-                                                     app.toast(t("Engine stopped"), App::Toast::ok);
-                                                 else
-                                                     app.toast(t_msg(r.error()), App::Toast::bad);
-                                             });
-                                         });
-                                     }}});
+        std::vector<RowButton> engine_btns;
+        if (!app.not_connected.empty() && app.platform.start_engine) {
+            // Stopped (here or elsewhere): the app's own engine starts it again.
+            engine_btns.push_back({"s:start", t("Start the engine"), draw::Button::primary, [&app] { app.start_own_engine(); },
+                                   app.restarting()});
+        } else {
+            if (i["can_restart"].boolean() || (app.platform.start_engine && app.is_ps5()))
+                engine_btns.push_back({"s:restart", t("Restart the engine"), draw::Button::normal, [&app] {
+                                           bool running = false, restarts = false;
+                                           for (const auto& j : app.jobs)
+                                               if (j["state"].str() == "running") {
+                                                   running = true;
+                                                   restarts = restarts || !j["keeps_progress"].boolean();
+                                               }
+                                           std::string body = t("The engine stops and starts again through the ELF loader (port 9021).");
+                                           if (restarts)
+                                               body += "\n\n!" + t("A running job can't keep its progress; it starts over after the restart.");
+                                           else if (running)
+                                               body += "\n\n~" + t("The running job continues after the restart.");
+                                           ask(app, t("Restart the engine?"), text_body(body), t("Restart"), false,
+                                               [&app] { app.restart_engine(); });
+                                       },
+                                       app.restarting()});
+            engine_btns.push_back({"s:quit", t("Stop the engine"), draw::Button::danger, [&app] {
+                                       bool running = false;
+                                       for (const auto& j : app.jobs) running = running || j["state"].str() == "running";
+                                       std::string body = t("The app and the page stop working until the engine is loaded again.");
+                                       if (running) body += "\n\n!" + t("A job is running; it will be cancelled.");
+                                       ask(app, t("Stop the engine?"), text_body(body), t("Stop"), true, [&app] {
+                                           app.post("/api/quit", JsonValue::object(), [&app](const Reply& r) {
+                                               if (r.ok())
+                                                   app.toast(t("Engine stopped"), App::Toast::ok);
+                                               else
+                                                   app.toast(t_msg(r.error()), App::Toast::bad);
+                                           });
+                                       });
+                                   }});
+        }
+        yy += btns(ui, ix, yy, iw, engine_btns);
         y = card_end("engine", top, yy);
     }
 

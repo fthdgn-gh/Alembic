@@ -90,6 +90,22 @@ std::string version_text(std::string_view v) {
     return std::string(v.substr(i));
 }
 
+int compare_versions(std::string_view a, std::string_view b) {
+    auto digit = [](char c) { return c >= '0' && c <= '9'; };
+    if (!a.empty() && (a[0] == 'v' || a[0] == 'V')) a.remove_prefix(1);
+    if (!b.empty() && (b[0] == 'v' || b[0] == 'V')) b.remove_prefix(1);
+    std::size_t i = 0, j = 0;
+    while (i < a.size() || j < b.size()) {
+        unsigned long long p = 0, q = 0;
+        while (i < a.size() && digit(a[i])) p = p * 10 + static_cast<unsigned>(a[i++] - '0');
+        while (j < b.size() && digit(b[j])) q = q * 10 + static_cast<unsigned>(b[j++] - '0');
+        if (p != q) return p < q ? -1 : 1;
+        while (i < a.size() && !digit(a[i])) ++i;
+        while (j < b.size() && !digit(b[j])) ++j;
+    }
+    return 0;
+}
+
 bool starts_with(std::string_view s, std::string_view prefix) { return s.compare(0, prefix.size(), prefix) == 0; }
 
 }  // namespace alembic::app
