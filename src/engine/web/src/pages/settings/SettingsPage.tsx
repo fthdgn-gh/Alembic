@@ -54,11 +54,11 @@ export function SettingsPage(props: { hidden: boolean }) {
             [t("Version"), i.version],
             [t("Running on"), i.platform === "ps5" ? t("PS5 (payload)") : i.os || t("PC")],
             i.host_name && i.platform !== "ps5" ? [t("Computer"), i.host_name] : null,
-            i.cpu_instructions ? [t("CPU instructions"), i.cpu_instructions === "none" ? "–" : i.cpu_instructions] : null,
             [t("Address"), location.host, "mono"],
             [t("From other devices"), i.network_urls && i.network_urls.length ? i.network_urls.join("\n") : i.open_to_network ? "–" : t("This computer only"), "mono"],
             i.roots && i.roots.length ? [t("Shared folders"), i.roots.join("\n"), "mono"] : null,
             [t("State folder"), i.state_dir, "mono"],
+            i.cpu_instructions ? [t("CPU instructions"), i.cpu_instructions === "none" ? "–" : i.cpu_instructions] : null,
             [t("LZ4 runtime"), i.lz4_runtime && i.lz4_runtime.present ? (i.lz4_runtime.pinned ? "ampr_emu 0.4.2.1" : t("present, not the pinned build")) : t("not downloaded")],
           ].filter(Boolean) as [string, string, string?][])} />
           <div class="btns">

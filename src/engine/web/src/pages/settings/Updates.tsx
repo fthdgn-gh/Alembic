@@ -93,7 +93,6 @@ export function Updates() {
       <Head text={t("Updates")} />
       <div class="card">
         <Facts rows={[
-          [t("This version"), u.current],
           [t("Latest release"), latest ? latest.version : "–"],
           [t("Status"), status, u.error && !busy && !waitFor ? "" : undefined],
           ...(app ? [[t("Console app"), appText] as [string, string]] : []),

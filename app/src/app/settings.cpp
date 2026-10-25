@@ -639,8 +639,6 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
             rows.push_back({t("Version"), i["version"].str(), ""});
             rows.push_back({t("Running on"), app.is_ps5() ? t("PS5 (payload)") : i["os"].str().empty() ? t("PC") : i["os"].str(), ""});
             if (!i["host_name"].str().empty() && !app.is_ps5()) rows.push_back({t("Computer"), i["host_name"].str(), ""});
-            if (!i["cpu_instructions"].str().empty())
-                rows.push_back({t("CPU instructions"), i["cpu_instructions"].str() == "none" ? "\xE2\x80\x93" : i["cpu_instructions"].str(), ""});
             rows.push_back({t("Address"), app.engine.host() + ":" + std::to_string(app.engine.port()), "mono"});
             std::string urls;
             for (const auto& u : i["network_urls"].items()) urls += (urls.empty() ? "" : "\n") + u.str();
@@ -650,10 +648,11 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
             for (const auto& u : i["roots"].items()) roots += (roots.empty() ? "" : "\n") + u.str();
             if (!roots.empty()) rows.push_back({t("Shared folders"), roots, "mono"});
             rows.push_back({t("State folder"), i["state_dir"].str(), "mono"});
+            if (!i["cpu_instructions"].str().empty())
+                rows.push_back({t("CPU instructions"), i["cpu_instructions"].str() == "none" ? "\xE2\x80\x93" : i["cpu_instructions"].str(), ""});
             const JsonValue& rt = i["lz4_runtime"];
             rows.push_back({t("LZ4 runtime"), rt["present"].boolean() ? (rt["pinned"].boolean() ? "ampr_emu 0.4.2.1" : t("present, not the pinned build"))
                                                                      : t("not downloaded"), ""});
-            rows.push_back({t("App version"), app.platform.version, ""});
         }
         yy += facts(ui, ix, yy, iw, rows);
         std::vector<RowButton> engine_btns;
@@ -735,10 +734,10 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
         const float top = card_begin(ui, "updates", x, y, w);
         float yy = top;
         const float ix = x + 1.2f * R, iw = w - 2.4f * R;
-        std::vector<Fact> update_rows = {{t("This version"), u["current"].str(), ""},
-                                         {t("Latest release"), latest.is_object() ? latest["version"].str() : "\xE2\x80\x93", ""},
+        std::vector<Fact> update_rows = {{t("Latest release"), latest.is_object() ? latest["version"].str() : "\xE2\x80\x93", ""},
                                          {t("Status"), status, ""}};
-        if (ap.is_object()) update_rows.push_back({t("Console app"), app_text, ""});
+        // This app: what the engine found on the drives, else its own version.
+        update_rows.push_back({t("Console app"), ap.is_object() ? app_text : app.platform.version, ""});
         if (ap.is_object() && !ap["path"].str().empty()) update_rows.push_back({t("App image"), ap["path"].str(), "mono"});
         yy += facts(ui, ix, yy, iw, update_rows);
         if (u["app_pending"].boolean())
