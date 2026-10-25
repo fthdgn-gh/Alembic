@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Builds Alembic's console app (a native PS5 title drawn with ps5-homebrew-ui)
-# into build-app/dist/<TITLE_ID> and a ZIP of it, for ShadowMount+'s
-# /data/homebrew. Adapted from ps5-homebrew-ui's tools/build.sh (GPL-3.0).
+# into build-app/dist/<TITLE_ID> (for development) and the image releases
+# ship, <TITLE_ID>.ffpkg (UFS2, made by Alembic itself: ALEMBIC_CLI, default
+# build/alembic), for ShadowMount+'s /data/homebrew. Adapted from ps5-homebrew-ui's tools/build.sh (GPL-3.0).
 #
 #   app/build.sh
 #
@@ -158,5 +159,24 @@ cp "$HUI_WORK/runtime/libc.prx" "$out/sce_module/libc.prx"
 chmod -R 0777 "$out"
 (cd "$dist" && rm -f "$title_id.zip" && python3 -m zipfile -c "$title_id.zip" "$title_id")
 python3 "$kit/tools/zip-open-modes.py" "$dist/$title_id.zip"
+# The release form: one UFS2 image, files 0555 inside as in every game image
+# (no modes to lose on the way). The time stamp is the commit's, so a build
+# of the same commit gives the same bytes.
+cli=${ALEMBIC_CLI:-$repo/build/alembic}
+image="$dist/$title_id.ffpkg"
+rm -f "$image"
+if [[ -x $cli ]]; then
+    stamp=${SOURCE_DATE_EPOCH:-$(git -C "$repo" log -1 --format=%ct 2>/dev/null || date +%s)}
+    # Its texts name libSceAmpr (the Components page), which the APR check
+    # takes for an import: that warning does not apply to the app.
+    log=$("$cli" convert "$out" "$image" --overwrite --ufs2-timestamp "$stamp" --ufs2-pid 1 2>&1) || {
+        echo "$log" >&2
+        exit 1
+    }
+    printf '%s\n' "$log" | grep -v "console's APR" >&2 || true
+else
+    echo "note: no Alembic command-line tool ($cli); no .ffpkg (build it with cmake, or set ALEMBIC_CLI)" >&2
+fi
 echo "App folder: $out (Alembic $version)"
 echo "ZIP: $dist/$title_id.zip"
+[[ ! -f $image ]] || echo "Image: $image"

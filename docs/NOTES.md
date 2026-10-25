@@ -1949,7 +1949,8 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   ZIP whose entries are 0777 (the console refuses other modes:
   CE-107750-0). `ALEMBIC_ENGINE_ELF` (default `build-ps5/alembic.elf`) goes
   into `assets/alembic.elf`. CI job "PS5 app" builds it with the payload
-  of the PS5 job; releases get `alembic-app-<version>.zip`.
+  of the PS5 job; releases get `alembic-app-<version>.zip` (an `.ffpkg`
+  from 2026-10-25, see "restarting the engine").
 - **Preview on a Mac** (`app/preview.sh`): Homebrew's `mesa` has
   surfaceless EGL with llvmpipe (OpenGL 4.6), so the kit's PC renderer
   works here too. The preview runs the app against the README's stand-in
@@ -2007,6 +2008,17 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   loader that starts a new engine; the app preview restarts it ("Restarting
   the engine…", then "Engine restarted"). Not checked: the page's button in
   a browser, "Start the engine" (the preview has no loader), the console.
+- **The app as an image:** `app/build.sh` also writes `<TITLE_ID>.ffpkg`
+  with Alembic's own UFS2 writer (`ALEMBIC_CLI`, default `build/alembic`;
+  time stamp from the commit, `--ufs2-pid 1`, so the same commit gives the
+  same bytes; `alembic same` finds the folder's 55 files unchanged). Files
+  are 0555 inside, as in every game image, so the 0777 rule of folders
+  (CE-107750-0) no longer matters. CI's app job takes the Linux CLI from the
+  PC job; releases carry `alembic-app-<version>.ffpkg` instead of the ZIP
+  (the local build still makes the folder and its ZIP for testing). The
+  converter's "uses the console's APR" warning is filtered there: the APR
+  check is a text search and the app's Components page names libSceAmpr.
+  Not yet tried on a console: the app started from the image.
 
 ### 2026-10-19: open items from that day (all solved)
 
@@ -2105,7 +2117,7 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   console, stopped the engine and (reopened) started it through the ELF
   loader; it feels right. ✓ Restart the engine (2026-10-25). Agreed next
   (owner, 2026-10-25; see the log entry "restarting the engine"):
-  1. the app ships as `alembic-app-<version>.ffpkg` built by our own UFS
+  1. ✓ the app ships as `alembic-app-<version>.ffpkg` built by our own UFS
      writer in CI (the folder stays for development);
   2. one version and one release for engine and app; the engine's updater
      also replaces the app image (only when its SHA-256 differs), however the

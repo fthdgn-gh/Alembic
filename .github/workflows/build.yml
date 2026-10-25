@@ -173,12 +173,13 @@ jobs:
           if-no-files-found: error
 
   # The console app (app/): a native PS5 title drawn with ps5-homebrew-ui,
-  # carrying the payload the job above built, as a folder for ShadowMount+
-  # (zipped). Its build fetches the payload SDK v0.42 and the ps5-opengl SDK
-  # itself, checked against pinned SHA-256s.
+  # carrying the payload the job above built, as a UFS2 image for
+  # ShadowMount+ (.ffpkg) that Alembic's own Linux build writes. Its build
+  # fetches the payload SDK v0.42 and the ps5-opengl SDK itself, checked
+  # against pinned SHA-256s.
   app:
     name: PS5 app
-    needs: ps5
+    needs: [ps5, pc]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -193,14 +194,20 @@ jobs:
         with:
           name: alembic-${{ env.VERSION }}.elf
           path: payload
+      - uses: actions/download-artifact@v8
+        with:
+          name: alembic-linux-x64.tar.gz
+          path: cli
       - name: Build the app
-        run: ALEMBIC_ENGINE_ELF="$PWD/payload/alembic-$VERSION.elf" app/build.sh
-      - name: Name it alembic-app-<version>.zip
-        run: mkdir -p dist && cp build-app/dist/PPSA99594.zip "dist/alembic-app-$VERSION.zip"
+        run: |
+          tar -xzf cli/alembic-linux-x64.tar.gz -C cli
+          ALEMBIC_CLI="$PWD/cli/alembic" ALEMBIC_ENGINE_ELF="$PWD/payload/alembic-$VERSION.elf" app/build.sh
+      - name: Name it alembic-app-<version>.ffpkg
+        run: mkdir -p dist && cp build-app/dist/PPSA99594.ffpkg "dist/alembic-app-$VERSION.ffpkg"
       - name: Upload the app
         uses: actions/upload-artifact@v7
         with:
-          path: dist/alembic-app-${{ env.VERSION }}.zip
+          path: dist/alembic-app-${{ env.VERSION }}.ffpkg
           archive: false
           if-no-files-found: error
 
@@ -232,11 +239,10 @@ jobs:
         with:
           name: alembic-macos-arm64.tar.gz
           path: artifacts
-      # A .zip artifact is unpacked: the app folder lands here.
       - uses: actions/download-artifact@v8
         with:
-          name: alembic-app-${{ env.VERSION }}.zip
-          path: artifacts/app
+          name: alembic-app-${{ env.VERSION }}.ffpkg
+          path: artifacts
       # download-artifact unpacks a .zip artifact: the .exe files land here.
       - uses: actions/download-artifact@v8
         with:
@@ -259,12 +265,10 @@ jobs:
           cp artifacts/windows-x64/alembic.exe artifacts/windows-x64/alembic-engine.exe "dist/$name/windows-x64/"
           cp README.md LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
           cp "artifacts/$elf" dist/
-          # The console app: its folder (PPSA99594) in the bundle, and zipped on its own.
-          cp -R artifacts/app/PPSA99594 "dist/$name/ps5/"
-          app="alembic-app-$VERSION.zip"
-          # Stored 0777: the console starts an app only when its files are open to all.
-          (cd artifacts/app && python3 -m zipfile -c "../../dist/$app" PPSA99594)
-          python3 third_party/ps5-homebrew-ui/tools/zip-open-modes.py "dist/$app"
+          # The console app: a UFS2 image for ShadowMount+, in the bundle and on its own.
+          app="alembic-app-$VERSION.ffpkg"
+          cp "artifacts/$app" "dist/$name/ps5/"
+          cp "artifacts/$app" dist/
           echo "APP=$app" >> "$GITHUB_ENV"
           (cd dist && zip -qr "$name.zip" "$name")
           # Each PC build on its own too, with the README and licenses:
