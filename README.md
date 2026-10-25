@@ -231,7 +231,10 @@ and a bundle, `alembic-<version>.zip`: the payload in `ps5/`, `alembic` and
 `alembic-engine` in `linux-x64/`, `macos-arm64/` and `windows-x64/` (`.exe`),
 with the README and license files. The version is the tag (`v0.1.0`), else the branch and commit
 (`main-a2fab12`). A `v*` tag publishes the payload, the bundle, a package per
-PC system and `SHA256SUMS` as a release.
+PC system, the console app (`.ffpkg` and `.zip`) and `SHA256SUMS` as a release.
+From 0.3.1 every release file carries a build attestation: `gh attestation
+verify <file> --repo fthdgn-gh/Alembic` shows that this repository's workflow
+built it, and from which commit.
 
 ### The web page
 
