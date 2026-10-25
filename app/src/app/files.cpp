@@ -56,7 +56,10 @@ void FilesPage::rail(Ui& ui, App& app, const Rect& area) {
         draw::text_fit(ui, Face::semibold, text, x + 0.55f * R, draw::baseline(y + s * 0.725f, s), s, w - 1.1f * R, muted);
         y += s * 1.45f + 0.3f * R;
     };
-    // One rail entry; extra: meter and free space, or a note.
+    // One rail entry; extra: meter and free space, or a note. While
+    // `offline_name` is set, the entry is a paired engine that is off: dimmed,
+    // and choosing it says so.
+    std::string offline_name;
     auto item = [&](const std::string& key, bool on, draw::Icon icon, const std::string& name, double free, double total,
                     const std::string& note, const std::string& go) {
         const float pad_y = 0.55f * R;
@@ -73,7 +76,7 @@ void FilesPage::rail(Ui& ui, App& app, const Rect& area) {
                 l.rounded_rect({r.x, r.y + 0.6f * R, 0.18f * R, r.h - 1.2f * R}, 0.1f * R, accent);
             }
             const float cy = y + pad_y + 0.725f * R;
-            const Color ink = on || ui.focused(id) ? style::text : muted;
+            const Color ink = (on || ui.focused(id) ? style::text : muted).with_alpha(offline_name.empty() ? 1.0f : 0.55f);
             draw::icon(ui, icon, {x + 0.6f * R, cy - 0.575f * R, 1.15f * R, 1.15f * R}, ink.with_alpha(0.85f));
             draw::text_fit(ui, Face::regular, name, x + 0.6f * R + 1.75f * R, draw::baseline(cy, 1.0f * R), 1.0f * R,
                            w - 2.95f * R, ink);
@@ -91,7 +94,12 @@ void FilesPage::rail(Ui& ui, App& app, const Rect& area) {
                                0.75f * R, w - 2.95f * R, dim);
             }
         }
-        if (ui.item(id, r, 0, 0.6f * R)) app.browse(go);
+        if (ui.item(id, r, 0, 0.6f * R)) {
+            if (offline_name.empty())
+                app.browse(go);
+            else
+                app.toast(t("{engine} is offline", {{"engine", offline_name}}), App::Toast::bad);
+        }
         y += h;
     };
 
@@ -109,11 +117,25 @@ void FilesPage::rail(Ui& ui, App& app, const Rect& area) {
         item("r:" + s["path"].str(), in && (*in)["path"].str() == s["path"].str(), draw::Icon::server, s["name"].str(),
              0, 0, "FTP \xC2\xB7 " + host + (port == 21 ? "" : ":" + std::to_string(port)), s["path"].str());
     }
-    if (!app.peer_drives.items().empty()) h3(t("Other engines"));
+    // Paired engines that are off: listed, so they don't just vanish.
+    std::vector<const JsonValue*> offline;
+    for (const auto& e : app.peers["engines"].items()) {
+        if (!e["paired"].boolean() || !e["offline"].boolean()) continue;
+        bool has_drives = false;
+        for (const auto& d : app.peer_drives.items()) has_drives = has_drives || d["id"].str() == e["id"].str();
+        if (!has_drives) offline.push_back(&e);
+    }
+    if (!app.peer_drives.items().empty() || !offline.empty()) h3(t("Other engines"));
     for (const auto& s : app.peer_drives.items()) {
         const std::string root = s["root"].str();
         item("r:" + root, within(root), draw::Icon::server, app.drive_name(root), s["free"].number(),
              s["total"].number(), "", root);
+    }
+    for (const JsonValue* e : offline) {
+        offline_name = (*e)["name"].str();
+        item("o:" + (*e)["id"].str(), within("/peer/" + (*e)["id"].str()), draw::Icon::server, offline_name, 0, 0,
+             t("offline"), "");
+        offline_name.clear();
     }
     // Places: this engine's, recent folders, then each paired engine's.
     std::vector<const JsonValue*> places, theirs;
@@ -218,7 +240,9 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
         if (!top) {
             const JsonValue* r = app.root_of(app.cwd);
             const JsonValue* f = r ? nullptr : app.ftp_of(app.cwd);
-            const std::string root = r ? (*r)["root"].str() : f ? (*f)["path"].str() : app.cwd;
+            // An engine whose drives are not known (offline): its name, then the path on it.
+            const std::string peer = App::peer_root(app.cwd);
+            const std::string root = r ? (*r)["root"].str() : f ? (*f)["path"].str() : !peer.empty() ? peer : app.cwd;
             parts.push_back({root, app.drive_name(root)});
             std::string acc = root;
             std::string rest = app.cwd.substr(std::min(root.size(), app.cwd.size()));
@@ -285,6 +309,7 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
                 bits.push_back(t("On an FTP server"));
             for (std::size_t i = 0; i < bits.size(); ++i) summary += (i ? "  \xC2\xB7  " : "") + bits[i];
             if (summary.empty()) summary = t("Empty");
+            if (const JsonValue* off = app.offline_peer(app.cwd)) summary = t("{engine} is offline", {{"engine", (*off)["name"].str()}});
         }
         const float ss = 0.85f * R;
         draw::text_fit(ui, Face::regular, summary, area.x + 0.35f * R, draw::baseline(y + 0.2f * R + ss * 0.725f, ss), ss,
@@ -362,7 +387,9 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
             const float ts = 1.05f * R, ss = 0.82f * R;
             const float t_cy = r.cy() - 0.5f * ss * 1.45f;
             const float s_cy = r.cy() + 0.5f * ts * 1.45f - 0.05f * R;
-            std::string title = top ? app.drive_name(e.path) : (m && !m->title.empty() ? m->title : e.name);
+            const JsonValue* gone = top ? app.offline_peer(e.path) : nullptr;  // a paired engine that is off
+            std::string title = gone ? (*gone)["name"].str() + " \xC2\xB7 " + base(e.path)
+                                : top ? app.drive_name(e.path) : (m && !m->title.empty() ? m->title : e.name);
             draw::text_fit(ui, Face::regular, title, text_x, draw::baseline(t_cy, ts), ts, tw, style::text);
             if (m) {
                 const float pw = draw::fmt_pill(ui, e.game ? "folder" : e.kind, e.game ? t("FOLDER") : kind_label(e.kind),
@@ -387,7 +414,7 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
                         plain = "FTP \xC2\xB7 " + (*fs)["user"].str() + "@" + (*fs)["host"].str() + ":" +
                                 std::to_string((*fs)["port"].integer(21));
                     else
-                        plain = e.path;
+                        plain = gone ? t("offline") : app.shown_path(e.path);
                 } else {
                     std::vector<std::string> bits;
                     if (e.kind != "folder") bits.push_back(bytes(e.size));

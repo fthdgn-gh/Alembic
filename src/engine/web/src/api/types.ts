@@ -78,6 +78,7 @@ export interface Peer {
   seen_ago: number;
   paired: boolean;
   waiting_for_code: boolean;
+  offline?: boolean; // paired, but not answering (or no longer announced: then no address)
   problem?: string;
   protocol?: number; // 1 when it does not say (v0.2.0)
 }

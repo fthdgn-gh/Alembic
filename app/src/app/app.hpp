@@ -133,6 +133,10 @@ public:
     const JsonValue* root_of(const std::string& path) const;  // a drive of space or peer_drives
     const JsonValue* peer_drive_of(const std::string& path) const;
     const JsonValue* ftp_of(const std::string& path) const;
+    // A paired engine that is offline, when `path` is on it (from /api/peers).
+    const JsonValue* offline_peer(const std::string& path) const;
+    // "/peer/<id>" of a path on another engine, else "".
+    static std::string peer_root(const std::string& path);
     std::string drive_name(const std::string& root) const;
     std::string shown_path(const std::string& path) const;
     std::string here_name() const;

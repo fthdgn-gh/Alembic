@@ -497,7 +497,8 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
         for (const auto& e : p["engines"].items()) {
             const std::string id = e["id"].str(), name = e["name"].str();
             std::string sub = e["os"].str().empty() ? e["platform"].str() : e["os"].str();
-            sub += " \xC2\xB7 " + e["address"].str() + ":" + std::to_string(e["port"].integer());
+            if (!e["address"].str().empty())
+                sub += (sub.empty() ? "" : " \xC2\xB7 ") + e["address"].str() + ":" + std::to_string(e["port"].integer());
             if (!e["version"].str().empty()) sub += " \xC2\xB7 v" + e["version"].str();
             const long long theirs = e["protocol"].integer(1);
             const bool mismatch = theirs != ours;
@@ -510,6 +511,8 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
             } else if (e["manual"].boolean() && !e["reachable"].boolean()) {
                 note = t("Not reachable: {why}", {{"why", t_msg(e["problem"].str())}});
                 nc = bad;
+            } else if (e["paired"].boolean() && e["offline"].boolean()) {
+                note = t("Paired \xC2\xB7 offline");
             } else if (e["paired"].boolean()) {
                 note = t("Paired");
                 nc = ok;

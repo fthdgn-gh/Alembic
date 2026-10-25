@@ -9,6 +9,7 @@
 .ritem .nm { display: flex; align-items: center; }
 .ritem .nm svg { width: 1.15rem; height: 1.15rem; margin-right: .6rem; flex: 0 0 auto; opacity: .85; }
 .ritem.on { color: var(--text); background: rgba(111,147,255,.08); }
+.ritem.dim { opacity: .55; }
 .ritem.on::before { content: ""; position: absolute; left: 0; top: .6rem; bottom: .6rem; width: .18rem; border-radius: .1rem; background: var(--accent); }
 .ftprow { display: flex; align-items: center; gap: .8rem; padding: .6rem 0; border-top: 1px solid rgba(255,255,255,.06); }
 .ftprow .nm svg { width: 1.3rem; height: 1.3rem; display: block; opacity: .85; }

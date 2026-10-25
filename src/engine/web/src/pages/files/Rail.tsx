@@ -2,17 +2,18 @@
 // The left column of Files: drives, FTP servers, paired engines' drives,
 // then Places (this engine's, recent folders, each paired engine's).
 import { cwd } from "../../state/view";
-import { space, ftp, peerDrives, locations } from "../../state/engine";
+import { space, ftp, peerDrives, peers, locations } from "../../state/engine";
 import { rootOf, peerDriveOf, ftpOf, driveName, shownPath, hereName } from "../../state/paths";
 import { base, bytes } from "../../lib/format";
 import { store } from "../../lib/storage";
 import { t, placeLabel } from "../../lib/i18n";
 import { ICONS } from "../../components/Icons";
 import { browse } from "./browse";
+import { toast } from "../../components/Toasts";
 
-function RailItem(props: { k: string; on: boolean; title: string; icon: keyof typeof ICONS; name: string; onClick: () => void; children?: any }) {
+function RailItem(props: { k: string; on: boolean; title: string; icon: keyof typeof ICONS; name: string; onClick: () => void; dim?: boolean; children?: any }) {
   return (
-    <button class={"ritem" + (props.on ? " on" : "")} data-key={props.k} title={props.title} onClick={props.onClick}>
+    <button class={"ritem" + (props.on ? " on" : "") + (props.dim ? " dim" : "")} data-key={props.k} title={props.title} onClick={props.onClick}>
       <div class="nm">{ICONS[props.icon]()}<span class="ellip">{props.name}</span></div>
       {props.children}
     </button>
@@ -36,6 +37,7 @@ export function Rail() {
   const recent = (store.get<string[]>("recent") || []).filter((p) => rootOf(p) && !peerDriveOf(p) && !places.some((l) => l.path === p)).slice(0, 4);
   const engines: string[] = [];
   for (const l of theirs) if (engines.indexOf(l.peer!) < 0) engines.push(l.peer!);
+  const offline = ((peers.value && peers.value.engines) || []).filter((e) => e.paired && e.offline && !peerDrives.value.some((d) => d.id === e.id));
   return (
     <nav class="rail scroll" id="rail" data-zone="rail" data-column>
       <h3>{t("Drives")}</h3>
@@ -51,11 +53,18 @@ export function Rail() {
         </RailItem>
       ))}
       {/* Paired engines' drives (Settings > Other engines). */}
-      {peerDrives.value.length ? <h3>{t("Other engines")}</h3> : null}
+      {peerDrives.value.length || offline.length ? <h3>{t("Other engines")}</h3> : null}
       {peerDrives.value.map((s) => (
         <RailItem k={"r:" + s.root} on={within(s.root)} title={s.engine} icon="server" name={driveName(s.root)} onClick={() => browse(s.root)}>
           {s.total ? <Meter free={s.free} total={s.total} /> : null}
           {s.total ? <div class="free">{t("{size} free", { size: bytes(s.free) })}</div> : null}
+        </RailItem>
+      ))}
+      {/* Paired engines that are off: listed, so they don't just vanish. */}
+      {offline.map((e) => (
+        <RailItem k={"o:" + e.id} on={within("/peer/" + e.id)} title={e.name} icon="server" name={e.name} dim
+          onClick={() => toast(t("{engine} is offline", { engine: e.name }), "bad")}>
+          <div class="free">{t("offline")}</div>
         </RailItem>
       ))}
       {places.length || theirs.length || recent.length ? <h3>{t("Places")}</h3> : null}

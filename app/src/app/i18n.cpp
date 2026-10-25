@@ -155,7 +155,24 @@ std::string plural(long long n, std::string_view one, std::string_view many) {
     return t(n == 1 ? one : many, {{"n", number(n)}});
 }
 
+namespace {
+std::function<std::string(std::string_view)>& path_namer() {
+    static std::function<std::string(std::string_view)> namer;
+    return namer;
+}
+std::string t_msg_inner(std::string_view text);
+}  // namespace
+
+void set_path_namer(std::function<std::string(std::string_view)> namer) { path_namer() = std::move(namer); }
+
 std::string t_msg(std::string_view text) {
+    if (text.empty()) return "";
+    if (path_namer()) return t_msg_inner(path_namer()(text));
+    return t_msg_inner(text);
+}
+
+namespace {
+std::string t_msg_inner(std::string_view text) {
     if (text.empty()) return "";
     const auto* d = table();
     if (!d) return std::string(text);
@@ -175,6 +192,7 @@ std::string t_msg(std::string_view text) {
     }
     return std::string(text);
 }
+}  // namespace
 
 std::string place_label(std::string_view label) {
     std::string s(label);

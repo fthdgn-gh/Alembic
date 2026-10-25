@@ -21,12 +21,25 @@ export function ftpOf(path: string): FtpServer | null {
   for (const s of ftp.value) if (path === s.path || String(path).indexOf(s.path + "/") === 0) return s;
   return null;
 }
+// A paired engine that is offline, when `path` is on it.
+export function offlinePeer(path: string | null | undefined) {
+  if (!path || String(path).indexOf("/peer/") !== 0) return null;
+  const id = path.slice(6).split("/")[0];
+  return ((peers.value && peers.value.engines) || []).find((e) => e.id === id && e.paired && e.offline) || null;
+}
+// "/peer/<id>" of a path on another engine, else "".
+export function peerRoot(path: string): string {
+  return String(path).indexOf("/peer/") === 0 ? "/peer/" + path.slice(6).split("/")[0] : "";
+}
+
 export function driveName(root: string): string {
   let m;
   const f = ftpOf(root);
   if (f && f.path === root) return f.name;
   const pd = peerDrives.value.find((d) => d.root === root);
   if (pd) return pd.engine + " · " + placeLabel(pd.label);
+  // A whole engine (one that is offline: its drives are not known).
+  if (peerRoot(root) === root) { const e = ((peers.value && peers.value.engines) || []).find((x) => "/peer/" + x.id === root); return e ? e.name : t("another engine"); }
   if (root === "/data") return t("Internal");
   if ((m = /^\/mnt\/usb(\d+)$/.exec(root))) return t("USB {n}", { n: m[1] });
   if ((m = /^\/mnt\/ext(\d+)$/.exec(root))) return t("Extended {n}", { n: m[1] });

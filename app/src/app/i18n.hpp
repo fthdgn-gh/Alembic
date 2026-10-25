@@ -6,6 +6,7 @@
 #pragma once
 
 #include <initializer_list>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -30,6 +31,9 @@ std::string t(std::string_view text, Vars vars);
 std::string plural(long long n, std::string_view one, std::string_view many);
 // An engine message: an exact key, else a pattern of I18N.messages.
 std::string t_msg(std::string_view text);
+// Rewrites paths inside engine messages before they are translated (another
+// engine's "/peer/<id>/x" as "Name: x"), like the page's setPathNamer.
+void set_path_namer(std::function<std::string(std::string_view)> namer);
 std::string place_label(std::string_view label);
 std::string t_method(std::string_view method);
 std::string t_status(std::string_view status);

@@ -3,9 +3,9 @@
 import { useRef } from "preact/hooks";
 import type { Entry } from "../../api/types";
 import { cwd, listing, focusEntry } from "../../state/view";
-import { rootOf, ftpOf, driveName } from "../../state/paths";
+import { rootOf, ftpOf, driveName, offlinePeer, shownPath } from "../../state/paths";
 import { isConvertible, KIND_LABEL } from "../../lib/kinds";
-import { bytes, date } from "../../lib/format";
+import { base, bytes, date } from "../../lib/format";
 import { t } from "../../lib/i18n";
 import { ICONS, EntryIco } from "../../components/Icons";
 import { useMeta } from "../../hooks/useMeta";
@@ -25,7 +25,8 @@ function Row(props: { e: Entry; top: boolean }) {
   const m = useMeta(isConvertible(e) && !top ? e : null, ref);
   const fs = top ? ftpOf(e.path) : null;
   const r = top ? rootOf(e.path) : null;
-  const plain = top ? (r ? t("{free} free of {total}", { free: bytes(r.free), total: bytes(r.total as number) }) : fs ? "FTP · " + fs.user + "@" + fs.host + ":" + fs.port : e.path)
+  const gone = top ? offlinePeer(e.path) : null; // a paired engine that is off
+  const plain = top ? (r ? t("{free} free of {total}", { free: bytes(r.free), total: bytes(r.total as number) }) : fs ? "FTP · " + fs.user + "@" + fs.host + ":" + fs.port : gone ? t("offline") : shownPath(e.path))
     : [e.kind === "folder" ? "" : bytes(e.size), date(e.mtime)].filter(Boolean).join("  ·  ");
   const title = !top && m && m.title ? m.title : null;
   return (
@@ -33,7 +34,7 @@ function Row(props: { e: Entry; top: boolean }) {
       onContextMenu={top ? undefined : (ev) => { ev.preventDefault(); openActions(e); }}>
       {top ? <div class="ico folder">{fs ? ICONS.server() : /usb|ext/.test(e.path) ? ICONS.usb() : ICONS.drive()}</div> : <EntryIco entry={e} meta={m} />}
       <div style="min-width:0">
-        <div class="t ellip" title={title || e.name}>{top ? driveName(e.path) : title || e.name}</div>
+        <div class="t ellip" title={title || e.name}>{gone ? gone.name + " · " + base(e.path) : top ? driveName(e.path) : title || e.name}</div>
         <div class="s ellip">
           {m ? [
             <span class={"fmt " + (e.game ? "folder" : e.kind)}>{e.game ? t("FOLDER") : KIND_LABEL[e.kind] || ""}</span>,

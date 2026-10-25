@@ -98,6 +98,7 @@
 #include <cstring>
 #include <ctime>
 #include <mutex>
+#include <set>
 #include <system_error>
 #include <thread>
 
@@ -723,7 +724,9 @@ private:
         }
         if (!path_allowed(path, config_.available_roots())) return error(403, "outside the allowed folders");
         auto names = list_directory_entries(path); // one request for another engine's folder
-        if (!names.ok()) return error(404, "cannot open " + path);
+        if (!names.ok())
+            // Another engine's folder: its reason ("<name> is offline", ...), with names for paths.
+            return alembic::is_mounted(path) ? error(502, names.error().message) : error(404, "cannot open " + path);
         struct Item {
             std::string name;
             bool dir;
@@ -788,7 +791,11 @@ private:
             v.set("listening", discovery_->listening());
             JsonValue list = JsonValue::array();
             std::int64_t t = static_cast<std::int64_t>(std::time(nullptr));
+            // Paired engines that did not answer the last drive request (asked again here).
+            std::set<std::string> down = peer_drives_down();
+            std::set<std::string> listed;
             for (const peers::Peer& p : discovery_->list()) {
+                listed.insert(p.who.id);
                 JsonValue e = JsonValue::object();
                 e.set("id", p.who.id);
                 e.set("name", p.who.name);
@@ -804,8 +811,30 @@ private:
                 e.set("seen_ago", p.last_seen ? t - p.last_seen : -1);
                 e.set("paired", pairing_ && pairing_->is_paired(p.who.id));
                 e.set("waiting_for_code", pairing_ && pairing_->waiting_for_code(p.who.id));
+                e.set("offline", down.count(p.who.id) > 0);
                 list.push(std::move(e));
             }
+            // Paired engines no longer announced: still listed, as offline.
+            if (pairing_)
+                for (const pairing::Paired& p : pairing_->list()) {
+                    if (listed.count(p.id)) continue;
+                    JsonValue e = JsonValue::object();
+                    e.set("id", p.id);
+                    e.set("name", p.name);
+                    e.set("os", "");
+                    e.set("platform", "");
+                    e.set("version", "");
+                    e.set("address", "");
+                    e.set("port", static_cast<std::int64_t>(0));
+                    e.set("url", "");
+                    e.set("manual", false);
+                    e.set("reachable", false);
+                    e.set("seen_ago", static_cast<std::int64_t>(-1));
+                    e.set("paired", true);
+                    e.set("waiting_for_code", false);
+                    e.set("offline", true);
+                    list.push(std::move(e));
+                }
             v.set("engines", std::move(list));
             return json(200, v);
         };
@@ -1527,12 +1556,19 @@ private:
         if (now - peer_drives_at_ < 8) return peer_drives_;
         std::vector<PeerDrive> drives;
         std::vector<PeerPlace> places;
+        std::set<std::string> down;
         if (pairing_ && discovery_)
             for (const pairing::Paired& p : pairing_->list()) {
                 auto peer = discovery_->find(p.id);
-                if (!peer) continue;
+                if (!peer) {
+                    down.insert(p.id);
+                    continue;
+                }
                 auto text = peer_fs::request(*discovery_, *pairing_, p.id, "GET", "/api/peer/fs/roots", {}, "", 2500, 1u << 20);
-                if (!text.ok()) continue;
+                if (!text.ok()) {
+                    down.insert(p.id);
+                    continue;
+                }
                 auto v = parse_json(*text);
                 if (!v.ok()) continue;
                 for (const JsonValue& d : (*v)["roots"].items()) {
@@ -1551,8 +1587,15 @@ private:
                     places.push_back({p.id, peer->who.name, peer_fs::name_for(p.id, l["path"].str()), l["label"].str(), l["custom"].boolean()});
             }
         peer_drives_ = {std::move(drives), std::move(places)};
+        peer_down_ = std::move(down);
         peer_drives_at_ = now;
         return peer_drives_;
+    }
+
+    std::set<std::string> peer_drives_down() {
+        (void)peer_drives(); // refreshed when older than a few seconds
+        std::lock_guard<std::mutex> lock(peer_drives_mutex_);
+        return peer_down_;
     }
 
     HttpResponse peer_drives_json() {
@@ -1980,6 +2023,7 @@ private:
     std::mutex peer_drives_mutex_;
     std::pair<std::vector<PeerDrive>, std::vector<PeerPlace>> peer_drives_;
     std::int64_t peer_drives_at_ = 0;
+    std::set<std::string> peer_down_; // paired engines that did not answer the last time
     RemoteFiles remote_; // before the queue, whose jobs may read from it
     ftp::Servers ftp_{config_.state_dir};
     GameMetaCache meta_{config_.state_dir};

@@ -23,7 +23,8 @@ The console app is `app/` (a native PS5 title drawn with the vendored
 `third_party/ps5-homebrew-ui`): `app/build.sh` builds it (on a Mac too, see
 NOTES.md), `app/preview.sh [dir] [script]` draws it on this computer
 against the README's stand-in engine. Look at the pictures after every UI
-change. It mirrors the web page: a page change needs its app counterpart.
+change. It mirrors the web page, both ways: a page change needs its app
+counterpart and an app change its page counterpart, in the same commit.
 
 The engine's web page is `src/engine/web` (Preact + TypeScript, bundled by
 esbuild into one HTML file that CMake embeds; needs Node.js 20+ and npm).

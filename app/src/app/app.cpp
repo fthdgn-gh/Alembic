@@ -7,6 +7,7 @@
 #include "app/pages.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 
 namespace alembic::app {
@@ -38,6 +39,25 @@ std::vector<Hint> Overlay::hints(App&) { return {{Glyph::cross, t("Choose")}, {G
 void Overlay::back(App& app) { app.close(this); }
 
 App::App(Engine& e, Platform p) : engine(e), platform(std::move(p)) {
+    // Another engine's paths inside messages ("... exists: /peer/<id>/data/x").
+    set_path_namer([this](std::string_view text) {
+        std::string s(text), out;
+        std::size_t at = 0;
+        for (std::size_t p = s.find("/peer/"); p != std::string::npos; p = s.find("/peer/", at)) {
+            std::size_t id_end = p + 6;
+            while (id_end < s.size() && std::isxdigit(static_cast<unsigned char>(s[id_end]))) ++id_end;
+            if (id_end - (p + 6) != 32) {
+                out += s.substr(at, id_end - at);
+                at = id_end;
+                continue;
+            }
+            std::size_t end = id_end;
+            while (end < s.size() && std::string_view(" \t\n'\"),;").find(s[end]) == std::string_view::npos) ++end;
+            out += s.substr(at, p - at) + shown_path(s.substr(p, end - p));
+            at = end;
+        }
+        return out + s.substr(at);
+    });
     files_ = std::make_unique<FilesPage>();
     queue_ = std::make_unique<QueuePage>();
     deps_ = std::make_unique<DepsPage>();
@@ -108,7 +128,13 @@ void App::load_info() {
                             if (sp.ok()) space = sp.json;
                             if (loc.ok()) locations = loc.json;
                             if (f.ok()) ftp = f.json;
-                            if (pd.ok()) peer_drives = pd.json;
+                            if (pd.ok()) {
+                                // The drive list shows paired engines' drives: ask for it
+                                // again when they change (one went offline, or came back).
+                                const bool changed = peer_drives.dump() != pd.json.dump();
+                                peer_drives = pd.json;
+                                if (changed && cwd == "/" && listing_loaded) browse("/");
+                            }
                             if (p.ok()) peers = p.json;
                             not_connected.clear();
                             info_busy_ = false;
@@ -300,11 +326,31 @@ const JsonValue* App::ftp_of(const std::string& path) const {
     return nullptr;
 }
 
+std::string App::peer_root(const std::string& path) {
+    if (!starts_with(path, "/peer/")) return "";
+    const std::size_t slash = path.find('/', 6);
+    return slash == std::string::npos ? path : path.substr(0, slash);
+}
+
+const JsonValue* App::offline_peer(const std::string& path) const {
+    const std::string root = peer_root(path);
+    if (root.empty()) return nullptr;
+    for (const auto& e : peers["engines"].items())
+        if ("/peer/" + e["id"].str() == root && e["paired"].boolean() && e["offline"].boolean()) return &e;
+    return nullptr;
+}
+
 std::string App::drive_name(const std::string& root) const {
     const JsonValue* f = ftp_of(root);
     if (f && (*f)["path"].str() == root) return (*f)["name"].str();
     for (const auto& d : peer_drives.items())
         if (d["root"].str() == root) return d["engine"].str() + " \xC2\xB7 " + place_label(d["label"].str());
+    // A whole engine (one that is offline: its drives are not known).
+    if (!root.empty() && peer_root(root) == root) {
+        for (const auto& e : peers["engines"].items())
+            if ("/peer/" + e["id"].str() == root) return e["name"].str();
+        return t("another engine");
+    }
     if (root == "/data") return t("Internal");
     auto numbered = [&](const char* prefix, const char* key) -> std::string {
         const std::string p = prefix;
@@ -446,9 +492,12 @@ void App::clear_meta() {
 
 void App::browse(const std::string& path, const std::string& focus_key) {
     const std::string from = cwd;
-    get(url("/api/browse", {{"path", path.empty() ? "/" : path}}), [this, from, focus_key](const Reply& r) {
+    get(url("/api/browse", {{"path", path.empty() ? "/" : path}}), [this, from, focus_key, path](const Reply& r) {
         if (!r.ok()) {
             toast(t_msg(r.error()), Toast::bad);
+            // Another engine went away while we were on it: back to the drives.
+            const std::string peer = peer_root(path);
+            if (!peer.empty() && peer_root(cwd) == peer) browse("/");
             return;
         }
         const std::string p = r.json["path"].str("/");

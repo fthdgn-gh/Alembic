@@ -79,7 +79,12 @@ Result<std::string> request(peers::Discovery& discovery, pairing::Pairing& pairi
                             const std::string& method, const std::string& path, const std::map<std::string, std::string>& query,
                             const std::string& body, int timeout_ms, std::size_t max_reply) {
     auto peer = discovery.find(id);
-    if (!peer) return make_error(Errc::io, "engine " + id + " is not known here (is it on the network?)");
+    if (!peer) {
+        // A paired engine that is no longer announced: switched off, or off the network.
+        for (const pairing::Paired& p : pairing.list())
+            if (p.id == id) return make_error(Errc::io, p.name + " is offline");
+        return make_error(Errc::io, "engine " + id + " is not known here (is it on the network?)");
+    }
     if (!pairing.is_paired(id)) return make_error(Errc::io, peer->who.name + " is not paired with this engine");
     if (std::string why = peers::protocol_problem(peer->who); !why.empty()) return make_error(Errc::unsupported, why);
     ALEMBIC_ASSIGN(auto headers, pairing.sign(id, method, path, query, body));

@@ -38,7 +38,7 @@ export function Engines() {
 }
 function EngineRow(props: { e: Peer }) {
   const e = props.e;
-  const sub = [e.os || e.platform, e.address + ":" + e.port, e.version ? "v" + e.version : ""].filter(Boolean).join(" · ");
+  const sub = [e.os || e.platform, e.address ? e.address + ":" + e.port : "", e.version ? "v" + e.version : ""].filter(Boolean).join(" · ");
   const btn = (key: string, text: string, fn: () => void, cls?: string) => <SmallBtn k={"peer:" + key + ":" + e.id} text={text} cls={cls} onClick={fn} />;
   // Engines that talk another way (another protocol) cannot work with this one.
   const ours = (info.value && info.value.protocol) || 1, theirs = e.protocol || 1;
@@ -48,13 +48,14 @@ function EngineRow(props: { e: Peer }) {
       e.manual ? btn("rm", t("Remove"), () => removePeer(e), "danger") : null];
   const note = mismatch ? <div class="err" style="font-size:.85rem">{theirs < ours ? t("Older Alembic: update it to use it with this engine") : t("Newer Alembic: update this engine to use them together")}</div>
     : e.manual && !e.reachable ? <div class="err ellip" style="font-size:.85rem">{t("Not reachable: {why}", { why: tMsg(e.problem || "") })}</div>
+    : e.paired && e.offline ? <div class="muted" style="font-size:.85rem">{t("Paired · offline")}</div>
     : e.paired ? <div class="good" style="font-size:.85rem">{t("Paired")}</div>
     : e.manual ? <div class="muted" style="font-size:.85rem">{t("Added by address")}</div> : null;
   return (
     <div class="ftprow">
       <div class="nm">{ICONS.server()}</div>
       <div style="min-width:0;flex:1"><div class="ellip">{e.name}</div><div class="muted mono ellip" style="font-size:.85rem">{sub}</div>{note}</div>
-      <a class="btn sm" data-key={"peer:open:" + e.id} href={e.url} target="_blank" rel="noopener">{t("Open its page")}</a>
+      {e.url ? <a class="btn sm" data-key={"peer:open:" + e.id} href={e.url} target="_blank" rel="noopener">{t("Open its page")}</a> : null}
       {actions}
     </div>
   );

@@ -6,6 +6,7 @@ import { cwd, listing, focusEntry, tab } from "../../state/view";
 import { loadInfo } from "../../state/engine";
 import { dir } from "../../lib/format";
 import { tMsg } from "../../lib/i18n";
+import { peerRoot } from "../../state/paths";
 import { overlays } from "../../components/Overlay";
 import { toast } from "../../components/Toasts";
 import { focusEl, setZoneLast, visible, zoneOf } from "../../input/focus";
@@ -14,7 +15,13 @@ import { pushNav } from "../../input/history";
 export async function browse(path: string, push?: boolean, focusKey?: string | null) {
   let data: Listing;
   try { data = await api<Listing>("GET", "/api/browse?path=" + encodeURIComponent(path || "/")); }
-  catch (e: any) { toast(tMsg(e.message), "bad"); return; }
+  catch (e: any) {
+    toast(tMsg(e.message), "bad");
+    // Another engine went away while we were on it: back to the drives.
+    const peer = peerRoot(path || "/");
+    if (peer && cwd.value && peerRoot(cwd.value) === peer) browse("/", false);
+    return;
+  }
   const from = cwd.value;
   if (push !== false && data.path !== from) pushNav({ view: "files", path: data.path, from });
   else if (history.state && !history.state.overlay) history.replaceState(Object.assign({}, history.state, { view: "files", path: data.path }), "");

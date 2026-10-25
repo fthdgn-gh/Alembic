@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Files: drives and places on the left, the folder's contents on the right.
-import { useRef } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
 import { cwd, listing } from "../../state/view";
-import { rootOf, ftpOf, driveName } from "../../state/paths";
+import { peerDrives } from "../../state/engine";
+import { rootOf, ftpOf, driveName, offlinePeer } from "../../state/paths";
 import { api } from "../../api/client";
 import { base, bytes } from "../../lib/format";
 import { IS_PS5 } from "../../lib/env";
@@ -23,7 +24,8 @@ function Summary() {
   const files = data.entries.filter((e) => e.kind !== "folder"), folders = data.entries.length - files.length;
   const total = files.reduce((n, e) => n + (e.size || 0), 0);
   const r: any = data.path === "/" ? null : rootOf(data.path);
-  const text = data.path === "/" ? t("Pick a drive") :
+  const off = offlinePeer(data.path);
+  const text = data.path === "/" ? t("Pick a drive") : off ? t("{engine} is offline", { engine: off.name }) :
     [folders ? plural(folders, "{n} folder", "{n} folders") : "", files.length ? plural(files.length, "{n} file", "{n} files") + " · " + bytes(total) : "",
       r && (r.total || !r.engine) ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) : ftpOf(data.path) ? t("On an FTP server") : ""].filter(Boolean).join("  ·  ") || t("Empty");
   return <div class="summary" id="summary">{text}</div>;
@@ -31,6 +33,15 @@ function Summary() {
 
 export function FilesPage(props: { hidden: boolean }) {
   const pick = useRef<HTMLInputElement>(null);
+  // The drive list shows paired engines' drives: ask for it again when they
+  // change (one went offline, or came back).
+  const drives = peerDrives.value.map((d) => d.root).join("\n");
+  const seen = useRef(drives);
+  useEffect(() => {
+    if (seen.current === drives) return;
+    seen.current = drives;
+    if (cwd.value === "/") browse("/", false);
+  }, [drives]);
   const atTop = cwd.value === "/";
   const shown = shares.value;
   return (

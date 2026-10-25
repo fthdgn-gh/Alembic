@@ -2067,6 +2067,30 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   a crop with an independent Python decoder. The `.ffpkg` grows to ~65 MB.
   Not yet seen on a TV.
 
+### 2026-10-25: paired engines that go offline
+
+- **Owner:** with a paired engine switched off, the app's Files showed its
+  drive as a raw `/peer/<id>/...` path. Also (owner): the app and the page
+  stay on par both ways (CLAUDE.md).
+- **Engine:** `/api/peers` keeps every paired engine, with `offline: true`
+  when it is no longer announced (then without address) or did not answer
+  the last drive request (`peer_down_`, from `peer_drives()`). A request to
+  a paired engine that is gone says "<name> is offline"; a failed listing of
+  another engine's folder passes that engine's reason on (502) instead of
+  "cannot open <path>".
+- **App and page:** Files lists an offline paired engine under Other
+  engines, dimmed, with "offline" (choosing it says so); the drive list asks
+  again when paired engines' drives change, and a row on an offline engine
+  reads "<name> · <drive>" / "offline"; inside its folders the line under the
+  path says "<name> is offline" and the path starts with its name; a failed
+  listing there goes back to Drives. Settings shows "Paired · offline". The
+  app now names other engines' paths inside messages as the page does
+  (`set_path_namer`).
+- Checked with two PC engines paired on the Mac and the app preview: the
+  engine stopped while one of its folders was open, Back went to Drives, its
+  drive came back on its own when it restarted. The page was type-checked,
+  not looked at in a browser.
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and
