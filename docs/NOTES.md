@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (2026-10-26, release 0.3.2)
+## Where we are (2026-10-26, release 0.3.2, published)
 
 ### What works
 
@@ -2362,6 +2362,20 @@ What it took:
   images list folders in byte order, which this keeps; rebuilds from any
   image are still identical.
 
+### 2026-10-26: 0.3.2 released
+
+- Tagged and pushed; CI published the release (app `.ffpkg` and `.zip`,
+  payload, PC packages, bundle, SHA256SUMS, all attested). The tag message
+  lost its `###` headings (git's comment cleanup); the release body was
+  fixed by hand (see "Making a release").
+- ProsperoStore: `tools/catalog_record.py v0.3.2` (description now names PS4
+  packages); the owner opens the PR from fthdgn-gh, since the description
+  changed (the catalog's daily job would only propose the version).
+- Open for ShadowMount+ (#97): it copies only PS5 trophy metadata
+  (`update_trophy_metadata` in `src/sm_install.c`: trophy2/ and uds/
+  npbind.dat, param.json), never a PS4 game's sce_sys/npbind.dat and
+  trophy/, hence "Trophy registration failed" for PS4 images.
+
 ### 2026-10-26: PS4/PS5 pill, README, ProsperoStore (for 0.3.2)
 
 - Owner: games carry a platform pill in the file list and the queue, on
@@ -2462,7 +2476,11 @@ What it took:
    remake the screenshots if the page changed (`tools/screenshots/shoot.sh`).
 2. Bump the version in `CMakeLists.txt` and the "Where we are" heading
    above ("Version X.Y.Z" commit).
-3. Tag `vX.Y.Z` and push the tag: CI builds and publishes the release.
+3. Tag `vX.Y.Z` with the release notes as its message, **`git tag -a
+   --cleanup=verbatim`** (otherwise git drops the `###` heading lines as
+   comments; 0.3.2 lost them and the release body was fixed with `gh release
+   edit --notes-file`), and push the tag: CI builds and publishes the
+   release with the tag's message as its notes.
 
 ## Next session
 
