@@ -60,9 +60,9 @@ and the app mark each game with a **PS5** (white) or **PS4** (black) pill.
   [MkPFS](https://github.com/PSBrew/MkPFS) (`pack folder --raw
   --no-compress`); FPKG output matches
   [ProsperoPkgTool](https://github.com/pearlxcore/ProsperoPkgTool)
-  (`img_create`, stored, with the same fixed seed); PS4 packages are built
-  to match LibOrbisPkg's `pkg_build` (`tools/ps4-oracle`; that comparison
-  has not been run yet).
+  (`img_create`, stored, with the same fixed seed); PS4 packages match
+  [LibOrbisPkg](https://github.com/maxton/LibOrbisPkg)'s `pkg_build`, also
+  when rebuilding a package from the project its `pkg_makegp4` extracts.
 - **LZ4 asset packs** for drakmor's [ampr_emu](https://github.com/drakmor/ampr_emu)
   PackedStdio runtime (`--lz4`), byte-identical to its `ampr_pack.py`, with
   game profiles from

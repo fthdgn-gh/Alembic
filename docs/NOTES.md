@@ -107,8 +107,8 @@ app/preview.sh [dir] [script]       # PNGs of the app drawn on this computer (Me
   key, so a package with an unknown passcode does not open); outer PFS with
   32-bit inodes. Written as LibOrbisPkg writes them: game applications
   (CATEGORY gd) only, stored (no zlib in the PFSC), not resumable; patches
-  and DLC neither read-tested nor written. Byte parity with LibOrbisPkg not
-  yet run (see the 2026-10-26 entries).
+  and DLC neither read-tested nor written. Byte-identical to LibOrbisPkg
+  (`tools/ps4-oracle/compare.sh`, 2026-10-26).
 - SHA-256 is single-threaded (with SHA-NI / ARMv8 SHA2 where the CPU has
   them); inflate and Kraken decode read ahead on worker threads; AES and
   CRC32C use the CPU's instructions on x86-64 and ARMv8.
@@ -2279,9 +2279,32 @@ same file).
   it back (digests, ICV, every file, licence, keystone, determinism, a
   rebuild from the package); check_samples.sh rebuilds package P;
   `tools/ps4-oracle/compare.sh` compares with LibOrbisPkg byte for byte and
-  runs its `pkg_validate`, **not run yet**: building LibOrbisPkg was refused
-  by the session's safety check twice (the owner had said yes); run it by
-  hand.
+  runs its `pkg_validate` (the owner runs it: the session's safety check
+  refused to build LibOrbisPkg; results in the next entry).
+
+### 2026-10-26: PS4 packages byte-identical to LibOrbisPkg
+
+`tools/ps4-oracle/compare.sh` (run by the owner) now passes everything:
+both synthetic games byte-identical to `pkg_build` with `pkg_validate`
+passing; package P's files equal `pkg_extract`'s; package P rebuilt by
+Alembic equals `pkg_makegp4` + `pkg_build` byte for byte, and validates.
+What it took:
+- **The oracle on .NET 10:** a `-p:TargetFramework` does not reach the
+  library PkgTool references, so the script builds a copy whose two
+  `.csproj` files are retargeted; `pkg_build` needs its output folder to
+  exist; `pkg_extract` writes under `uroot/`; `pkg_makegp4` writes
+  `Project.gp4` inside the game folder and moves param.sfo's creation date
+  into the project's `c_date` (passed as `--creation-date/-time`).
+- **A LibOrbisPkg bug on .NET 6+:** its PFSCReader inflates a block with one
+  `DeflateStream.Read`, which may now return less than asked; one file of
+  package P came out short. The script patches the copy to read until full
+  (as `patch_libprosperopkg.py` does for LibProsperoPKG).
+- **Alembic's order** is now `pkg_makegp4`'s, whatever the source: sce_sys
+  first at the top; in each folder, sub-folders holding CNT entry files
+  first (lowest entry id), then by name; entry files first (by id), then by
+  name (`entry_id_for_path` has all of LibOrbisPkg's EntryNames). Sony's
+  images list folders in byte order, which this keeps; rebuilds from any
+  image are still identical.
 
 ### 2026-10-26: PS4/PS5 pill, README, ProsperoStore (for 0.3.2)
 
@@ -2436,11 +2459,12 @@ same file).
    (2026-10-25).
 5. Smaller: retail/patch packages, NAPS shuffle layouts, Kraken-compressed
    FPKG output, less pass-1 memory for LZ4.
-6. PS4 packages (2026-10-26, reading and writing done): run
-   `tools/ps4-oracle/compare.sh` (byte parity with LibOrbisPkg; not run yet,
-   see the log); owner to try a PS4 image through ShadowMount+ (beta8 takes
-   PS4 images) and a rebuilt PS4 package on a console. Later: PS4 patches and
-   DLC, zlib-compressed PFSC like Sony's packages.
+6. PS4 packages (2026-10-26, reading and writing done, byte-identical to
+   LibOrbisPkg): owner to try a PS4 image through ShadowMount+ (beta8 takes
+   PS4 images) and a rebuilt PS4 package on a console. Later: other
+   passcodes (unwrap the image key with the downloaded keys), PS4 patches and
+   DLC, zlib-compressed PFSC like Sony's packages, hiding the AMPR switch in
+   Convert for PS4 games.
 
 Older plan items (faster reading, PS5 build, LZ4 packs, FPKG, UFS2 and PFS
 writers, the downloader for third-party files) are done; see the log above.

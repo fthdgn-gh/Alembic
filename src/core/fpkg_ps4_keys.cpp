@@ -162,4 +162,38 @@ std::optional<std::uint32_t> entry_id_for_name(const std::string& name) {
     return std::nullopt;
 }
 
+std::optional<std::uint32_t> entry_id_for_path(const std::string& rel) {
+    if (rel.find('/') == std::string::npos) return entry_id_for_name(rel);
+    auto two = [](const std::string& s, std::size_t at) -> int {
+        if (at + 2 > s.size() || s[at] < '0' || s[at] > '9' || s[at + 1] < '0' || s[at + 1] > '9') return -1;
+        return (s[at] - '0') * 10 + (s[at + 1] - '0');
+    };
+    if (rel == "app/playgo-chunk.dat") return 0x1008;
+    if (rel == "app/playgo-chunk.sha") return 0x1009;
+    if (rel == "app/playgo-manifest.xml") return 0x100A;
+    if (rel == "changeinfo/changeinfo.xml") return 0x1260;
+    // changeinfo/changeinfo_NN.xml (NN < 31)
+    if (rel.size() == 28 && rel.compare(0, 22, "changeinfo/changeinfo_") == 0 && rel.compare(24, 4, ".xml") == 0) {
+        int n = two(rel, 22);
+        if (n >= 0 && n < 31) return 0x1261u + static_cast<std::uint32_t>(n);
+    }
+    // trophy/trophyNN.trp (NN < 100)
+    if (rel.size() == 19 && rel.compare(0, 13, "trophy/trophy") == 0 && rel.compare(15, 4, ".trp") == 0) {
+        int n = two(rel, 13);
+        if (n >= 0) return 0x1400u + static_cast<std::uint32_t>(n);
+    }
+    // keymap_rp/0NN.png (NN = 01..10) and keymap_rp/II/0JJ.png (II < 31, JJ = 01..10)
+    if (rel.compare(0, 10, "keymap_rp/") == 0) {
+        if (rel.size() == 17 && rel[10] == '0' && rel.compare(13, 4, ".png") == 0) {
+            int n = two(rel, 11);
+            if (n >= 1 && n <= 10) return 0x1600u + static_cast<std::uint32_t>(n - 1);
+        }
+        if (rel.size() == 20 && rel[12] == '/' && rel[13] == '0' && rel.compare(16, 4, ".png") == 0) {
+            int i = two(rel, 10), j = two(rel, 14);
+            if (i >= 0 && i < 31 && j >= 1 && j <= 10) return 0x1610u + static_cast<std::uint32_t>(16 * i + j - 1);
+        }
+    }
+    return std::nullopt;
+}
+
 } // namespace alembic::fpkg::ps4

@@ -402,6 +402,12 @@ TEST_CASE(ps4_package_rules) {
     CHECK(fpkg::ps4::entry_id_for_name("pic1_07.dds") == std::optional<std::uint32_t>(0x12C8));
     CHECK(!fpkg::ps4::entry_id_for_name("pic1_31.dds"));
     CHECK(!fpkg::ps4::entry_id_for_name("keystone"));
+    CHECK(fpkg::ps4::entry_id_for_path("trophy/trophy07.trp") == std::optional<std::uint32_t>(0x1407));
+    CHECK(fpkg::ps4::entry_id_for_path("changeinfo/changeinfo_30.xml") == std::optional<std::uint32_t>(0x127F));
+    CHECK(fpkg::ps4::entry_id_for_path("keymap_rp/010.png") == std::optional<std::uint32_t>(0x1609));
+    CHECK(fpkg::ps4::entry_id_for_path("keymap_rp/02/003.png") == std::optional<std::uint32_t>(0x1632));
+    CHECK(fpkg::ps4::entry_id_for_path("app/playgo-chunk.sha") == std::optional<std::uint32_t>(0x1009));
+    CHECK(!fpkg::ps4::entry_id_for_path("about/right.sprx"));
     // .NET's string order (checked against .NET 10).
     CHECK(unicode::dotnet_compare("ATTRIBUTE_INTERNAL", "ATTRIBUTE2") < 0);
     CHECK(unicode::dotnet_compare("pic1_00.png", "pic1.png") < 0);

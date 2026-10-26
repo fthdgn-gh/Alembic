@@ -386,34 +386,69 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
     FsTree tree;
     std::vector<std::uint8_t> kept_license, kept_license_info;
     int sce_sys_dir = -1;
+    // The order pkg_makegp4 gives a project, whatever the game came from:
+    // sce_sys first at the top; in each folder, sub-folders that hold CNT
+    // entry files first (by their lowest entry id), then the others by name;
+    // entry files first (by id), then the other files by name (the order of
+    // a PS4 image's own folders).
     struct Walk {
         const tree::Source& source;
         FsTree& tree;
         std::vector<std::uint8_t>& license;
         std::vector<std::uint8_t>& license_info;
         int& sce_sys_dir;
-        Status add(const tree::Node& node, int dir, bool top_sce_sys) {
+        static bool generated(const std::string& rel) {
+            return rel == "license.dat" || rel == "license.info" || rel == "psreserved.dat" ||
+                   rel == "playgo-chunk.dat" || rel == "playgo-chunk.sha" || rel == "playgo-manifest.xml";
+        }
+        // A file's entry id ("rel" is relative to sce_sys; empty outside it).
+        static std::optional<std::uint32_t> entry_of(const std::string& rel) {
+            if (rel.empty() || generated(rel)) return std::nullopt;
+            return entry_id_for_path(rel);
+        }
+        static std::uint64_t lowest_entry(const tree::Node& node, const std::string& rel) {
+            std::uint64_t lowest = UINT64_MAX;
+            for (const tree::Node& c : node.children) {
+                std::string r = rel.empty() ? std::string() : rel + c.name;
+                if (c.is_directory) lowest = std::min(lowest, lowest_entry(c, r.empty() ? r : r + "/"));
+                else if (auto id = entry_of(r)) lowest = std::min<std::uint64_t>(lowest, *id);
+            }
+            return lowest;
+        }
+        // `rel`: the folder's path inside sce_sys with a trailing '/' ("" for sce_sys itself).
+        Status add(const tree::Node& node, int dir, const std::string& rel, bool in_sys) {
             std::vector<const tree::Node*> dirs, files;
             for (const tree::Node& c : node.children) (c.is_directory ? dirs : files).push_back(&c);
-            auto by_name = [](const tree::Node* a, const tree::Node* b) { return a->name < b->name; };
-            std::sort(dirs.begin(), dirs.end(), by_name);
-            std::sort(files.begin(), files.end(), by_name);
+            auto path_of = [&](const tree::Node* n) { return in_sys ? rel + n->name : std::string(); };
+            std::sort(dirs.begin(), dirs.end(), [&](const tree::Node* a, const tree::Node* b) {
+                bool sa = dir == 0 && a->name == "sce_sys", sb = dir == 0 && b->name == "sce_sys";
+                if (sa != sb) return sa;
+                std::uint64_t la = in_sys ? lowest_entry(*a, path_of(a) + "/") : UINT64_MAX;
+                std::uint64_t lb = in_sys ? lowest_entry(*b, path_of(b) + "/") : UINT64_MAX;
+                if (la != lb) return la < lb;
+                return a->name < b->name;
+            });
+            std::sort(files.begin(), files.end(), [&](const tree::Node* a, const tree::Node* b) {
+                std::uint64_t ia = entry_of(path_of(a)).value_or(UINT64_MAX);
+                std::uint64_t ib = entry_of(path_of(b)).value_or(UINT64_MAX);
+                if (ia != ib) return ia < ib;
+                return a->name < b->name;
+            });
             for (const tree::Node* d : dirs) {
                 int index = tree.add_dir(dir, d->name);
                 bool is_sce_sys = dir == 0 && d->name == "sce_sys";
                 if (is_sce_sys) sce_sys_dir = index;
-                ALEMBIC_TRY(add(*d, index, is_sce_sys));
+                ALEMBIC_TRY(add(*d, index, is_sce_sys ? std::string() : in_sys ? rel + d->name + "/" : std::string(),
+                                is_sce_sys || in_sys));
             }
             for (const tree::Node* f : files) {
-                if (top_sce_sys) {
+                if (in_sys && rel.empty()) {
                     if (f->name == "license.dat" || f->name == "license.info") {
                         ALEMBIC_ASSIGN(auto data, read_node(source, *f, 0x10000));
                         (f->name == "license.dat" ? license : license_info) = std::move(data);
                         continue;
                     }
-                    if (f->name == "psreserved.dat" || f->name == "playgo-chunk.dat" || f->name == "playgo-chunk.sha" ||
-                        f->name == "playgo-manifest.xml")
-                        continue;
+                    if (generated(f->name)) continue;
                 }
                 FsTree::File file;
                 file.name = f->name;
@@ -425,7 +460,7 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
             return {};
         }
     } walk{source, tree, kept_license, kept_license_info, sce_sys_dir};
-    ALEMBIC_TRY(walk.add(*root, 0, false));
+    ALEMBIC_TRY(walk.add(*root, 0, std::string(), false));
     if (sce_sys_dir < 0) return make_error(Errc::invalid_argument, "the game has no sce_sys folder");
     // A game application needs a keystone; one is made from the passcode when missing.
     bool has_keystone = false;

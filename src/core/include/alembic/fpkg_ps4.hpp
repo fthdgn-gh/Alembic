@@ -82,5 +82,8 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
 // The CNT entry id of a file name directly in sce_sys, as LibOrbisPkg's
 // EntryNames knows it (exposed for tests).
 std::optional<std::uint32_t> entry_id_for_name(const std::string& name);
+// The same for any path inside sce_sys ("trophy/trophy00.trp"): the whole of
+// EntryNames, what pkg_makegp4 extracts entries as.
+std::optional<std::uint32_t> entry_id_for_path(const std::string& sce_sys_relative);
 
 } // namespace alembic::fpkg::ps4

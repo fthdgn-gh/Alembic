@@ -37,7 +37,7 @@ the PS5's Safari-12-era browser: no regex lookbehind, no APIs newer than that.
 Output must stay byte-identical to PS5PKGTool (the AMPR index with
 `--ampr-scheme ps5pkgtool`), to ampr_emu's index builder (default scheme),
 for `.ffpfs`, to MkPFS `pack folder --raw --no-compress`, and for PS4
-packages to LibOrbisPkg `pkg_build` (the target; tools/ps4-oracle checks it).
+packages to LibOrbisPkg `pkg_build` (tools/ps4-oracle).
 Run the oracle after changing any format code. Reference checkouts live in
 `.refs/` (git-ignored): PS5PKGTool, ProsperoPkgTool, ampr_emu, LibOrbisPkg,
 LibProsperoPKG-sven, fpkg-cli, PS5-LZ4-Compression, MkPFS (with its Python
