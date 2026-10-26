@@ -303,6 +303,14 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     };
     if (options.lz4 && options.lz4_unpack)
         return make_error(Errc::invalid_argument, "choose either LZ4 packing or unpacking");
+    // A PS4 game: Alembic writes PS5 packages only, and LZ4 packs and the AMPR
+    // emulator are for PS5 games.
+    auto game_root = ffpfsc::resolve_game_root(input.tree->root());
+    const bool ps4 = game_root.ok() && ffpfsc::is_ps4_game(**game_root);
+    if (ps4 && to == Format::fpkg)
+        return unsupported(input.format, to, "this is a PS4 game, and Alembic writes PS5 packages only");
+    if (ps4 && options.lz4)
+        return make_error(Errc::unsupported, "LZ4 asset packs are for PS5 games; this is a PS4 game");
     if (options.lz4_unpack) {
         if (!lz4pack::is_packed(tree_ptr->root()))
             return make_error(Errc::invalid_argument, "the input has no LZ4 packs (no ampr_assets.index)");
@@ -362,7 +370,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     // The AMPR emulator: not for packages (installed, they have the console's
     // APR) nor when packing (the packer adds its runtime).
     std::unique_ptr<tree::Source> with_emulator;
-    if (to != Format::fpkg && !packed) {
+    if (to != Format::fpkg && !packed && !ps4) {
         if (progress && !progress({"Checking eboot.bin", 0, 0})) return make_error(Errc::cancelled, "cancelled");
         // A stage without a byte count: its bytes are not the conversion's.
         ProgressFn stage_only = [&](const ProgressEvent& e) { return !progress || progress({e.stage, 0, 0}); };

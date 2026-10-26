@@ -687,7 +687,7 @@ Result<JsonValue> run_ampr_emu(const JobSpec& spec, const EngineConfig& config, 
             return make_error(Errc::invalid_argument,
                               "a package does not need it: installed, it uses the console's own APR");
         std::optional<std::string> title_id = ffpfsc::read_title_id(*game.tree, game.tree->root());
-        if (!title_id) return make_error(Errc::invalid_argument, "the game has no title ID in sce_sys/param.json");
+        if (!title_id) return make_error(Errc::invalid_argument, "the game has no title ID in sce_sys/param.json or param.sfo");
         std::string root = backports_root_for(input, *title_id, config);
         if (root.empty()) return make_error(Errc::invalid_argument, "no backports folder is set");
         ALEMBIC_ASSIGN(result, ampr_emu::attach_backport(*game.tree, root, emulator));

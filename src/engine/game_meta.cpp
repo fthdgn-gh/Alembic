@@ -4,6 +4,7 @@
 
 #include "alembic/convert.hpp"
 #include "alembic/io.hpp"
+#include "alembic/sfo.hpp"
 
 #include <algorithm>
 #include <condition_variable>
@@ -131,6 +132,18 @@ GameMeta parse_param(const std::string& text) {
     return m;
 }
 
+// A PS4 game's param.sfo.
+GameMeta parse_sfo(const std::vector<std::uint8_t>& data) {
+    GameMeta m;
+    auto param = sfo::parse(data);
+    if (!param.ok()) return m;
+    m.title = param->get("TITLE").value_or("");
+    m.title_id = param->get("TITLE_ID").value_or("");
+    m.content_id = param->get("CONTENT_ID").value_or("");
+    m.version = param->get("APP_VER").value_or(param->get("VERSION").value_or(""));
+    return m;
+}
+
 } // namespace
 
 GameMetaCache::GameMetaCache(std::string state_dir) : dir_(std::move(state_dir) + "/cache/meta") {}
@@ -181,6 +194,9 @@ Status GameMetaCache::load(const std::string& path, const std::string& key) {
         if (const tree::Node* p = sce_sys_file(root, "param.json")) {
             ALEMBIC_ASSIGN(auto data, read_node(*input.tree, *p, kMaxParam));
             meta = parse_param(std::string(data.begin(), data.end()));
+        } else if (const tree::Node* s = sce_sys_file(root, "param.sfo")) {
+            ALEMBIC_ASSIGN(auto data, read_node(*input.tree, *s, kMaxParam));
+            meta = parse_sfo(data);
         }
         if (const tree::Node* i = sce_sys_file(root, "icon0.png")) {
             auto data = read_node(*input.tree, *i, kMaxIcon);

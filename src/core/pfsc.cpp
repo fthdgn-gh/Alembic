@@ -364,7 +364,10 @@ Result<Info> inspect(const RandomAccess& source, std::uint64_t base_offset, std:
     std::uint64_t logical_length = get_u64(h + 0x28);
 
     if (get_u32(h + 0x00) != kMagic) return invalid("PFSC magic is missing");
-    if (get_u32(h + 0x04) != 0 || get_u32(h + 0x08) != kVersionField) return invalid("unsupported PFSC header version");
+    // Version 6 is what PS5 tools write; PS4 packages carry version 2 with the same layout.
+    std::uint32_t version = get_u32(h + 0x08);
+    if (get_u32(h + 0x04) != 0 || (version != kVersionField && version != kVersionFieldPs4))
+        return invalid("unsupported PFSC header version");
     if (get_u32(h + 0x0C) != kBlockSize || get_u64(h + 0x10) != kBlockSize)
         return invalid("unsupported or mismatched PFSC block size");
     if (table_offset < kHeaderRecordSize || table_offset > available)

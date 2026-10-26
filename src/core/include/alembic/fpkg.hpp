@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // PS5 debug packages (FPKG), read side, first layer: the package envelope
 // (FIH / LIH / CNT), CNT entries, key derivation and the encrypted outer PFS.
+// PS4 fake packages are a bare CNT whose header (0x400..0x420) points at the
+// outer PFS; they use SHA-256 where PS5 uses SHA3, one HMAC step for the PFS
+// keys, and XTS over 4 KiB sectors.
 // The inner image (pfs_image.dat + naps_pkg_layout.dat) is decoded elsewhere.
 // Formats follow pearlxcore/ProsperoPkgTool (MIT); see THIRD_PARTY_NOTICES.md.
 //
@@ -26,7 +29,7 @@ namespace alembic::fpkg {
 inline constexpr std::uint64_t kBlockSize = 0x10000;
 inline const std::string kDefaultPasscode(32, '0');
 
-enum class Kind { metadata_container, finalized_debug, finalized_retail, patch_debug };
+enum class Kind { metadata_container, finalized_debug, finalized_retail, patch_debug, ps4_package };
 const char* name(Kind kind);
 
 struct CntEntry {
@@ -72,6 +75,7 @@ struct Package {
     std::vector<CntEntry> entries;
     std::vector<Segment> segments;
     std::vector<std::string> warnings; // structural issues that do not stop reading
+    bool ps4() const { return kind == Kind::ps4_package; }
 };
 
 Result<Package> read_package(const RandomAccess& file);
@@ -83,7 +87,8 @@ Result<std::vector<std::uint8_t>> read_entry(const RandomAccess& file, const Pac
                                              const std::string& passcode = kDefaultPasscode);
 
 struct DigestCheck {
-    bool fih_digest_ok = false;   // FIH 0x30/0x70/0xD0 == SHA3(superblock block)
+    bool fih_digest_ok = false;   // FIH 0x30/0x70/0xD0 == SHA3(superblock block);
+                                  // PS4: CNT 0x460 == SHA-256(first signed bytes of the PFS)
     bool entry_digests_ok = false;
     std::string detail;
 };
@@ -92,6 +97,8 @@ Result<DigestCheck> check_digests(const RandomAccess& file, const Package& packa
 
 // SHA3( SHA3(BE32(index)) || SHA3(content id padded to 48) || passcode ).
 crypto::Digest compute_keys(const std::string& content_id, const std::string& passcode, std::uint32_t index);
+// The same with SHA-256 (PS4 packages).
+crypto::Digest compute_keys_ps4(const std::string& content_id, const std::string& passcode, std::uint32_t index);
 
 struct OuterFileInfo {
     std::string name;
@@ -139,6 +146,7 @@ private:
     std::vector<std::uint8_t> superblock_;
     bool plain_ = false;
     bool icv_ok_ = false;
+    bool ps4_ = false;
     std::unique_ptr<crypto::Aes128> data_key_;
     std::unique_ptr<crypto::Aes128> tweak_key_;
     std::vector<Inode> inodes_;

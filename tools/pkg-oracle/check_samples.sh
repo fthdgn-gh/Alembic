@@ -6,6 +6,10 @@
 #   - the whole decoded inner image equals ProsperoPkgTool's --mount,
 #   - Unity serialized files (if any) report their own sizes correctly,
 #   - FPKG -> exFAT -> folder gives the same tree.
+# For PS4 *.pkg (no third-party reader here yet):
+#   - fpkg-info: entry digests, the PFS head digest and the superblock signature verify,
+#   - the whole stored PFS hashes to the CNT header's digest (0x440),
+#   - PKG -> exFAT -> folder and PKG -> FFPFSC -> folder give the same tree.
 # For *.exfat:
 #   - extraction equals PS5PKGTool's exFAT reader (tools/oracle),
 #   - exFAT -> FFPFSC -> exFAT is byte-identical to the original.
@@ -48,6 +52,34 @@ for pkg in "$repo"/.refs/samples/*.pkg; do
     too_big "$pkg" && continue
     name="$(basename "$pkg")"; w="$work/x"; rm -rf "$w"; mkdir -p "$w"
     echo "== $name"
+    info="$("$alembic" fpkg-info "$pkg" --passcode "$passcode" 2>&1 || true)"
+    if grep -q "^kind: *PS4 package" <<<"$info"; then
+        if grep -q "^entry digests: *ok" <<<"$info" && grep -q "^PFS head digest: ok" <<<"$info" \
+            && grep -q "ICV ok" <<<"$info"; then echo "same  entry digests, PFS head digest, superblock signature"
+        else echo "DIFF  PS4 digests or signature:"; grep -E "digest|ICV" <<<"$info" | sed 's/^/      /'; fail=1; fi
+        if python3 -I - "$pkg" <<'PY'
+import hashlib, struct, sys
+with open(sys.argv[1], 'rb') as f:
+    h = f.read(0x480)
+    offset, size = struct.unpack('>QQ', h[0x410:0x420])
+    f.seek(offset); d = hashlib.sha256(); left = size
+    while left:
+        b = f.read(min(left, 1 << 24)); d.update(b); left -= len(b)
+sys.exit(0 if d.digest() == h[0x440:0x460] else 1)
+PY
+        then echo "same  whole PFS digest"; else echo "DIFF  whole PFS digest"; fail=1; fi
+        "$alembic" convert "$pkg" "$w/alembic/" --passcode "$passcode" >/dev/null 2>&1
+        for via in exfat ffpfsc; do
+            "$alembic" convert "$pkg" "$w/x.$via" --passcode "$passcode" >/dev/null 2>&1
+            "$alembic" convert "$w/x.$via" "$w/from-$via/" >/dev/null 2>&1
+            rm -f "$w/x.$via"
+            if python3 -I "$here/../oracle/same_tree.py" "$w/alembic" "$w/from-$via"; then echo "same  PKG -> $via -> folder"
+            else echo "DIFF  PKG -> $via -> folder"; fail=1; fi
+            rm -rf "$w/from-$via"
+        done
+        rm -rf "$w"
+        continue
+    fi
     "$alembic" convert "$pkg" "$w/alembic/" --passcode "$passcode" >/dev/null 2>&1
     ppt img_extract "$pkg" "$w/ppt" --passcode "$passcode" >/dev/null
     if python3 -I "$here/../oracle/same_tree.py" "$w/ppt" "$w/alembic" --subset; then echo "same  every inner file"

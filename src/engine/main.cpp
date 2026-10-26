@@ -741,9 +741,11 @@ private:
             const PathStat& st = entry.stat;
             if (st.kind == PathKind::missing) continue;
             Item item{name, st.is_directory(), st.size, st.mtime};
-            // A game folder: sce_sys/param.json inside (not asked of another
-            // engine for every folder: one request each).
-            item.game = item.dir && !elsewhere && path_exists(join_path(path, name) + "/sce_sys/param.json");
+            // A game folder: sce_sys/param.json (PS5) or param.sfo (PS4) inside
+            // (not asked of another engine for every folder: one request each).
+            item.game = item.dir && !elsewhere &&
+                        (path_exists(join_path(path, name) + "/sce_sys/param.json") ||
+                         path_exists(join_path(path, name) + "/sce_sys/param.sfo"));
             items.push_back(std::move(item));
         }
         std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) {

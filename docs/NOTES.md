@@ -14,6 +14,7 @@ Chronological log below; **read "Where we are" and "Next session" first.**
 | FFPKG (UFS2) | ✓ | ✓ | ✓ (wrap) | `--rebuild` | ✓ | ✓ |
 | FFPFS (PFS) | ✓ | ✓ | ✓ (wrap) | ✓ | – | ✓ |
 | FPKG (debug) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| PS4 FPKG (fake) | ✓ | ✓ | ✓ | ✓ | ✓ | – |
 
 - **Byte-identical to the references:** exFAT, FFPFSC and FFPKG to
   PS5PKGTool (AMPR index with `--ampr-scheme ps5pkgtool`, PFSC at
@@ -48,7 +49,7 @@ Chronological log below; **read "Where we are" and "Next session" first.**
 ### How it is checked
 
 ```sh
-cmake -S . -B build && cmake --build build && ./build/alembic_tests   # 82 unit tests
+cmake -S . -B build && cmake --build build && ./build/alembic_tests   # 86 unit tests
 tools/oracle/compare.sh             # byte-for-byte checks vs PS5PKGTool, MkPFS (.ffpfs) + ampr_emu builder
 tools/pkg-oracle/compare.sh         # FPKG reading/writing vs ProsperoPkgTool/LibProsperoPKG
 tools/pkg-oracle/check_samples.sh   # owner's real files in .refs/samples/ (~4 min; skips files over
@@ -66,7 +67,9 @@ app/preview.sh [dir] [script]       # PNGs of the app drawn on this computer (Me
   https://github.com/SvenGDK/LibProsperoPKG (as `LibProsperoPKG-sven`),
   https://github.com/drakmor/ampr_emu, https://github.com/drakmor/ShadowMountPlus,
   https://github.com/theghostonline/PS5-LZ4-Compression,
-  https://github.com/rdmrocha/fpkg-cli (no license: read only).
+  https://github.com/rdmrocha/fpkg-cli (no license: read only),
+  https://github.com/maxton/LibOrbisPkg (LGPL-3.0, PS4 packages; cloned
+  2026-10-26 at `6434772`, not built yet).
 - `.refs/MkPFS` (https://github.com/PSBrew/MkPFS, GPL-3.0, 1.1.0 at `1d5df56`)
   and `.refs/mkpfs-venv`: `python3 -m venv .refs/mkpfs-venv &&
   .refs/mkpfs-venv/bin/pip install ./.refs/MkPFS` (the oracle for `.ffpfs`;
@@ -98,6 +101,10 @@ app/preview.sh [dir] [script]       # PNGs of the app drawn on this computer (Me
   inode and fragmented PFS images are refused.
 - FPKG: retail and patch (LIH) packages are not opened; NAPS "shuffle"
   layouts (current LibProsperoPKG output) are refused.
+- PS4 packages: read only, with the passcode (no fake-RSA unwrap of the
+  image key, so a package with an unknown passcode does not open); outer
+  PFS with 32-bit inodes and direct/indirect blocks; no third-party oracle
+  run yet (see the 2026-10-26 entry). PS4 patches/DLC untried.
 - SHA-256 is single-threaded (with SHA-NI / ARMv8 SHA2 where the CPU has
   them); inflate and Kraken decode read ahead on worker threads; AES and
   CRC32C use the CPU's instructions on x86-64 and ARMv8.
@@ -2180,6 +2187,52 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
   classic Projects deprecation: edit PR text with
   `gh api -X PATCH repos/<repo>/pulls/<n> -F body=@file`.
 
+### 2026-10-26: PS4 packages (read side)
+
+Owner supplied a PS4 fake package ("package P", ~150 MB) in `.refs/samples/`.
+It now opens like a PS5 one: `convert` to folder, exFAT, FFPKG, FFPFS and
+FFPFSC, `ls`, `fpkg-info`, `fpkg-dump`; the engine shows its title and icon.
+
+- **Layout:** a bare CNT (the same header and entry table as PS5's, so
+  `read_cnt` needed nothing). CNT 0x400 u32 PFS image count, 0x410/0x418
+  BE u64 PFS offset/size, 0x438 BE u32 signed size, 0x440 SHA-256 of the
+  whole stored PFS, 0x460 SHA-256 of its first signed-size bytes (both
+  verified on package P). `Kind::ps4_package` = CNT at 0 whose header
+  points at a PFS superblock.
+- **Crypto:** PS5 with SHA-256 for SHA3 everywhere (entry keys, entry
+  digests, `compute_keys_ps4`); EKPFS = keys(1) from the passcode; PFS
+  tweak/data keys = HMAC-SHA256(EKPFS, LE32(1) || seed), one step (PS5
+  adds an inner HMAC over the seed); the superblock ICV at 0x380 is
+  HMAC-SHA256(HMAC-SHA256(EKPFS, LE32(2) || seed), superblock[0:0x5A0]
+  with the ICV zeroed), so a match proves the passcode. XTS per 4 KiB
+  sector numbered by offset / 0x1000 (block 0, the superblock, is plain).
+- **Outer PFS:** mode 0xD (signed, encrypted, case-insensitive), superblock
+  at block 0, the same 0x2C8 signed inodes as PS5; uroot holds one
+  `pfs_image.dat`: PFSC with version field **2** (PS5 tools write 6; the
+  reader takes both). Inside, an unsigned PFS (mode 0x8, version 1) that
+  `pfs::open_image` reads as is.
+- **Tree:** the inner uroot plus CNT entries under `sce_sys` (the PS5 rule:
+  param.sfo, icons, DDS, trophy, changeinfo, PlayGo files, licence files
+  decrypted). The inner `sce_sys` has `keystone` and `about/right.sprx`.
+- **A PS4 game** = `sce_sys/param.sfo` and no `param.json`
+  (`ffpfsc::is_ps4_game`), so it holds after a conversion too. Such games
+  are game roots, take their title ID from param.sfo (new `alembic/sfo.hpp`),
+  get no AMPR emulator (also refused by `ampr-emu`), and refuse `--lz4` and
+  FPKG output (Alembic writes PS5 packages).
+- **Checks:** `tests/test_ps4.cpp` builds a small synthetic PS4 package
+  (inner PFS from our writer, PFSC v2, signed + encrypted outer PFS, CNT)
+  and reads it end to end; key vectors from Python's hashlib/hmac.
+  `check_samples.sh` checks PS4 packages by their own digests and
+  signature plus PKG -> exFAT/FFPFSC -> folder. Package P: all digests and
+  the ICV verify, every zlib block inflates, round trips equal.
+- **Not done:** building maxton/LibOrbisPkg's `PkgTool.Core` as a
+  third-party oracle (`pkg_extract`, and `pkg_build` for synthetic PS4
+  packages) needs the owner's go-ahead to run that external code. The
+  fake-RSA image-key unwrap (packages with another passcode) would need
+  LibOrbisPkg's published fake key: establish its origin first (CLAUDE.md).
+  Not tried on a console: does ShadowMount+ start a PS4 game from these
+  images?
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and
@@ -2313,6 +2366,8 @@ Also: `read_small_file` stopped near 64 KB, below the 160 KB icon.
    (2026-10-25).
 5. Smaller: retail/patch packages, NAPS shuffle layouts, Kraken-compressed
    FPKG output, less pass-1 memory for LZ4.
+6. PS4 packages (2026-10-26, read side done): owner to try a converted PS4
+   game through ShadowMount+; LibOrbisPkg as an oracle (needs a go-ahead).
 
 Older plan items (faster reading, PS5 build, LZ4 packs, FPKG, UFS2 and PFS
 writers, the downloader for third-party files) are done; see the log above.

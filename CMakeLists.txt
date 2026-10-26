@@ -88,6 +88,7 @@ add_library(alembic_core STATIC
     src/core/lz4pack_profile.cpp
     src/core/lz4pack_read.cpp
     src/core/pfsc.cpp
+    src/core/sfo.cpp
     src/core/sha256.cpp
     src/core/toml.cpp
     src/core/tree.cpp
@@ -259,6 +260,7 @@ if(ALEMBIC_BUILD_TESTS)
         tests/test_mounts.cpp
         tests/test_pfs.cpp
         tests/test_pfsc.cpp
+        tests/test_ps4.cpp
         tests/test_resume.cpp
         tests/test_sha256.cpp
         tests/test_toml.cpp

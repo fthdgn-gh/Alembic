@@ -618,11 +618,11 @@ int cmd_fpkg_info(const Args& args) {
                     e.name.c_str());
     auto digests = fpkg::check_digests(*file, p);
     if (digests.ok()) {
-        std::printf("FIH digest:      %s\n", digests->fih_digest_ok ? "ok" : "MISMATCH");
+        std::printf("%s %s\n", p.ps4() ? "PFS head digest:" : "FIH digest:     ", digests->fih_digest_ok ? "ok" : "MISMATCH");
         std::printf("entry digests:   %s%s%s\n", digests->entry_digests_ok ? "ok" : "MISMATCH",
                     digests->detail.empty() ? "" : " - ", digests->detail.c_str());
     }
-    if (p.kind != fpkg::Kind::finalized_debug) return 0;
+    if (p.kind != fpkg::Kind::finalized_debug && !p.ps4()) return 0;
     auto pfs = fpkg::OuterPfs::open(file, p, args.get("--passcode").value_or(fpkg::kDefaultPasscode));
     if (!pfs.ok()) return fail(pfs.error());
     std::printf("outer PFS:       %u blocks, superblock at %u, %s, ICV %s\n", (*pfs)->block_count(),

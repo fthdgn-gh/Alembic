@@ -7,6 +7,8 @@
 
 #include "alembic/bytes.hpp"
 #include "alembic/kraken.hpp"
+#include "alembic/pfs.hpp"
+#include "alembic/pfsc.hpp"
 #include "alembic/unicode.hpp"
 
 #include <algorithm>
@@ -530,6 +532,7 @@ public:
             ALEMBIC_ASSIGN(std::vector<std::uint8_t> data, read_entry(*file_, opened_.package, e, passcode_));
             return std::shared_ptr<const RandomAccess>(std::make_shared<MemoryFile>(std::move(data)));
         }
+        if (ps4_inner_) return ps4_inner_->open(node);
         const InnerEntry& e = opened_.entries[node.id];
         return std::shared_ptr<const RandomAccess>(std::make_shared<Slice>(opened_.mount, e.offset, e.size));
     }
@@ -538,6 +541,7 @@ public:
     std::shared_ptr<const RandomAccess> file_;
     std::string passcode_;
     OpenedPackage opened_;
+    std::unique_ptr<tree::Source> ps4_inner_; // PS4: the inner PFS; its node ids are kept
     tree::Node root_;
     std::string label_;
 };
@@ -880,7 +884,19 @@ Result<std::unique_ptr<tree::Source>> open_tree(std::shared_ptr<const RandomAcce
     source->file_ = file;
     source->passcode_ = passcode;
     source->label_ = std::move(label);
-    ALEMBIC_ASSIGN(source->opened_, open_package(file, passcode));
+    ALEMBIC_ASSIGN(Package package, read_package(*file));
+    if (package.ps4()) {
+        // PS4: the outer PFS's pfs_image.dat is a PFSC-compressed PFS holding the game.
+        ALEMBIC_ASSIGN(std::shared_ptr<OuterPfs> outer, OuterPfs::open(file, package, passcode));
+        ALEMBIC_ASSIGN(std::shared_ptr<const RandomAccess> image, outer->open_file("pfs_image.dat"));
+        ALEMBIC_ASSIGN(std::shared_ptr<pfsc::Reader> inner, pfsc::Reader::open(image));
+        ALEMBIC_ASSIGN(source->ps4_inner_, pfs::open_image(std::move(inner), source->label_));
+        source->root_ = source->ps4_inner_->root();
+        source->opened_.package = std::move(package);
+        source->opened_.outer = std::move(outer);
+    } else {
+        ALEMBIC_ASSIGN(source->opened_, open_package(file, passcode));
+    }
     const OpenedPackage& o = source->opened_;
 
     // Inner PFS: everything under /uroot.

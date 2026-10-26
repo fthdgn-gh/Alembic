@@ -4,7 +4,7 @@
 // table in front. Ported from PS5PKGTool's PfscCodec.cs.
 //
 // Layout (all little-endian):
-//   0x00 u32 magic "PFSC"     0x04 u32 0         0x08 u32 version (6)
+//   0x00 u32 magic "PFSC"     0x04 u32 0         0x08 u32 version (6; 2 in PS4 packages)
 //   0x0C u32 block size       0x10 u64 block size again
 //   0x18 u64 offset table position (0x400)
 //   0x20 u64 data start (64 KiB aligned)   0x28 u64 padded logical length
@@ -25,6 +25,7 @@ namespace alembic::pfsc {
 
 inline constexpr std::uint32_t kMagic = 0x43534650; // "PFSC"
 inline constexpr std::uint32_t kVersionField = 6;
+inline constexpr std::uint32_t kVersionFieldPs4 = 2; // read only
 inline constexpr std::uint32_t kBlockSize = 0x10000;
 inline constexpr std::uint32_t kHeaderRecordSize = 0x30;
 inline constexpr std::uint32_t kOffsetTableOffset = 0x400;

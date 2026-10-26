@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Title, title ID, version and icon of a game (a package, an image or a
-// folder), read from its sce_sys/param.json and sce_sys/icon0.png. Results are
+// folder), read from its sce_sys/param.json (PS4: param.sfo) and sce_sys/icon0.png. Results are
 // cached in memory and in <state>/cache/meta, keyed by path, size and mtime.
 // An entry's .json time stamp is its last use; prune() drops old entries.
 #pragma once

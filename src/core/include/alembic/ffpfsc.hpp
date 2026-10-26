@@ -117,10 +117,14 @@ Result<VerifyResult> verify(const std::string& ffpfsc_path, const std::optional<
                             const ProgressFn& progress = {});
 
 // The game root PS5PKGTool would pick inside `search_root`; `relative_path`
-// receives its path ("" for the root itself).
+// receives its path ("" for the root itself). A folder with sce_sys/param.sfo
+// and no param.json (a PS4 game) counts as a root too.
 Result<const tree::Node*> resolve_game_root(const tree::Node& search_root, std::string* relative_path = nullptr);
-// The titleId of sce_sys/param.json in `game_root` (upper case), if valid.
+// The titleId of sce_sys/param.json in `game_root` (upper case), if valid;
+// for a PS4 game, TITLE_ID from sce_sys/param.sfo.
 std::optional<std::string> read_title_id(const tree::Source& source, const tree::Node& game_root);
+// Whether `game_root` is a PS4 game: sce_sys/param.sfo and no param.json.
+bool is_ps4_game(const tree::Node& game_root);
 // "<TITLEID>.exfat" from sce_sys/param.json, else `folder_name` sanitized + ".exfat".
 std::string resolve_dump_image_name(const tree::Source& source, const tree::Node& game_root,
                                     const std::string& folder_name);

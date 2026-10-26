@@ -229,9 +229,21 @@ Result<std::vector<std::uint8_t>> index_with_emulator(const tree::Source& game, 
 
 } // namespace
 
+namespace {
+
+Status refuse_ps4(const tree::Source& game) {
+    auto root = ffpfsc::resolve_game_root(game.root());
+    if (root.ok() && ffpfsc::is_ps4_game(**root))
+        return make_error(Errc::invalid_argument, "this is a PS4 game: PS4 games do not use APR and need no emulator");
+    return {};
+}
+
+} // namespace
+
 Result<AttachResult> attach_to_folder(const std::string& folder, const RandomAccess& emulator,
                                       const ProgressFn& progress) {
     ALEMBIC_ASSIGN(auto game, tree::open_folder(folder));
+    ALEMBIC_TRY(refuse_ps4(*game));
     AttachResult r;
     ALEMBIC_ASSIGN(r.check, check(*game, progress));
     r.folder = folder;
@@ -255,6 +267,7 @@ Result<AttachResult> attach_to_folder(const std::string& folder, const RandomAcc
 
 Result<AttachResult> attach_backport(const tree::Source& game, const std::string& backports_root,
                                      const RandomAccess& emulator, const ProgressFn& progress) {
+    ALEMBIC_TRY(refuse_ps4(game));
     AttachResult r;
     ALEMBIC_ASSIGN(r.check, check(game, progress));
     if (r.check.ships_emulator) {
@@ -263,7 +276,7 @@ Result<AttachResult> attach_backport(const tree::Source& game, const std::string
         return r;
     }
     std::optional<std::string> title_id = ffpfsc::read_title_id(game, game.root());
-    if (!title_id) return make_error(Errc::invalid_argument, "the game has no title ID in sce_sys/param.json");
+    if (!title_id) return make_error(Errc::invalid_argument, "the game has no title ID in sce_sys/param.json or param.sfo");
     r.folder = backports_root + "/" + *title_id;
     if (!r.check.imports_ampr) r.notes.push_back("eboot.bin does not name libSceAmpr; the emulator was added anyway");
     if (progress && !progress({"Writing the emulator", 0, 0})) return make_error(Errc::cancelled, "cancelled");

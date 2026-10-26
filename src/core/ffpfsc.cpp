@@ -5,6 +5,7 @@
 
 #include "alembic/bytes.hpp"
 #include "alembic/json.hpp"
+#include "alembic/sfo.hpp"
 #include "alembic/sha256.hpp"
 #include "alembic/tree.hpp"
 #include "alembic/unicode.hpp"
@@ -353,20 +354,30 @@ Status write_image_payload(void* context, ByteSink& sink, std::uint64_t start) {
 }
 
 Result<std::string> read_small(const tree::Source& source, const tree::Node& file) {
-    if (file.size > 16u * 1024 * 1024) return make_error(Errc::too_large, "param.json is too large");
+    if (file.size > 16u * 1024 * 1024) return make_error(Errc::too_large, file.name + " is too large");
     ALEMBIC_ASSIGN(std::shared_ptr<const RandomAccess> in, source.open(file));
     std::string data(static_cast<std::size_t>(file.size), '\0');
     ALEMBIC_TRY(in->read_at(0, MutableBytes(reinterpret_cast<std::uint8_t*>(data.data()), data.size())));
     return data;
 }
 
-const tree::Node* param_json(const tree::Node& directory) {
+const tree::Node* sce_sys_file(const tree::Node& directory, const char* name) {
     const tree::Node* sce_sys = tree::find_child_icase(directory, "sce_sys");
     if (!sce_sys || !sce_sys->is_directory) return nullptr;
     // PS5PKGTool checks File.Exists, which ignores case on the usual macOS
     // and Windows file systems.
-    const tree::Node* param = tree::find_child_icase(*sce_sys, "param.json");
+    const tree::Node* param = tree::find_child_icase(*sce_sys, name);
     return param && !param->is_directory ? param : nullptr;
+}
+
+const tree::Node* param_json(const tree::Node& directory) {
+    return sce_sys_file(directory, "param.json");
+}
+
+// A game root: a PS5 game's param.json, else a PS4 game's param.sfo.
+const tree::Node* game_param(const tree::Node& directory) {
+    if (const tree::Node* p = param_json(directory)) return p;
+    return sce_sys_file(directory, "param.sfo");
 }
 
 std::string lower_ascii(std::string s) {
@@ -377,7 +388,7 @@ std::string lower_ascii(std::string s) {
 } // namespace
 
 Result<const tree::Node*> resolve_game_root(const tree::Node& search_root, std::string* relative_path) {
-    if (param_json(search_root)) return &search_root;
+    if (game_param(search_root)) return &search_root;
     struct Pending {
         const tree::Node* node;
         std::string path;
@@ -397,7 +408,7 @@ Result<const tree::Node*> resolve_game_root(const tree::Node& search_root, std::
         });
         for (const tree::Node* child : children) {
             std::string child_path = current.path.empty() ? child->name : current.path + "/" + child->name;
-            if (unicode::ascii_iequals(child->name, "sce_sys") && param_json(*current.node)) {
+            if (unicode::ascii_iequals(child->name, "sce_sys") && game_param(*current.node)) {
                 if (std::find(found.begin(), found.end(), current.node) == found.end()) {
                     found.push_back(current.node);
                     found_paths.push_back(current.path);
@@ -406,7 +417,7 @@ Result<const tree::Node*> resolve_game_root(const tree::Node& search_root, std::
                     std::string list;
                     for (const std::string& p : found_paths) list += "\n  " + (p.empty() ? "." : p);
                     return make_error(Errc::invalid_argument,
-                                      "several PS5 game roots were found; pick one game folder directly:" + list);
+                                      "several game roots were found; pick one game folder directly:" + list);
                 }
                 continue;
             }
@@ -423,7 +434,19 @@ Result<const tree::Node*> resolve_game_root(const tree::Node& search_root, std::
 
 std::optional<std::string> read_title_id(const tree::Source& source, const tree::Node& game_root) {
     const tree::Node* param = param_json(game_root);
-    if (!param) return std::nullopt;
+    if (!param) {
+        // A PS4 game: TITLE_ID in param.sfo.
+        const tree::Node* sfo = sce_sys_file(game_root, "param.sfo");
+        if (!sfo) return std::nullopt;
+        auto data = read_small(source, *sfo);
+        if (!data.ok()) return std::nullopt;
+        auto parsed = sfo::parse(Bytes(reinterpret_cast<const std::uint8_t*>(data->data()), data->size()));
+        if (!parsed.ok()) return std::nullopt;
+        auto id = parsed->get("TITLE_ID");
+        if (!id || !is_title_id(*id)) return std::nullopt;
+        for (char& c : *id) c = static_cast<char>(c >= 'a' && c <= 'z' ? c - 32 : c);
+        return id;
+    }
     auto text = read_small(source, *param);
     if (!text.ok()) return std::nullopt;
     auto properties = json::top_level_properties(*text);
@@ -435,6 +458,10 @@ std::optional<std::string> read_title_id(const tree::Source& source, const tree:
         return id;
     }
     return std::nullopt;
+}
+
+bool is_ps4_game(const tree::Node& game_root) {
+    return !param_json(game_root) && sce_sys_file(game_root, "param.sfo");
 }
 
 std::string resolve_dump_image_name(const tree::Source& source, const tree::Node& game_root,

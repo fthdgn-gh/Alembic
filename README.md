@@ -35,7 +35,13 @@ some games and not for others.
 | FFPFS (PFS) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | FFPFSC | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | FPKG (debug) | ✓ | ✓ | ✓ | ✓ | ✓ | – |
+| PS4 FPKG (fake) | ✓ | ✓ | ✓ | ✓ | ✓ | – |
 
+- **PS4 packages** (fake PKGs with the usual all-zero passcode) open like
+  PS5 ones: the game's files plus `sce_sys` (`param.sfo`, icons, trophies)
+  from the package. They are read only: Alembic writes PS5 packages, and
+  the AMPR emulator and LZ4 packs are left out for PS4 games. Not tried on a
+  console yet.
 - **Streams:** every input is read as a file tree and written straight to
   the output, with no temporary copies, so a 100 GB package needs only the
   space of the result.

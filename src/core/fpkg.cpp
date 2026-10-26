@@ -18,6 +18,8 @@ constexpr std::size_t kCntHeaderSize = 0x5A0;
 constexpr std::uint64_t kPfsMagic = 20130315;
 constexpr std::uint64_t kSignedSector = 0x800000000000ull;
 constexpr std::size_t kSeedOffset = 0x370;
+constexpr std::uint16_t kPfsMode64BitInodes = 0x2;
+constexpr std::uint16_t kPfsModeEncrypted = 0x4;
 constexpr std::size_t kIcvOffset = 0x380;
 constexpr std::size_t kIcvRegion = 0x5A0;
 constexpr std::size_t kInodeSize = 0x2C8;
@@ -159,6 +161,7 @@ const char* name(Kind kind) {
     case Kind::finalized_debug: return "finalized debug image (FIH)";
     case Kind::finalized_retail: return "finalized retail image (FIH)";
     case Kind::patch_debug: return "debug patch image (LIH)";
+    case Kind::ps4_package: return "PS4 package (CNT)";
     }
     return "?";
 }
@@ -174,6 +177,26 @@ Result<Package> read_package(const RandomAccess& file) {
         p.kind = Kind::metadata_container;
         std::uint64_t logical = 0;
         ALEMBIC_TRY(read_cnt(file, p, 0, logical));
+        // A PS4 package: the CNT header points at a PFS image inside the file.
+        std::uint8_t h[0x20];
+        ALEMBIC_TRY(file.read_at(0x400, MutableBytes(h, sizeof h)));
+        std::uint32_t image_count = be32(h);
+        std::uint64_t pfs_offset = be64(h + 0x10), pfs_size = be64(h + 0x18);
+        if (image_count >= 1 && pfs_offset >= kCntHeaderSize && pfs_size >= kBlockSize &&
+            in_range(pfs_offset, pfs_size, p.file_size)) {
+            std::uint8_t sb[0x10];
+            ALEMBIC_TRY(file.read_at(pfs_offset, MutableBytes(sb, sizeof sb)));
+            if (get_u64(sb + 8) == kPfsMagic) {
+                p.kind = Kind::ps4_package;
+                p.pfs_offset = pfs_offset;
+                p.pfs_size = pfs_size;
+                p.superblock_hint = 0;
+                p.segments = {{"CNT", 0, pfs_offset}, {"PFS", pfs_offset, pfs_size}};
+                if (pfs_offset + pfs_size < p.file_size)
+                    p.segments.push_back({"tail", pfs_offset + pfs_size, p.file_size - pfs_offset - pfs_size});
+                return p;
+            }
+        }
         p.segments.push_back({"CNT", 0, p.file_size});
         return p;
     }
@@ -243,29 +266,48 @@ Result<std::vector<std::uint8_t>> read_entry_raw(const RandomAccess& file, const
     return data;
 }
 
-crypto::Digest compute_keys(const std::string& content_id, const std::string& passcode, std::uint32_t index) {
+namespace {
+
+crypto::Digest compute_keys_with(crypto::Digest (*hash)(Bytes), const std::string& content_id,
+                                 const std::string& passcode, std::uint32_t index) {
     std::uint8_t index_be[4] = {static_cast<std::uint8_t>(index >> 24), static_cast<std::uint8_t>(index >> 16),
                                 static_cast<std::uint8_t>(index >> 8), static_cast<std::uint8_t>(index)};
     std::uint8_t cid[48] = {};
     std::memcpy(cid, content_id.data(), std::min<std::size_t>(content_id.size(), sizeof cid));
-    crypto::Digest a = crypto::sha3_256(Bytes(index_be, 4));
-    crypto::Digest b = crypto::sha3_256(Bytes(cid, sizeof cid));
+    crypto::Digest a = hash(Bytes(index_be, 4));
+    crypto::Digest b = hash(Bytes(cid, sizeof cid));
     std::vector<std::uint8_t> data(a.begin(), a.end());
     data.insert(data.end(), b.begin(), b.end());
     data.insert(data.end(), passcode.begin(), passcode.end());
-    return crypto::sha3_256(data);
+    return hash(data);
+}
+
+// The package's hash: SHA3-256 on PS5, SHA-256 on PS4.
+crypto::Digest package_hash(const Package& package, Bytes data) {
+    return package.ps4() ? crypto::sha256(data) : crypto::sha3_256(data);
+}
+
+} // namespace
+
+crypto::Digest compute_keys(const std::string& content_id, const std::string& passcode, std::uint32_t index) {
+    return compute_keys_with(crypto::sha3_256, content_id, passcode, index);
+}
+
+crypto::Digest compute_keys_ps4(const std::string& content_id, const std::string& passcode, std::uint32_t index) {
+    return compute_keys_with(crypto::sha256, content_id, passcode, index);
 }
 
 Result<std::vector<std::uint8_t>> read_entry(const RandomAccess& file, const Package& package, const CntEntry& entry,
                                              const std::string& passcode) {
     ALEMBIC_ASSIGN(std::vector<std::uint8_t> data, read_entry_raw(file, package, entry));
     if (!entry.encrypted()) return data;
-    // key/iv seed = SHA3(table row || package key[key index]); key = seed[16:32], iv = seed[0:16].
-    crypto::Digest package_key = compute_keys(package.content_id, passcode, entry.key_index());
+    // key/iv seed = H(table row || package key[key index]); key = seed[16:32], iv = seed[0:16].
+    crypto::Digest package_key = package.ps4() ? compute_keys_ps4(package.content_id, passcode, entry.key_index())
+                                               : compute_keys(package.content_id, passcode, entry.key_index());
     std::uint8_t seed_input[64];
     std::memcpy(seed_input, entry.row, 32);
     std::memcpy(seed_input + 32, package_key.data(), 32);
-    crypto::Digest seed = crypto::sha3_256(Bytes(seed_input, sizeof seed_input));
+    crypto::Digest seed = package_hash(package, Bytes(seed_input, sizeof seed_input));
     crypto::Aes128 key(seed.data() + 16);
     crypto::cbc_decrypt(key, seed.data(), data);
     data.resize(entry.data_size);
@@ -283,6 +325,16 @@ Result<DigestCheck> check_digests(const RandomAccess& file, const Package& packa
             ALEMBIC_TRY(file.read_at(package.pfs_offset + std::uint64_t(package.superblock_hint) * kBlockSize, sb));
             crypto::Digest d = crypto::sha3_256(sb);
             check.fih_digest_ok = mirrored && std::memcmp(d.data(), h + 0x30, 32) == 0;
+        }
+    }
+    if (package.ps4()) {
+        std::uint8_t h[0x50];
+        ALEMBIC_TRY(file.read_at(0x430, MutableBytes(h, sizeof h)));
+        std::uint32_t signed_size = be32(h + 0x08);
+        if (signed_size > 0 && signed_size <= 16u * 1024 * 1024 && signed_size <= package.pfs_size) {
+            std::vector<std::uint8_t> head(signed_size);
+            ALEMBIC_TRY(file.read_at(package.pfs_offset, head));
+            check.fih_digest_ok = std::memcmp(crypto::sha256(head).data(), h + 0x30, 32) == 0;
         }
     }
     auto digests = std::find_if(package.entries.begin(), package.entries.end(), [](const CntEntry& e) { return e.id == 1; });
@@ -308,7 +360,7 @@ Result<DigestCheck> check_digests(const RandomAccess& file, const Package& packa
             if (!in_range(package.cnt_offset + e.data_offset, length, package.file_size)) continue;
             std::vector<std::uint8_t> body(static_cast<std::size_t>(length));
             ALEMBIC_TRY(file.read_at(package.cnt_offset + e.data_offset, body));
-            if (std::memcmp(crypto::sha3_256(body).data(), table.data() + i * 32, 32) == 0) matched = true;
+            if (std::memcmp(package_hash(package, body).data(), table.data() + i * 32, 32) == 0) matched = true;
             if (matched || !e.encrypted()) break;
         }
         if (!matched) {
@@ -330,12 +382,14 @@ Result<std::shared_ptr<OuterPfs>> OuterPfs::open(std::shared_ptr<const RandomAcc
     if (package.kind == Kind::patch_debug)
         return make_error(Errc::unsupported, "patch packages are not supported yet");
     if (package.content_id.size() != 36) return invalid("the package has no usable content ID");
+    if (package.ps4() && package.superblock_hint != 0) return invalid("the PS4 package's PFS has no superblock");
     if (passcode.size() != 32) return make_error(Errc::invalid_argument, "the passcode must be 32 characters");
     if (package.pfs_size < kBlockSize) return invalid("the outer PFS is too small");
 
     std::shared_ptr<OuterPfs> pfs(new OuterPfs());
     pfs->file_ = std::move(file);
     pfs->pfs_offset_ = package.pfs_offset;
+    pfs->ps4_ = package.ps4();
     if (package.pfs_size / kBlockSize > UINT32_MAX) return invalid("the outer PFS is too large");
     pfs->block_count_ = static_cast<std::uint32_t>(package.pfs_size / kBlockSize);
     pfs->superblock_.resize(kBlockSize);
@@ -357,8 +411,27 @@ Result<std::shared_ptr<OuterPfs>> OuterPfs::open(std::shared_ptr<const RandomAcc
     if (!found) return invalid("no plaintext PFS superblock in the outer image");
     const std::uint8_t* sb = pfs->superblock_.data();
 
-    pfs->plain_ = std::memcmp(sb + kSeedOffset, kPlainSeed, 16) == 0;
-    if (pfs->plain_) {
+    pfs->plain_ = pfs->ps4_ ? (get_u16(sb + 0x1C) & kPfsModeEncrypted) == 0
+                            : std::memcmp(sb + kSeedOffset, kPlainSeed, 16) == 0;
+    if (pfs->ps4_) {
+        if (get_u16(sb + 0x1C) & kPfsMode64BitInodes)
+            return make_error(Errc::unsupported, "PS4 packages with 64-bit PFS inodes are not supported yet");
+        // EKPFS from the passcode; tweak/data keys = HMAC-SHA256(EKPFS, LE32(1) || seed).
+        crypto::Digest ekpfs = compute_keys_ps4(package.content_id, passcode, 1);
+        std::uint8_t message[20] = {1, 0, 0, 0};
+        std::memcpy(message + 4, sb + kSeedOffset, 16);
+        crypto::Digest keys = crypto::hmac_sha256(Bytes(ekpfs.data(), 32), Bytes(message, sizeof message));
+        if (!pfs->plain_) {
+            pfs->tweak_key_ = std::make_unique<crypto::Aes128>(keys.data());
+            pfs->data_key_ = std::make_unique<crypto::Aes128>(keys.data() + 16);
+        }
+        // The superblock is signed with HMAC-SHA256(EKPFS, LE32(2) || seed); a match proves the passcode.
+        message[0] = 2;
+        crypto::Digest sign_key = crypto::hmac_sha256(Bytes(ekpfs.data(), 32), Bytes(message, sizeof message));
+        std::vector<std::uint8_t> region(sb, sb + kIcvRegion);
+        std::memset(region.data() + kIcvOffset, 0, 32);
+        pfs->icv_ok_ = std::memcmp(crypto::hmac_sha256(Bytes(sign_key.data(), 32), region).data(), sb + kIcvOffset, 32) == 0;
+    } else if (pfs->plain_) {
         pfs->icv_ok_ = true;
     } else {
         std::vector<std::uint8_t> region(sb, sb + kIcvRegion);
@@ -432,6 +505,14 @@ Status OuterPfs::read_block(std::uint32_t index, bool is_signed, MutableBytes ou
     MutableBytes block = out.first(kBlockSize);
     ALEMBIC_TRY(file_->read_at(pfs_offset_ + std::uint64_t(index) * kBlockSize, block));
     if (index == superblock_index_ || plain_) return {};
+    if (ps4_) {
+        // One XTS unit per 4 KiB sector, numbered by its offset in the image.
+        constexpr std::uint64_t kSector = 0x1000;
+        for (std::uint64_t s = 0; s < kBlockSize / kSector; ++s)
+            crypto::xts_decrypt(*data_key_, *tweak_key_, std::uint64_t(index) * (kBlockSize / kSector) + s,
+                                block.subspan(s * kSector, kSector));
+        return {};
+    }
     std::uint64_t sector = is_signed ? (kSignedSector | index) : index;
     crypto::xts_decrypt(*data_key_, *tweak_key_, sector, block);
     return {};
