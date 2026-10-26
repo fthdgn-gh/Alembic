@@ -2513,10 +2513,24 @@ What it took:
 5. Smaller: retail/patch packages, NAPS shuffle layouts, Kraken-compressed
    FPKG output, less pass-1 memory for LZ4.
 6. PS4 packages (2026-10-26, reading and writing done, byte-identical to
-   LibOrbisPkg): owner to try a PS4 image through ShadowMount+ (beta8 takes
-   PS4 images) and a rebuilt PS4 package on a console. Later: other
-   passcodes (unwrap the image key with the downloaded keys), PS4 patches and
-   DLC, zlib-compressed PFSC like Sony's packages, hiding the AMPR switch in
+   LibOrbisPkg; images start on the console with ShadowMount+ 1.7beta8).
+   **Next version: PS4 updates** (owner, 2026-10-26: not in 0.3.2). Plan:
+   - group by param.sfo TITLE_ID and the content ID's region; an update has
+     a patch bit in CNT 0x78 (first/subsequent/cumulative/delta, PatchGo)
+     and CATEGORY `gp`; order by APP_VER as numbers;
+   - one "game + updates" tree: update files replace the base's at the same
+     path (ignoring case), new ones are added, nothing is removed; the
+     update's sce_sys wins (param.json made again from the merged SFO);
+   - refuse delta updates (binary diffs), title or region mismatches, two
+     different updates of one version;
+   - outputs: base + updates into one image (updates found next to the
+     base, listed in Convert, ticked); an existing image + update into a new
+     image; a folder patched in place; one merged PS4 package;
+   - first: get a real update package to check the reader opens it;
+   - untried: installing the update package on top of an image-run game
+     (ShadowMount+ knows /user/patch).
+   Not planned for now (owner): passcodes other than all zeros. Later: DLC,
+   zlib-compressed PFSC like Sony's packages, hiding the AMPR switch in
    Convert for PS4 games.
 
 Older plan items (faster reading, PS5 build, LZ4 packs, FPKG, UFS2 and PFS
