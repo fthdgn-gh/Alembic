@@ -14,7 +14,7 @@ from pathlib import Path
 
 REPO = "fthdgn-gh/Alembic"
 TITLE_ID = "PPSA99594"
-DESCRIPTION = "Converts PS5 packages and game dumps between FPKG, exFAT, FFPKG, FFPFS and FFPFSC images, on the console or with a PC."
+DESCRIPTION = "Converts PS5 and PS4 packages and game dumps between FPKG, exFAT, FFPKG, FFPFS and FFPFSC images, on the console or with a PC."
 
 def gh(*args):
     return json.loads(subprocess.run(["gh", "api", *args], check=True, capture_output=True, text=True).stdout)

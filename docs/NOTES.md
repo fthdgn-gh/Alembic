@@ -2283,6 +2283,26 @@ same file).
   by the session's safety check twice (the owner had said yes); run it by
   hand.
 
+### 2026-10-26: PS4/PS5 pill, README, ProsperoStore (for 0.3.2)
+
+- Owner: games carry a platform pill in the file list and the queue, on
+  the page and in the app: **PS5** white with black text, **PS4** black
+  with white text (outlined, to show on the dark rows). `/api/meta` sends
+  `platform` ("ps4" from param.sfo, "ps5" from param.json, "" otherwise);
+  the meta cache rereads entries saved without it.
+- README: PS4 support in every section; the app's install steps put
+  ProsperoStore first (https://prosperostore.net/app/PPSA99594/, listed since
+  PR #740), the `.ffpkg`/folder second. Screenshots remade (the stand-in
+  engine marks two games PS4; Chrome was missing, `BROWSER=` Playwright's
+  Chromium worked).
+- Catalog record: the description now names PS4 packages
+  (`tools/catalog_record.py`). The catalog's daily job proposes new
+  versions by itself, but a description change needs our own PR: after the
+  v0.3.2 release, `tools/catalog_record.py v0.3.2` and a PR from fthdgn-gh.
+- ShadowMount+ 1.7beta8 (pre-release) installs PS4 games from images and
+  folders: the same four image types (`.exfat`, `.ffpkg`, `.ffpfs`,
+  `.ffpfsc`), found by `sce_sys/param.sfo`.
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and

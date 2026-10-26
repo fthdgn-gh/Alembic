@@ -2,9 +2,9 @@
 
 ![Alembic's page in the PS5 browser: a library of games in several formats, with drives, an FTP server and a paired PC on the left](docs/screenshots/files.png)
 
-Alembic converts PS5 games between the formats homebrew loaders use: debug
-packages (FPKG), dump folders, exFAT images, FFPKG (UFS2), FFPFS (PFS) and
-FFPFSC (compressed PFS). It runs **on the console** as an app on the home
+Alembic converts PS5 and PS4 games between the formats homebrew loaders use:
+packages (PS5 debug FPKG, PS4 fake PKG), dump folders, exFAT images, FFPKG
+(UFS2), FFPFS (PFS) and FFPFSC (compressed PFS). It runs **on the console** as an app on the home
 screen (from 0.3.0) or as a payload with a web page, both driven with the
 controller, and on a PC (Windows, macOS, Linux) as a command-line tool or the
 same engine and page. Engines on your network can
@@ -22,29 +22,36 @@ conversion carries on after the engine is updated; the engine updates
 itself from a release (loaded through Payload Manager); the console app
 starts from ShadowMount+, starts and restarts the engine, and drives a
 conversion on a paired PC.
-**Not yet:** installing an FPKG that Alembic built. LZ4 asset packs work for
-some games and not for others.
+**Not yet:** installing an FPKG that Alembic built; PS4 games (images made
+from PS4 packages, for ShadowMount+ 1.7beta8 and later, and rebuilt PS4
+packages). LZ4 asset packs work for some games and not for others.
 
 ## What it does
 
-| From ↓ / To → | Folder | exFAT | FFPKG (UFS2) | FFPFS (PFS) | FFPFSC | FPKG |
+| From ↓ / To → | Folder | exFAT | FFPKG (UFS2) | FFPFS (PFS) | FFPFSC | Package |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
 | Dump folder | – | ✓ | ✓ | ✓ | ✓ | ✓ |
 | exFAT | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | FFPKG (UFS2) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | FFPFS (PFS) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | FFPFSC | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| FPKG (debug) | ✓ | ✓ | ✓ | ✓ | ✓ | – |
-| PS4 FPKG (fake) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ PS4 |
+| PS5 FPKG (debug) | ✓ | ✓ | ✓ | ✓ | ✓ | `--rebuild` |
+| PS4 PKG (fake) | ✓ | ✓ | ✓ | ✓ | ✓ | `--rebuild` |
 
-- **PS4 packages** (fake PKGs with the usual all-zero passcode) open like
-  PS5 ones: the game's files plus `sce_sys` (`param.sfo`, icons, trophies)
-  from the package. A PS4 game in any format (package, image or folder)
-  converts back to a PS4 fake package (PKG output), built the way
+The package a game becomes matches the game: a PS5 game (`sce_sys/param.json`)
+a PS5 debug FPKG, a PS4 game (`sce_sys/param.sfo`) a PS4 fake PKG. The page
+and the app mark each game with a **PS5** (white) or **PS4** (black) pill.
+
+- **PS4 games** (from 0.3.2): fake PKGs with the usual all-zero passcode open
+  like PS5 packages, as the game's files plus `sce_sys` (`param.sfo`, icons,
+  trophies, licence) from the package, and convert to any image. A PS4 game
+  in any format converts back to a PS4 fake PKG, built the way
   [LibOrbisPkg](https://github.com/maxton/LibOrbisPkg)'s `pkg_build` builds
-  one; the game's licence is kept, and generated only when missing. Its keys
-  come from LibOrbisPkg (Components, or `--ps4-keys FILE`). The AMPR emulator
-  and LZ4 packs are left out for PS4 games. Not tried on a console yet.
+  one: the game's licence is kept (generated only when missing), and the
+  PlayGo files are made again. A package rebuilt from any image of it is the
+  same, byte for byte. The keys come from LibOrbisPkg (Components, or
+  `--ps4-keys FILE` on a PC). The AMPR emulator and LZ4 packs are for PS5
+  games only.
 - **Streams:** every input is read as a file tree and written straight to
   the output, with no temporary copies, so a 100 GB package needs only the
   space of the result.
@@ -53,7 +60,9 @@ some games and not for others.
   [MkPFS](https://github.com/PSBrew/MkPFS) (`pack folder --raw
   --no-compress`); FPKG output matches
   [ProsperoPkgTool](https://github.com/pearlxcore/ProsperoPkgTool)
-  (`img_create`, stored, with the same fixed seed).
+  (`img_create`, stored, with the same fixed seed); PS4 packages are built
+  to match LibOrbisPkg's `pkg_build` (`tools/ps4-oracle`; that comparison
+  has not been run yet).
 - **LZ4 asset packs** for drakmor's [ampr_emu](https://github.com/drakmor/ampr_emu)
   PackedStdio runtime (`--lz4`), byte-identical to its `ampr_pack.py`, with
   game profiles from
@@ -75,23 +84,29 @@ The app and the page show the same things and work the same way.
 
 ![The Alembic app on the PS5: a homebrew folder with games in several formats, drives, an FTP server and a paired PC on the left](docs/screenshots/app.png)
 
-**The app** (`PPSA99594`, from 0.3.0) runs through
-[ShadowMount+](https://github.com/drakmor/ShadowMountPlus):
+**The app** (`PPSA99594`, from 0.3.0), installed either way:
 
-1. Copy `alembic-app-<version>.ffpkg` from the releases to `/data/homebrew/`
-   (or unzip `alembic-app-<version>.zip` there: the `PPSA99594` folder). Its
-   tile shows up on the home screen after ShadowMount+'s next scan.
-2. Start it. When no engine answers, it sends its own to the ELF loader on
-   port 9021 (an app without one downloads the engine of its own version from
-   the GitHub release first, checked against `SHA256SUMS`).
+1. **From ProsperoStore** (easiest): Alembic is listed in
+   [ProsperoStore](https://github.com/darkxex/ProsperoStore), the console
+   store for native homebrew ([Alembic's page](https://prosperostore.net/app/PPSA99594/)).
+   Install it there; the store also updates it.
+2. **As an image or folder**, through
+   [ShadowMount+](https://github.com/drakmor/ShadowMountPlus): copy
+   `alembic-app-<version>.ffpkg` from the releases to `/data/homebrew/` (or
+   unzip `alembic-app-<version>.zip` there: the `PPSA99594` folder). Its tile
+   shows up on the home screen after ShadowMount+'s next scan.
+
+Start it. When no engine answers, it sends its own to the ELF loader on port
+9021 (an app without one downloads the engine of its own version from the
+GitHub release first, checked against `SHA256SUMS`).
 
 **Without the app:**
 
 1. Send `alembic-<version>.elf` (from the releases) to your console's ELF loader.
 2. Open Alembic from the Media tab (or the address above).
 3. In **Files**, pick a game on internal storage, USB, an FTP server or a
-   paired engine's drive, then **Convert**, **Install** (packages), **Copy**
-   or **Move**.
+   paired engine's drive (a pill tells PS5 and PS4 games apart), then
+   **Convert**, **Install** (packages), **Copy** or **Move**.
 4. Jobs run one at a time in **Queue**: pause, resume (long jobs continue
    from a checkpoint), reorder, cancel. You get a notification when one
    finishes.
@@ -137,8 +152,9 @@ Also on the page:
   a running job that keeps its progress continues. Sending a newer
   `alembic.elf` by hand also replaces a running engine. From 0.3.0 the same
   update replaces the app's `.ffpkg` too when the release's differs; while
-  the app is open, that waits until it is closed. An app older than its
-  engine says so and offers **Update the app**.
+  the app is open, that waits until it is closed (an app installed from
+  ProsperoStore is updated by the store). An app older than its engine says
+  so and offers **Update the app**.
 - **Other engines:** a paired engine that is switched off stays listed as
   offline instead of disappearing.
 - Languages: English, Español, Français, Deutsch, 日本語, Türkçe.
@@ -187,7 +203,8 @@ download from a browser, run `xattr -d com.apple.quarantine alembic
 alembic-engine` once in their folder, or macOS refuses to start them.
 
 ```sh
-alembic convert game.pkg game.ffpfsc              # format from the extension
+alembic convert game.pkg game.ffpfsc              # format from the extension (PS5 or PS4 package)
+alembic convert ps4game.exfat game.pkg --ps4-keys Keys.cs   # a PS4 game back to a PS4 fake PKG
 alembic convert game.exfat game/ --to folder      # unpack to a folder
 alembic convert game/ game.exfat --lz4 --lz4-runtime libSceAmpr.sprx
 alembic ls game.ffpkg                             # list the files of any input
@@ -304,6 +321,9 @@ Alembic stands on the work of the PS5 homebrew scene. Thank you to:
   [ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus) (the loader
   Alembic's images are made for, and its HTTPS download code).
 - **PSBrew** for [MkPFS](https://github.com/PSBrew/MkPFS) (the PFS writer).
+- **maxton** for [LibOrbisPkg](https://github.com/maxton/LibOrbisPkg) (PS4
+  packages: the writer Alembic follows, its keys, and the tool it is checked
+  against).
 - **theghostonline** for
   [PS5-LZ4-Compression](https://github.com/theghostonline/PS5-LZ4-Compression)
   (LZ4 pack profiles and the engine-and-page idea).
@@ -326,5 +346,5 @@ The games, engines and addresses in the screenshots are made up
 ## License
 
 GPL-3.0-or-later ([LICENSE](LICENSE)). Alembic ports code from several GPL,
-MIT and BSD projects; [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists
+LGPL, MIT and BSD projects; [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists
 each one, what was taken from it, and its license.
