@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <map>
 
 #include <cstring>
 
@@ -204,6 +205,105 @@ std::vector<std::uint8_t> Document::serialize() const {
         data_offset += v.max_length;
     }
     return out;
+}
+
+namespace {
+
+// SCE system-language order of TITLE_00..TITLE_29, as appmeta spells them.
+const char* const kTitleLocales[30] = {
+    "ja-JP", "en-US", "fr-FR", "es-ES", "de-DE", "it-IT", "nl-NL",   "pt-PT", "ru-RU", "ko-KR",
+    "zh-Hant", "zh-Hans", "fi-FI", "sv-SE", "da-DK", "no-NO", "pl-PL", "pt-BR", "en-GB", "tr-TR",
+    "es-419", "ar-AE", "fr-CA", "cs-CZ", "hu-HU", "el-GR", "ro-RO", "th-TH", "vi-VN", "id-ID"};
+
+std::string strip(const std::string& s) {
+    const char* ws = " \t\n\r\f\v";
+    std::size_t a = s.find_first_not_of(ws);
+    if (a == std::string::npos) return "";
+    return s.substr(a, s.find_last_not_of(ws) - a + 1);
+}
+
+// A JSON string as Python's json.dumps(ensure_ascii=False) writes it.
+std::string quoted(const std::string& s) {
+    std::string out = "\"";
+    for (unsigned char c : s) {
+        switch (c) {
+        case '"': out += "\\\""; break;
+        case '\\': out += "\\\\"; break;
+        case '\n': out += "\\n"; break;
+        case '\r': out += "\\r"; break;
+        case '\t': out += "\\t"; break;
+        case '\b': out += "\\b"; break;
+        case '\f': out += "\\f"; break;
+        default:
+            if (c < 0x20) {
+                char hex[8];
+                std::snprintf(hex, sizeof hex, "\\u%04x", c);
+                out += hex;
+            } else {
+                out += static_cast<char>(c);
+            }
+        }
+    }
+    return out + "\"";
+}
+
+} // namespace
+
+std::string ps4_param_json(const Document& sfo, const std::string& title_id) {
+    auto text = [&](const std::string& key) -> std::string {
+        const Value* v = sfo.find(key);
+        return v && v->format != kInteger ? strip(v->text) : std::string();
+    };
+    char key[32]; // up to "USER_DEFINED_PARAM_4"
+    // choose_title: TITLE, else TITLE_01, else the first other TITLE_NN, else the IDs.
+    std::string title = text("TITLE");
+    if (title.empty()) title = text("TITLE_01");
+    for (int i = 0; i < 30 && title.empty(); ++i) {
+        if (i == 1) continue;
+        std::snprintf(key, sizeof key, "TITLE_%02d", i);
+        title = text(key);
+    }
+    if (title.empty()) title = text("CONTENT_ID");
+    if (title.empty()) title = text("TITLE_ID");
+    if (title.empty()) title = "Unknown Game";
+
+    // localizedParameters, its keys sorted by code point (Python's sort_keys).
+    std::map<std::string, std::string> names; // locale -> titleName
+    for (int i = 0; i < 30; ++i) {
+        std::snprintf(key, sizeof key, "TITLE_%02d", i);
+        std::string t = text(key);
+        if (!t.empty()) names[kTitleLocales[i]] = t;
+    }
+    std::string english = text("TITLE_01");
+    names["en-US"] = english.empty() ? title : english;
+    std::map<std::string, std::string> localized; // key -> rendered value
+    for (const auto& [locale, name] : names)
+        localized[locale] = "{\n      \"titleName\": " + quoted(name) + "\n    }";
+    localized["defaultLanguage"] = quoted("en-US");
+
+    std::map<std::string, std::string> top;
+    std::string body = "{\n";
+    bool first = true;
+    for (const auto& [k, v] : localized) {
+        body += (first ? "" : ",\n") + std::string("    ") + quoted(k) + ": " + v;
+        first = false;
+    }
+    top["localizedParameters"] = body + "\n  }";
+    top["titleId"] = quoted(title_id);
+    top["titleName"] = quoted(title);
+    for (int i = 1; i <= 4; ++i) {
+        std::snprintf(key, sizeof key, "USER_DEFINED_PARAM_%d", i);
+        const Value* v = sfo.find(key);
+        if (v && v->format == kInteger && v->number != 0)
+            top["userDefinedParam" + std::to_string(i)] = std::to_string(v->number);
+    }
+    std::string out = "{\n";
+    first = true;
+    for (const auto& [k, v] : top) {
+        out += (first ? "" : ",\n") + std::string("  ") + quoted(k) + ": " + v;
+        first = false;
+    }
+    return out + "\n}\n";
 }
 
 } // namespace alembic::sfo

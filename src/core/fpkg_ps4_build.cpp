@@ -397,9 +397,12 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
         std::vector<std::uint8_t>& license;
         std::vector<std::uint8_t>& license_info;
         int& sce_sys_dir;
+        // Made again by the package; param.json is what Alembic adds to a PS4
+        // game's images (ffpfsc::with_ps4_param_json), never part of a package.
         static bool generated(const std::string& rel) {
             return rel == "license.dat" || rel == "license.info" || rel == "psreserved.dat" ||
-                   rel == "playgo-chunk.dat" || rel == "playgo-chunk.sha" || rel == "playgo-manifest.xml";
+                   rel == "playgo-chunk.dat" || rel == "playgo-chunk.sha" || rel == "playgo-manifest.xml" ||
+                   rel == "param.json";
         }
         // A file's entry id ("rel" is relative to sce_sys; empty outside it).
         static std::optional<std::uint32_t> entry_of(const std::string& rel) {

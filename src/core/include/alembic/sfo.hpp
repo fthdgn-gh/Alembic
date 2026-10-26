@@ -60,4 +60,13 @@ private:
     std::vector<Value> values_;
 };
 
+// The sce_sys/param.json a PS4 game needs next to its param.sfo to start from
+// an image or folder through ShadowMount+: title names per language
+// (TITLE_00..29), an en-US fallback, the title ID and name, and any non-zero
+// USER_DEFINED_PARAM_1..4. Ported from SadykovIV/PS4pkg_to_ffpfsc (GPL-3.0)
+// sfo.py build_param_json and choose_title, byte for byte (sorted keys,
+// 2-space indent, UTF-8, final newline). No contentId: that is what tells it
+// from a PS5 game's param.json.
+std::string ps4_param_json(const Document& sfo, const std::string& title_id);
+
 } // namespace alembic::sfo

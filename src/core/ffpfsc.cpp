@@ -460,9 +460,119 @@ std::optional<std::string> read_title_id(const tree::Source& source, const tree:
     return std::nullopt;
 }
 
-bool is_ps4_game(const tree::Node& game_root) {
-    return !param_json(game_root) && sce_sys_file(game_root, "param.sfo");
+bool is_ps4_game(const tree::Source& source, const tree::Node& game_root) {
+    if (!sce_sys_file(game_root, "param.sfo")) return false;
+    const tree::Node* json = param_json(game_root);
+    if (!json) return true;
+    auto text = read_small(source, *json);
+    if (!text.ok()) return false;
+    auto properties = json::top_level_properties(*text);
+    if (!properties.ok()) return false;
+    for (const json::Property& p : *properties)
+        if (p.name == "contentId") return false;
+    return true;
 }
+
+namespace {
+
+// The tree with one more file at sce_sys/param.json of its game root.
+class WithParamJson final : public tree::Source {
+public:
+    WithParamJson(const tree::Source& base, std::string json) : base_(base), json_(std::move(json)) {}
+
+    Status build(const std::string& game_path) {
+        root_ = copy(base_.root());
+        tree::Node* game = &root_;
+        for (std::size_t at = 0; !game_path.empty() && at <= game_path.size();) {
+            std::size_t slash = game_path.find('/', at);
+            std::string part = game_path.substr(at, slash == std::string::npos ? std::string::npos : slash - at);
+            tree::Node* next = nullptr;
+            for (tree::Node& c : game->children)
+                if (c.is_directory && c.name == part) next = &c;
+            if (!next) return make_error(Errc::invalid_data, "the game folder moved: " + game_path);
+            game = next;
+            if (slash == std::string::npos) break;
+            at = slash + 1;
+        }
+        tree::Node* sys = nullptr;
+        for (tree::Node& c : game->children)
+            if (c.is_directory && unicode::ascii_iequals(c.name, "sce_sys")) sys = &c;
+        if (!sys) return make_error(Errc::invalid_data, "the game has no sce_sys folder");
+        tree::Node file;
+        file.name = "param.json";
+        file.size = json_.size();
+        for (const tree::Node& c : sys->children)
+            if (!c.is_directory && unicode::ascii_iequals(c.name, "param.sfo")) file.mtime = c.mtime;
+        file.id = kJsonId;
+        sys->children.push_back(std::move(file));
+        return {};
+    }
+
+    const tree::Node& root() const override { return root_; }
+    const std::string& label() const override { return base_.label(); }
+    Result<std::shared_ptr<const RandomAccess>> open(const tree::Node& file) const override {
+        if (file.is_directory) return make_error(Errc::invalid_argument, "not a file");
+        if (file.id == kJsonId) {
+            std::vector<std::uint8_t> data(json_.begin(), json_.end());
+            return std::shared_ptr<const RandomAccess>(std::make_shared<MemoryRandomAccess>(std::move(data)));
+        }
+        if (file.id >= nodes_.size()) return make_error(Errc::invalid_argument, "not a file of this tree");
+        return base_.open(*nodes_[file.id]);
+    }
+
+private:
+    static constexpr std::uint64_t kJsonId = ~0ull;
+    // A copy whose files carry their index in nodes_ as id.
+    tree::Node copy(const tree::Node& n) {
+        tree::Node out;
+        out.name = n.name;
+        out.is_directory = n.is_directory;
+        out.size = n.size;
+        out.mtime = n.mtime;
+        if (!n.is_directory) {
+            out.id = nodes_.size();
+            nodes_.push_back(&n);
+        }
+        for (const tree::Node& c : n.children) out.children.push_back(copy(c));
+        return out;
+    }
+    class MemoryRandomAccess final : public RandomAccess {
+    public:
+        explicit MemoryRandomAccess(std::vector<std::uint8_t> d) : d_(std::move(d)) {}
+        Result<std::uint64_t> size() const override { return d_.size(); }
+        Status read_at(std::uint64_t offset, MutableBytes out) const override {
+            if (offset > d_.size() || out.size() > d_.size() - offset) return make_error(Errc::invalid_argument, "read past the end");
+            std::memcpy(out.data(), d_.data() + offset, out.size());
+            return {};
+        }
+
+    private:
+        std::vector<std::uint8_t> d_;
+    };
+
+    const tree::Source& base_;
+    std::string json_;
+    tree::Node root_;
+    std::vector<const tree::Node*> nodes_;
+};
+
+} // namespace
+
+Result<std::unique_ptr<tree::Source>> with_ps4_param_json(const tree::Source& source) {
+    std::string relative;
+    ALEMBIC_ASSIGN(const tree::Node* game, resolve_game_root(source.root(), &relative));
+    if (param_json(*game) || !is_ps4_game(source, *game)) return std::unique_ptr<tree::Source>();
+    const tree::Node* sfo_node = sce_sys_file(*game, "param.sfo");
+    ALEMBIC_ASSIGN(std::string bytes, read_small(source, *sfo_node));
+    ALEMBIC_ASSIGN(sfo::Document doc,
+                   sfo::Document::read(Bytes(reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size())));
+    std::string title_id = doc.display("TITLE_ID");
+    if (!is_title_id(title_id)) return make_error(Errc::invalid_data, "param.sfo has no valid TITLE_ID");
+    auto tree = std::make_unique<WithParamJson>(source, sfo::ps4_param_json(doc, title_id));
+    ALEMBIC_TRY(tree->build(relative));
+    return std::unique_ptr<tree::Source>(std::move(tree));
+}
+
 
 std::string resolve_dump_image_name(const tree::Source& source, const tree::Node& game_root,
                                     const std::string& folder_name) {

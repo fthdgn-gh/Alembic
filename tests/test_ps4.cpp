@@ -266,7 +266,7 @@ TEST_CASE(ps4_package_reads_end_to_end) {
     const tree::Node* sfo = tree::find(root, "sce_sys/param.sfo");
     CHECK(e && sfo && tree::find(root, "sce_sys/keystone"));
     if (e) CHECK(read_all(*input->tree, *e) == eboot);
-    CHECK(ffpfsc::is_ps4_game(root));
+    CHECK(ffpfsc::is_ps4_game(*input->tree, root));
     CHECK(ffpfsc::read_title_id(*input->tree, root) == std::optional<std::string>("CUSA00000"));
 
     // Any image out; no PS5 package.
@@ -435,4 +435,51 @@ TEST_CASE(ps4_package_rules) {
     auto folder = tree::open_folder(game);
     REQUIRE_OK(folder);
     CHECK(!fpkg::ps4::write_package(**folder, (*folder)->root(), tmp + "/x.pkg", o).ok());
+}
+
+TEST_CASE(ps4_param_json_for_images) {
+    // As SadykovIV/PS4pkg_to_ffpfsc writes it (json.dumps, sort_keys, indent 2).
+    auto doc = sfo::Document::read(make_sfo({{"TITLE", "Synthetic"}, {"TITLE_00", "Japanese"},
+                                             {"TITLE_01", " English Name "}, {"TITLE_ID", "CUSA00000"}}));
+    REQUIRE_OK(doc);
+    doc->set_number("USER_DEFINED_PARAM_1", 3);
+    doc->set_number("USER_DEFINED_PARAM_2", 0);
+    CHECK(sfo::ps4_param_json(*doc, "CUSA00000") ==
+          "{\n"
+          "  \"localizedParameters\": {\n"
+          "    \"defaultLanguage\": \"en-US\",\n"
+          "    \"en-US\": {\n"
+          "      \"titleName\": \"English Name\"\n"
+          "    },\n"
+          "    \"ja-JP\": {\n"
+          "      \"titleName\": \"Japanese\"\n"
+          "    }\n"
+          "  },\n"
+          "  \"titleId\": \"CUSA00000\",\n"
+          "  \"titleName\": \"Synthetic\",\n"
+          "  \"userDefinedParam1\": 3\n"
+          "}\n");
+
+    // A PS4 package converted to an image gets one; the image is still a PS4 game.
+    std::string tmp = test::make_temp_dir();
+    std::string pkg_path = tmp + "/game.pkg";
+    CHECK(!make_package(tmp, pkg_path).empty());
+    convert::Options options;
+    options.ffpfsc.build_timestamp = 1700000000;
+    REQUIRE_OK(convert::run(pkg_path, tmp + "/out.exfat", convert::Format::exfat, options));
+    auto image = convert::open(tmp + "/out.exfat");
+    REQUIRE_OK(image);
+    const tree::Node* json = tree::find(image->tree->root(), "sce_sys/param.json");
+    CHECK(json != nullptr);
+    if (json) {
+        auto bytes = read_all(*image->tree, *json);
+        std::string text(bytes.begin(), bytes.end());
+        CHECK(text.find("\"titleId\": \"CUSA00000\"") != std::string::npos);
+        CHECK(text.find("contentId") == std::string::npos);
+    }
+    CHECK(ffpfsc::is_ps4_game(*image->tree, image->tree->root()));
+    // A package has none: converting it again adds nothing more.
+    auto again = ffpfsc::with_ps4_param_json(*image->tree);
+    REQUIRE_OK(again);
+    CHECK(!*again);
 }

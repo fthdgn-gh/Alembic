@@ -233,7 +233,7 @@ namespace {
 
 Status refuse_ps4(const tree::Source& game) {
     auto root = ffpfsc::resolve_game_root(game.root());
-    if (root.ok() && ffpfsc::is_ps4_game(**root))
+    if (root.ok() && ffpfsc::is_ps4_game(game, **root))
         return make_error(Errc::invalid_argument, "this is a PS4 game: PS4 games do not use APR and need no emulator");
     return {};
 }

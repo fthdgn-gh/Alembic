@@ -507,7 +507,7 @@ int cmd_fpkg_build(const Args& args) {
     auto input = convert::open(args.positional[0], args.get("--passcode").value_or(std::string(32, '0')));
     if (!input.ok()) return fail(input.error());
     auto game_root = ffpfsc::resolve_game_root(input->tree->root());
-    if (game_root.ok() && ffpfsc::is_ps4_game(**game_root)) {
+    if (game_root.ok() && ffpfsc::is_ps4_game(*input->tree, **game_root)) {
         fpkg::ps4::PackageOptions o;
         if (!parse_ps4_package_options(args, o)) return 2;
         o.overwrite = args.get("--overwrite").has_value();

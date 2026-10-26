@@ -194,11 +194,17 @@ Status GameMetaCache::load(const std::string& path, const std::string& key) {
         Slot slot;
         ALEMBIC_ASSIGN(convert::Input input, convert::open(path));
         const tree::Node& root = input.tree->root();
-        if (const tree::Node* p = sce_sys_file(root, "param.json")) {
+        // A PS4 game first: its images carry a param.json too (without contentId).
+        const tree::Node* sfo_node = sce_sys_file(root, "param.sfo");
+        if (sfo_node && ffpfsc::is_ps4_game(*input.tree, root)) {
+            ALEMBIC_ASSIGN(auto data, read_node(*input.tree, *sfo_node, kMaxParam));
+            meta = parse_sfo(data);
+            meta.platform = "ps4";
+        } else if (const tree::Node* p = sce_sys_file(root, "param.json")) {
             ALEMBIC_ASSIGN(auto data, read_node(*input.tree, *p, kMaxParam));
             meta = parse_param(std::string(data.begin(), data.end()));
             meta.platform = "ps5";
-        } else if (const tree::Node* s = sce_sys_file(root, "param.sfo")) {
+        } else if (const tree::Node* s = sfo_node) {
             ALEMBIC_ASSIGN(auto data, read_node(*input.tree, *s, kMaxParam));
             meta = parse_sfo(data);
             meta.platform = "ps4";

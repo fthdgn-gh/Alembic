@@ -658,7 +658,7 @@ std::vector<std::string> missing_dependencies(const JobSpec& spec, const EngineC
             bool ps4 = false;
             if (auto game = convert::open(input, passcode); game.ok()) {
                 auto root = ffpfsc::resolve_game_root(game->tree->root());
-                ps4 = root.ok() && ffpfsc::is_ps4_game(**root);
+                ps4 = root.ok() && ffpfsc::is_ps4_game(*game->tree, **root);
             }
             const Dependency* keys = find_dependency(ps4 ? "ps4_keys" : "fpkg_keys");
             if (keys && dependency_state(*keys, config.state_dir) != "installed") out.push_back(keys->id);

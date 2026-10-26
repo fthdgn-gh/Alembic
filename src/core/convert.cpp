@@ -306,7 +306,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     // A PS4 game: FPKG output is a PS4 package; LZ4 packs and the AMPR
     // emulator are for PS5 games.
     auto game_root = ffpfsc::resolve_game_root(input.tree->root());
-    const bool ps4 = game_root.ok() && ffpfsc::is_ps4_game(**game_root);
+    const bool ps4 = game_root.ok() && ffpfsc::is_ps4_game(*input.tree, **game_root);
     if (ps4 && options.lz4)
         return make_error(Errc::unsupported, "LZ4 asset packs are for PS5 games; this is a PS4 game");
     if (options.lz4_unpack) {
@@ -364,6 +364,13 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         report.lz4_config_toml = lz4pack::to_toml(packed->config());
         report.lz4_forced_loose = packed->forced_loose_patterns();
         tree_ptr = packed.get();
+    }
+    // A PS4 game in an image or folder needs a param.json next to its
+    // param.sfo to start through ShadowMount+ (a package keeps only the SFO).
+    std::unique_ptr<tree::Source> with_json;
+    if (ps4 && to != Format::fpkg) {
+        ALEMBIC_ASSIGN(with_json, ffpfsc::with_ps4_param_json(*tree_ptr));
+        if (with_json) tree_ptr = with_json.get();
     }
     // The AMPR emulator: not for packages (installed, they have the console's
     // APR) nor when packing (the packer adds its runtime).
@@ -555,7 +562,8 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
 namespace {
 
 // A game's files for comparing: opened, LZ4 packs unpacked, sorted by path,
-// without ampr_emu.index (conversions may write their own).
+// without ampr_emu.index (conversions may write their own) and, for a PS4
+// game, without sce_sys/param.json (its images get one; packages have none).
 struct GameFiles {
     Input input;
     std::unique_ptr<tree::Source> unpacked;
@@ -570,6 +578,7 @@ Status open_game_files(const std::string& path, const std::string& passcode, Gam
         ALEMBIC_ASSIGN(g.unpacked, lz4pack::unpack(*g.tree));
         g.tree = g.unpacked.get();
     }
+    const bool ps4 = ffpfsc::is_ps4_game(*g.tree, g.tree->root());
     std::vector<std::pair<std::string, const tree::Node*>> stack{{"", &g.tree->root()}};
     while (!stack.empty()) {
         auto [prefix, node] = stack.back();
@@ -577,7 +586,7 @@ Status open_game_files(const std::string& path, const std::string& passcode, Gam
         for (const tree::Node& c : node->children) {
             std::string p = prefix.empty() ? c.name : prefix + "/" + c.name;
             if (c.is_directory) stack.push_back({p, &c});
-            else if (p != "ampr_emu.index") g.files.push_back({p, &c});
+            else if (p != "ampr_emu.index" && !(ps4 && p == "sce_sys/param.json")) g.files.push_back({p, &c});
         }
     }
     std::sort(g.files.begin(), g.files.end());

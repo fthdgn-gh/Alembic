@@ -22,9 +22,10 @@ conversion carries on after the engine is updated; the engine updates
 itself from a release (loaded through Payload Manager); the console app
 starts from ShadowMount+, starts and restarts the engine, and drives a
 conversion on a paired PC.
-**Not yet:** installing an FPKG that Alembic built; PS4 games (images made
-from PS4 packages, for ShadowMount+ 1.7beta8 and later, and rebuilt PS4
-packages). LZ4 asset packs work for some games and not for others.
+A PS4 game converted from its package starts from an image through
+ShadowMount+ 1.7beta8.
+**Not yet:** installing an FPKG that Alembic built, PS5 or PS4. LZ4 asset
+packs work for some games and not for others.
 
 ## What it does
 
@@ -44,7 +45,11 @@ and the app mark each game with a **PS5** (white) or **PS4** (black) pill.
 
 - **PS4 games** (from 0.3.2): fake PKGs with the usual all-zero passcode open
   like PS5 packages, as the game's files plus `sce_sys` (`param.sfo`, icons,
-  trophies, licence) from the package, and convert to any image. A PS4 game
+  trophies, licence) from the package, and convert to any image. Images and
+  folders of a PS4 game get the `sce_sys/param.json` ShadowMount+ needs to
+  start it (made from `param.sfo`, as
+  [PS4pkg_to_ffpfsc](https://github.com/SadykovIV/PS4pkg_to_ffpfsc) makes
+  it); tried on a console with ShadowMount+ 1.7beta8. A PS4 game
   in any format converts back to a PS4 fake PKG, built the way
   [LibOrbisPkg](https://github.com/maxton/LibOrbisPkg)'s `pkg_build` builds
   one: the game's licence is kept (generated only when missing), and the
@@ -313,6 +318,8 @@ Alembic stands on the work of the PS5 homebrew scene. Thank you to:
   (exFAT, PFSC and FFPFSC; the reference Alembic matches byte for byte) and
   [ProsperoPkgTool](https://github.com/pearlxcore/ProsperoPkgTool) (reading
   and writing debug packages, and its key files).
+- **SadykovIV** for [PS4pkg_to_ffpfsc](https://github.com/SadykovIV/PS4pkg_to_ffpfsc)
+  (how a PS4 game's image has to look for ShadowMount+, its `param.json`).
 - **SvenGDK** for [UFS2Tool](https://github.com/SvenGDK/UFS2Tool) (the FFPKG
   reader and writer) and [LibProsperoPKG](https://github.com/SvenGDK/LibProsperoPKG)
   (test packages).

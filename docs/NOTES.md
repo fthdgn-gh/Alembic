@@ -2282,6 +2282,30 @@ same file).
   runs its `pkg_validate` (the owner runs it: the session's safety check
   refused to build LibOrbisPkg; results in the next entry).
 
+### 2026-10-26: PS4 images need a param.json (console test)
+
+Owner's console test (ShadowMount+ 1.7beta8): Alembic's image of package P
+mounted and installed, but "the game or app couldn't be started"
+(NP-103270-3, undocumented); ShadowMount+'s log showed the launch released
+within a second, no game process. SadykovIV/PS4pkg_to_ffpfsc (GPL-3.0,
+shadPS4's extractor + MkPFS; built locally by the owner from
+`.refs/PS4pkg_to_ffpfsc`, see its scripts) made an image that **starts**.
+`alembic same` showed 59 of 67 files equal; it adds `sce_sys/param.json`
+(and the package's internal tables as files, and a `license.info` that
+shadPS4 decrypts with the wrong key). Ours plus only their param.json
+**starts** too: the param.json is what was missing.
+- Alembic now adds it (`sfo::ps4_param_json`, ported from their
+  `build_param_json`: TITLE_NN per locale, en-US fallback, titleId,
+  titleName, non-zero USER_DEFINED_PARAM_N; byte-identical to theirs for
+  package P) to every image and folder of a PS4 game, never to a package.
+- A PS4 game is now "param.sfo, and no param.json or one without
+  contentId" (`ffpfsc::is_ps4_game(source, root)`); the PS4 package writer
+  leaves param.json out, so package -> any image -> package is still the
+  same bytes; `alembic same` ignores a PS4 game's param.json; the engine's
+  game info reads param.sfo first for PS4 games.
+- Open: trophies (ShadowMount+ issue #97 reports "Trophy registration
+  failed" for PS4 images); rebuilt PS4 packages not installed yet.
+
 ### 2026-10-26: PS4 packages byte-identical to LibOrbisPkg
 
 `tools/ps4-oracle/compare.sh` (run by the owner) now passes everything:
