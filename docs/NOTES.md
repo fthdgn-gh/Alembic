@@ -2533,6 +2533,14 @@ What it took:
    (2026-10-25).
 5. Smaller: retail/patch packages, NAPS shuffle layouts, Kraken-compressed
    FPKG output, less pass-1 memory for LZ4.
+7. **Payload limits, parked (owner, 2026-10-27).** The engine runs in its
+   own process from the ELF loader (spawned via `SceRedisServer`), so the
+   app's `param.json` (`kernel.flexibleMemorySize`, the PS5 Pro memory bit
+   in `attribute3`) does not reach it. Unknown on the console: the cores the
+   process may use (a game reserves most), its priority, its memory budget.
+   Idea: a diagnostics readout (CPU affinity, priority, memory used/free, a
+   throughput test with 1..N threads), run with and without a game, before
+   capping workers or changing priorities.
 6. PS4 packages (2026-10-26, reading and writing done, byte-identical to
    LibOrbisPkg; images start on the console with ShadowMount+ 1.7beta8).
    **Next version: PS4 updates** (owner, 2026-10-26: not in 0.3.2). Plan:
