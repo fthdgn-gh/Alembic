@@ -22,4 +22,12 @@ std::u16string to_lower_invariant(std::u16string_view text);
 // ASCII-only case-insensitive comparison (.NET OrdinalIgnoreCase on ASCII).
 bool ascii_iequals(std::string_view a, std::string_view b);
 
+// .NET's default string order (String.CompareTo, culture-aware, ICU root
+// collation) for ASCII: whitespace, then punctuation and symbols in the order
+// _ - , ; : ! ? . ' " ( ) [ ] { } @ * / \ & # % ` ^ + < = > | ~ $, then
+// digits, then letters ignoring case; ties go to the first lowercase letter.
+// Checked against .NET 10 on macOS. Other bytes sort after ASCII, by value.
+// Returns <0, 0 or >0.
+int dotnet_compare(std::string_view a, std::string_view b);
+
 } // namespace alembic::unicode

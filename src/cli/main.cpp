@@ -43,7 +43,7 @@ void usage() {
         "        (.ffpfs: uncompressed PFS, byte-identical to MkPFS pack folder --raw\n"
         "        --no-compress; takes --timestamp, --block-size, --case-sensitive, --no-ampr)\n"
         "        (.pkg: a stored debug FPKG, as fpkg-build; needs --keys DIR, takes --seed\n"
-        "        and --package-passcode)\n"
+        "        and --package-passcode; for a PS4 game a PS4 package, needs --ps4-keys FILE)\n"
         "        (.exfat/.img, .ffpfsc, or a trailing '/' for a folder). Images are\n"
         "        copied unchanged unless --rebuild asks for a fresh exFAT layout.\n"
         "        Takes the ffpfsc and exfat options below, and:\n"
@@ -73,6 +73,10 @@ void usage() {
         "  fpkg-build <input> <out.pkg> --keys DIR [--seed HEX32] [--package-passcode P] [--overwrite]\n"
         "        build a stored debug FPKG from a game folder or image; DIR holds ProsperoPkgTool's\n"
         "        passcode.bin and mount_image.bin; a fixed --seed makes it reproducible\n"
+        "        A PS4 game (sce_sys/param.sfo) becomes a PS4 fake package, as LibOrbisPkg's\n"
+        "        pkg_build makes it: --ps4-keys FILE (LibOrbisPkg's Util/Keys.cs, pinned by\n"
+        "        SHA-256), --package-passcode, --timestamp UNIX, and --creation-date YYYYMMDD\n"
+        "        [--creation-time HHMMSS] when param.sfo has no PUBTOOLINFO c_date\n"
         "  ls <input> [--passcode P]\n"
         "        list the files in a folder, exFAT, FFPKG, FFPFSC or debug FPKG\n"
         "  cat <input> <path> [<out>] [--passcode P]\n"
@@ -323,10 +327,25 @@ bool parse_ffpfsc_options(const Args& args, ffpfsc::BuildOptions& options) {
     return true;
 }
 
+// --ps4-keys, --package-passcode, --creation-date and --creation-time, for a PS4 package.
+bool parse_ps4_package_options(const Args& args, fpkg::ps4::PackageOptions& o) {
+    o.keys_file = args.get("--ps4-keys").value_or("");
+    if (auto p = args.get("--package-passcode")) o.passcode = *p;
+    if (auto text = args.get("--timestamp")) {
+        auto value = parse_number(text->c_str());
+        if (!value || *value > INT64_MAX) return std::fputs("error: bad --timestamp\n", stderr), false;
+        o.timestamp = static_cast<std::int64_t>(*value);
+    }
+    o.creation_date = args.get("--creation-date");
+    o.creation_time = args.get("--creation-time");
+    return true;
+}
+
 // --keys, --package-passcode and --seed, for FPKG output.
 bool parse_package_options(const Args& args, fpkg::build::PackageOptions& o) {
     o.keys_folder = args.get("--keys").value_or("");
-    if (o.keys_folder.empty()) return std::fputs("error: pass --keys DIR (passcode.bin, mount_image.bin)\n", stderr), false;
+    if (o.keys_folder.empty() && !args.get("--ps4-keys"))
+        return std::fputs("error: pass --keys DIR (passcode.bin, mount_image.bin), or --ps4-keys FILE for a PS4 game\n", stderr), false;
     if (auto p = args.get("--package-passcode")) o.passcode = *p;
     if (auto hex = args.get("--seed")) {
         if (hex->size() != 32) return std::fputs("error: --seed takes 32 hex digits\n", stderr), false;
@@ -416,7 +435,9 @@ int cmd_convert(const Args& args) {
         to = convert::guess_output_format(args.positional[1]);
         if (!to) return std::fputs("error: cannot tell the output format from its name; pass --to\n", stderr), 2;
     }
-    if (*to == convert::Format::fpkg && !parse_package_options(args, options.fpkg)) return 2;
+    if (*to == convert::Format::fpkg &&
+        (!parse_package_options(args, options.fpkg) || !parse_ps4_package_options(args, options.fpkg_ps4)))
+        return 2;
     ProgressPrinter printer;
     auto report = convert::run(args.positional[0], args.positional[1], *to, options, printer.callback());
     printer.done();
@@ -485,6 +506,20 @@ int cmd_fpkg_build(const Args& args) {
     if (args.positional.size() != 2) return usage(), 2;
     auto input = convert::open(args.positional[0], args.get("--passcode").value_or(std::string(32, '0')));
     if (!input.ok()) return fail(input.error());
+    auto game_root = ffpfsc::resolve_game_root(input->tree->root());
+    if (game_root.ok() && ffpfsc::is_ps4_game(**game_root)) {
+        fpkg::ps4::PackageOptions o;
+        if (!parse_ps4_package_options(args, o)) return 2;
+        o.overwrite = args.get("--overwrite").has_value();
+        auto r = fpkg::ps4::write_package(*input->tree, input->tree->root(), args.positional[1], o);
+        if (!r.ok()) return fail(r.error());
+        for (const std::string& w : r->warnings) std::fprintf(stderr, "warning: %s\n", w.c_str());
+        if (r->generated_license) std::fprintf(stderr, "note: generated a debug licence (the game had none)\n");
+        if (r->generated_keystone) std::fprintf(stderr, "note: generated sce_sys/keystone (the game had none)\n");
+        std::printf("%s: PS4 package, %llu bytes, %zu inner files (content ID %s)\n", args.positional[1].c_str(),
+                    static_cast<unsigned long long>(r->package_length), r->inner_files, r->content_id.c_str());
+        return 0;
+    }
     fpkg::build::PackageOptions o;
     if (!parse_package_options(args, o)) return 2;
     o.overwrite = args.get("--overwrite").has_value();

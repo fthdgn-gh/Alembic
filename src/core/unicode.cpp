@@ -2,6 +2,7 @@
 #include "alembic/unicode.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <iterator>
 
 namespace alembic::unicode {
@@ -120,6 +121,35 @@ bool ascii_iequals(std::string_view a, std::string_view b) {
         if (x != y) return false;
     }
     return true;
+}
+
+namespace {
+
+// Primary weight of a byte: its rank in the .NET/ICU order; letters share a
+// weight with their other case.
+int primary_weight(unsigned char c) {
+    static const char kOrder[] = " _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$0123456789";
+    if (c >= 'A' && c <= 'Z') c = static_cast<unsigned char>(c + 32);
+    if (c >= 'a' && c <= 'z') return 100 + (c - 'a');
+    if (const char* at = c ? std::strchr(kOrder, c) : nullptr) return static_cast<int>(at - kOrder);
+    return 200 + c;
+}
+
+} // namespace
+
+int dotnet_compare(std::string_view a, std::string_view b) {
+    std::size_t n = std::min(a.size(), b.size());
+    for (std::size_t i = 0; i < n; ++i) {
+        int wa = primary_weight(static_cast<unsigned char>(a[i]));
+        int wb = primary_weight(static_cast<unsigned char>(b[i]));
+        if (wa != wb) return wa < wb ? -1 : 1;
+    }
+    if (a.size() != b.size()) return a.size() < b.size() ? -1 : 1;
+    for (std::size_t i = 0; i < n; ++i) {
+        bool ua = a[i] >= 'A' && a[i] <= 'Z', ub = b[i] >= 'A' && b[i] <= 'Z';
+        if (ua != ub) return ua ? 1 : -1;
+    }
+    return 0;
 }
 
 } // namespace alembic::unicode

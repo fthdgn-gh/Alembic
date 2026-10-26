@@ -88,6 +88,7 @@ add_library(alembic_core STATIC
     src/core/lz4pack_profile.cpp
     src/core/lz4pack_read.cpp
     src/core/pfsc.cpp
+    src/core/rsa.cpp
     src/core/sfo.cpp
     src/core/sha256.cpp
     src/core/toml.cpp
@@ -101,6 +102,9 @@ add_library(alembic_core STATIC
     src/core/fpkg_outer_build.cpp
     src/core/fpkg_keys.cpp
     src/core/fpkg_playgo_build.cpp
+    src/core/fpkg_ps4_build.cpp
+    src/core/fpkg_ps4_keys.cpp
+    src/core/fpkg_ps4_pfs.cpp
     src/core/fpkg_cnt_build.cpp
     src/core/fpkg_package_build.cpp
     src/core/unicode.cpp

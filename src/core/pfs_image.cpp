@@ -551,6 +551,8 @@ struct Volume {
             if (p != -1 && p != 0 && p != r.first_block + static_cast<std::int32_t>(i))
                 return make_error(Errc::unsupported, "this PFS image has fragmented files (not supported yet)");
         }
+        // An empty file may have no blocks (LibOrbisPkg's PS4 images).
+        if (r.blocks == 0 && r.size == 0) return r;
         if (r.blocks == 0 || r.first_block <= 0 || static_cast<std::uint64_t>(r.first_block) + r.blocks > block_count)
             return invalid("a PFS inode points outside the image");
         if (r.size > static_cast<std::uint64_t>(r.blocks) * block_size)

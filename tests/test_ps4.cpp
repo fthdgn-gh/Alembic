@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // PS4 packages: key derivation (vectors from Python's hashlib/hmac), param.sfo,
-// and a small synthetic package read end to end (CNT, signed and encrypted
-// outer PFS, PFSC version 2, inner PFS). Real packages are checked by
-// tools/pkg-oracle/check_samples.sh.
+// a small synthetic package read end to end (CNT, signed and encrypted outer
+// PFS, PFSC version 2, inner PFS), and the writer's packages read back.
+// Byte parity with LibOrbisPkg is checked by tools/ps4-oracle/compare.sh;
+// real packages by tools/pkg-oracle/check_samples.sh.
 #include "alembic/bytes.hpp"
 #include "alembic/convert.hpp"
 #include "alembic/crypto.hpp"
 #include "alembic/fpkg.hpp"
+#include "alembic/fpkg_ps4.hpp"
 #include "alembic/pfs.hpp"
 #include "alembic/pfsc.hpp"
 #include "alembic/sfo.hpp"
+#include "alembic/unicode.hpp"
 #include "test.hpp"
 
 #include <cstring>
@@ -277,4 +280,153 @@ TEST_CASE(ps4_package_reads_end_to_end) {
     REQUIRE_OK(back);
     CHECK(back->same());
     CHECK(!convert::run(pkg_path, tmp + "/out.pkg", convert::Format::fpkg, options).ok());
+}
+
+namespace {
+
+// Made-up keys of the right shapes (odd moduli); our reader checks no RSA.
+fpkg::ps4::Keys test_keys() {
+    fpkg::ps4::Keys k;
+    auto modulus = [](std::uint8_t seed) {
+        std::vector<std::uint8_t> m = pattern(256, seed);
+        m[0] = 0xC5;
+        m[255] |= 1;
+        return m;
+    };
+    for (std::size_t i = 0; i < 7; ++i) k.package_public[i] = modulus(static_cast<std::uint8_t>(10 + i));
+    k.fake_modulus = modulus(20);
+    k.rif_modulus = modulus(21);
+    k.rif_private_exponent = pattern(256, 22);
+    for (int i = 0; i < 16; ++i) k.rif_debug_key[i] = static_cast<std::uint8_t>(i);
+    for (int i = 0; i < 32; ++i) k.keystone_hmac_key[i] = static_cast<std::uint8_t>(i * 3);
+    for (int i = 0; i < 32; ++i) k.keystone_mac_data[i] = static_cast<std::uint8_t>(i * 5);
+    return k;
+}
+
+std::string make_ps4_game(const std::string& tmp) {
+    std::string game = tmp + "/ps4game";
+    for (const char* d : {"", "/sce_sys", "/sce_sys/trophy", "/data", "/data/sub"}) test::make_dir(game + d);
+    test::write_file(game + "/eboot.bin", pattern(200000, 1));
+    test::write_file(game + "/data/big.bin", pattern(13 * 65536 + 7, 2));
+    test::write_file(game + "/data/sub/empty.bin", {});
+    test::write_file(game + "/data/sub/Small_File.txt", pattern(10, 3));
+    test::write_file(game + "/sce_sys/icon0.png", pattern(5000, 4));
+    test::write_file(game + "/sce_sys/nptitle.dat", pattern(160, 5));
+    test::write_file(game + "/sce_sys/trophy/trophy00.trp", pattern(3000, 6));
+    test::write_file(game + "/sce_sys/param.sfo", make_sfo({{"CATEGORY", "gd"},
+                                                             {"CONTENT_ID", kContentId},
+                                                             {"FORMAT", "obs"},
+                                                             {"PUBTOOLINFO", "c_date=20200102,c_time=030405"},
+                                                             {"TITLE", "Synthetic"},
+                                                             {"TITLE_ID", "CUSA00000"}}));
+    return game;
+}
+
+} // namespace
+
+TEST_CASE(ps4_package_writes_and_reads_back) {
+    std::string tmp = test::make_temp_dir();
+    std::string game = make_ps4_game(tmp);
+    fpkg::ps4::Keys keys = test_keys();
+    fpkg::ps4::PackageOptions o;
+    o.keys = &keys;
+    auto folder = tree::open_folder(game);
+    REQUIRE_OK(folder);
+    auto r = fpkg::ps4::write_package(**folder, (*folder)->root(), tmp + "/a.pkg", o);
+    REQUIRE_OK(r);
+    CHECK(r->generated_license);
+    CHECK(r->generated_keystone);
+    CHECK(r->content_id == kContentId);
+    // The same bytes again.
+    REQUIRE_OK(fpkg::ps4::write_package(**folder, (*folder)->root(), tmp + "/b.pkg", o));
+    CHECK(test::read_file(tmp + "/a.pkg") == test::read_file(tmp + "/b.pkg"));
+
+    // Our reader: digests, the superblock signature, every file.
+    auto opened = File::open(tmp + "/a.pkg", File::Mode::read);
+    REQUIRE_OK(opened);
+    std::shared_ptr<const RandomAccess> file = std::make_shared<File>(std::move(*opened));
+    auto package = fpkg::read_package(*file);
+    REQUIRE_OK(package);
+    CHECK(package->kind == fpkg::Kind::ps4_package);
+    auto digests = fpkg::check_digests(*file, *package);
+    REQUIRE_OK(digests);
+    CHECK(digests->fih_digest_ok);
+    CHECK(digests->entry_digests_ok);
+    auto outer = fpkg::OuterPfs::open(file, *package);
+    REQUIRE_OK(outer);
+    CHECK((*outer)->superblock_icv_ok());
+    auto input = convert::open(tmp + "/a.pkg");
+    REQUIRE_OK(input);
+    const tree::Node& root = input->tree->root();
+    for (const char* path : {"eboot.bin", "data/big.bin", "data/sub/empty.bin", "data/sub/Small_File.txt", "sce_sys/icon0.png",
+                             "sce_sys/nptitle.dat", "sce_sys/trophy/trophy00.trp"}) {
+        const tree::Node* a = tree::find(root, path);
+        const tree::Node* b = tree::find((*folder)->root(), path);
+        CHECK(a != nullptr);
+        if (!a || !b) continue;
+        CHECK(read_all(*input->tree, *a) == read_all(**folder, *b));
+    }
+    const tree::Node* keystone = tree::find(root, "sce_sys/keystone");
+    CHECK(keystone && read_all(*input->tree, *keystone) == fpkg::ps4::create_keystone(keys, o.passcode));
+    // The licence decrypts to a debug RIF for this content ID.
+    const tree::Node* license = tree::find(root, "sce_sys/license.dat");
+    CHECK(license != nullptr);
+    if (license) {
+        std::vector<std::uint8_t> rif = read_all(*input->tree, *license);
+        CHECK(rif.size() == 0x400 && std::memcmp(rif.data(), "RIF\0", 4) == 0 &&
+              std::memcmp(rif.data() + 0x20, kContentId.data(), 36) == 0);
+    }
+    // param.sfo gains PUBTOOLINFO's sizes and PUBTOOLVER; its date stays.
+    const tree::Node* sfo_node = tree::find(root, "sce_sys/param.sfo");
+    CHECK(sfo_node != nullptr);
+    if (sfo_node) {
+        auto sfo = sfo::Document::read(read_all(*input->tree, *sfo_node));
+        REQUIRE_OK(sfo);
+        CHECK(sfo->display("PUBTOOLINFO").rfind("c_date=20200102,c_time=030405,img0_l0_size=", 0) == 0);
+        CHECK(sfo->display("PUBTOOLVER") == "0x02890000");
+    }
+    // Every time stamp is the creation date (2020-01-02 03:04:05 UTC).
+    const tree::Node* eboot = tree::find(root, "eboot.bin");
+    CHECK(eboot && eboot->mtime == 1577934245);
+
+    // A rebuild from the package gives the same package.
+    auto again = fpkg::ps4::write_package(*input->tree, root, tmp + "/c.pkg", o);
+    REQUIRE_OK(again);
+    CHECK(!again->generated_license && !again->generated_keystone);
+    CHECK(test::read_file(tmp + "/a.pkg") == test::read_file(tmp + "/c.pkg"));
+}
+
+TEST_CASE(ps4_package_rules) {
+    // sce_sys names that become entries; others stay files.
+    CHECK(fpkg::ps4::entry_id_for_name("icon0.png") == std::optional<std::uint32_t>(0x1200));
+    CHECK(fpkg::ps4::entry_id_for_name("pic1_07.dds") == std::optional<std::uint32_t>(0x12C8));
+    CHECK(!fpkg::ps4::entry_id_for_name("pic1_31.dds"));
+    CHECK(!fpkg::ps4::entry_id_for_name("keystone"));
+    // .NET's string order (checked against .NET 10).
+    CHECK(unicode::dotnet_compare("ATTRIBUTE_INTERNAL", "ATTRIBUTE2") < 0);
+    CHECK(unicode::dotnet_compare("pic1_00.png", "pic1.png") < 0);
+    CHECK(unicode::dotnet_compare("/a", "/A") < 0);
+    CHECK(unicode::dotnet_compare("/aB", "/Ab") < 0);
+    CHECK(unicode::dotnet_compare("a-b", "ab") < 0);
+    CHECK(unicode::dotnet_compare("co_op", "co-op") < 0);
+    // param.sfo written back keeps a LibOrbisPkg-style layout.
+    auto doc = sfo::Document::read(make_sfo({{"TITLE", "x"}, {"ATTRIBUTE2", "y"}}));
+    REQUIRE_OK(doc);
+    doc->set_number("ATTRIBUTE_INTERNAL", 7);
+    std::vector<std::uint8_t> out = doc->serialize();
+    auto back = sfo::Document::read(out);
+    REQUIRE_OK(back);
+    CHECK(back->values().front().key == "APP_TYPE");
+    CHECK(back->values()[1].key == "ATTRIBUTE_INTERNAL");
+    CHECK(back->display("ATTRIBUTE_INTERNAL") == "0x00000007");
+    // Not a game application: refused.
+    std::string tmp = test::make_temp_dir();
+    std::string game = make_ps4_game(tmp);
+    test::write_file(game + "/sce_sys/param.sfo", make_sfo({{"CATEGORY", "gp"}, {"CONTENT_ID", kContentId}}));
+    fpkg::ps4::Keys keys = test_keys();
+    fpkg::ps4::PackageOptions o;
+    o.keys = &keys;
+    auto folder = tree::open_folder(game);
+    REQUIRE_OK(folder);
+    CHECK(!fpkg::ps4::write_package(**folder, (*folder)->root(), tmp + "/x.pkg", o).ok());
 }

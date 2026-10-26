@@ -303,12 +303,10 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     };
     if (options.lz4 && options.lz4_unpack)
         return make_error(Errc::invalid_argument, "choose either LZ4 packing or unpacking");
-    // A PS4 game: Alembic writes PS5 packages only, and LZ4 packs and the AMPR
+    // A PS4 game: FPKG output is a PS4 package; LZ4 packs and the AMPR
     // emulator are for PS5 games.
     auto game_root = ffpfsc::resolve_game_root(input.tree->root());
     const bool ps4 = game_root.ok() && ffpfsc::is_ps4_game(**game_root);
-    if (ps4 && to == Format::fpkg)
-        return unsupported(input.format, to, "this is a PS4 game, and Alembic writes PS5 packages only");
     if (ps4 && options.lz4)
         return make_error(Errc::unsupported, "LZ4 asset packs are for PS5 games; this is a PS4 game");
     if (options.lz4_unpack) {
@@ -527,6 +525,20 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     }
     case Format::fpkg: {
         if (input.format == Format::fpkg && !rebuild) return unsupported(input.format, to, "pass --rebuild to build it again");
+        if (ps4) {
+            fpkg::ps4::PackageOptions o = options.fpkg_ps4;
+            o.overwrite = options.overwrite;
+            if (!o.timestamp) o.timestamp = options.ffpfsc.build_timestamp;
+            if (!o.threads) o.threads = options.ffpfsc.compression.threads;
+            ALEMBIC_ASSIGN(fpkg::ps4::PackageResult r, fpkg::ps4::write_package(tree, tree.root(), output, o, progress));
+            report.method = std::string(prefix) + "built a PS4 package from the file tree";
+            report.resumable = false; // written in one go: a stopped one starts over
+            report.detail = r.content_id;
+            report.warnings.insert(report.warnings.end(), r.warnings.begin(), r.warnings.end());
+            if (r.generated_license) report.warnings.push_back("the game had no licence files; a debug licence was generated");
+            if (r.generated_keystone) report.warnings.push_back("the game had no sce_sys/keystone; one was generated");
+            return report;
+        }
         fpkg::build::PackageOptions o = options.fpkg;
         o.overwrite = options.overwrite;
         if (!o.threads) o.threads = options.ffpfsc.compression.threads;

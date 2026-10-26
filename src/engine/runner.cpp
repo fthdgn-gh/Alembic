@@ -413,6 +413,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     options.ffpfsc.compression.threads = config.threads;
     options.lz4_unpack = spec.lz4_unpack;
     options.fpkg.keys_folder = config.state_dir + "/keys"; // the fpkg_keys component
+    options.fpkg_ps4.keys_file = config.state_dir + "/keys/ps4/Keys.cs"; // the ps4_keys component
     if (!spec.seed.empty()) {
         std::array<std::uint8_t, 16> seed{};
         for (std::size_t i = 0; i < 16; ++i) seed[i] = static_cast<std::uint8_t>(std::stoul(spec.seed.substr(2 * i, 2), nullptr, 16));
@@ -652,9 +653,16 @@ std::vector<std::string> missing_dependencies(const JobSpec& spec, const EngineC
                 if (a && (spec.ampr_emu == "always" ? !a->ships : a->needed())) out.push_back("ampr_runtime");
             }
         }
-        const Dependency* keys = find_dependency("fpkg_keys");
-        if (to.ok() && *to == convert::Format::fpkg && keys && dependency_state(*keys, config.state_dir) != "installed")
-            out.push_back("fpkg_keys");
+        if (to.ok() && *to == convert::Format::fpkg) {
+            // A PS4 game becomes a PS4 package, with LibOrbisPkg's keys.
+            bool ps4 = false;
+            if (auto game = convert::open(input, passcode); game.ok()) {
+                auto root = ffpfsc::resolve_game_root(game->tree->root());
+                ps4 = root.ok() && ffpfsc::is_ps4_game(**root);
+            }
+            const Dependency* keys = find_dependency(ps4 ? "ps4_keys" : "fpkg_keys");
+            if (keys && dependency_state(*keys, config.state_dir) != "installed") out.push_back(keys->id);
+        }
     }
     return out;
 }

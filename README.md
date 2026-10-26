@@ -35,13 +35,16 @@ some games and not for others.
 | FFPFS (PFS) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | FFPFSC | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | FPKG (debug) | ✓ | ✓ | ✓ | ✓ | ✓ | – |
-| PS4 FPKG (fake) | ✓ | ✓ | ✓ | ✓ | ✓ | – |
+| PS4 FPKG (fake) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ PS4 |
 
 - **PS4 packages** (fake PKGs with the usual all-zero passcode) open like
   PS5 ones: the game's files plus `sce_sys` (`param.sfo`, icons, trophies)
-  from the package. They are read only: Alembic writes PS5 packages, and
-  the AMPR emulator and LZ4 packs are left out for PS4 games. Not tried on a
-  console yet.
+  from the package. A PS4 game in any format (package, image or folder)
+  converts back to a PS4 fake package (PKG output), built the way
+  [LibOrbisPkg](https://github.com/maxton/LibOrbisPkg)'s `pkg_build` builds
+  one; the game's licence is kept, and generated only when missing. Its keys
+  come from LibOrbisPkg (Components, or `--ps4-keys FILE`). The AMPR emulator
+  and LZ4 packs are left out for PS4 games. Not tried on a console yet.
 - **Streams:** every input is read as a file tree and written straight to
   the output, with no temporary copies, so a 100 GB package needs only the
   space of the result.
@@ -117,7 +120,8 @@ Also on the page:
 - **ShadowMount+:** new images can be picked up without a restart, and
   sources can be hidden from it once converted.
 - **Components:** third-party files Alembic needs but doesn't ship (ampr_emu's
-  runtime, ProsperoPkgTool's FPKG key files) are downloaded on request from
+  runtime, ProsperoPkgTool's FPKG key files, LibOrbisPkg's PS4 package keys)
+  are downloaded on request from
   their official source and kept only if their SHA-256 matches.
 - **Engine** (Settings): **Restart the engine** starts the same version again
   through the ELF loader; the app also offers **Start the engine** once it
@@ -271,13 +275,16 @@ it follows. They need the reference projects checked out in `.refs/`
 tools/oracle/compare.sh        # exFAT, FFPKG, FFPFS, FFPFSC vs PS5PKGTool and MkPFS
 tools/pkg-oracle/compare.sh    # FPKG reading vs packages built by ProsperoPkgTool / LibProsperoPKG
 tools/lz4-oracle/compare.sh    # LZ4 packs vs ampr_emu's ampr_pack.py
+tools/ps4-oracle/compare.sh    # PS4 packages vs LibOrbisPkg's pkg_build, pkg_extract and pkg_validate
 ```
 
 ## What Alembic does not include
 
-- No Oodle, `libScePubTools`, closed-source package libraries or console keys.
-  FPKG output uses ProsperoPkgTool's published key files, which the engine
-  downloads on request.
+- No Oodle, `libScePubTools`, closed-source package libraries or console keys
+  in this repository or its binaries. FPKG output uses ProsperoPkgTool's
+  published key files; PS4 package output uses LibOrbisPkg's `Keys.cs` (it
+  also holds the debug licence key, used only to generate a licence for a
+  game that has none). The engine downloads both on request.
 - No third-party binaries: ampr_emu's `libSceAmpr.sprx` is downloaded from its
   official release, pinned by SHA-256.
 

@@ -14,6 +14,7 @@ Ported files say where they come from in their header comment.
 | [drakmor/ampr_emu](https://github.com/drakmor/ampr_emu) | GPL-3.0 | AMPRIDX3 hashing, sorting and exclusion rules (`ampr::Scheme::ampr_emu`), following `tools/build_ampr_index.py` and `src/ampr_emu_index.cpp`; LZ4 asset packs (AMPRPAK4/AMPRDAT3/AMPRCRC1/AMPRCFG1 format, packer, verifier) in `src/core/lz4pack_*.cpp`, ported from `tools/ampr_pack.py` and `tools/ampr_pack_format.py` |
 | [theghostonline/PS5-LZ4-Compression](https://github.com/theghostonline/PS5-LZ4-Compression) | GPL-3.0-or-later | the automatic LZ4 pack profile, its safety list, the keep-on-disk list and the runtime cache budget (`lz4pack::automatic_profile`, `src/core/lz4pack_build.cpp`), from `src/ampr_pack_profile.c` and `src/ampr_pack.c` only (not its `src/pfs_*` code); how bundled profiles are matched to a game and how a TOML profile is applied (`src/core/lz4pack_profile.cpp`, from `src/lzc_api.c` and `src/ampr_pack_profile.c`); the TOML subset `src/core/toml.cpp` reads (from `src/ampr_pack_toml.c`) |
 | [PSBrew/MkPFS](https://github.com/PSBrew/MkPFS) | GPL-3.0 | the PFS (.ffpfs) writer `src/core/pfs_image.cpp`, ported from `mkpfs/pfs.py` (`build_pfs` unsigned/uncompressed path, `scan_source_tree`, `make_fpt_and_collision_blob`, `_pack_pfs_header_block`, `build_inode_block_sig_s64`, `Inode.to_bytes`, `Dirent.to_bytes`); the reader follows the same layout |
+| [maxton/LibOrbisPkg](https://github.com/maxton/LibOrbisPkg) at `6434772` | LGPL-3.0 (note below) | PS4 package writing (`src/core/fpkg_ps4_*.cpp`), ported from `PKG/PkgBuilder.cs`, `PKG/PkgWriter.cs`, `PKG/Pkg.cs`, `PKG/Entry.cs`, `PFS/PFSBuilder.cs`, `PFS/PfsStructs.cs`, `PFS/FlatPathTable.cs`, `PFS/PFSCWriter.cs`, `Rif/*.cs`, `PlayGo/ChunkDat.cs`, `PlayGo/Manifest.cs`, `Util/Crypto.cs` (keystone, key wraps), `GP4/Gp4Creator.cs` (what a rebuilt project keeps); the `param.sfo` writer (`src/core/sfo.cpp`, from `SFO/ParamSfo.cs`). PS4 package reading follows the same formats |
 | [TweetNaCl](https://tweetnacl.cr.yp.to) (Bernstein, Janssen, Lange, Schwabe et al.) | public domain | X25519 for pairing engines (`src/engine/keys.cpp`): the field arithmetic and ladder of `crypto_scalarmult` |
 | .NET runtime (`string.ToLowerInvariant`) | MIT | the lower-case mapping in `src/core/data/lowercase_table.inc`, generated from .NET 10 |
 
@@ -79,6 +80,7 @@ or in Alembic's binaries.
 | --- | --- | --- |
 | `libSceAmpr.sprx` (ampr_emu 0.4.2.1 PackedStdio) | drakmor/ampr_emu release asset | GPL-3.0 |
 | `passcode.bin`, `mount_image.bin`, `metadata_modulus.bin` | pearlxcore/ProsperoPkgTool `ProsperoPkgTool/Keys/` at `f2c91cd7a5d8` | public RSA moduli that project ships; it describes them as constants from Sony's publishing tools |
+| `Keys.cs` | maxton/LibOrbisPkg `LibOrbisPkg/Util/Keys.cs` at `643477263b26` | the PS4 package keys that project ships (LGPL-3.0): Sony's public package moduli and the fake image key's modulus, read for every PS4 package; the debug RIF key, used only to generate a licence for a game that has none; the keystone keys, used only when a game has no keystone |
 
 ## Used for testing only (not part of Alembic builds)
 
@@ -88,6 +90,14 @@ or in Alembic's binaries.
 | pearlxcore/PS5PKGTool, pearlxcore/ProsperoPkgTool, drakmor/ampr_emu | as above | `tools/oracle/compare.sh` compares Alembic's output with theirs |
 | [zlib](https://zlib.net) | zlib | linked for PFSC compression and CRC-32 |
 | drakmor/ampr_emu `tools/ampr_pack.py` | GPL-3.0 | `tools/lz4-oracle/compare.sh` packs and verifies with it |
+| maxton/LibOrbisPkg `PkgTool` | LGPL-3.0 | `tools/ps4-oracle/compare.sh` builds, extracts and validates PS4 packages with it |
+
+## LibOrbisPkg license
+
+LibOrbisPkg is licensed under the GNU LGPL version 3. The LGPL-3.0 is the
+GPL-3.0 with additional permissions, which GPL-3.0 section 7 lets a
+recipient remove; the code ported from it is used in Alembic under the
+GPL-3.0.
 
 ## Preact license
 

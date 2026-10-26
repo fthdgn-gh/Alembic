@@ -29,6 +29,9 @@ std::string file_hash(const std::string& path) {
 
 const std::string kPptCommit = "f2c91cd7a5d8440b7b9ae5e0b1154334093bf613";
 
+// maxton/LibOrbisPkg: Keys.cs, the PS4 package keys (fpkg_ps4.hpp kKeysFileSha256).
+const std::string kLibOrbisPkgCommit = "643477263b2644e0803e0f58b8726ea4e3f3b7d4";
+
 std::string ppt_key(const std::string& name) {
     return "https://raw.githubusercontent.com/pearlxcore/ProsperoPkgTool/" + kPptCommit + "/ProsperoPkgTool/Keys/" + name;
 }
@@ -63,6 +66,17 @@ const std::vector<Dependency>& dependencies() {
                 {ppt_key("metadata_modulus.bin"), "4a585ee47fea88d6b121d5e8afc9829438a27ee325cebec56a2ff537129a37c5",
                  384, "keys/metadata_modulus.bin"},
             },
+        },
+        {
+            "ps4_keys",
+            "PS4 package keys",
+            "The keys a PS4 fake package is built with (Sony's public package keys, the fake image key's modulus) and "
+            "the debug licence key, used when a game has no licence. Needed for PKG output of PS4 games.",
+            "maxton/LibOrbisPkg, commit " + kLibOrbisPkgCommit.substr(0, 12) +
+                " (LibOrbisPkg/Util/Keys.cs). That project collected them from the PS4 and its SDK tools.",
+            "distributed by LibOrbisPkg (LGPL-3.0); not part of Alembic",
+            {{"https://raw.githubusercontent.com/maxton/LibOrbisPkg/" + kLibOrbisPkgCommit + "/LibOrbisPkg/Util/Keys.cs",
+              "48b44dd03e653a5c0991b0a2975477802ea2639c4e6ea3270b2ff20a1856f8a7", 38180, "keys/ps4/Keys.cs"}},
         },
     };
     return list;

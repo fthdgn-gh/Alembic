@@ -13,6 +13,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace alembic::sfo {
 
@@ -28,5 +29,35 @@ struct Param {
 
 bool looks_like_sfo(Bytes data);
 Result<Param> parse(Bytes data);
+
+// An editable param.sfo, read and written the way maxton/LibOrbisPkg's
+// ParamSfo does (LGPL-3.0, SFO/ParamSfo.cs): values sorted by key in .NET's
+// string order, each in a slot of its maximum length, the data table aligned
+// to 4 bytes.
+inline constexpr std::uint16_t kUtf8Special = 0x0004, kUtf8 = 0x0204, kInteger = 0x0404;
+struct Value {
+    std::string key;
+    std::uint16_t format = kUtf8;
+    std::string text;          // UTF-8 formats
+    std::uint32_t number = 0;  // kInteger
+    std::uint32_t max_length = 4;
+};
+class Document {
+public:
+    static Result<Document> read(Bytes data);
+    const Value* find(const std::string& key) const;
+    void set_text(const std::string& key, const std::string& text, std::uint32_t max_length);
+    void set_number(const std::string& key, std::uint32_t number);
+    void remove(const std::string& key);
+    // What LibOrbisPkg's Value.ToString() gives: the text, or "0x%08x" for a
+    // number; "" when the key is missing.
+    std::string display(const std::string& key) const;
+    std::vector<std::uint8_t> serialize() const;
+    const std::vector<Value>& values() const { return values_; }
+
+private:
+    void sort();
+    std::vector<Value> values_;
+};
 
 } // namespace alembic::sfo

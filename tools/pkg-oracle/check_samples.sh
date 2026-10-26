@@ -9,7 +9,10 @@
 # For PS4 *.pkg (no third-party reader here yet):
 #   - fpkg-info: entry digests, the PFS head digest and the superblock signature verify,
 #   - the whole stored PFS hashes to the CNT header's digest (0x440),
-#   - PKG -> exFAT -> folder and PKG -> FFPFSC -> folder give the same tree.
+#   - PKG -> exFAT -> folder and PKG -> FFPFSC -> folder give the same tree;
+#   - with .refs/LibOrbisPkg's Keys.cs: the rebuilt PS4 package verifies, holds
+#     the same files (param.sfo and the PlayGo files are made again), and
+#     PKG -> exFAT -> package gives the same bytes as PKG -> package.
 # For *.exfat:
 #   - extraction equals PS5PKGTool's exFAT reader (tools/oracle),
 #   - exFAT -> FFPFSC -> exFAT is byte-identical to the original.
@@ -77,6 +80,24 @@ PY
             else echo "DIFF  PKG -> $via -> folder"; fail=1; fi
             rm -rf "$w/from-$via"
         done
+        ps4_keys="$repo/.refs/LibOrbisPkg/LibOrbisPkg/Util/Keys.cs"
+        if [[ -f "$ps4_keys" ]]; then
+            "$alembic" fpkg-build "$pkg" "$w/re.pkg" --ps4-keys "$ps4_keys" --passcode "$passcode" >/dev/null 2>&1
+            info="$("$alembic" fpkg-info "$w/re.pkg" 2>&1 || true)"
+            if grep -q "^entry digests: *ok" <<<"$info" && grep -q "^PFS head digest: ok" <<<"$info" \
+                && grep -q "ICV ok" <<<"$info"; then echo "same  rebuilt PS4 package verifies"
+            else echo "DIFF  rebuilt PS4 package does not verify"; fail=1; fi
+            "$alembic" convert "$w/re.pkg" "$w/from-re/" >/dev/null 2>&1
+            if python3 -I "$here/../oracle/same_tree.py" "$w/alembic" "$w/from-re" \
+                --skip sce_sys/param.sfo --skip sce_sys/playgo-chunk.dat --skip sce_sys/playgo-chunk.sha \
+                --skip sce_sys/playgo-manifest.xml; then echo "same  PKG -> PS4 package -> folder"
+            else echo "DIFF  PKG -> PS4 package -> folder"; fail=1; fi
+            rm -rf "$w/from-re"
+            "$alembic" convert "$pkg" "$w/x.exfat" --passcode "$passcode" >/dev/null 2>&1
+            "$alembic" convert "$w/x.exfat" "$w/re2.pkg" --ps4-keys "$ps4_keys" >/dev/null 2>&1
+            if cmp -s "$w/re.pkg" "$w/re2.pkg"; then echo "same  PKG -> exFAT -> PS4 package equals PKG -> PS4 package"
+            else echo "DIFF  PKG -> exFAT -> PS4 package"; fail=1; fi
+        fi
         rm -rf "$w"
         continue
     fi

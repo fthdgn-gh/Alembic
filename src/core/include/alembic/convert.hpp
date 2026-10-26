@@ -6,6 +6,7 @@
 #include "alembic/ampr_emu.hpp"
 #include "alembic/exfat.hpp"
 #include "alembic/ffpfsc.hpp"
+#include "alembic/fpkg_ps4.hpp"
 #include "alembic/fpkg_build.hpp"
 #include "alembic/io.hpp"
 #include "alembic/lz4pack.hpp"
@@ -94,6 +95,10 @@ struct Options {
     std::optional<lz4pack::PackOptions> lz4;
     // FPKG output: keys_folder is required; `overwrite` comes from above.
     fpkg::build::PackageOptions fpkg;
+    // FPKG output of a PS4 game (sce_sys/param.sfo, no param.json): a PS4
+    // package; keys_file is required. Without its own timestamp, it takes
+    // ffpfsc.build_timestamp.
+    fpkg::ps4::PackageOptions fpkg_ps4;
     // Resumable output (every target, LZ4 packing included; see resume.hpp).
     resume::Session* resume = nullptr;
     // Serve LZ4-packed files as ordinary files again (drops the packs).

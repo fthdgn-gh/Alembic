@@ -14,7 +14,7 @@ Chronological log below; **read "Where we are" and "Next session" first.**
 | FFPKG (UFS2) | ✓ | ✓ | ✓ (wrap) | `--rebuild` | ✓ | ✓ |
 | FFPFS (PFS) | ✓ | ✓ | ✓ (wrap) | ✓ | – | ✓ |
 | FPKG (debug) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| PS4 FPKG (fake) | ✓ | ✓ | ✓ | ✓ | ✓ | – |
+| PS4 FPKG (fake) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (PS4) |
 
 - **Byte-identical to the references:** exFAT, FFPFSC and FFPKG to
   PS5PKGTool (AMPR index with `--ampr-scheme ps5pkgtool`, PFSC at
@@ -49,7 +49,7 @@ Chronological log below; **read "Where we are" and "Next session" first.**
 ### How it is checked
 
 ```sh
-cmake -S . -B build && cmake --build build && ./build/alembic_tests   # 86 unit tests
+cmake -S . -B build && cmake --build build && ./build/alembic_tests   # 88 unit tests
 tools/oracle/compare.sh             # byte-for-byte checks vs PS5PKGTool, MkPFS (.ffpfs) + ampr_emu builder
 tools/pkg-oracle/compare.sh         # FPKG reading/writing vs ProsperoPkgTool/LibProsperoPKG
 tools/pkg-oracle/check_samples.sh   # owner's real files in .refs/samples/ (~4 min; skips files over
@@ -68,8 +68,10 @@ app/preview.sh [dir] [script]       # PNGs of the app drawn on this computer (Me
   https://github.com/drakmor/ampr_emu, https://github.com/drakmor/ShadowMountPlus,
   https://github.com/theghostonline/PS5-LZ4-Compression,
   https://github.com/rdmrocha/fpkg-cli (no license: read only),
-  https://github.com/maxton/LibOrbisPkg (LGPL-3.0, PS4 packages; cloned
-  2026-10-26 at `6434772`, not built yet).
+  https://github.com/maxton/LibOrbisPkg (LGPL-3.0, PS4 packages, at
+  `6434772`; `tools/ps4-oracle/compare.sh` builds its PkgTool.Core for
+  .NET 10 with `-p:TargetFramework=net10.0`; its Util/Keys.cs is what the
+  ps4_keys component downloads).
 - `.refs/MkPFS` (https://github.com/PSBrew/MkPFS, GPL-3.0, 1.1.0 at `1d5df56`)
   and `.refs/mkpfs-venv`: `python3 -m venv .refs/mkpfs-venv &&
   .refs/mkpfs-venv/bin/pip install ./.refs/MkPFS` (the oracle for `.ffpfs`;
@@ -101,10 +103,12 @@ app/preview.sh [dir] [script]       # PNGs of the app drawn on this computer (Me
   inode and fragmented PFS images are refused.
 - FPKG: retail and patch (LIH) packages are not opened; NAPS "shuffle"
   layouts (current LibProsperoPKG output) are refused.
-- PS4 packages: read only, with the passcode (no fake-RSA unwrap of the
-  image key, so a package with an unknown passcode does not open); outer
-  PFS with 32-bit inodes and direct/indirect blocks; no third-party oracle
-  run yet (see the 2026-10-26 entry). PS4 patches/DLC untried.
+- PS4 packages: read with the passcode (no fake-RSA unwrap of the image
+  key, so a package with an unknown passcode does not open); outer PFS with
+  32-bit inodes. Written as LibOrbisPkg writes them: game applications
+  (CATEGORY gd) only, stored (no zlib in the PFSC), not resumable; patches
+  and DLC neither read-tested nor written. Byte parity with LibOrbisPkg not
+  yet run (see the 2026-10-26 entries).
 - SHA-256 is single-threaded (with SHA-NI / ARMv8 SHA2 where the CPU has
   them); inflate and Kraken decode read ahead on worker threads; AES and
   CRC32C use the CPU's instructions on x86-64 and ARMv8.
@@ -2233,6 +2237,52 @@ FFPFSC, `ls`, `fpkg-info`, `fpkg-dump`; the engine shows its title and icon.
   Not tried on a console: does ShadowMount+ start a PS4 game from these
   images?
 
+### 2026-10-26: PS4 packages (write side)
+
+Owner: "we'll need to build that PS4 package back from the image file"
+(ShadowMount+ beta8 mounts PS4 images). **Owner decisions:** the keys come
+from LibOrbisPkg's `Util/Keys.cs`, downloaded by the engine (component
+`ps4_keys`, `643477263b26`, SHA-256 `48b44dd0…`, never committed; the CLI
+takes `--ps4-keys FILE`); a licence is **kept** when the game has one and
+**generated** when missing (that needs the debug RIF key, which is in the
+same file).
+
+- **Port of LibOrbisPkg** `pkg_makegp4` + `pkg_build` (`fpkg_ps4_*.cpp`):
+  the tree is filtered as makegp4 does (license.*, psreserved.dat and the
+  PlayGo files are made again; param.sfo's PUBTOOLINFO/PUBTOOLVER rewritten),
+  then PkgBuilder's layout: CNT body at 0x2000 (entry keys, image key, general
+  digests, metas at 0x2A80, digests, names, PlayGo chunk.dat/sha/manifest,
+  licence, param.sfo, psreserved, then sce_sys files with an entry name,
+  directly in sce_sys only: trophy/ and changeinfo/ go into the inner PFS, as
+  LibOrbisPkg does), outer PFS signed + AES-XTS with a zero seed and an
+  unencrypted empty block after the flat path table, inner PFS unsigned
+  (min 0x55 blocks), pfs_image.dat a **stored** PFSC version 6.
+- **.NET string order matters:** LibOrbisPkg sorts paths, entry names and
+  SFO keys with culture-aware `CompareTo` (ICU): `_ - , ; : ! ? . ' "` …
+  before digits before letters, case second, lowercase first. Checked with
+  a scratch .NET 10 program; `unicode::dotnet_compare`.
+- **RSA:** `rsa.cpp` now holds the MT19937-padded wrap for any modulus size
+  (PS5 3072, PS4 2048; PS5 output checked unchanged byte for byte) and
+  PKCS#1 v1.5 SHA-256 signing for the generated licence.
+- **Streaming:** the inner image is a virtual file (game files read on
+  demand); the outer PFS's data blocks are signed and encrypted on worker
+  threads on the way out; metadata blocks are signed last in LibOrbisPkg's
+  order; one read-back pass for the PFS digests and PlayGo chunk digests.
+  Package P (150 MB) builds in ~0.5 s.
+- **Time stamps:** LibOrbisPkg stamps every PFS inode with the project
+  time. Default here: the param.sfo creation date (PUBTOOLINFO c_date and
+  c_time, UTC), so package -> package and package -> exFAT/FFPFSC/FFPKG/
+  FFPFS -> package give the **same bytes** (image writers drop file times).
+- **Reader fixes found on the way:** an empty file with no blocks (as
+  LibOrbisPkg writes it) no longer fails the PFS reader.
+- **Checks:** unit tests write a synthetic game with made-up keys and read
+  it back (digests, ICV, every file, licence, keystone, determinism, a
+  rebuild from the package); check_samples.sh rebuilds package P;
+  `tools/ps4-oracle/compare.sh` compares with LibOrbisPkg byte for byte and
+  runs its `pkg_validate`, **not run yet**: building LibOrbisPkg was refused
+  by the session's safety check twice (the owner had said yes); run it by
+  hand.
+
 ### 2026-10-19: open items from that day (all solved)
 
 1. ✓ Games converted PKG -> FFPFSC do not start. The conversion finishes and
@@ -2366,8 +2416,11 @@ FFPFSC, `ls`, `fpkg-info`, `fpkg-dump`; the engine shows its title and icon.
    (2026-10-25).
 5. Smaller: retail/patch packages, NAPS shuffle layouts, Kraken-compressed
    FPKG output, less pass-1 memory for LZ4.
-6. PS4 packages (2026-10-26, read side done): owner to try a converted PS4
-   game through ShadowMount+; LibOrbisPkg as an oracle (needs a go-ahead).
+6. PS4 packages (2026-10-26, reading and writing done): run
+   `tools/ps4-oracle/compare.sh` (byte parity with LibOrbisPkg; not run yet,
+   see the log); owner to try a PS4 image through ShadowMount+ (beta8 takes
+   PS4 images) and a rebuilt PS4 package on a console. Later: PS4 patches and
+   DLC, zlib-compressed PFSC like Sony's packages.
 
 Older plan items (faster reading, PS5 build, LZ4 packs, FPKG, UFS2 and PFS
 writers, the downloader for third-party files) are done; see the log above.

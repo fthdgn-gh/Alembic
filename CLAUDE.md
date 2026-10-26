@@ -15,6 +15,7 @@ tools/oracle/compare.sh /path/to/PS5PKGTool   # byte-for-byte check vs PS5PKGToo
 tools/pkg-oracle/compare.sh                   # FPKG reading vs ProsperoPkgTool/LibProsperoPKG
 tools/pkg-oracle/check_samples.sh             # real files in .refs/samples/ (owner-supplied)
 tools/lz4-oracle/compare.sh                   # LZ4 packs vs ampr_emu's ampr_pack.py (needs .refs/venv)
+tools/ps4-oracle/compare.sh                   # PS4 packages vs LibOrbisPkg (builds its PkgTool for .NET 10)
 cmake -S . -B build-win -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake \
       -DLLVM_MINGW=$PWD/.refs/llvm-mingw-20261006-ucrt-macos-universal && cmake --build build-win   # Windows .exe
 ```
@@ -34,10 +35,11 @@ on every change and sends `/api` to a running engine. It must keep working in
 the PS5's Safari-12-era browser: no regex lookbehind, no APIs newer than that.
 
 Output must stay byte-identical to PS5PKGTool (the AMPR index with
-`--ampr-scheme ps5pkgtool`), to ampr_emu's index builder (default scheme) and,
-for `.ffpfs`, to MkPFS `pack folder --raw --no-compress`.
+`--ampr-scheme ps5pkgtool`), to ampr_emu's index builder (default scheme),
+for `.ffpfs`, to MkPFS `pack folder --raw --no-compress`, and for PS4
+packages to LibOrbisPkg `pkg_build` (the target; tools/ps4-oracle checks it).
 Run the oracle after changing any format code. Reference checkouts live in
-`.refs/` (git-ignored): PS5PKGTool, ProsperoPkgTool, ampr_emu,
+`.refs/` (git-ignored): PS5PKGTool, ProsperoPkgTool, ampr_emu, LibOrbisPkg,
 LibProsperoPKG-sven, fpkg-cli, PS5-LZ4-Compression, MkPFS (with its Python
 environment in `.refs/mkpfs-venv`).
 
@@ -118,8 +120,13 @@ environment in `.refs/mkpfs-venv`).
 - **License:** GPL-3.0-or-later, compatible with every source we port from.
 - **Third-party files at run time:** the engine's Components page downloads
   them on request from a fixed URL, pinned by SHA-256 (`src/engine/deps.cpp`):
-  ampr_emu's `libSceAmpr.sprx` and ProsperoPkgTool's FPKG key moduli (needed
-  for PKG output). Never commit them.
+  ampr_emu's `libSceAmpr.sprx`, ProsperoPkgTool's FPKG key moduli (needed
+  for PKG output) and LibOrbisPkg's `Util/Keys.cs` (PS4 package output).
+  Never commit them.
+- **PS4 packages** (owner, 2026-10-26): read like PS5 ones; written as
+  LibOrbisPkg's `pkg_makegp4` + `pkg_build` would. Keys from LibOrbisPkg's
+  `Keys.cs` (downloaded, above), including the debug RIF key: a game's own
+  licence is kept, one is generated only when missing.
 
 ## Never
 
