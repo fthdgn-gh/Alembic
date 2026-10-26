@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (2026-10-25, release 0.3.1)
+## Where we are (2026-10-26, release 0.3.2)
 
 ### What works
 
