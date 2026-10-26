@@ -22,10 +22,12 @@ conversion carries on after the engine is updated; the engine updates
 itself from a release (loaded through Payload Manager); the console app
 starts from ShadowMount+, starts and restarts the engine, and drives a
 conversion on a paired PC.
-A PS4 game converted from its package starts from an image through
-ShadowMount+ 1.7beta8.
-**Not yet:** installing an FPKG that Alembic built, PS5 or PS4. LZ4 asset
-packs work for some games and not for others.
+PS4 games converted from their packages start from images through
+ShadowMount+ 1.7beta8 (it shows "Trophy registration failed" for them: a
+ShadowMount+ issue, [#97](https://github.com/drakmor/ShadowMountPlus/issues/97)).
+**Not yet:** installing an FPKG that Alembic built, PS5 or PS4; PS4 updates
+(patch packages) and DLC. LZ4 asset packs work for some games and not for
+others.
 
 ## What it does
 
@@ -57,7 +59,10 @@ and the app mark each game with a **PS5** (white) or **PS4** (black) pill.
   PlayGo files are made again. A package rebuilt from any image of it is the
   same, byte for byte. The keys come from LibOrbisPkg (Components, or
   `--ps4-keys FILE` on a PC). The AMPR emulator and LZ4 packs are for PS5
-  games only.
+  games only. Which console a game is for comes from its title ID (`CUSA`,
+  `PPSA`), else from the SDK its `eboot.bin` was built with (homebrew);
+  `alembic game-info` shows both. Not yet: updates and DLC, and packages
+  made with a passcode other than all zeros.
 - **Streams:** every input is read as a file tree and written straight to
   the output, with no temporary copies, so a 100 GB package needs only the
   space of the result.
@@ -215,6 +220,7 @@ alembic convert game.exfat game/ --to folder      # unpack to a folder
 alembic convert game/ game.exfat --lz4 --lz4-runtime libSceAmpr.sprx
 alembic ls game.ffpkg                             # list the files of any input
 alembic same game.pkg game.ffpfsc                 # compare two inputs file by file
+alembic game-info game.exfat                      # title ID, SDK and PS4 or PS5
 alembic --help                                    # every command and option
 ```
 

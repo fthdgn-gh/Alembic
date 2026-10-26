@@ -42,7 +42,10 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   and convert for each other (2026-10-24). FPKG → uncompressed exFAT
   of a ~90 GB package: about 30 min on the console. Install hands a
   debug package to the system installer; a conversion paused, the engine
-  updated, and resumed from its checkpoint (2026-10-24).
+  updated, and resumed from its checkpoint (2026-10-24). PS4: an image
+  converted from a fake package (package P) starts through ShadowMount+
+  1.7beta8, with its "Trophy registration failed"
+  (ShadowMount+ #97: it copies only PS5 trophy metadata) (2026-10-26).
 - Mac speeds (14-core M-series): package B (2.8 GB) → exFAT 1.7 s, →
   FFPFSC 5.5 s, → FPKG 9.5 s.
 
