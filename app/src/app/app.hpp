@@ -54,6 +54,7 @@ bool is_convertible(const Entry& e);
 
 struct Meta {
     std::string title, title_id, content_id, version;
+    std::string platform; // "ps4", "ps5" or "" (engines before 0.3.2 send none)
     bool icon = false;
 };
 

@@ -38,6 +38,7 @@ function Row(props: { e: Entry; top: boolean }) {
         <div class="s ellip">
           {m ? [
             <span class={"fmt " + (e.game ? "folder" : e.kind)}>{e.game ? t("FOLDER") : KIND_LABEL[e.kind] || ""}</span>,
+            m.platform ? <span class={"fmt " + m.platform}>{m.platform.toUpperCase()}</span> : null,
             [m.title ? e.name : "", m.version ? "v" + m.version.replace(/^0+(?=\d)/, "") : "", m.title_id].filter(Boolean).join("  ·  "),
           ] : plain}
         </div>

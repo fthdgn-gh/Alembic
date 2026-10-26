@@ -255,6 +255,26 @@ float fmt_pill(Ui& ui, std::string_view kind, std::string_view label, float x, f
     return w;
 }
 
+float platform_pill(Ui& ui, std::string_view platform, float x, float cy) {
+    const bool ps5 = platform == "ps5";
+    if (!ps5 && platform != "ps4") return 0;
+    const std::string_view label = ps5 ? "PS5" : "PS4";
+    const float size = 0.66f * R;
+    const float w = measure(ui, Face::semibold, label, size) + size * 0.06f * static_cast<float>(label.size()) + 0.9f * R;
+    const float h = size + 0.44f * R;
+    if (ps5) {
+        ui.list->rounded_rect({x, cy - h * 0.5f, w, h}, h * 0.5f, rgb(0xffffff));
+    } else {
+        // Outlined, so the black pill shows on the dark rows (as the page's inset shadow).
+        const float line = std::max(1.0f, 0.06f * R);
+        ui.list->rounded_rect({x, cy - h * 0.5f, w, h}, h * 0.5f, rgb(0xffffff, 0.4f));
+        ui.list->rounded_rect({x + line, cy - h * 0.5f + line, w - 2 * line, h - 2 * line}, h * 0.5f - line, rgb(0x000000));
+    }
+    text(ui, Face::semibold, label, x + 0.45f * R, baseline(cy, size), size, ps5 ? rgb(0x000000) : rgb(0xffffff), Align::left,
+         size * 0.06f);
+    return w;
+}
+
 float state_pill(Ui& ui, std::string_view state, std::string_view label, float right, float cy) {
     Color fill = rgb(0x232a3a), ink = muted;
     if (state == "running") {

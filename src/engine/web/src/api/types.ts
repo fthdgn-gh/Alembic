@@ -100,7 +100,7 @@ export interface Entry {
 
 export interface Listing { path: string; parent: string | null; entries: Entry[]; free?: number; total?: number }
 
-export interface Meta { title: string; title_id: string; content_id: string; version: string; icon: boolean }
+export interface Meta { title: string; title_id: string; content_id: string; version: string; icon: boolean; platform?: string }
 
 export interface Inspect { path: string; format: string; title_id?: string; files: number; bytes: number; lz4_packed: boolean; lz4_profile: string; engine: string }
 

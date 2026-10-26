@@ -17,6 +17,9 @@
 .fmt.exfat { background: rgba(230,180,69,.15); color: var(--warn); }
 .fmt.ffpkg { background: rgba(154,123,255,.16); color: var(--accent2); }
 .fmt.ffpfs { background: rgba(69,214,168,.14); color: #45d6a8; }
+/* PS5: white with black text; PS4 the other way round (outlined, to show on the dark rows). */
+.fmt.ps5 { background: #fff; color: #000; }
+.fmt.ps4 { background: #000; color: #fff; box-shadow: inset 0 0 0 1px rgba(255,255,255,.4); }
 
 .facts { display: grid; grid-template-columns: auto minmax(0, 1fr); font-size: .88rem; }
 .facts > div { padding: .4rem 0; border-top: 1px solid var(--line); }

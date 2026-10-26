@@ -1529,6 +1529,7 @@ private:
         v.set("content_id", m->content_id);
         v.set("version", m->version);
         v.set("icon", m->has_icon);
+        v.set("platform", m->platform); // "ps4", "ps5" or "" (0.3.2)
         return json(200, v);
     }
 

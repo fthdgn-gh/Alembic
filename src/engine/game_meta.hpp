@@ -18,6 +18,7 @@ struct GameMeta {
     std::string title_id;
     std::string content_id;
     std::string version;    // contentVersion
+    std::string platform;   // "ps5" (param.json), "ps4" (param.sfo) or "" (neither)
     bool has_icon = false;
 };
 

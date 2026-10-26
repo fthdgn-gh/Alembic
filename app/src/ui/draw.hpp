@@ -46,6 +46,9 @@ void ico(Ui& ui, const Rect& box, std::string_view kind, std::string_view label,
 void kind_colors(std::string_view kind, Color* fill, Color* ink);
 // "EXFAT" pill; returns its width.
 float fmt_pill(Ui& ui, std::string_view kind, std::string_view label, float x, float cy);
+// "PS5" (white, black text) or "PS4" (black, white text, outlined) pill
+// starting at x; returns its width (0 for any other platform).
+float platform_pill(Ui& ui, std::string_view platform, float x, float cy);
 // "RUNNING" pill ending at right; returns its width.
 float state_pill(Ui& ui, std::string_view state, std::string_view label, float right, float cy);
 // "ffpfsc" outlined tag ending at right; returns its width.

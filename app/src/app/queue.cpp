@@ -178,7 +178,9 @@ float card(Ui& ui, App& app, const JsonValue& j, float x, float y, float w) {
         ty += ts * 1.45f;
         if (m) {
             const std::string sub = join({base(input), m->version.empty() ? "" : "v" + version_text(m->version), m->title_id});
-            draw::text_fit(ui, Face::regular, sub, tx, draw::baseline(ty + ss * 0.725f, ss), ss, tw,
+            float px = draw::platform_pill(ui, m->platform, tx, ty + ss * 0.725f);
+            if (px) px += 0.45f * R;
+            draw::text_fit(ui, Face::regular, sub, tx + px, draw::baseline(ty + ss * 0.725f, ss), ss, tw - px,
                            style::text.with_alpha(0.8f));
             ty += ss * 1.45f;
         }

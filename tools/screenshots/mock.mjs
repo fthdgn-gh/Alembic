@@ -24,10 +24,10 @@ const GAMES = {
   "Neon Harbor": ["ALEM00013", "02.010.000", "harbor"],
   "Paper Kingdoms": ["ALEM00015", "01.000.000", "towers"],
   "Starlight Drift": ["ALEM00011", "01.002.000", "sunset"],
-  "Tidewalker": ["ALEM00016", "01.101.000", "waves"],
+  "Tidewalker": ["ALEM00016", "01.101.000", "waves", "ps4"],
   "Ember Lane": ["ALEM00017", "01.003.000", "ember"],
   "Glass Meridian": ["ALEM00018", "01.000.002", "glass"],
-  "Mossback": ["ALEM00019", "01.007.000", "moss"],
+  "Mossback": ["ALEM00019", "01.007.000", "moss", "ps4"],
 };
 const titleOf = (p) => {
   const b = path.posix.basename(p).replace(/\.(exfat|ffpkg|ffpfsc|ffpfs|pkg)$/, "").replace(/^\./, "");
@@ -181,8 +181,8 @@ http.createServer((req, res) => {
     if (p === "/api/meta") {
       const t = titleOf(q("path"));
       if (!t) return send(res, 404, { error: "not a game" });
-      const [id, v] = GAMES[t];
-      return send(res, 200, { title: t, title_id: id, content_id: "UP0000-" + id + "_00-0000000000000000", version: v, icon: true });
+      const [id, v, , platform] = GAMES[t];
+      return send(res, 200, { title: t, title_id: id, content_id: "UP0000-" + id + "_00-0000000000000000", version: v, icon: true, platform: platform || "ps5" });
     }
     if (p === "/api/icon") { const t = titleOf(q("path")); return t ? send(res, 200, iconSvg(GAMES[t][2]), "image/svg+xml") : send(res, 404, ""); }
     if (p === "/api/inspect") {

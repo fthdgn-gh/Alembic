@@ -94,6 +94,7 @@ JsonValue to_json(const GameMeta& m) {
     v.set("content_id", m.content_id);
     v.set("version", m.version);
     v.set("icon", m.has_icon);
+    v.set("platform", m.platform);
     return v;
 }
 
@@ -104,6 +105,7 @@ GameMeta from_json(const JsonValue& v) {
     m.content_id = v["content_id"].str();
     m.version = v["version"].str();
     m.has_icon = v["icon"].boolean();
+    m.platform = v["platform"].str();
     return m;
 }
 
@@ -178,7 +180,8 @@ Status GameMetaCache::load(const std::string& path, const std::string& key) {
     std::string json_path = dir_ + "/" + key + ".json";
     if (auto data = read_file(json_path); data.ok()) {
         auto v = parse_json(std::string(data->begin(), data->end()));
-        if (v.ok()) {
+        // Entries from before 0.3.2 lack the platform: read the game again.
+        if (v.ok() && v->has("platform")) {
             (void)touch_file(json_path); // used now (once per run: it stays in memory)
             std::lock_guard<std::mutex> lock(g_memory_mutex);
             g_memory[key] = from_json(*v);
@@ -194,9 +197,11 @@ Status GameMetaCache::load(const std::string& path, const std::string& key) {
         if (const tree::Node* p = sce_sys_file(root, "param.json")) {
             ALEMBIC_ASSIGN(auto data, read_node(*input.tree, *p, kMaxParam));
             meta = parse_param(std::string(data.begin(), data.end()));
+            meta.platform = "ps5";
         } else if (const tree::Node* s = sce_sys_file(root, "param.sfo")) {
             ALEMBIC_ASSIGN(auto data, read_node(*input.tree, *s, kMaxParam));
             meta = parse_sfo(data);
+            meta.platform = "ps4";
         }
         if (const tree::Node* i = sce_sys_file(root, "icon0.png")) {
             auto data = read_node(*input.tree, *i, kMaxIcon);

@@ -473,6 +473,7 @@ void App::pump_meta() {
                     slot.meta.title_id = r.json["title_id"].str();
                     slot.meta.content_id = r.json["content_id"].str();
                     slot.meta.version = r.json["version"].str();
+                    slot.meta.platform = r.json["platform"].str();
                     slot.meta.icon = r.json["icon"].boolean();
                 }
                 pump_meta();
