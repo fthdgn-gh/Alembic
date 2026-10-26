@@ -3,6 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Job, Meta } from "../../api/types";
 import { getMeta, iconUrl } from "../../api/meta";
+import { PlatformPill } from "../../components/PlatformPill";
 import { isActive, jobKey, rateOf } from "../../state/jobs";
 import { shownPath } from "../../state/paths";
 import { CONVERTIBLE, KIND_LABEL } from "../../lib/kinds";
@@ -63,7 +64,7 @@ export function JobCard(props: { j: Job }) {
         <Ico kind={conv ? kind : "folder"} label={KIND_LABEL[kind]} icon={m && m.icon ? iconUrl({ path: m.from, mtime: 0 }) : null} />
         <div style="min-width:0;flex:1">
           <div class="ttl ellip">{m && m.title ? m.title : jt.title}</div>
-          {m ? <div class="s ellip">{m.platform ? <span class={"fmt " + m.platform}>{m.platform.toUpperCase()}</span> : null}{sub}</div> : null}
+          {m ? <div class="s ellip"><PlatformPill meta={m} />{sub}</div> : null}
           <div class="to mono ellip">{jt.to}</div>
         </div>
         <span class={"state " + j.state}>{t(j.state)}</span>

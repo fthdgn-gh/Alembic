@@ -392,9 +392,10 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
                                 : top ? app.drive_name(e.path) : (m && !m->title.empty() ? m->title : e.name);
             draw::text_fit(ui, Face::regular, title, text_x, draw::baseline(t_cy, ts), ts, tw, style::text);
             if (m) {
-                float pw = draw::fmt_pill(ui, e.game ? "folder" : e.kind, e.game ? t("FOLDER") : kind_label(e.kind),
-                                          text_x, s_cy);
-                if (const float plat = draw::platform_pill(ui, m->platform, text_x + pw + 0.45f * R, s_cy)) pw += 0.45f * R + plat;
+                float pw = draw::platform_pill(ui, m->platform, text_x, s_cy);
+                if (pw) pw += 0.45f * R;
+                pw += draw::fmt_pill(ui, e.game ? "folder" : e.kind, e.game ? t("FOLDER") : kind_label(e.kind), text_x + pw,
+                                     s_cy);
                 std::vector<std::string> bits;
                 if (!m->title.empty()) bits.push_back(e.name);
                 if (!m->version.empty()) bits.push_back("v" + version_text(m->version));

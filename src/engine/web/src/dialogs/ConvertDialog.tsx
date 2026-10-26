@@ -5,6 +5,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { Entry, Inspect, Plan, Job } from "../api/types";
 import { api } from "../api/client";
 import { cachedMeta } from "../api/meta";
+import { PlatformPill } from "../components/PlatformPill";
 import { info, peers, locations } from "../state/engine";
 import { rootOf, ftpOf, driveName, shownPath, peerDriveOf, hereName } from "../state/paths";
 import { refreshJobs } from "../state/jobs";
@@ -258,7 +259,7 @@ function Convert(props: { entry: Entry; ctl: Control }) {
         <div class="side">
           <div class="head">
             <EntryIco entry={entry} meta={m} />
-            <div style="min-width:0"><b>{m && m.title ? m.title : entry.name}</b><div class="muted mono">{m && m.title ? entry.name : ""}</div></div>
+            <div style="min-width:0"><b>{m && m.title ? m.title : entry.name}</b><div class="muted ellip"><PlatformPill meta={m} /><span class="mono">{m && m.title ? entry.name : ""}</span></div></div>
           </div>
           <div class="facts">
             {problem ? [<div>{t("Problem")}</div>, <div class="err">{problem}</div>]

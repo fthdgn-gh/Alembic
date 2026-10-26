@@ -906,9 +906,14 @@ public:
             const float hx = ic.x + ic.w + 0.9f * R, hw = pw - ic.w - 0.9f * R;
             draw::text_fit(ui, Face::semibold, m && !m->title.empty() ? m->title : entry.name, hx,
                            draw::baseline(ic.cy() - 0.7f * R, 1.05f * R), 1.05f * R, hw, style::text);
-            if (m && !m->title.empty())
-                draw::text_fit(ui, Face::mono, entry.name, hx, draw::baseline(ic.cy() + 0.75f * R, 0.85f * R), 0.85f * R, hw,
-                               muted);
+            if (m) {
+                // The platform pill, then the file name under the title.
+                float px = draw::platform_pill(ui, m->platform, hx, ic.cy() + 0.75f * R);
+                if (px) px += 0.45f * R;
+                if (!m->title.empty())
+                    draw::text_fit(ui, Face::mono, entry.name, hx + px, draw::baseline(ic.cy() + 0.75f * R, 0.85f * R),
+                                   0.85f * R, hw - px, muted);
+            }
             yy += 3.6f * R + 0.6f * R;
             std::vector<Fact> rows;
             if (!problem.empty())

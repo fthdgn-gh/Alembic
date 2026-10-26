@@ -9,6 +9,7 @@ import { base, bytes, date } from "../../lib/format";
 import { t } from "../../lib/i18n";
 import { ICONS, EntryIco } from "../../components/Icons";
 import { useMeta } from "../../hooks/useMeta";
+import { PlatformPill } from "../../components/PlatformPill";
 import { openConvert } from "../../dialogs/ConvertDialog";
 import { browse } from "./browse";
 import { openActions } from "./actions";
@@ -37,8 +38,8 @@ function Row(props: { e: Entry; top: boolean }) {
         <div class="t ellip" title={title || e.name}>{gone ? gone.name + " · " + base(e.path) : top ? driveName(e.path) : title || e.name}</div>
         <div class="s ellip">
           {m ? [
+            <PlatformPill meta={m} />,
             <span class={"fmt " + (e.game ? "folder" : e.kind)}>{e.game ? t("FOLDER") : KIND_LABEL[e.kind] || ""}</span>,
-            m.platform ? <span class={"fmt " + m.platform}>{m.platform.toUpperCase()}</span> : null,
             [m.title ? e.name : "", m.version ? "v" + m.version.replace(/^0+(?=\d)/, "") : "", m.title_id].filter(Boolean).join("  ·  "),
           ] : plain}
         </div>
