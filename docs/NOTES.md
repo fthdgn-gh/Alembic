@@ -2305,6 +2305,15 @@ shadPS4 decrypts with the wrong key). Ours plus only their param.json
   game info reads param.sfo first for PS4 games.
 - Open: trophies (ShadowMount+ issue #97 reports "Trophy registration
   failed" for PS4 images); rebuilt PS4 packages not installed yet.
+- **PS4 or PS5, decided like ShadowMount+** (`ffpfsc::game_platform`): the
+  title ID first (`CUSA` PS4, `PPSA` PS5; other prefixes are homebrew or
+  system software, `NPXS`), then eboot.bin's process parameters
+  (`PT_SCE_PROCPARAM`, "ORBI": version 1 on PS4; package P's is 1, every
+  PS5 sample's and Alembic's own app's is 5), then the metadata (param.sfo
+  with no param.json, or one without contentId). ShadowMount+'s reader only
+  takes the `EEF51454` SELF magic; Alembic also takes the fake-signed
+  `1D3D154F` one (package P's and homebrew's). `alembic game-info <input>`
+  shows the three.
 
 ### 2026-10-26: PS4 packages byte-identical to LibOrbisPkg
 

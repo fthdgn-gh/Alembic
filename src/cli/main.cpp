@@ -108,6 +108,8 @@ void usage() {
         "        write the decoded payload (the inner exFAT/UFS2 image)\n"
         "  ffpfsc-verify <in.ffpfsc> [--original IMAGE]\n"
         "        decode every block, print the payload SHA-256, compare with IMAGE\n"
+        "  game-info <input> [--passcode P]\n"
+        "        title ID, eboot.bin's process parameters and which console the game is for\n"
         "  fpkg-info <pkg> [--passcode P]\n"
         "        show an FPKG's header, CNT entries, digest checks and outer files\n"
         "  fpkg-dump <pkg> <what> <out> [--passcode P]\n"
@@ -725,6 +727,26 @@ int cmd_fpkg_dump(const Args& args) {
     return status.ok() ? 0 : fail(status.error());
 }
 
+// Which console a game is for, and why (ffpfsc::game_platform).
+int cmd_game_info(const Args& args) {
+    if (args.positional.size() != 1) return usage(), 2;
+    auto input = convert::open(args.positional[0], args.get("--passcode").value_or(std::string(32, '0')));
+    if (!input.ok()) return fail(input.error());
+    auto root = ffpfsc::resolve_game_root(input->tree->root());
+    if (!root.ok()) return fail(root.error());
+    const tree::Node& game = **root;
+    std::printf("title id:        %s\n", ffpfsc::read_title_id(*input->tree, game).value_or("-").c_str());
+    std::uint32_t version = 0;
+    if (const tree::Node* eboot = tree::find_child_icase(game, "eboot.bin"); eboot && !eboot->is_directory)
+        if (auto file = input->tree->open(*eboot); file.ok()) version = ffpfsc::executable_process_param_version(**file);
+    std::printf("eboot.bin:       process parameters version %u%s\n", version, version ? "" : " (not readable)");
+    auto has = [&](const char* name) { return tree::find(game, std::string("sce_sys/") + name) != nullptr; };
+    std::printf("metadata:        %s%s\n", has("param.sfo") ? "param.sfo " : "", has("param.json") ? "param.json" : "");
+    ffpfsc::Platform p = ffpfsc::game_platform(*input->tree, game);
+    std::printf("platform:        %s\n", p == ffpfsc::Platform::ps4 ? "PS4" : p == ffpfsc::Platform::ps5 ? "PS5" : "unknown");
+    return 0;
+}
+
 int cmd_ffpfsc_info(const Args& args) {
     if (args.positional.size() != 1) return usage(), 2;
     auto input = File::open(args.positional[0], File::Mode::read);
@@ -902,6 +924,7 @@ int main(int argc, char** argv) {
     if (command == "ffpfsc-extract") return cmd_ffpfsc_extract(parse(argc, argv, {}));
     if (command == "ffpfsc-verify") return cmd_ffpfsc_verify(parse(argc, argv, {}));
     if (command == "fpkg-info") return cmd_fpkg_info(parse(argc, argv, {}));
+    if (command == "game-info") return cmd_game_info(parse(argc, argv, {}));
     if (command == "fpkg-dump") return cmd_fpkg_dump(parse(argc, argv, {}));
     if (command == "pfsc-encode") return cmd_pfsc_encode(parse(argc, argv, {}));
     if (command == "pfsc-decode") return cmd_pfsc_decode(parse(argc, argv, {}));

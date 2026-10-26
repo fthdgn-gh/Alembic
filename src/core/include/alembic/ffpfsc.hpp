@@ -123,8 +123,19 @@ Result<const tree::Node*> resolve_game_root(const tree::Node& search_root, std::
 // The titleId of sce_sys/param.json in `game_root` (upper case), if valid;
 // for a PS4 game, TITLE_ID from sce_sys/param.sfo.
 std::optional<std::string> read_title_id(const tree::Source& source, const tree::Node& game_root);
-// Whether `game_root` is a PS4 game: sce_sys/param.sfo, and no param.json or
-// one without a contentId (what ps4_param_json writes; a PS5 game's has one).
+// Which console a game is for, in this order: its title ID (CUSA: PS4, PPSA:
+// PS5; other prefixes are homebrew or system software and say nothing), the
+// process parameters eboot.bin was built with (version 1: PS4), then its
+// metadata (param.sfo with no param.json, or one without a contentId: PS4;
+// param.json: PS5).
+enum class Platform { unknown, ps4, ps5 };
+Platform game_platform(const tree::Source& source, const tree::Node& game_root);
+// The process-parameter version of an executable (ELF, or SELF with either
+// magic), 0 when it cannot be read. Ported from drakmor/ShadowMountPlus
+// (GPL-3.0) src/sm_pkg.c read_executable_sdk.
+std::uint32_t executable_process_param_version(const RandomAccess& executable);
+// A PS4 game Alembic can handle as one: game_platform says PS4 and it has
+// sce_sys/param.sfo.
 bool is_ps4_game(const tree::Source& source, const tree::Node& game_root);
 // A PS4 game's tree with the sce_sys/param.json it needs to start from an
 // image or folder (sfo::ps4_param_json); null when it already has one or is

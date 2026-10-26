@@ -483,3 +483,78 @@ TEST_CASE(ps4_param_json_for_images) {
     REQUIRE_OK(again);
     CHECK(!*again);
 }
+
+namespace {
+
+// The smallest ELF with process parameters of the given version.
+std::vector<std::uint8_t> elf_with_procparam(std::uint32_t version) {
+    std::vector<std::uint8_t> e(0x118, 0);
+    std::memcpy(e.data(), "\x7F" "ELF", 4);
+    e[4] = 2; // 64-bit
+    e[5] = 1; // little-endian
+    e[6] = 1;
+    put_u16(&e[18], 62); // x86-64
+    put_u64(&e[32], 64); // program headers
+    put_u16(&e[54], 56);
+    put_u16(&e[56], 1);
+    put_u32(&e[64], 0x61000001); // PT_SCE_PROCPARAM
+    put_u64(&e[64 + 8], 0x100);
+    put_u64(&e[64 + 32], 24);
+    put_u64(&e[0x100], 24);
+    put_u32(&e[0x108], 0x4942524F); // "ORBI"
+    put_u32(&e[0x10C], version);
+    return e;
+}
+
+class Buffer final : public RandomAccess {
+public:
+    explicit Buffer(std::vector<std::uint8_t> d) : d_(std::move(d)) {}
+    Result<std::uint64_t> size() const override { return d_.size(); }
+    Status read_at(std::uint64_t offset, MutableBytes out) const override {
+        if (offset + out.size() > d_.size()) return make_error(Errc::invalid_argument, "past the end");
+        std::memcpy(out.data(), d_.data() + offset, out.size());
+        return {};
+    }
+
+private:
+    std::vector<std::uint8_t> d_;
+};
+
+ffpfsc::Platform platform_of(const std::string& game) {
+    auto folder = tree::open_folder(game);
+    return folder.ok() ? ffpfsc::game_platform(**folder, (*folder)->root()) : ffpfsc::Platform::unknown;
+}
+
+} // namespace
+
+TEST_CASE(game_platform_rules) {
+    CHECK_EQ(ffpfsc::executable_process_param_version(Buffer(elf_with_procparam(1))), 1u);
+    CHECK_EQ(ffpfsc::executable_process_param_version(Buffer(elf_with_procparam(5))), 5u);
+    CHECK_EQ(ffpfsc::executable_process_param_version(Buffer(std::vector<std::uint8_t>(0x200, 0))), 0u);
+
+    std::string tmp = test::make_temp_dir();
+    auto game = [&](const std::string& name, const std::string& title_id, std::uint32_t eboot_version, bool json,
+                    bool content_id) {
+        std::string root = tmp + "/" + name;
+        test::make_dir(root);
+        test::make_dir(root + "/sce_sys");
+        test::write_file(root + "/eboot.bin", elf_with_procparam(eboot_version));
+        test::write_file(root + "/sce_sys/param.sfo", make_sfo({{"CATEGORY", "gd"}, {"TITLE_ID", title_id}}));
+        if (json) {
+            std::string text = "{\"titleId\": \"" + title_id + "\"" +
+                               (content_id ? ", \"contentId\": \"UP0000-" + title_id + "_00-0000000000000000\"" : "") + "}";
+            test::write_file(root + "/sce_sys/param.json", std::vector<std::uint8_t>(text.begin(), text.end()));
+        }
+        return root;
+    };
+    // The title ID decides first, whatever the rest says.
+    CHECK(platform_of(game("a", "CUSA00001", 5, true, true)) == ffpfsc::Platform::ps4);
+    CHECK(platform_of(game("b", "PPSA00001", 1, false, false)) == ffpfsc::Platform::ps5);
+    // Homebrew IDs: the executable decides.
+    CHECK(platform_of(game("c", "LAPY00001", 1, true, true)) == ffpfsc::Platform::ps4);
+    CHECK(platform_of(game("d", "LAPY00002", 5, false, false)) == ffpfsc::Platform::ps5);
+    // Neither: the metadata (param.sfo without a contentId'd param.json is PS4).
+    CHECK(platform_of(game("e", "FAKE00001", 0, false, false)) == ffpfsc::Platform::ps4);
+    CHECK(platform_of(game("f", "FAKE00002", 0, true, false)) == ffpfsc::Platform::ps4);
+    CHECK(platform_of(game("g", "FAKE00003", 0, true, true)) == ffpfsc::Platform::ps5);
+}

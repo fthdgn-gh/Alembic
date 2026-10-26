@@ -460,17 +460,99 @@ std::optional<std::string> read_title_id(const tree::Source& source, const tree:
     return std::nullopt;
 }
 
-bool is_ps4_game(const tree::Source& source, const tree::Node& game_root) {
-    if (!sce_sys_file(game_root, "param.sfo")) return false;
+std::uint32_t executable_process_param_version(const RandomAccess& file) {
+    // Only the bounded SELF/ELF headers and the process parameters are read.
+    auto in = [](std::uint64_t offset, std::uint64_t size, std::uint64_t limit) {
+        return offset <= limit && size <= limit - offset;
+    };
+    auto size = file.size();
+    if (!size.ok() || *size < 64) return 0;
+    std::vector<std::uint8_t> header(static_cast<std::size_t>(std::min<std::uint64_t>(*size, 8192)));
+    if (!file.read_at(0, header).ok()) return 0;
+    const std::size_t length = header.size();
+    const std::uint32_t magic = get_u32(header.data());
+    // A SELF: PS5's own magic, or the fake-signed one homebrew and fake packages use.
+    const bool self = magic == 0xEEF51454u || magic == 0x1D3D154Fu;
+    const std::uint16_t segments = self ? get_u16(&header[24]) : 0;
+    const std::uint64_t elf = self ? 32u + std::uint64_t(segments) * 32u : 0;
+    const std::uint64_t limit = self ? get_u64(&header[16]) : *size;
+    if ((self && (!segments || segments > 64 || limit > *size)) || !in(elf, 64, length) || !in(elf, 64, limit)) return 0;
+    const std::uint8_t* eh = header.data() + elf;
+    if (std::memcmp(eh, "\x7F" "ELF", 4) != 0 || eh[4] != 2 || eh[5] != 1 || eh[6] != 1 || get_u16(eh + 18) != 62) return 0;
+    const std::uint64_t phoff = get_u64(eh + 32);
+    const std::uint16_t count = get_u16(eh + 56);
+    if (get_u16(eh + 54) != 56 || !count || count > 64 || phoff < 64 || !in(phoff, std::uint64_t(count) * 56u, length - elf) ||
+        !in(phoff, std::uint64_t(count) * 56u, limit - elf))
+        return 0;
+    const std::uint8_t* ph = eh + phoff;
+    const std::uint8_t* param = nullptr;
+    for (std::uint16_t i = 0; i < count; ++i) {
+        const std::uint8_t* entry = ph + std::size_t(i) * 56u;
+        if (get_u32(entry) != 0x61000001u) continue; // PT_SCE_PROCPARAM
+        if (param) return 0;
+        param = entry;
+    }
+    if (!param) return 0;
+    const std::uint64_t offset = get_u64(param + 8), param_size = get_u64(param + 32);
+    std::uint8_t proc[24];
+    if (param_size < sizeof proc) return 0;
+    if (self) {
+        // The parameters sit in a loadable segment, stored unpacked in a SELF block.
+        bool mapped = false;
+        for (std::uint16_t i = 0; i < count; ++i) {
+            const std::uint8_t* load = ph + std::size_t(i) * 56u;
+            const std::uint64_t start = get_u64(load + 8), bytes = get_u64(load + 32);
+            if (get_u32(load) != 1 || offset < start || !in(offset - start, param_size, bytes)) continue;
+            for (std::uint16_t j = 0; j < segments; ++j) {
+                const std::uint8_t* segment = header.data() + 32u + std::size_t(j) * 32u;
+                const std::uint64_t flags = get_u64(segment), physical = get_u64(segment + 8);
+                const std::uint64_t stored = get_u64(segment + 16), unpacked = get_u64(segment + 24);
+                if ((flags >> 20) != i || !(flags & 0x800u)) continue;
+                if (mapped || (flags & 0xAu) || stored != unpacked ||
+                    physical < elf + phoff + std::uint64_t(count) * 56u || !in(physical, stored, limit) ||
+                    !in(offset - start, param_size, stored))
+                    return 0;
+                if (!file.read_at(physical + offset - start, MutableBytes(proc, sizeof proc)).ok()) return 0;
+                mapped = true;
+            }
+        }
+        if (!mapped) return 0;
+    } else if (!in(offset, param_size, *size) || !file.read_at(offset, MutableBytes(proc, sizeof proc)).ok()) {
+        return 0;
+    }
+    if (get_u32(proc + 8) != 0x4942524Fu /* "ORBI" */ || get_u64(proc) < sizeof proc || get_u64(proc) > param_size) return 0;
+    return get_u32(proc + 12);
+}
+
+Platform game_platform(const tree::Source& source, const tree::Node& game_root) {
+    if (auto id = read_title_id(source, game_root)) {
+        if (id->rfind("CUSA", 0) == 0) return Platform::ps4;
+        if (id->rfind("PPSA", 0) == 0) return Platform::ps5;
+    }
+    // Homebrew and the like: what the executable was built for.
+    if (const tree::Node* eboot = tree::find_child_icase(game_root, "eboot.bin"); eboot && !eboot->is_directory) {
+        if (auto file = source.open(*eboot); file.ok()) {
+            std::uint32_t version = executable_process_param_version(**file);
+            if (version == 1) return Platform::ps4;
+            if (version > 1) return Platform::ps5;
+        }
+    }
     const tree::Node* json = param_json(game_root);
-    if (!json) return true;
-    auto text = read_small(source, *json);
-    if (!text.ok()) return false;
-    auto properties = json::top_level_properties(*text);
-    if (!properties.ok()) return false;
-    for (const json::Property& p : *properties)
-        if (p.name == "contentId") return false;
-    return true;
+    if (sce_sys_file(game_root, "param.sfo")) {
+        if (!json) return Platform::ps4;
+        auto text = read_small(source, *json);
+        if (!text.ok()) return Platform::unknown;
+        auto properties = json::top_level_properties(*text);
+        if (!properties.ok()) return Platform::unknown;
+        for (const json::Property& p : *properties)
+            if (p.name == "contentId") return Platform::ps5;
+        return Platform::ps4;
+    }
+    return json ? Platform::ps5 : Platform::unknown;
+}
+
+bool is_ps4_game(const tree::Source& source, const tree::Node& game_root) {
+    return sce_sys_file(game_root, "param.sfo") && game_platform(source, game_root) == Platform::ps4;
 }
 
 namespace {
