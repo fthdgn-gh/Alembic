@@ -736,10 +736,17 @@ int cmd_game_info(const Args& args) {
     if (!root.ok()) return fail(root.error());
     const tree::Node& game = **root;
     std::printf("title id:        %s\n", ffpfsc::read_title_id(*input->tree, game).value_or("-").c_str());
-    std::uint32_t version = 0;
+    ffpfsc::ProcessParams pp;
     if (const tree::Node* eboot = tree::find_child_icase(game, "eboot.bin"); eboot && !eboot->is_directory)
-        if (auto file = input->tree->open(*eboot); file.ok()) version = ffpfsc::executable_process_param_version(**file);
-    std::printf("eboot.bin:       process parameters version %u%s\n", version, version ? "" : " (not readable)");
+        if (auto file = input->tree->open(*eboot); file.ok()) pp = ffpfsc::executable_process_params(**file);
+    auto sdk = [](std::uint32_t v) {
+        char t[16];
+        std::snprintf(t, sizeof t, "%x.%02x", v >> 24, (v >> 16) & 0xFF);
+        return std::string(t);
+    };
+    if (!pp.version) std::printf("eboot.bin:       process parameters not readable\n");
+    else std::printf("eboot.bin:       PS4 SDK %s, PS5 SDK %s (process parameters version %u)\n", sdk(pp.ps4_sdk).c_str(),
+                     pp.ps5_sdk ? sdk(pp.ps5_sdk).c_str() : "-", pp.version);
     auto has = [&](const char* name) { return tree::find(game, std::string("sce_sys/") + name) != nullptr; };
     std::printf("metadata:        %s%s\n", has("param.sfo") ? "param.sfo " : "", has("param.json") ? "param.json" : "");
     ffpfsc::Platform p = ffpfsc::game_platform(*input->tree, game);

@@ -460,15 +460,15 @@ std::optional<std::string> read_title_id(const tree::Source& source, const tree:
     return std::nullopt;
 }
 
-std::uint32_t executable_process_param_version(const RandomAccess& file) {
+ProcessParams executable_process_params(const RandomAccess& file) {
     // Only the bounded SELF/ELF headers and the process parameters are read.
     auto in = [](std::uint64_t offset, std::uint64_t size, std::uint64_t limit) {
         return offset <= limit && size <= limit - offset;
     };
     auto size = file.size();
-    if (!size.ok() || *size < 64) return 0;
+    if (!size.ok() || *size < 64) return {};
     std::vector<std::uint8_t> header(static_cast<std::size_t>(std::min<std::uint64_t>(*size, 8192)));
-    if (!file.read_at(0, header).ok()) return 0;
+    if (!file.read_at(0, header).ok()) return {};
     const std::size_t length = header.size();
     const std::uint32_t magic = get_u32(header.data());
     // A SELF: PS5's own magic, or the fake-signed one homebrew and fake packages use.
@@ -476,26 +476,26 @@ std::uint32_t executable_process_param_version(const RandomAccess& file) {
     const std::uint16_t segments = self ? get_u16(&header[24]) : 0;
     const std::uint64_t elf = self ? 32u + std::uint64_t(segments) * 32u : 0;
     const std::uint64_t limit = self ? get_u64(&header[16]) : *size;
-    if ((self && (!segments || segments > 64 || limit > *size)) || !in(elf, 64, length) || !in(elf, 64, limit)) return 0;
+    if ((self && (!segments || segments > 64 || limit > *size)) || !in(elf, 64, length) || !in(elf, 64, limit)) return {};
     const std::uint8_t* eh = header.data() + elf;
-    if (std::memcmp(eh, "\x7F" "ELF", 4) != 0 || eh[4] != 2 || eh[5] != 1 || eh[6] != 1 || get_u16(eh + 18) != 62) return 0;
+    if (std::memcmp(eh, "\x7F" "ELF", 4) != 0 || eh[4] != 2 || eh[5] != 1 || eh[6] != 1 || get_u16(eh + 18) != 62) return {};
     const std::uint64_t phoff = get_u64(eh + 32);
     const std::uint16_t count = get_u16(eh + 56);
     if (get_u16(eh + 54) != 56 || !count || count > 64 || phoff < 64 || !in(phoff, std::uint64_t(count) * 56u, length - elf) ||
         !in(phoff, std::uint64_t(count) * 56u, limit - elf))
-        return 0;
+        return {};
     const std::uint8_t* ph = eh + phoff;
     const std::uint8_t* param = nullptr;
     for (std::uint16_t i = 0; i < count; ++i) {
         const std::uint8_t* entry = ph + std::size_t(i) * 56u;
         if (get_u32(entry) != 0x61000001u) continue; // PT_SCE_PROCPARAM
-        if (param) return 0;
+        if (param) return {};
         param = entry;
     }
-    if (!param) return 0;
+    if (!param) return {};
     const std::uint64_t offset = get_u64(param + 8), param_size = get_u64(param + 32);
     std::uint8_t proc[24];
-    if (param_size < sizeof proc) return 0;
+    if (param_size < sizeof proc) return {};
     if (self) {
         // The parameters sit in a loadable segment, stored unpacked in a SELF block.
         bool mapped = false;
@@ -511,17 +511,21 @@ std::uint32_t executable_process_param_version(const RandomAccess& file) {
                 if (mapped || (flags & 0xAu) || stored != unpacked ||
                     physical < elf + phoff + std::uint64_t(count) * 56u || !in(physical, stored, limit) ||
                     !in(offset - start, param_size, stored))
-                    return 0;
-                if (!file.read_at(physical + offset - start, MutableBytes(proc, sizeof proc)).ok()) return 0;
+                    return {};
+                if (!file.read_at(physical + offset - start, MutableBytes(proc, sizeof proc)).ok()) return {};
                 mapped = true;
             }
         }
-        if (!mapped) return 0;
+        if (!mapped) return {};
     } else if (!in(offset, param_size, *size) || !file.read_at(offset, MutableBytes(proc, sizeof proc)).ok()) {
-        return 0;
+        return {};
     }
-    if (get_u32(proc + 8) != 0x4942524Fu /* "ORBI" */ || get_u64(proc) < sizeof proc || get_u64(proc) > param_size) return 0;
-    return get_u32(proc + 12);
+    if (get_u32(proc + 8) != 0x4942524Fu /* "ORBI" */ || get_u64(proc) < sizeof proc || get_u64(proc) > param_size) return {};
+    ProcessParams p;
+    p.version = get_u32(proc + 12);
+    p.ps4_sdk = get_u32(proc + 16);
+    p.ps5_sdk = p.version == 1 ? 0 : get_u32(proc + 20); // version 1 has a 32-bit field
+    return p;
 }
 
 Platform game_platform(const tree::Source& source, const tree::Node& game_root) {
@@ -529,12 +533,11 @@ Platform game_platform(const tree::Source& source, const tree::Node& game_root) 
         if (id->rfind("CUSA", 0) == 0) return Platform::ps4;
         if (id->rfind("PPSA", 0) == 0) return Platform::ps5;
     }
-    // Homebrew and the like: what the executable was built for.
+    // Homebrew and the like: the SDK the executable was built with.
     if (const tree::Node* eboot = tree::find_child_icase(game_root, "eboot.bin"); eboot && !eboot->is_directory) {
         if (auto file = source.open(*eboot); file.ok()) {
-            std::uint32_t version = executable_process_param_version(**file);
-            if (version == 1) return Platform::ps4;
-            if (version > 1) return Platform::ps5;
+            Platform p = executable_process_params(**file).platform();
+            if (p != Platform::unknown) return p;
         }
     }
     const tree::Node* json = param_json(game_root);

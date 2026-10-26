@@ -43,7 +43,8 @@ The package a game becomes matches the game: a PS5 game (`sce_sys/param.json`)
 a PS5 debug FPKG, a PS4 game (`sce_sys/param.sfo`) a PS4 fake PKG. The page
 and the app mark each game with a **PS5** (white) or **PS4** (black) pill.
 
-- **PS4 games** (from 0.3.2): fake PKGs with the usual all-zero passcode open
+- **PS4 games** (from 0.3.2): fake PKGs with the usual all-zero passcode
+  (from older and newer packaging tools alike) open
   like PS5 packages, as the game's files plus `sce_sys` (`param.sfo`, icons,
   trophies, licence) from the package, and convert to any image. Images and
   folders of a PS4 game get the `sce_sys/param.json` ShadowMount+ needs to

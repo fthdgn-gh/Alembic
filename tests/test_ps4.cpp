@@ -105,7 +105,8 @@ std::size_t put_dirent(std::uint8_t* p, std::uint32_t ino, std::uint32_t type, c
 }
 
 // Builds a PS4 package holding `game` (a folder) at `path`. Returns its eboot.bin.
-std::vector<std::uint8_t> make_package(const std::string& tmp, const std::string& path) {
+// `new_crypt`: the PFS keys come from HMAC(EKPFS, seed), flagged in CNT 0x408.
+std::vector<std::uint8_t> make_package(const std::string& tmp, const std::string& path, bool new_crypt = false) {
     std::string game = tmp + "/game";
     test::make_dir(game);
     test::make_dir(game + "/sce_sys");
@@ -156,6 +157,7 @@ std::vector<std::uint8_t> make_package(const std::string& tmp, const std::string
     std::memcpy(pfs.data() + 4 * kBlock, image.data(), image.size());
 
     crypto::Digest ekpfs = fpkg::compute_keys_ps4(kContentId, kPasscode, 1);
+    if (new_crypt) ekpfs = crypto::hmac_sha256(Bytes(ekpfs.data(), 32), Bytes(sb + 0x370, 16));
     std::uint8_t message[20] = {1, 0, 0, 0};
     std::memcpy(message + 4, sb + 0x370, 16);
     crypto::Digest keys = crypto::hmac_sha256(Bytes(ekpfs.data(), 32), Bytes(message, 20));
@@ -177,6 +179,7 @@ std::vector<std::uint8_t> make_package(const std::string& tmp, const std::string
     put_be32(&pkg[0x18], 0x800);
     std::memcpy(&pkg[0x40], kContentId.data(), kContentId.size());
     put_be32(&pkg[0x400], 1);
+    put_be64(&pkg[0x408], new_crypt ? 0xA0000000000003CCull : 0x80000000000003CCull);
     put_be64(&pkg[0x410], kBlock);
     put_be64(&pkg[0x418], pfs.size());
     put_be32(&pkg[0x438], kBlock);
@@ -486,8 +489,9 @@ TEST_CASE(ps4_param_json_for_images) {
 
 namespace {
 
-// The smallest ELF with process parameters of the given version.
-std::vector<std::uint8_t> elf_with_procparam(std::uint32_t version) {
+// The smallest ELF with process parameters: version 1 holds a PS4 SDK only;
+// later versions a 64-bit field, the PS5 SDK in its high half (0 on PS4).
+std::vector<std::uint8_t> elf_with_procparam(std::uint32_t version, std::uint32_t ps5_sdk = 0) {
     std::vector<std::uint8_t> e(0x118, 0);
     std::memcpy(e.data(), "\x7F" "ELF", 4);
     e[4] = 2; // 64-bit
@@ -503,6 +507,8 @@ std::vector<std::uint8_t> elf_with_procparam(std::uint32_t version) {
     put_u64(&e[0x100], 24);
     put_u32(&e[0x108], 0x4942524F); // "ORBI"
     put_u32(&e[0x10C], version);
+    put_u32(&e[0x110], 0x11008001); // a PS4 SDK (11.00)
+    if (version > 1) put_u32(&e[0x114], ps5_sdk);
     return e;
 }
 
@@ -528,17 +534,25 @@ ffpfsc::Platform platform_of(const std::string& game) {
 } // namespace
 
 TEST_CASE(game_platform_rules) {
-    CHECK_EQ(ffpfsc::executable_process_param_version(Buffer(elf_with_procparam(1))), 1u);
-    CHECK_EQ(ffpfsc::executable_process_param_version(Buffer(elf_with_procparam(5))), 5u);
-    CHECK_EQ(ffpfsc::executable_process_param_version(Buffer(std::vector<std::uint8_t>(0x200, 0))), 0u);
+    // As seen in real executables: an old PS4 one (version 1), a new PS4 one
+    // (version 5, no PS5 SDK) and a PS5 one (version 5, PS5 SDK 4.00).
+    CHECK(ffpfsc::executable_process_params(Buffer(elf_with_procparam(1))).platform() == ffpfsc::Platform::ps4);
+    CHECK(ffpfsc::executable_process_params(Buffer(elf_with_procparam(5))).platform() == ffpfsc::Platform::ps4);
+    auto ps5 = ffpfsc::executable_process_params(Buffer(elf_with_procparam(5, 0x04000031)));
+    CHECK(ps5.platform() == ffpfsc::Platform::ps5);
+    CHECK_EQ(ps5.ps5_sdk, 0x04000031u);
+    CHECK(ffpfsc::executable_process_params(Buffer(std::vector<std::uint8_t>(0x200, 0))).platform() ==
+          ffpfsc::Platform::unknown);
 
     std::string tmp = test::make_temp_dir();
-    auto game = [&](const std::string& name, const std::string& title_id, std::uint32_t eboot_version, bool json,
-                    bool content_id) {
+    // eboot: 4 = a PS4 executable, 5 = a PS5 one, 0 = none readable.
+    auto game = [&](const std::string& name, const std::string& title_id, int eboot, bool json, bool content_id) {
         std::string root = tmp + "/" + name;
         test::make_dir(root);
         test::make_dir(root + "/sce_sys");
-        test::write_file(root + "/eboot.bin", elf_with_procparam(eboot_version));
+        test::write_file(root + "/eboot.bin", eboot == 5   ? elf_with_procparam(5, 0x04000031)
+                                              : eboot == 4 ? elf_with_procparam(5)
+                                                           : std::vector<std::uint8_t>(64, 0));
         test::write_file(root + "/sce_sys/param.sfo", make_sfo({{"CATEGORY", "gd"}, {"TITLE_ID", title_id}}));
         if (json) {
             std::string text = "{\"titleId\": \"" + title_id + "\"" +
@@ -549,12 +563,33 @@ TEST_CASE(game_platform_rules) {
     };
     // The title ID decides first, whatever the rest says.
     CHECK(platform_of(game("a", "CUSA00001", 5, true, true)) == ffpfsc::Platform::ps4);
-    CHECK(platform_of(game("b", "PPSA00001", 1, false, false)) == ffpfsc::Platform::ps5);
+    CHECK(platform_of(game("b", "PPSA00001", 4, false, false)) == ffpfsc::Platform::ps5);
     // Homebrew IDs: the executable decides.
-    CHECK(platform_of(game("c", "LAPY00001", 1, true, true)) == ffpfsc::Platform::ps4);
+    CHECK(platform_of(game("c", "LAPY00001", 4, true, true)) == ffpfsc::Platform::ps4);
     CHECK(platform_of(game("d", "LAPY00002", 5, false, false)) == ffpfsc::Platform::ps5);
     // Neither: the metadata (param.sfo without a contentId'd param.json is PS4).
     CHECK(platform_of(game("e", "FAKE00001", 0, false, false)) == ffpfsc::Platform::ps4);
     CHECK(platform_of(game("f", "FAKE00002", 0, true, false)) == ffpfsc::Platform::ps4);
     CHECK(platform_of(game("g", "FAKE00003", 0, true, true)) == ffpfsc::Platform::ps5);
 }
+
+TEST_CASE(ps4_package_new_crypt_reads) {
+    // Packages from newer tools key their PFS with HMAC(EKPFS, seed).
+    std::string tmp = test::make_temp_dir();
+    std::vector<std::uint8_t> eboot = make_package(tmp, tmp + "/new.pkg", true);
+    CHECK(!eboot.empty());
+    auto opened = File::open(tmp + "/new.pkg", File::Mode::read);
+    REQUIRE_OK(opened);
+    std::shared_ptr<const RandomAccess> file = std::make_shared<File>(std::move(*opened));
+    auto package = fpkg::read_package(*file);
+    REQUIRE_OK(package);
+    CHECK(package->ps4_new_crypt());
+    auto outer = fpkg::OuterPfs::open(file, *package);
+    REQUIRE_OK(outer);
+    CHECK((*outer)->superblock_icv_ok());
+    auto input = convert::open(tmp + "/new.pkg");
+    REQUIRE_OK(input);
+    const tree::Node* e = tree::find(input->tree->root(), "eboot.bin");
+    CHECK(e && read_all(*input->tree, *e) == eboot);
+}
+

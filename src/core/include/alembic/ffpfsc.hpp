@@ -125,15 +125,24 @@ Result<const tree::Node*> resolve_game_root(const tree::Node& search_root, std::
 std::optional<std::string> read_title_id(const tree::Source& source, const tree::Node& game_root);
 // Which console a game is for, in this order: its title ID (CUSA: PS4, PPSA:
 // PS5; other prefixes are homebrew or system software and say nothing), the
-// process parameters eboot.bin was built with (version 1: PS4), then its
-// metadata (param.sfo with no param.json, or one without a contentId: PS4;
-// param.json: PS5).
+// SDK eboot.bin was built with, then its metadata (param.sfo with no
+// param.json, or one without a contentId: PS4; param.json: PS5).
 enum class Platform { unknown, ps4, ps5 };
 Platform game_platform(const tree::Source& source, const tree::Node& game_root);
-// The process-parameter version of an executable (ELF, or SELF with either
-// magic), 0 when it cannot be read. Ported from drakmor/ShadowMountPlus
+// An executable's process parameters (PT_SCE_PROCPARAM, "ORBI"), read from an
+// ELF or a SELF with either magic. Their 64-bit SDK field holds the PS4 SDK in
+// its low half; PS5 executables put their SDK in the high half (PS4 ones leave
+// it 0, whatever the parameters' version). Ported from drakmor/ShadowMountPlus
 // (GPL-3.0) src/sm_pkg.c read_executable_sdk.
-std::uint32_t executable_process_param_version(const RandomAccess& executable);
+struct ProcessParams {
+    std::uint32_t version = 0; // 0: not readable
+    std::uint32_t ps4_sdk = 0; // e.g. 0x11008001 for 11.00
+    std::uint32_t ps5_sdk = 0; // e.g. 0x04000031 for 4.00; 0 on PS4
+    Platform platform() const {
+        return !version ? Platform::unknown : ps5_sdk ? Platform::ps5 : ps4_sdk ? Platform::ps4 : Platform::unknown;
+    }
+};
+ProcessParams executable_process_params(const RandomAccess& executable);
 // A PS4 game Alembic can handle as one: game_platform says PS4 and it has
 // sce_sys/param.sfo.
 bool is_ps4_game(const tree::Source& source, const tree::Node& game_root);

@@ -609,8 +609,13 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
     }
     entries[kNames].data = names;
 
-    // Offsets and sizes (BuildPkg's second pass).
-    {
+    // Offsets and sizes (BuildPkg's second pass). LibOrbisPkg reserves the
+    // PlayGo chunk digests' room from an estimate made before the entries are
+    // laid out, and gives up when the package outgrows it (large sce_sys
+    // files can push the body past another 512 KiB). There, and only there,
+    // Alembic reserves what is needed and lays the entries out again.
+    std::uint64_t chunk_room = 0; // 0: LibOrbisPkg's estimate
+    for (;;) {
         std::uint64_t offset = kBodyOffset;
         for (std::size_t i = 0; i < count; ++i) {
             Entry& e = entries[i];
@@ -638,7 +643,7 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
                 }
                 std::uint64_t estimate = align(kBodyOffset + sum, 0x80000) + pfs_size;
                 estimate += ((estimate + 16) / 0x10000) * 4;
-                e.size = static_cast<std::uint32_t>((estimate / 0x10000) * 4);
+                e.size = static_cast<std::uint32_t>(chunk_room ? chunk_room : (estimate / 0x10000) * 4);
             } else {
                 e.size = static_cast<std::uint32_t>(e.data.size());
             }
@@ -652,12 +657,16 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
         header.pfs_size = pfs_size;
         header.package_size = header.mount_image_size = header.body_size + kBodyOffset + pfs_size;
         std::uint64_t chunk_sha = 4 * (header.package_size / 0x10000);
-        if (chunk_sha > entries[kChunkSha].size)
-            return make_error(Errc::invalid_data, "playgo-chunk.sha did not get enough room (a bug in the layout)");
+        if (chunk_sha > entries[kChunkSha].size) {
+            if (chunk_room >= chunk_sha) return make_error(Errc::invalid_data, "the PlayGo chunk digests do not fit");
+            chunk_room = chunk_sha;
+            continue;
+        }
         entries[kChunkSha].size = static_cast<std::uint32_t>(chunk_sha);
         entries[kChunkSha].data.assign(static_cast<std::size_t>(chunk_sha), 0);
         entries[kChunkDat].data = chunk_dat(content_id, header.package_size, inner_size);
         header.promote_size = static_cast<std::uint32_t>(header.body_size + kBodyOffset);
+        break;
     }
     result.package_length = header.package_size;
 

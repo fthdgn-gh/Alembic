@@ -188,6 +188,7 @@ Result<Package> read_package(const RandomAccess& file) {
             ALEMBIC_TRY(file.read_at(pfs_offset, MutableBytes(sb, sizeof sb)));
             if (get_u64(sb + 8) == kPfsMagic) {
                 p.kind = Kind::ps4_package;
+                p.pfs_flags = be64(h + 0x08);
                 p.pfs_offset = pfs_offset;
                 p.pfs_size = pfs_size;
                 p.superblock_hint = 0;
@@ -416,8 +417,11 @@ Result<std::shared_ptr<OuterPfs>> OuterPfs::open(std::shared_ptr<const RandomAcc
     if (pfs->ps4_) {
         if (get_u16(sb + 0x1C) & kPfsMode64BitInodes)
             return make_error(Errc::unsupported, "PS4 packages with 64-bit PFS inodes are not supported yet");
-        // EKPFS from the passcode; tweak/data keys = HMAC-SHA256(EKPFS, LE32(1) || seed).
+        // EKPFS from the passcode; tweak/data keys = HMAC-SHA256(base, LE32(1) || seed),
+        // where base is the EKPFS, or HMAC-SHA256(EKPFS, seed) in newer packages.
         crypto::Digest ekpfs = compute_keys_ps4(package.content_id, passcode, 1);
+        if (package.ps4_new_crypt())
+            ekpfs = crypto::hmac_sha256(Bytes(ekpfs.data(), 32), Bytes(sb + kSeedOffset, 16));
         std::uint8_t message[20] = {1, 0, 0, 0};
         std::memcpy(message + 4, sb + kSeedOffset, 16);
         crypto::Digest keys = crypto::hmac_sha256(Bytes(ekpfs.data(), 32), Bytes(message, sizeof message));

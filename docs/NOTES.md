@@ -2308,12 +2308,32 @@ shadPS4 decrypts with the wrong key). Ours plus only their param.json
 - **PS4 or PS5, decided like ShadowMount+** (`ffpfsc::game_platform`): the
   title ID first (`CUSA` PS4, `PPSA` PS5; other prefixes are homebrew or
   system software, `NPXS`), then eboot.bin's process parameters
-  (`PT_SCE_PROCPARAM`, "ORBI": version 1 on PS4; package P's is 1, every
-  PS5 sample's and Alembic's own app's is 5), then the metadata (param.sfo
-  with no param.json, or one without contentId). ShadowMount+'s reader only
-  takes the `EEF51454` SELF magic; Alembic also takes the fake-signed
-  `1D3D154F` one (package P's and homebrew's). `alembic game-info <input>`
-  shows the three.
+  (`PT_SCE_PROCPARAM`, "ORBI"), then the metadata (param.sfo with no
+  param.json, or one without contentId). In the process parameters the
+  64-bit SDK field at +16 holds the PS4 SDK in its low half; **PS5
+  executables put their SDK in the high half, PS4 ones leave it 0** (package
+  P: version 1, SDK 1.75; package Q: version 5, PS4 SDK 11.00, high half 0;
+  every PS5 sample: version 5, PS5 SDK 4.00; Alembic's app 2.00). The version
+  alone does not tell (Q is version 5). ShadowMount+'s reader only takes the
+  `EEF51454` SELF magic; Alembic also takes the fake-signed `1D3D154F` one.
+  `alembic game-info <input>` shows all of it.
+
+### 2026-10-26: a second PS4 package (Q, ~270 MB, newer tools)
+
+- Its PFS did not decrypt although the all-zero passcode was right (entry
+  keys digest 0 matches): CNT 0x408 has bit `0x2000000000000000` set, and
+  then the PFS keys (encryption **and** signing) come from
+  HMAC-SHA256(EKPFS, seed) instead of the EKPFS (LibOrbisPkg PfsReader's
+  "newCrypt"; PS5 always does this). `Package::ps4_new_crypt()`; the ICV
+  verifies. Alembic's own packages keep LibOrbisPkg's 0x80...03CC.
+- Rebuilding Q: LibOrbisPkg reserves playgo-chunk.sha's room from an
+  estimate made before the layout and throws when the package outgrows it
+  (Q's large pictures and snd0.at9 push the body past another 512 KiB).
+  Alembic keeps the estimate when it fits (P's bytes unchanged) and
+  otherwise reserves what is needed and lays out again. Q's rebuilt package
+  verifies; Q -> FFPFSC -> package equals Q -> package.
+- Q's own sce_sys also has `nptitle.dat.encrypted`/`npbind.dat.encrypted`
+  (from its packager, inside the image); kept as game files.
 
 ### 2026-10-26: PS4 packages byte-identical to LibOrbisPkg
 

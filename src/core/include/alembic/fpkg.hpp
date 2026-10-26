@@ -75,7 +75,11 @@ struct Package {
     std::vector<CntEntry> entries;
     std::vector<Segment> segments;
     std::vector<std::string> warnings; // structural issues that do not stop reading
+    std::uint64_t pfs_flags = 0;      // PS4: CNT 0x408
     bool ps4() const { return kind == Kind::ps4_package; }
+    // PS4: the PFS keys come from HMAC-SHA256(EKPFS, seed) rather than the
+    // EKPFS itself (LibOrbisPkg's "newCrypt"; packages made by newer tools).
+    bool ps4_new_crypt() const { return (pfs_flags & 0x2000000000000000ull) != 0; }
 };
 
 Result<Package> read_package(const RandomAccess& file);
