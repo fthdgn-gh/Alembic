@@ -34,9 +34,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+      # The runner image usually has it: refresh the package lists only when not.
       - name: Install zlib (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+        run: dpkg -s zlib1g-dev >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y zlib1g-dev)
+      # Compiled objects are kept between runs (ccache, pinned to v1.2.24's commit).
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d
+        with:
+          key: pc-${{ matrix.os }}
+          max-size: 500M
       # The engine's web page is built with Node (src/engine/web/build.mjs).
       - uses: actions/setup-node@v7
         with:
@@ -44,7 +50,7 @@ jobs:
           cache: npm
           cache-dependency-path: src/engine/web/package-lock.json
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       - name: Build
         run: cmake --build build -j 4
       # The page's TypeScript (the build itself only strips the types).
@@ -87,6 +93,11 @@ jobs:
           echo "$LLVM_MINGW_SHA256  $RUNNER_TEMP/llvm-mingw.tar.xz" | sha256sum -c -
           tar -xf "$RUNNER_TEMP/llvm-mingw.tar.xz" -C "$RUNNER_TEMP"
           echo "LLVM_MINGW=$RUNNER_TEMP/llvm-mingw-20261006-ucrt-ubuntu-22.04-x86_64" >> "$GITHUB_ENV"
+      # Compiled objects are kept between runs (ccache, pinned to v1.2.24's commit).
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d
+        with:
+          key: windows
+          max-size: 500M
       # The engine's web page is built with Node (src/engine/web/build.mjs).
       - uses: actions/setup-node@v7
         with:
@@ -94,7 +105,7 @@ jobs:
           cache: npm
           cache-dependency-path: src/engine/web/package-lock.json
       - name: Configure
-        run: cmake -S . -B build-win -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake
+        run: cmake -S . -B build-win -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       - name: Build
         run: cmake --build build-win -j 4
       - name: Collect
@@ -139,8 +150,16 @@ jobs:
       SDK_SHA256: 4d06eab777bb135705b5a6816688c9132efb246093fe606ac488ab6cf65ca5b0
     steps:
       - uses: actions/checkout@v7
+      # The runner image has LLVM 18: refresh the package lists only when it does not.
       - name: Install LLVM 18
-        run: sudo apt-get update && sudo apt-get install -y clang-18 lld-18 llvm-18
+        run: |
+          missing=$(for p in clang-18 lld-18 llvm-18; do dpkg -s $p >/dev/null 2>&1 || echo $p; done)
+          [ -z "$missing" ] || (sudo apt-get update && sudo apt-get install -y $missing)
+      # Compiled objects are kept between runs (ccache, pinned to v1.2.24's commit).
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d
+        with:
+          key: ps5
+          max-size: 500M
       # The engine's web page is built with Node (src/engine/web/build.mjs).
       - uses: actions/setup-node@v7
         with:
@@ -152,10 +171,13 @@ jobs:
           curl -fsSL -o "$RUNNER_TEMP/sdk.zip" "$SDK_URL"
           echo "$SDK_SHA256  $RUNNER_TEMP/sdk.zip" | sha256sum -c -
           unzip -q "$RUNNER_TEMP/sdk.zip" -d "$RUNNER_TEMP"
+      # Only the payload: the PS5 build's tests and command-line tool are not shipped.
       - name: Build the payload
         env:
           LLVM_CONFIG: llvm-config-18
-        run: PS5_PAYLOAD_SDK="$RUNNER_TEMP/ps5-payload-sdk" tools/ps5/build.sh
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+        run: PS5_PAYLOAD_SDK="$RUNNER_TEMP/ps5-payload-sdk" tools/ps5/build.sh --target alembic_engine
       # The version in file names: the tag (v0.1.0), else branch-commit (main-a2fab12).
       - name: Version
         run: |
@@ -183,8 +205,26 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      # The runner image has LLVM 18; ninja usually installs from its package lists.
       - name: Install LLVM 18 and ninja
-        run: sudo apt-get update && sudo apt-get install -y clang-18 lld-18 llvm-18 libclang-rt-18-dev ninja-build
+        run: |
+          missing=$(for p in clang-18 lld-18 llvm-18 libclang-rt-18-dev ninja-build; do dpkg -s $p >/dev/null 2>&1 || echo $p; done)
+          [ -z "$missing" ] || sudo apt-get install -y $missing || (sudo apt-get update && sudo apt-get install -y $missing)
+      # Compiled objects are kept between runs (ccache, pinned to v1.2.24's commit).
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d
+        with:
+          key: app
+          max-size: 500M
+      # The kit's pinned downloads and the tools it builds from them (the OpenGL
+      # SDK, zlib, libc, host tools): the same until the kit's scripts change.
+      - uses: actions/cache@v6
+        with:
+          path: |
+            build-app/hui/.deps
+            build-app/hui/runtime
+            build-app/hui/build/host
+            build-app/deps
+          key: app-deps-${{ hashFiles('third_party/ps5-homebrew-ui/tools/**', 'third_party/ps5-homebrew-ui/tooling/**', 'app/build.sh') }}
       - name: Version
         run: |
           version="${GITHUB_REF_NAME//\//-}"
@@ -201,7 +241,7 @@ jobs:
       - name: Build the app
         run: |
           tar -xzf cli/alembic-linux-x64.tar.gz -C cli
-          ALEMBIC_CLI="$PWD/cli/alembic" ALEMBIC_ENGINE_ELF="$PWD/payload/alembic-$VERSION.elf" app/build.sh
+          USE_CCACHE=1 ALEMBIC_CLI="$PWD/cli/alembic" ALEMBIC_ENGINE_ELF="$PWD/payload/alembic-$VERSION.elf" app/build.sh
       - name: Name them alembic-app-<version>.ffpkg and .zip
         run: |
           mkdir -p dist
