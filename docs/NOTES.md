@@ -2601,6 +2601,11 @@ What it took:
   (filling them) 342 s; the next, warm, 139 s: payload job 141 -> 28 s,
   app 126 -> 58 s, Linux PC 77 -> 46 s. Outputs are the same with and
   without the cache (payload and eboot.bin compared on the Mac).
+- **ProsperoStore (0.3.3):** darkxex/ps5-homebrew-catalog#956 from the
+  fthdgn-gh fork, branch update-alembic-0.3.3: `tools/catalog_record.py
+  v0.3.3` with the description now naming SMB, NFS, WebDAV and FTP servers
+  (168 of 200 characters); payload SHA-256 `b27478ae…` (the same file as
+  the release's .elf).
 - **0.3.3's first tag failed** in the app job: `app/sce_sys/param.json`
   still had 0.3.2's contentVersion. No release was made; the tag was moved
   to the fixed commit (owner agreed) and the release steps now name the
