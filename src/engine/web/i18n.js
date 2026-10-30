@@ -3413,6 +3413,7 @@ var I18N = {
   "queued": "待機中",
   "recompressed the {kind} image unchanged": "{kind} イメージをそのまま再圧縮しました",
   "registered": "登録済み",
+  "registered earlier": "登録済み（以前に登録）",
   "registered; check Media ({note})": "登録済み。メディアを確認してください（{note}）",
   "registering…": "登録中…",
   "remove failed: {error}": "削除に失敗しました: {error}",

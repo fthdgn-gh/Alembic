@@ -44,7 +44,7 @@ ENGINE = [
     "Stands in for the console's APR file reader (fakelib/libSceAmpr.sprx), so games that use it start from an image or folder; also reads LZ4 packs. Added to such games when converting, or to an existing game.",
     "The public RSA-3072 moduli a debug FPKG is built with (passcode key wraps, image key wrap, metadata header). Needed for PKG output.",
     # shortcut status (main.cpp), the simple ones
-    "not tried", "registering…", "registered", "removed", "turned off in Settings", "not available",
+    "not tried", "registering…", "registered", "registered earlier", "removed", "turned off in Settings", "not available",
     # place names (platform_ps5.cpp)
     "Internal storage", "Internal", "USB {n}", "Extended {n}",
 ]
