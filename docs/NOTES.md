@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (2026-10-30, release 0.3.3)
+## Where we are (2026-10-30, release 0.3.3, published)
 
 ### What works
 
@@ -2585,6 +2585,26 @@ What it took:
   kernel or NAS NFS server (with a portmapper and "secure" exports), NFS
   from the console (can the payload bind ports below 1024?), a Windows
   share list.
+
+### 2026-10-30: faster CI
+
+- **Owner:** builds got slower as artifacts were added. The longest path
+  was the PS5 payload (131 s of compiling, tests and CLI included) -> the
+  app (99 s, all of the UI kit compiled again) -> the bundle: ~5 min.
+- **Changes (`.github/workflows/build.yml`):** ccache in every compiling
+  job (hendrikmuhs/ccache-action pinned to v1.2.24's commit; CMake
+  launchers, the kit's `USE_CCACHE=1`); the PS5 job builds only
+  `alembic_engine`; apt only for packages the runner image lacks (it has
+  LLVM 18 and zlib; the app needs ninja); the app kit's downloads and host
+  tools cached on the kit's scripts. Tags restore main's caches.
+- **Measured:** v0.3.3 (old workflow) 309 s; the first run with caches
+  (filling them) 342 s; the next, warm, 139 s: payload job 141 -> 28 s,
+  app 126 -> 58 s, Linux PC 77 -> 46 s. Outputs are the same with and
+  without the cache (payload and eboot.bin compared on the Mac).
+- **0.3.3's first tag failed** in the app job: `app/sce_sys/param.json`
+  still had 0.3.2's contentVersion. No release was made; the tag was moved
+  to the fixed commit (owner agreed) and the release steps now name the
+  file.
 
 ## Making a release
 
