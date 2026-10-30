@@ -1,5 +1,5 @@
 // A stand-in engine for README screenshots: serves the built page and answers
-// its API with made-up games, a paired PC engine, an FTP server and jobs.
+// its API with made-up games, a paired PC engine, a NAS share and jobs.
 // MOCK_FROZEN=1 keeps the jobs still and MOCK_PAGE=FILE serves another build
 // (for comparing two builds of the page screenshot by screenshot).
 import http from "node:http";
@@ -54,19 +54,19 @@ const DIRS = {
     g(PCROOT, "Mossback.ffpfsc", "ffpfsc", 8.2 * GB),
     g(PCROOT, "Tidewalker.exfat", "exfat", 63.2 * GB),
   ],
-  "/ftp/nas": [g("/ftp/nas", "Neon Harbor.pkg", "fpkg", 33.1 * GB), g("/ftp/nas", "Starlight Drift.exfat", "exfat", 19.0 * GB)],
+  "/smb/nas": [g("/smb/nas", "Neon Harbor.pkg", "fpkg", 33.1 * GB), g("/smb/nas", "Starlight Drift.exfat", "exfat", 19.0 * GB)],
 };
 DIRS["/peer/" + PC + "/D:"] = [{ name: "Games", path: PCROOT, kind: "folder", mtime: mt }];
 
 const SPACE = [{ root: "/data", total: 825 * GB, free: 312 * GB }, { root: "/mnt/usb0", total: 2000 * GB, free: 1460 * GB }];
 const PEER_DRIVES = [{ id: PC, engine: "Living room PC", platform: "host", root: PCROOT, label: "Games", free: 873 * GB, total: 2000 * GB }];
-const FTP = [{ id: "nas", name: "NAS", host: "192.168.1.20", port: 21, user: "games", path: "/ftp/nas" }];
+const SERVERS = [{ id: "nas", protocol: "smb", name: "NAS", host: "192.168.1.20", port: 445, user: "games", root: "Games", path: "/smb/nas" }];
 const LOCATIONS = [
   { label: "Internal · homebrew (ShadowMount+)", path: "/data/homebrew", exists: true },
   { label: "Internal storage", path: "/data", exists: true },
   { label: "USB 0 · homebrew", path: "/mnt/usb0/homebrew", exists: true },
   { label: "USB 0", path: "/mnt/usb0", exists: true },
-  { label: "FTP: NAS", path: "/ftp/nas", exists: true, ftp: true },
+  { label: "SMB: NAS", path: "/smb/nas", exists: true, ftp: true, server: "smb" },
   { label: "Living room PC · Games", path: PCROOT, exists: true, peer: PC, engine: "Living room PC", place: "Games" },
   { label: "Living room PC · Finished", path: "/peer/" + PC + "/E:/Finished", exists: true, peer: PC, engine: "Living room PC", place: "Finished", custom: true },
 ];
@@ -98,11 +98,11 @@ const running = (id, s, stage, total, startPct, rate, elapsed0) => () => {
 let LOCAL = [
   () => ({ id: 3, spec: spec({ input: "/data/homebrew/Paper Kingdoms", output: "/data/homebrew/Paper Kingdoms.ffpfsc", to: "ffpfsc" }), state: "done", stage: "Done", done: 1, total: 1, created: mt, started: mt, finished: mt + 3600, error: "", elapsed: 41,
     result: { from: "folder", to: "FFPFSC", output: "/data/homebrew/Paper Kingdoms.ffpfsc", method: "built a new exFAT image from the folder and compressed it", output_bytes: 1.3 * GB } }),
-  () => ({ id: 4, spec: spec({ input: "/ftp/nas/Neon Harbor.pkg", output: "/data/homebrew/Neon Harbor.ffpkg", to: "ffpkg" }), state: "done", stage: "Done", done: 1, total: 1, created: mt, started: mt, finished: mt + 7200, error: "", elapsed: 1514,
+  () => ({ id: 4, spec: spec({ input: "/smb/nas/Neon Harbor.pkg", output: "/data/homebrew/Neon Harbor.ffpkg", to: "ffpkg" }), state: "done", stage: "Done", done: 1, total: 1, created: mt, started: mt, finished: mt + 7200, error: "", elapsed: 1514,
     result: { from: "FPKG", to: "FFPKG", output: "/data/homebrew/Neon Harbor.ffpkg", method: "built a new UFS2 image from the file tree", output_bytes: 27.9 * GB, ampr_emulator: "/data/homebrew/Neon Harbor.ffpkg" } }),
   running(5, spec({ input: PCROOT + "/Glass Meridian.pkg", output: "/data/homebrew/Glass Meridian.ffpfsc", to: "ffpfsc" }), "Compressing PFSC", 54.0 * GB, 0.463, 160e6, 1121),
   () => ({ id: 6, spec: spec({ input: "/data/homebrew/Tidewalker.exfat", output: "/mnt/usb0/homebrew/Tidewalker.ffpfsc", to: "ffpfsc", level: 9 }), state: "paused", stage: "Paused", done: 0, total: 0, created: mt, started: 0, finished: 0, error: "", result: null, keeps_progress: true, checkpoint: { done: 24.1 * GB, total: 63.2 * GB } }),
-  () => ({ id: 7, spec: spec({ input: "/data/homebrew/Echoes of Arden.exfat", output: "/ftp/nas/Echoes of Arden.exfat", kind: "copy" }), state: "queued", stage: "", done: 0, total: 0, created: mt, started: 0, finished: 0, error: "", result: null }),
+  () => ({ id: 7, spec: spec({ input: "/data/homebrew/Echoes of Arden.exfat", output: "/smb/nas/Echoes of Arden.exfat", kind: "copy" }), state: "queued", stage: "", done: 0, total: 0, created: mt, started: 0, finished: 0, error: "", result: null }),
 ];
 // The PC's own jobs, with paths as it sees them.
 let REMOTE = [
@@ -131,7 +131,7 @@ function browse(p) {
   if (p === "/" || !p) {
     return { path: "/", parent: null, entries: [
       ...SPACE.map((s) => ({ name: s.root, path: s.root, kind: "folder" })),
-      ...FTP.map((s) => ({ name: "FTP: " + s.name, path: s.path, kind: "folder", ftp: true })),
+      ...SERVERS.map((s) => ({ name: "SMB: " + s.name, path: s.path, kind: "folder", ftp: true, server: s.protocol })),
       ...PEER_DRIVES.map((d) => ({ name: d.engine + " · " + d.label, path: d.root, kind: "folder", peer: d.id })),
     ] };
   }
@@ -159,7 +159,7 @@ http.createServer((req, res) => {
     if (p === "/api/info") return send(res, 200, INFO);
     if (p === "/api/fs/space") return send(res, 200, SPACE);
     if (p === "/api/locations") return send(res, 200, LOCATIONS);
-    if (p === "/api/ftp") return send(res, 200, FTP);
+    if (p === "/api/servers" || p === "/api/ftp") return send(res, 200, SERVERS);
     if (p === "/api/peer-drives") return send(res, 200, PEER_DRIVES);
     if (p === "/api/peers") return send(res, 200, PEERS);
     if (p === "/api/deps") return send(res, 200, DEPS);

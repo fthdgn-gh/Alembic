@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Settings (pages/settings/*): the console shortcut, the app, Places, other
-// engines, FTP servers, the engine itself, updates and the cache.
+// engines, network servers, the engine itself, updates and the cache.
 #include "app/dialogs.hpp"
 #include "app/pages.hpp"
 
@@ -101,29 +101,82 @@ float btns(Ui& ui, float x, float y, float w, const std::vector<RowButton>& butt
 
 // ---- forms ----
 
-class FtpForm : public Overlay {
+// The protocols a server can use (pages/settings/NetServers.tsx PROTOCOLS).
+struct ProtocolChoice {
+    const char* value;
+    const char* label;
+    const char* hint;
+    int port;
+};
+constexpr ProtocolChoice kProtocols[] = {
+    {"smb", "SMB", "Windows shared folders, NAS", 445},
+    {"webdav", "WebDAV", "NAS, Nextcloud, rclone", 80},
+    {"ftp", "FTP", "FileZilla and other FTP servers", 21},
+};
+
+class ServerForm : public Overlay {
 public:
     std::vector<Hint> hints(App&) override { return {{Glyph::cross, t("Choose")}, {Glyph::circle, t("Cancel")}}; }
     JsonValue server;  // null: a new one
-    std::string name, host, port = "21", user = "anonymous", pass;
+    std::string protocol = "smb", name, host, port, root, user, pass;
     std::string msg;
     bool err = false, busy = false;
     Sheet sheet;
 
+    const ProtocolChoice& chosen() const {
+        for (const auto& p : kProtocols)
+            if (protocol == p.value) return p;
+        return kProtocols[0];
+    }
+
     void build(Ui& ui, App& app) override {
         const bool edit = server.is_object();
-        sheet.begin(ui, edit ? t("Edit {name}", {{"name", server["name"].str()}}) : t("Add an FTP server"), "",
+        sheet.begin(ui, edit ? t("Edit {name}", {{"name", server["name"].str()}}) : t("Add a server"), "",
                     Sheet::Size::narrow, true);
         float y = sheet.content_top() - 1.1f * R;
-        field_row(ui, app, "ftp:name", sheet.x(), &y, sheet.w(), t("Name"), &name, t("My PC"));
-        field_row(ui, app, "ftp:host", sheet.x(), &y, sheet.w(), t("Address"), &host, "192.168.1.10");
-        field_row(ui, app, "ftp:port", sheet.x(), &y, sheet.w(), t("Port"), &port, "", true);
-        field_row(ui, app, "ftp:user", sheet.x(), &y, sheet.w(), t("User"), &user, "");
-        field_row(ui, app, "ftp:pass", sheet.x(), &y, sheet.w(), t("Password"), &pass, edit ? t("Unchanged") : "", false,
+        // The protocol is chosen once: a server keeps it (and its paths) when edited.
+        if (!edit) {
+            y += 1.1f * R;
+            y += section(ui, t("Protocol"), sheet.x() + 0.1f * R, y, 0.2f);
+            const float w = sheet.w(), tile_w = (w - 1.0f * R) / 3.0f;
+            float th = 0.0f;
+            for (const auto& p : kProtocols)
+                th = std::max(th, 1.0f * R * 1.45f + draw::paragraph_height(ui, Face::regular, t(p.hint), tile_w - 1.8f * R,
+                                                                            0.8f * R, 0.8f * 1.45f * R));
+            const float h = th + 1.4f * R + 2.0f;
+            int c = 0;
+            for (const auto& p : kProtocols) {
+                const Rect r{sheet.x() + static_cast<float>(c++) * (tile_w + 0.5f * R), y, tile_w, h};
+                const bool sel = protocol == p.value;
+                ui.list->bordered_rect(r, 0.75f * R, sel ? accent.with_alpha(0.12f) : field, 1.0f, sel ? accent : line2);
+                const float bw = draw::text(ui, Face::semibold, p.label, r.x + 0.9f * R,
+                                            draw::baseline(r.y + 0.7f * R + 0.725f * R, 1.0f * R), 1.0f * R, style::text);
+                if (sel)
+                    draw::text(ui, Face::regular, " \xE2\x9C\x93", r.x + 0.9f * R + bw,
+                               draw::baseline(r.y + 0.7f * R + 0.725f * R, 1.0f * R), 1.0f * R, accent);
+                draw::paragraph(ui, Face::regular, t(p.hint), r.x + 0.9f * R, r.y + 0.7f * R + 1.45f * R, tile_w - 1.8f * R,
+                                0.8f * R, 0.8f * 1.45f * R, muted);
+                if (ui.item(Id("srv:p") / p.value, r, sel ? kAutofocus : 0u, 0.75f * R)) {
+                    protocol = p.value;
+                    ui.play(hui::audio::Cue::select);
+                }
+            }
+            y += h - 0.3f * R;
+        }
+        field_row(ui, app, "srv:name", sheet.x(), &y, sheet.w(), t("Name"), &name, t("My PC"));
+        field_row(ui, app, "srv:host", sheet.x(), &y, sheet.w(), t("Address"), &host,
+                  protocol == "webdav" ? "http://192.168.1.10:5005/dav" : "192.168.1.10");
+        if (protocol == "smb")
+            field_row(ui, app, "srv:root", sheet.x(), &y, sheet.w(), t("Share"), &root, t("Games, or Games/PS5"));
+        if (protocol == "webdav") field_row(ui, app, "srv:root", sheet.x(), &y, sheet.w(), t("Path"), &root, "/");
+        field_row(ui, app, "srv:port", sheet.x(), &y, sheet.w(), t("Port"), &port, std::to_string(chosen().port), true);
+        field_row(ui, app, "srv:user", sheet.x(), &y, sheet.w(), t("User"), &user,
+                  protocol == "ftp" ? "anonymous" : protocol == "smb" ? t("Empty for a guest login") : "");
+        field_row(ui, app, "srv:pass", sheet.x(), &y, sheet.w(), t("Password"), &pass, edit ? t("Unchanged") : "", false,
                   true);
         sheet.end_body(ui, y);
-        if (sheet.button(ui, "ftp:save", edit ? t("Save") : t("Add"), draw::Button::primary, busy)) save(app);
-        if (sheet.button(ui, "ftp:cancel", t("Cancel"), draw::Button::normal)) app.close(this);
+        if (sheet.button(ui, "srv:save", edit ? t("Save") : t("Add"), draw::Button::primary, busy)) save(app);
+        if (sheet.button(ui, "srv:cancel", t("Cancel"), draw::Button::normal)) app.close(this);
         sheet.message(ui, msg, err);
         sheet.end(ui);
     }
@@ -138,15 +191,22 @@ public:
             err = true;
             return;
         }
+        const std::string h = trim(host);
+        if (protocol == "smb" && trim(root).empty() && h.rfind("\\\\", 0) != 0 && h.rfind("smb://", 0) != 0) {
+            msg = t("Enter the share's name");
+            err = true;
+            return;
+        }
         busy = true;
         msg = t("Connecting\xE2\x80\xA6");
         err = false;
         JsonValue body = JsonValue::object();
-        body.set("name", trim(name).empty() ? trim(host) : trim(name));
-        body.set("host", trim(host));
-        const int p = std::atoi(port.c_str());
-        body.set("port", p > 0 ? p : 21);
-        body.set("user", trim(user).empty() ? std::string("anonymous") : trim(user));
+        body.set("protocol", protocol);
+        body.set("name", trim(name));
+        body.set("host", h);
+        body.set("port", std::max(0, std::atoi(port.c_str())));
+        body.set("user", trim(user));
+        body.set("root", trim(root));
         // Editing: an empty password keeps the saved one.
         if (!server.is_object() || !pass.empty()) body.set("password", pass);
         const int k = key;
@@ -159,14 +219,14 @@ public:
                 busy = false;
                 return;
             }
-            app.toast(edit ? t("FTP server saved") : t("FTP server added"), App::Toast::ok);
+            app.toast(edit ? t("Server saved") : t("Server added"), App::Toast::ok);
             app.close(this);
             app.load_info();
         };
         if (edit)
-            app.api("PUT", "/api/ftp/" + url_encode(server["id"].str()), body, done, 0, 20000);
+            app.api("PUT", "/api/servers/" + url_encode(server["id"].str()), body, done, 0, 20000);
         else
-            app.api("POST", "/api/ftp", body, done, 0, 20000);
+            app.api("POST", "/api/servers", body, done, 0, 20000);
     }
 };
 
@@ -578,42 +638,45 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
         y = card_end("engines", top, yy);
     }
 
-    // ---- FTP servers ----
-    head(t("FTP servers"));
+    // ---- Network servers ----
+    head(t("Network servers"));
     {
-        const float top = card_begin(ui, "ftp", x, y, w);
+        const float top = card_begin(ui, "servers", x, y, w);
         float yy = top;
         const float ix = x + 1.2f * R, iw = w - 2.4f * R;
         yy += draw::paragraph(ui, Face::regular,
-                              t("Games on another computer's FTP server can be converted from there, and exFAT, FFPKG, "
-                                "FFPFS and folder outputs saved there. FFPFSC and PKG outputs must be saved on the console "
-                                "first. Plain FTP: the password crosses the network unencrypted and is kept on the console."),
+                              t("Games on a PC or NAS can be converted from there over SMB (shared folders), WebDAV or FTP, "
+                                "and exFAT, FFPKG, FFPFS and folder outputs saved there. FFPFSC and PKG outputs must be saved "
+                                "on the console first. Nothing is encrypted: files cross the network as they are, FTP and "
+                                "WebDAV send the password unencrypted too, and passwords are kept on the console."),
                               ix, yy, iw, 1.0f * R, 1.45f * R, muted) +
               0.5f * R;
         bool first = true;
-        for (const auto& s : app.ftp.items()) {
-            const std::string id = s["id"].str(), name = s["name"].str();
+        for (const auto& s : app.servers.items()) {
+            const std::string id = s["id"].str(), name = s["name"].str(), path = s["path"].str();
             JsonValue server = s;
-            yy += ftprow(ui, ix, yy, iw, draw::Icon::server, name,
-                         s["user"].str() + "@" + s["host"].str() + ":" + std::to_string(s["port"].integer(21)), "", muted,
-                         {{"ftp:ed:" + id, t("Edit"), draw::Button::normal,
+            yy += ftprow(ui, ix, yy, iw, draw::Icon::server, name, App::server_address(s, true), "", muted,
+                         {{"srv:ed:" + path, t("Edit"), draw::Button::normal,
                            [&app, server] {
-                               auto f = std::make_unique<FtpForm>();
+                               auto f = std::make_unique<ServerForm>();
                                f->server = server;
+                               f->protocol = server["protocol"].str("ftp");
                                f->name = server["name"].str();
                                f->host = server["host"].str();
-                               f->port = std::to_string(server["port"].integer(21));
+                               f->port = std::to_string(server["port"].integer(0));
+                               f->root = server["root"].str();
+                               if (f->protocol == "webdav" && f->root == "/") f->root.clear();
                                f->user = server["user"].str();
                                app.open(std::move(f));
                            }},
-                          {"ftp:rm:" + id, t("Remove"), draw::Button::danger,
+                          {"srv:rm:" + path, t("Remove"), draw::Button::danger,
                            [&app, id, name] {
                                ask(app, t("Remove {name}?", {{"name", name}}),
                                    text_body(t("Its files stay on the server; jobs that use it will fail.")), t("Remove"),
                                    true, [&app, id] {
-                                       app.api("DELETE", "/api/ftp/" + url_encode(id), JsonValue(), [&app](const Reply& r) {
+                                       app.api("DELETE", "/api/servers/" + url_encode(id), JsonValue(), [&app](const Reply& r) {
                                            if (r.ok())
-                                               app.toast(t("FTP server removed"), App::Toast::ok);
+                                               app.toast(t("Server removed"), App::Toast::ok);
                                            else
                                                app.toast(t_msg(r.error()), App::Toast::bad);
                                            app.load_info();
@@ -624,9 +687,9 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
             first = false;
         }
         yy += btns(ui, ix, yy, iw,
-                   {{"ftp:add", t("Add an FTP server\xE2\x80\xA6"), draw::Button::normal,
-                     [&app] { app.open(std::make_unique<FtpForm>()); }}});
-        y = card_end("ftp", top, yy);
+                   {{"srv:add", t("Add a server\xE2\x80\xA6"), draw::Button::normal,
+                     [&app] { app.open(std::make_unique<ServerForm>()); }}});
+        y = card_end("servers", top, yy);
     }
 
     // ---- The engine ----

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Breadcrumbs: Drives › drive › folder › ... (Files and the folder picker).
-import { rootOf, ftpOf, driveName, shownPath, peerRoot } from "../state/paths";
+import { rootOf, serverOf, driveName, shownPath, peerRoot } from "../state/paths";
 import { base } from "../lib/format";
 import { t } from "../lib/i18n";
 
@@ -9,7 +9,7 @@ export function Crumbs(props: { path: string | null; onPick: (p: string) => void
   const parts: string[] = [];
   let rootPath = "";
   if (path && path !== "/") {
-    const r = rootOf(path), f = r ? null : ftpOf(path);
+    const r = rootOf(path), f = r ? null : serverOf(path);
     // An engine whose drives are not known (offline): its name, then the path on it.
     rootPath = r ? r.root : f ? f.path : peerRoot(path) || path;
     parts.push(rootPath);

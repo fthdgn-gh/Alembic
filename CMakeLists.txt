@@ -209,15 +209,19 @@ if(ALEMBIC_BUILD_ENGINE)
         src/engine/keys.cpp
         src/engine/l10n.cpp
         src/engine/net.cpp
+        src/engine/netcrypto.cpp
+        src/engine/netfs.cpp
         src/engine/pairing.cpp
         src/engine/peer_fs.cpp
         src/engine/peers.cpp
         src/engine/places.cpp
         src/engine/remote.cpp
         src/engine/runner.cpp
+        src/engine/smb.cpp
         src/engine/smp.cpp
         src/engine/text_file.cpp
         src/engine/update.cpp
+        src/engine/webdav.cpp
         ${ALEMBIC_ENGINE_PLATFORM}
     )
     target_include_directories(alembic_engine_lib PUBLIC src/engine)
@@ -274,7 +278,7 @@ if(ALEMBIC_BUILD_TESTS)
     # Tests that need reference files from .refs/ skip themselves when absent.
     target_compile_definitions(alembic_tests PRIVATE ALEMBIC_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
     if(ALEMBIC_BUILD_ENGINE)
-        target_sources(alembic_tests PRIVATE tests/test_engine.cpp)
+        target_sources(alembic_tests PRIVATE tests/test_engine.cpp tests/test_netfs.cpp)
         target_link_libraries(alembic_tests PRIVATE alembic_engine_lib) # includes alembic_core
     else()
         target_link_libraries(alembic_tests PRIVATE alembic_core)

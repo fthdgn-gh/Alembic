@@ -103,7 +103,7 @@ public:
     JsonValue info;          // /api/info (null until it answers)
     JsonValue space;         // /api/fs/space
     JsonValue locations;     // /api/locations
-    JsonValue ftp;           // /api/ftp
+    JsonValue servers;       // /api/servers: network servers (FTP, SMB, WebDAV)
     JsonValue peer_drives;   // /api/peer-drives
     JsonValue peers;         // /api/peers
     std::vector<JsonValue> jobs;  // this engine's, then other engines' that involve it
@@ -137,7 +137,10 @@ public:
     // ---- paths (state/paths.ts) ----
     const JsonValue* root_of(const std::string& path) const;  // a drive of space or peer_drives
     const JsonValue* peer_drive_of(const std::string& path) const;
-    const JsonValue* ftp_of(const std::string& path) const;
+    const JsonValue* server_of(const std::string& path) const;  // the network server a path is on
+    // "FTP · nas:2121", "SMB · \\pc\Games", "WebDAV · nas:5005/dav" (state/paths.ts serverAddress).
+    static std::string server_address(const JsonValue& server, bool with_user = false);
+    static std::string on_server_text(const JsonValue& server);  // "On an SMB share", ...
     // A paired engine that is offline, when `path` is on it (from /api/peers).
     const JsonValue* offline_peer(const std::string& path) const;
     // "/peer/<id>" of a path on another engine, else "".

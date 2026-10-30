@@ -110,12 +110,10 @@ void FilesPage::rail(Ui& ui, App& app, const Rect& area) {
         item("r:" + root, within(root), removable ? draw::Icon::usb : draw::Icon::drive, app.drive_name(root),
              s["free"].number(), s["total"].number(), "", root);
     }
-    for (const auto& s : app.ftp.items()) {
-        const std::string host = s["host"].str();
-        const long long port = s["port"].integer(21);
-        const JsonValue* in = c.empty() ? nullptr : app.ftp_of(c);
+    for (const auto& s : app.servers.items()) {
+        const JsonValue* in = c.empty() ? nullptr : app.server_of(c);
         item("r:" + s["path"].str(), in && (*in)["path"].str() == s["path"].str(), draw::Icon::server, s["name"].str(),
-             0, 0, "FTP \xC2\xB7 " + host + (port == 21 ? "" : ":" + std::to_string(port)), s["path"].str());
+             0, 0, App::server_address(s), s["path"].str());
     }
     // Paired engines that are off: listed, so they don't just vanish.
     std::vector<const JsonValue*> offline;
@@ -239,7 +237,7 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
         std::vector<std::pair<std::string, std::string>> parts = {{"/", t("Drives")}};
         if (!top) {
             const JsonValue* r = app.root_of(app.cwd);
-            const JsonValue* f = r ? nullptr : app.ftp_of(app.cwd);
+            const JsonValue* f = r ? nullptr : app.server_of(app.cwd);
             // An engine whose drives are not known (offline): its name, then the path on it.
             const std::string peer = App::peer_root(app.cwd);
             const std::string root = r ? (*r)["root"].str() : f ? (*f)["path"].str() : !peer.empty() ? peer : app.cwd;
@@ -305,8 +303,8 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
             if (r && ((*r)["total"].number() > 0 || (*r)["engine"].str().empty()))
                 bits.push_back(t("{size} free on {drive}", {{"size", bytes((*r)["free"].number())},
                                                             {"drive", app.drive_name((*r)["root"].str())}}));
-            else if (app.ftp_of(app.cwd))
-                bits.push_back(t("On an FTP server"));
+            else if (const JsonValue* srv = app.server_of(app.cwd))
+                bits.push_back(App::on_server_text(*srv));
             for (std::size_t i = 0; i < bits.size(); ++i) summary += (i ? "  \xC2\xB7  " : "") + bits[i];
             if (summary.empty()) summary = t("Empty");
             if (const JsonValue* off = app.offline_peer(app.cwd)) summary = t("{engine} is offline", {{"engine", (*off)["name"].str()}});
@@ -361,7 +359,7 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
                 Color fill, ink;
                 draw::kind_colors("folder", &fill, &ink);
                 l.rounded_rect(icon, 0.7f * R, fill);
-                const JsonValue* fs = app.ftp_of(e.path);
+                const JsonValue* fs = app.server_of(e.path);
                 const bool usb = e.path.find("usb") != std::string::npos || e.path.find("ext") != std::string::npos;
                 draw::icon(ui, fs ? draw::Icon::server : usb ? draw::Icon::usb : draw::Icon::drive,
                            icon.inset(icon.w * 0.225f), ink);
@@ -408,13 +406,12 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
                 std::string plain;
                 if (top) {
                     const JsonValue* rt = app.root_of(e.path);
-                    const JsonValue* fs = app.ftp_of(e.path);
+                    const JsonValue* fs = app.server_of(e.path);
                     if (rt)
                         plain = t("{free} free of {total}",
                                   {{"free", bytes((*rt)["free"].number())}, {"total", bytes((*rt)["total"].number())}});
                     else if (fs)
-                        plain = "FTP \xC2\xB7 " + (*fs)["user"].str() + "@" + (*fs)["host"].str() + ":" +
-                                std::to_string((*fs)["port"].integer(21));
+                        plain = App::server_address(*fs, true);
                     else
                         plain = gone ? t("offline") : app.shown_path(e.path);
                 } else {

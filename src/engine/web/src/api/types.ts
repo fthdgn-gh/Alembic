@@ -47,19 +47,23 @@ export interface UpdateStatus {
 
 export interface Space { root: string; total: number; free: number }
 
-// A suggested destination: this engine's, an FTP server, or a paired engine's.
+// A suggested destination: this engine's, a network server, or a paired engine's.
 export interface Location {
   label: string;
   path: string;
   exists: boolean;
-  ftp?: boolean;
+  ftp?: boolean; // on a network server (FTP, SMB or WebDAV: the name is from when there was only FTP)
+  server?: Protocol;
   peer?: string;
   engine?: string;
   place?: string;
   custom?: boolean;
 }
 
-export interface FtpServer { id: string; name: string; host: string; port: number; user: string; path: string }
+// A network server: /api/servers. `root` is the SMB share ("Games/PS5") or
+// the WebDAV path ("/dav"); `path` is where its files are (/ftp/ID, /smb/ID, /dav/ID).
+export type Protocol = "ftp" | "smb" | "webdav";
+export interface NetServer { id: string; protocol: Protocol; name: string; host: string; port: number; user: string; root: string; path: string }
 
 // A paired engine's drive; `root` is /peer/<id>/<its path>.
 export interface PeerDrive { id: string; engine: string; platform: string; root: string; label: string; free: number; total?: number }
@@ -93,7 +97,8 @@ export interface Entry {
   size?: number;
   mtime?: number;
   game?: boolean; // a game folder
-  ftp?: boolean;
+  ftp?: boolean; // on a network server
+  server?: Protocol;
   peer?: string;
   shared?: boolean; // a file shared from this computer's browser
 }

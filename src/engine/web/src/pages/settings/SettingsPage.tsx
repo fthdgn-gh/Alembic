@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Settings: the console shortcut, the page, Places, other engines, FTP
+// Settings: the console shortcut, the page, Places, other engines, network
 // servers, the engine itself and its cache.
 import { useEffect, useState } from "preact/hooks";
 import { api } from "../../api/client";
@@ -20,7 +20,7 @@ import { setPlace } from "../files/actions";
 import { SCALES, applyScale, setLang } from "./prefs";
 import { Head, SmallBtn } from "./parts";
 import { Engines } from "./Engines";
-import { FtpServers } from "./FtpServers";
+import { NetServers } from "./NetServers";
 import { Updates } from "./Updates";
 import { openControllerTest } from "./ControllerTest";
 
@@ -47,7 +47,7 @@ export function SettingsPage(props: { hidden: boolean }) {
         </button>
         <Places />
         <Engines />
-        <FtpServers />
+        <NetServers />
         <Head text={t("Engine")} />
         <div class="card">
           <Facts rows={!i ? [[t("Engine"), t("not connected")]] : ([

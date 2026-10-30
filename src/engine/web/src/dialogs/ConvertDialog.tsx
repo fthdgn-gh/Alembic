@@ -7,7 +7,7 @@ import { api } from "../api/client";
 import { cachedMeta } from "../api/meta";
 import { PlatformPill } from "../components/PlatformPill";
 import { info, peers, locations } from "../state/engine";
-import { rootOf, ftpOf, driveName, shownPath, peerDriveOf, hereName } from "../state/paths";
+import { rootOf, serverOf, onServerText, driveName, shownPath, peerDriveOf, hereName } from "../state/paths";
 import { refreshJobs } from "../state/jobs";
 import { isHiddenName } from "../lib/kinds";
 import { base, bytes, dir } from "../lib/format";
@@ -63,7 +63,7 @@ function initialDest(entry: Entry): string {
   let d = store.get<string>("dest") || "";
   // A shared file has no folder on the console: it goes to a place here.
   if (entry.shared && !d) d = (locations.value[0] || { path: "" }).path || "";
-  if (d && !rootOf(d) && !ftpOf(d)) d = "";
+  if (d && !rootOf(d) && !serverOf(d)) d = "";
   return d;
 }
 
@@ -197,7 +197,7 @@ function Convert(props: { entry: Entry; ctl: Control }) {
   const lz4NoteShown = target === "ffpfsc" && (lz4 || (packedSrc && !unpack));
   const r: any = plan ? rootOf(plan.output) : null, need = inspect ? inspect.bytes : 0;
   const outSpace = !plan ? "" : r ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) + (need ? " · " + t("the game is {size} unpacked", { size: bytes(need) }) : "")
-    : ftpOf(plan.output) ? t("On an FTP server") : "";
+    : serverOf(plan.output) ? onServerText(serverOf(plan.output)!) : "";
   const warnings = plan && plan.warnings ? plan.warnings : [];
   const amprShown = !!plan && !amprHidden && !!plan.ampr_needed;
   const needs = plan && plan.needs ? plan.needs : [];

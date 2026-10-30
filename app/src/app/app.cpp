@@ -164,13 +164,13 @@ void App::load_info() {
         set_language(i["lang"].str("en"));
         get("/api/fs/space", [this, i](const Reply& sp) {
             get("/api/locations", [this, i, sp](const Reply& loc) {
-                get("/api/ftp", [this, i, sp, loc](const Reply& f) {
+                get("/api/servers", [this, i, sp, loc](const Reply& f) {
                     get("/api/peer-drives", [this, i, sp, loc, f](const Reply& pd) {
                         get("/api/peers", [this, i, sp, loc, f, pd](const Reply& p) {
                             info = i;
                             if (sp.ok()) space = sp.json;
                             if (loc.ok()) locations = loc.json;
-                            if (f.ok()) ftp = f.json;
+                            if (f.ok()) servers = f.json;
                             if (pd.ok()) {
                                 // The drive list shows paired engines' drives: ask for it
                                 // again when they change (one went offline, or came back).
@@ -361,12 +361,36 @@ const JsonValue* App::peer_drive_of(const std::string& path) const {
     return r && !(*r)["engine"].str().empty() ? r : nullptr;
 }
 
-const JsonValue* App::ftp_of(const std::string& path) const {
-    for (const auto& s : ftp.items()) {
+const JsonValue* App::server_of(const std::string& path) const {
+    for (const auto& s : servers.items()) {
         const std::string p = s["path"].str();
         if (!p.empty() && (path == p || starts_with(path, p + "/"))) return &s;
     }
     return nullptr;
+}
+
+std::string App::server_address(const JsonValue& s, bool with_user) {
+    const std::string protocol = s["protocol"].str("ftp"), host = s["host"].str(), user = s["user"].str();
+    const long long def = protocol == "smb" ? 445 : protocol == "webdav" ? 80 : 21;
+    const long long p = s["port"].integer(def);
+    const std::string port = p && p != def ? ":" + std::to_string(p) : "";
+    const std::string at = with_user && !user.empty() ? user + "@" : "";
+    if (protocol == "smb") {
+        std::string share = s["root"].str();
+        for (char& ch : share)
+            if (ch == '/') ch = '\\';
+        return "SMB \xC2\xB7 \\\\" + host + port + "\\" + share + (with_user && !user.empty() ? " \xC2\xB7 " + user : "");
+    }
+    if (protocol == "webdav") {
+        const std::string root = s["root"].str();
+        return "WebDAV \xC2\xB7 " + at + host + port + (root.empty() || root == "/" ? "" : root);
+    }
+    return "FTP \xC2\xB7 " + at + host + port;
+}
+
+std::string App::on_server_text(const JsonValue& s) {
+    const std::string protocol = s["protocol"].str("ftp");
+    return protocol == "smb" ? t("On an SMB share") : protocol == "webdav" ? t("On a WebDAV server") : t("On an FTP server");
 }
 
 std::string App::peer_root(const std::string& path) {
@@ -384,7 +408,7 @@ const JsonValue* App::offline_peer(const std::string& path) const {
 }
 
 std::string App::drive_name(const std::string& root) const {
-    const JsonValue* f = ftp_of(root);
+    const JsonValue* f = server_of(root);
     if (f && (*f)["path"].str() == root) return (*f)["name"].str();
     for (const auto& d : peer_drives.items())
         if (d["root"].str() == root) return d["engine"].str() + " \xC2\xB7 " + place_label(d["label"].str());
@@ -830,7 +854,7 @@ void App::handle_global(Ui& ui) {
         if (ui.pressed(Action::back) && cwd != "/") {
             ui.play(hui::audio::Cue::back);
             const JsonValue* r = root_of(cwd);
-            const JsonValue* f = ftp_of(cwd);
+            const JsonValue* f = server_of(cwd);
             const bool at_root = (r && (*r)["root"].str() == cwd) || (f && (*f)["path"].str() == cwd);
             browse(at_root ? "/" : dir(cwd));
         }

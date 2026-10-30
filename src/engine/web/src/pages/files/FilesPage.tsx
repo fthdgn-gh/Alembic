@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "preact/hooks";
 import { cwd, listing } from "../../state/view";
 import { peerDrives } from "../../state/engine";
-import { rootOf, ftpOf, driveName, offlinePeer } from "../../state/paths";
+import { rootOf, serverOf, onServerText, driveName, offlinePeer } from "../../state/paths";
 import { api } from "../../api/client";
 import { base, bytes } from "../../lib/format";
 import { IS_PS5 } from "../../lib/env";
@@ -27,7 +27,7 @@ function Summary() {
   const off = offlinePeer(data.path);
   const text = data.path === "/" ? t("Pick a drive") : off ? t("{engine} is offline", { engine: off.name }) :
     [folders ? plural(folders, "{n} folder", "{n} folders") : "", files.length ? plural(files.length, "{n} file", "{n} files") + " · " + bytes(total) : "",
-      r && (r.total || !r.engine) ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) : ftpOf(data.path) ? t("On an FTP server") : ""].filter(Boolean).join("  ·  ") || t("Empty");
+      r && (r.total || !r.engine) ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) : serverOf(data.path) ? onServerText(serverOf(data.path)!) : ""].filter(Boolean).join("  ·  ") || t("Empty");
   return <div class="summary" id="summary">{text}</div>;
 }
 

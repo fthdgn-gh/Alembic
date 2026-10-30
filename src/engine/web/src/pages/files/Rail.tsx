@@ -2,8 +2,8 @@
 // The left column of Files: drives, FTP servers, paired engines' drives,
 // then Places (this engine's, recent folders, each paired engine's).
 import { cwd } from "../../state/view";
-import { space, ftp, peerDrives, peers, locations } from "../../state/engine";
-import { rootOf, peerDriveOf, ftpOf, driveName, shownPath, hereName } from "../../state/paths";
+import { space, servers, peerDrives, peers, locations } from "../../state/engine";
+import { rootOf, peerDriveOf, serverOf, serverAddress, driveName, shownPath, hereName } from "../../state/paths";
 import { base, bytes } from "../../lib/format";
 import { store } from "../../lib/storage";
 import { t, placeLabel } from "../../lib/i18n";
@@ -47,9 +47,9 @@ export function Rail() {
           <div class="free">{t("{size} free", { size: bytes(s.free) })}</div>
         </RailItem>
       ))}
-      {ftp.value.map((s) => (
-        <RailItem k={"r:" + s.path} on={!!c && ftpOf(c) === s} title={s.user + "@" + s.host + ":" + s.port} icon="server" name={s.name} onClick={() => browse(s.path)}>
-          <div class="free ellip">{"FTP · " + s.host + (s.port === 21 ? "" : ":" + s.port)}</div>
+      {servers.value.map((s) => (
+        <RailItem k={"r:" + s.path} on={!!c && serverOf(c) === s} title={serverAddress(s, true)} icon="server" name={s.name} onClick={() => browse(s.path)}>
+          <div class="free ellip">{serverAddress(s)}</div>
         </RailItem>
       ))}
       {/* Paired engines' drives (Settings > Other engines). */}

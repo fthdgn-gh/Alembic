@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { Entry, Listing } from "../api/types";
 import { api } from "../api/client";
 import { locations } from "../state/engine";
-import { rootOf, driveName, shownPath, hereName } from "../state/paths";
+import { rootOf, serverOf, onServerText, driveName, shownPath, hereName } from "../state/paths";
 import { refreshJobs } from "../state/jobs";
 import { bytes, dir } from "../lib/format";
 import { t, tMsg, placeLabel } from "../lib/i18n";
@@ -76,7 +76,8 @@ function Picker(props: { entry: Entry | null; kind: Kind; start: string; ctl: Co
   }
   const folders = data ? data.entries.filter((x) => x.kind === "folder") : [];
   const r: any = !cur || cur === "/" ? null : rootOf(cur);
-  const space = !data ? "" : !r && /^\/ftp\//.test(cur!) ? t("On an FTP server") + "  ·  " + cur
+  const srv = !r ? serverOf(cur) : null;
+  const space = !data ? "" : srv ? onServerText(srv) + "  ·  " + cur
     : r ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) + (entry && entry.size ? " · " + t("needs {size}", { size: bytes(entry.size) }) : "") + "  ·  " + shownPath(cur)
     : t("Pick a drive and folder.");
   const title = pick ? t("Choose a folder") : t(kind === "copy" ? "Copy {name}" : "Move {name}", { name: entry ? entry.name : "" });

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Which drive, FTP server or paired engine a path is on, and how to name it.
-import type { Space, PeerDrive, FtpServer } from "../api/types";
-import { info, space, ftp, peers, peerDrives } from "./engine";
+// Which drive, network server or paired engine a path is on, and how to name it.
+import type { Space, PeerDrive, NetServer } from "../api/types";
+import { info, space, servers, peers, peerDrives } from "./engine";
 import { t, placeLabel, setPathNamer } from "../lib/i18n";
 import { base } from "../lib/format";
 
@@ -16,10 +16,26 @@ export function peerDriveOf(path: string): PeerDrive | null {
   const r = rootOf(path) as PeerDrive | null;
   return r && r.engine ? r : null;
 }
-// The FTP server a path is on (null for paths on the console).
-export function ftpOf(path: string): FtpServer | null {
-  for (const s of ftp.value) if (path === s.path || String(path).indexOf(s.path + "/") === 0) return s;
+// The network server a path is on (null for paths on the console).
+export function serverOf(path: string | null | undefined): NetServer | null {
+  if (!path) return null;
+  for (const s of servers.value) if (path === s.path || String(path).indexOf(s.path + "/") === 0) return s;
   return null;
+}
+export const PROTOCOL_LABEL = { ftp: "FTP", smb: "SMB", webdav: "WebDAV" };
+const DEFAULT_PORT = { ftp: 21, smb: 445, webdav: 80 };
+// Where a server is, as its protocol writes it: "FTP · nas:2121",
+// "SMB · \\pc\Games", "WebDAV · nas:5005/dav".
+export function serverAddress(s: NetServer, withUser?: boolean): string {
+  const port = s.port && s.port !== DEFAULT_PORT[s.protocol] ? ":" + s.port : "";
+  const user = withUser && s.user ? s.user + "@" : "";
+  if (s.protocol === "smb") return "SMB · \\\\" + s.host + port + "\\" + s.root.replace(/\//g, "\\") + (withUser && s.user ? " · " + s.user : "");
+  if (s.protocol === "webdav") return "WebDAV · " + user + s.host + port + (s.root && s.root !== "/" ? s.root : "");
+  return "FTP · " + user + s.host + port;
+}
+// "On an FTP server" and the like, in place of a drive's free space.
+export function onServerText(s: NetServer): string {
+  return s.protocol === "smb" ? t("On an SMB share") : s.protocol === "webdav" ? t("On a WebDAV server") : t("On an FTP server");
 }
 // A paired engine that is offline, when `path` is on it.
 export function offlinePeer(path: string | null | undefined) {
@@ -34,7 +50,7 @@ export function peerRoot(path: string): string {
 
 export function driveName(root: string): string {
   let m;
-  const f = ftpOf(root);
+  const f = serverOf(root);
   if (f && f.path === root) return f.name;
   const pd = peerDrives.value.find((d) => d.root === root);
   if (pd) return pd.engine + " · " + placeLabel(pd.label);

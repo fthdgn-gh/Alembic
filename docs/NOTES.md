@@ -29,8 +29,8 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   (pause, resume, survives a restart); a web page on port 5940 made for
   the controller, opened from a Media-tab shortcut; a Components page that
   downloads third-party files pinned by SHA-256. Inputs can be files shared
-  from a PC browser tab or FTP servers; outputs can go to FTP (formats
-  written front to back only).
+  from a PC browser tab or network servers (FTP, SMB, WebDAV); outputs
+  can go to them (formats written front to back only).
 - **Console app** (`app/`, title `PPSA99594`, work for 0.3.0; see the
   2026-10-25 entry): the engine's page drawn natively with
   ps5-homebrew-ui, every section and dialog, talking to the engine on
@@ -115,8 +115,10 @@ app/preview.sh [dir] [script]       # PNGs of the app drawn on this computer (Me
 - SHA-256 is single-threaded (with SHA-NI / ARMv8 SHA2 where the CPU has
   them); inflate and Kraken decode read ahead on worker threads; AES and
   CRC32C use the CPU's instructions on x86-64 and ARMv8.
-- FTP outputs cannot take FFPFSC or PKG (they seek back), and uploads do
-  not resume.
+- Network server outputs (FTP, SMB, WebDAV) cannot take FFPFSC or PKG
+  (they seek back), and uploads do not resume. No TLS anywhere (FTPS,
+  HTTPS WebDAV) and no SMB encryption; SMB needs the share named (no share
+  listing), no Kerberos.
 
 ## Reference repositories
 
@@ -2470,6 +2472,55 @@ What it took:
    for FFPFSC inputs, SHA-NI/ARM SHA-256. Owner: the ~90 GB package took
    1.5 h to become an image on the console before this; time it again.
 
+### 2026-10-30: SMB shares and WebDAV servers beside FTP
+
+- **Why (owner):** "We already have FTP support but let's add more options.
+  SMB, WebDAV, you name it."
+- **Shape:** `netfs.hpp` holds what all protocols share: the server list
+  (`<state>/servers.json`, read from `ftp.json` when it is missing), the
+  read-ahead cache for inputs, uploads under `.alembic-part`, the socket
+  helpers. Each protocol is a `netfs::Session` (size, list, mkdir, rename,
+  remove, download from an offset, front-to-back upload): `ftp.cpp` (as
+  before), `smb.cpp`, `webdav.cpp`. Paths: `/ftp/ID`, `/smb/ID`, `/dav/ID`.
+  API: `/api/servers` (`protocol`, `root`); `/api/ftp` answers the same.
+  Browse and locations keep `ftp: true` (older pages and peers read it as
+  "on a network server") and add `server: <protocol>`.
+- **SMB (`smb.cpp`), from [MS-SMB2]/[MS-NLMP], nothing ported:** dialects
+  2.0.2-3.1.1 (3.1.1 preauth SHA-512), NTLMv2 in SPNEGO with key exchange,
+  every request signed after login (HMAC-SHA256, AES-CMAC from 3.0; keys by
+  the SP800-108 KDF), 4 reads or writes of up to 1 MiB in flight, credits
+  tracked. Guest login with no user. `root` is the share plus an optional
+  folder ("Games/PS5"); "DOMAIN\user" names a domain. Refused with a
+  message: encryption, SMB1-only servers. Responses are not verified.
+- **WebDAV (`webdav.cpp`):** HTTP/1.1 keep-alive; PROPFIND (Depth 0/1),
+  GET with Range, PUT with chunked coding, MKCOL (trailing slash, for
+  nginx), MOVE with `Overwrite: F`, DELETE; Basic and Digest (MD5,
+  MD5-sess, qop=auth) logins. An address typed as a URL fills port and
+  path; https is refused. A server without chunked PUT says so (411).
+- **Hashes (`netcrypto.cpp`):** MD4, MD5, HMAC-MD5, SHA-512, AES-CMAC on
+  the core's AES; tested against RFC 1320/1321/2104/4493, FIPS 180 and the
+  [MS-NLMP] 4.2.4 NTLMv2 example (`tests/test_netfs.cpp`).
+- **Page and app:** Settings > Network servers (was FTP servers): a
+  protocol picker (SMB, WebDAV, FTP) on add, Share or Path fields, the
+  address shown the protocol's way (`\\host\share`); "On an SMB share" /
+  "On a WebDAV server" where the free space would be. The stand-in engine's
+  NAS is now an SMB share (`/smb/nas`), so the README screenshots will show
+  that when remade.
+- **Checked on the Mac:** Homebrew Samba 4.25 (`server signing =
+  mandatory`, own smb.conf on port 4450; its runtime folders need a short
+  path, and `--no-process-group` makes it kill its caller's group on exit)
+  capped at each of SMB2_02, SMB2_10, SMB3_00, SMB3_02, SMB3_11: SMB ->
+  SMB exFAT byte-identical each time. SMB -> local exFAT of a 1.4 GB
+  package byte-identical (2 s); SMB -> SMB and SMB -> WebDAV exFAT 3.7 s
+  and 4.6 s; FFPKG/FFPFSC equal to local builds but for the time stamps
+  two local builds differ in; folder outputs identical; pause/resume of
+  an SMB input; cancel mid-upload on SMB and WebDAV leaves no part file.
+  WsgiDAV anonymous, Basic and Digest, with spaces, '&' and non-ASCII names
+  in folders, files and the password. Wrong passwords and shares give
+  plain messages. FTP (pyftpdlib) unchanged. Windows and PS5 builds pass.
+  **Not tried:** a Windows 11 share, a NAS (Synology/QNAP), Nextcloud,
+  the console.
+
 ## Making a release
 
 1. **Update the README first** (owner): new features, limits, options;
@@ -2561,6 +2612,12 @@ What it took:
    Not planned for now (owner): passcodes other than all zeros. Later: DLC,
    zlib-compressed PFSC like Sony's packages, hiding the AMPR switch in
    Convert for PS4 games.
+
+8. **Network servers (2026-10-30):** owner to try SMB against a Windows
+   share and a NAS, and WebDAV, from the console. Possible next: SMB
+   outputs written in place (SMB writes at any offset, so FFPFSC and PKG
+   could go straight there), SMB encryption (AES-GCM), listing a server's
+   shares, NFS, SFTP (needs SSH crypto), TLS for FTPS/HTTPS.
 
 Older plan items (faster reading, PS5 build, LZ4 packs, FPKG, UFS2 and PFS
 writers, the downloader for third-party files) are done; see the log above.

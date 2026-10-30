@@ -370,7 +370,7 @@ public:
             std::vector<std::pair<std::string, std::string>> parts = {{"/", t("Drives")}};
             if (!c.empty() && c != "/") {
                 const JsonValue* r = app.root_of(c);
-                const JsonValue* f = r ? nullptr : app.ftp_of(c);
+                const JsonValue* f = r ? nullptr : app.server_of(c);
                 const std::string root = r ? (*r)["root"].str() : f ? (*f)["path"].str() : c;
                 parts.push_back({root, app.drive_name(root)});
                 std::string acc = root, rest = c.substr(std::min(root.size(), c.size()));
@@ -460,8 +460,9 @@ public:
         std::string space;
         if (data.is_object()) {
             const JsonValue* r = c.empty() || c == "/" ? nullptr : app.root_of(c);
-            if (!r && starts_with(c, "/ftp/"))
-                space = t("On an FTP server") + "  \xC2\xB7  " + c;
+            const JsonValue* srv = r ? nullptr : app.server_of(c);
+            if (srv)
+                space = App::on_server_text(*srv) + "  \xC2\xB7  " + c;
             else if (r)
                 space = t("{size} free on {drive}", {{"size", bytes((*r)["free"].number())},
                                                      {"drive", app.drive_name((*r)["root"].str())}}) +
@@ -941,8 +942,8 @@ public:
                     room = t("{size} free on {drive}", {{"size", bytes((*r)["free"].number())},
                                                         {"drive", app.drive_name((*r)["root"].str())}}) +
                            (need > 0 ? " \xC2\xB7 " + t("the game is {size} unpacked", {{"size", bytes(need)}}) : "");
-                else if (app.ftp_of(out))
-                    room = t("On an FTP server");
+                else if (const JsonValue* srv = app.server_of(out))
+                    room = App::on_server_text(*srv);
                 yy += draw::paragraph(ui, Face::regular, room, px, yy, pw, 0.88f * R, 0.88f * 1.45f * R, muted);
                 if (!ampr_hidden && plan["ampr_needed"].boolean())
                     yy += 0.5f * R + draw::paragraph(ui, Face::regular,
@@ -1004,7 +1005,7 @@ void App::open_convert(const Entry& e) {
     std::string d = prefs["dest"].str();
     // A shared file has no folder on the console: it goes to a place here.
     if (e.shared && d.empty() && !locations.items().empty()) d = locations.items()[0]["path"].str();
-    if (!d.empty() && !root_of(d) && !ftp_of(d)) d.clear();
+    if (!d.empty() && !root_of(d) && !server_of(d)) d.clear();
     c->dest = d;
     c->hide = prefs["hideSource"].boolean();
     const std::string on = prefs["convertOn"].str();

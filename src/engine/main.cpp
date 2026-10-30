@@ -38,11 +38,14 @@
 //   POST /api/cache/clear             delete the cached game info and icons
 //   POST /api/lang       {lang}       the language of the engine's notifications
 //   POST /api/smp/scan                ask ShadowMount+ to rescan (retry counters reset)
-//   GET  /api/ftp                     FTP servers (no passwords); their files are under /ftp/<id>/
-//   POST /api/ftp  {name, host, port, user, password}   add one (logs in first)
-//   PUT  /api/ftp/ID  {name, host, port, user[, password]}   change one (keeps its id;
-//                                     no password: keeps the saved one)
-//   DELETE /api/ftp/ID                forget one
+//   GET  /api/servers                 network servers (FTP, SMB, WebDAV; no passwords); their files
+//                                     are under their "path" (/ftp/<id>, /smb/<id>, /dav/<id>)
+//   POST /api/servers  {protocol, name, host, port, user, password, root}   add one (logs in
+//                                     first); root: the SMB share ("Games/PS5") or WebDAV path
+//   PUT  /api/servers/ID  {name, host, port, user[, password], root}   change one (keeps its id
+//                                     and protocol; no password: keeps the saved one)
+//   DELETE /api/servers/ID            forget one
+//   (/api/ftp... are the same requests under their earlier name)
 //   GET  /api/remote                  files browsers on other computers share
 //   POST /api/remote  {name, size, last_modified}   share one: {path} to use as a job input
 //   POST /api/remote/ID/want          (long poll) the pieces to send: [{offset, length}]
@@ -73,7 +76,7 @@
 #include "peers.hpp"
 #include "places.hpp"
 #include "platform.hpp"
-#include "ftp.hpp"
+#include "netfs.hpp"
 #include "remote.hpp"
 #include "runner.hpp"
 #include "update.hpp"
@@ -212,19 +215,19 @@ public:
         // Inputs under /remote/ come from a browser on another computer.
         convert::set_file_provider([this](const std::string& path) -> std::shared_ptr<const RandomAccess> {
             if (RemoteFiles::is_remote(path)) return remote_.open(path);
-            if (ftp::Servers::is_ftp(path)) return ftp_.open(path);
+            if (netfs::Servers::handles(path)) return servers_.open(path);
             return nullptr;
         }, [this](const std::string& path) {
-            return RemoteFiles::is_remote(path) ? remote_.open(path) != nullptr : ftp::Servers::is_ftp(path);
+            return RemoteFiles::is_remote(path) ? remote_.open(path) != nullptr : netfs::Servers::handles(path);
         });
-        // Outputs under /ftp/ are uploads.
+        // Outputs on network servers (/ftp/, /smb/, /dav/) are uploads.
         convert::OutputProvider out;
-        out.handles = [](const std::string& path) { return ftp::Servers::is_ftp(path); };
-        out.create = [this](const std::string& path, bool overwrite) { return ftp_.create(path, overwrite); };
+        out.handles = [](const std::string& path) { return netfs::Servers::handles(path); };
+        out.create = [this](const std::string& path, bool overwrite) { return servers_.create(path, overwrite); };
         out.make_directory = [this](const std::string& path) -> Status {
-            return ftp_.exists(path) ? Status{} : ftp_.make_directory(path);
+            return servers_.exists(path) ? Status{} : servers_.make_directory(path);
         };
-        out.exists = [this](const std::string& path) { return ftp_.exists(path); };
+        out.exists = [this](const std::string& path) { return servers_.exists(path); };
         convert::set_output_provider(std::move(out));
         config_.needed_by_other_jobs = [this](const std::string& path) {
             for (const Job& j : queue_.list())
@@ -462,7 +465,9 @@ private:
         if (r.path == "/api/inspect" && r.method == "GET") return inspect(r);
         if (r.path == "/api/plan" && r.method == "POST") return plan(r, false);
         if (r.path == "/api/remote" || r.path.rfind("/api/remote/", 0) == 0) return remote_action(r);
-        if (r.path == "/api/ftp" || r.path.rfind("/api/ftp/", 0) == 0) return ftp_action(r);
+        if (r.path == "/api/ftp" || r.path.rfind("/api/ftp/", 0) == 0 || r.path == "/api/servers" ||
+            r.path.rfind("/api/servers/", 0) == 0)
+            return servers_action(r);
         if (r.path == "/api/peers" || r.path.rfind("/api/peers/", 0) == 0) return peers_action(r);
         if (r.path == "/api/peer-drives" && r.method == "GET") return peer_drives_json();
         // Other engines' requests: refused when they speak another protocol
@@ -679,12 +684,13 @@ private:
                 e.set("kind", "folder");
                 entries.push(std::move(e));
             }
-            for (const ftp::Server& s : ftp_.list()) {
+            for (const netfs::Server& s : servers_.list()) {
                 JsonValue e = JsonValue::object();
-                e.set("name", "FTP: " + s.name);
-                e.set("path", "/ftp/" + s.id);
+                e.set("name", std::string(netfs::protocol_label(s.protocol)) + ": " + s.name);
+                e.set("path", s.path());
                 e.set("kind", "folder");
-                e.set("ftp", true);
+                e.set("ftp", true); // on a network server (the name it had with FTP only)
+                e.set("server", netfs::protocol_name(s.protocol));
                 entries.push(std::move(e));
             }
             for (const PeerDrive& d : peer_drives().first) {
@@ -698,14 +704,15 @@ private:
             v.set("entries", std::move(entries));
             return json(200, v);
         }
-        if (ftp::Servers::is_ftp(path)) {
-            auto listed = ftp_.list_directory(path);
+        if (netfs::Servers::handles(path)) {
+            auto server = servers_.server_of(path);
+            auto listed = servers_.list_directory(path);
             if (!listed.ok()) return error(502, listed.error().message);
-            std::sort(listed->begin(), listed->end(), [](const ftp::Entry& a, const ftp::Entry& b) {
+            std::sort(listed->begin(), listed->end(), [](const netfs::Entry& a, const netfs::Entry& b) {
                 if (a.is_directory != b.is_directory) return a.is_directory;
                 return a.name < b.name;
             });
-            for (const ftp::Entry& f : *listed) {
+            for (const netfs::Entry& f : *listed) {
                 JsonValue e = JsonValue::object();
                 e.set("name", f.name);
                 e.set("path", path + "/" + f.name);
@@ -713,12 +720,13 @@ private:
                 if (!f.is_directory) e.set("size", f.size);
                 e.set("mtime", f.mtime);
                 e.set("ftp", true);
+                if (server) e.set("server", netfs::protocol_name(server->protocol));
                 entries.push(std::move(e));
             }
             v.set("path", path);
             std::size_t slash = path.rfind('/');
             std::string parent = path.substr(0, slash);
-            v.set("parent", parent.size() <= 4 || parent == "/ftp" ? std::string("/") : parent);
+            v.set("parent", parent.size() <= 4 ? std::string("/") : parent); // "/ftp", "/smb", "/dav": the top
             v.set("entries", std::move(entries));
             return json(200, v);
         }
@@ -1363,61 +1371,69 @@ private:
         return error(404, "not found");
     }
 
-    // FTP servers (ftp.hpp): the list (no passwords), add one (logs in first), remove one.
-    HttpResponse ftp_action(const HttpRequest& r) {
-        if (r.path == "/api/ftp" && r.method == "GET") {
+    // Network servers (netfs.hpp): the list (no passwords), add one (logs in
+    // first), change one, remove one. /api/ftp is the earlier name.
+    static JsonValue server_json(const netfs::Server& s) {
+        JsonValue v = JsonValue::object();
+        v.set("id", s.id);
+        v.set("protocol", netfs::protocol_name(s.protocol));
+        v.set("name", s.name);
+        v.set("host", s.host);
+        v.set("port", static_cast<std::int64_t>(s.port));
+        v.set("user", s.user);
+        v.set("root", s.root);
+        v.set("path", s.path());
+        return v;
+    }
+    static Result<netfs::Server> server_from(const JsonValue& body, netfs::Protocol protocol) {
+        netfs::Server s;
+        s.protocol = protocol;
+        s.name = body["name"].str();
+        s.host = body["host"].str();
+        std::int64_t port = body["port"].integer(0);
+        if (port < 0 || port > 65535) return make_error(Errc::invalid_argument, "bad port");
+        s.port = static_cast<std::uint16_t>(port);
+        s.user = body["user"].str();
+        s.password = body["password"].str();
+        s.root = body["root"].str();
+        return s;
+    }
+    HttpResponse servers_action(const HttpRequest& r) {
+        const std::string base = r.path.rfind("/api/ftp", 0) == 0 ? "/api/ftp" : "/api/servers";
+        if (r.path == base && r.method == "GET") {
             JsonValue list = JsonValue::array();
-            for (const ftp::Server& s : ftp_.list()) {
-                JsonValue v = JsonValue::object();
-                v.set("id", s.id);
-                v.set("name", s.name);
-                v.set("host", s.host);
-                v.set("port", static_cast<std::int64_t>(s.port));
-                v.set("user", s.user);
-                v.set("path", "/ftp/" + s.id);
-                list.push(std::move(v));
-            }
+            for (const netfs::Server& s : servers_.list()) list.push(server_json(s));
             return json(200, list);
         }
-        if (r.path == "/api/ftp" && r.method == "POST") {
+        if (r.path == base && r.method == "POST") {
             auto body = parse_json(r.body);
             if (!body.ok()) return error(400, body.error().message);
-            ftp::Server s;
-            s.name = (*body)["name"].str();
-            s.host = (*body)["host"].str();
-            std::int64_t port = (*body)["port"].integer(21);
-            if (port <= 0 || port > 65535) return error(400, "bad port");
-            s.port = static_cast<std::uint16_t>(port);
-            s.user = (*body)["user"].str("anonymous");
-            s.password = (*body)["password"].str();
-            auto added = ftp_.add(s);
+            auto protocol = netfs::parse_protocol((*body)["protocol"].str());
+            if (!protocol) return error(400, "unknown protocol: " + (*body)["protocol"].str());
+            auto s = server_from(*body, *protocol);
+            if (!s.ok()) return error(400, s.error().message);
+            auto added = servers_.add(*s);
             if (!added.ok()) return error(400, added.error().message);
-            log_line("FTP server " + added->host + " added by " + r.peer);
+            log_line(std::string(netfs::protocol_label(added->protocol)) + " server " + added->host + " added by " + r.peer);
             JsonValue v = JsonValue::object();
             v.set("id", added->id);
-            v.set("path", "/ftp/" + added->id);
+            v.set("path", added->path());
             return json(200, v);
         }
-        if (r.path.rfind("/api/ftp/", 0) == 0 && r.method == "PUT") {
+        if (r.path.rfind(base + "/", 0) == 0 && r.method == "PUT") {
             auto body = parse_json(r.body);
             if (!body.ok()) return error(400, body.error().message);
-            ftp::Server s;
-            s.name = (*body)["name"].str();
-            s.host = (*body)["host"].str();
-            std::int64_t port = (*body)["port"].integer(21);
-            if (port <= 0 || port > 65535) return error(400, "bad port");
-            s.port = static_cast<std::uint16_t>(port);
-            s.user = (*body)["user"].str("anonymous");
+            auto s = server_from(*body, netfs::Protocol::ftp); // the protocol stays the server's
+            if (!s.ok()) return error(400, s.error().message);
             // No "password": keep the saved one.
             const bool keep = !(*body).has("password");
-            s.password = (*body)["password"].str();
-            auto updated = ftp_.update(r.path.substr(std::string("/api/ftp/").size()), s, keep);
+            auto updated = servers_.update(r.path.substr(base.size() + 1), *s, keep);
             if (!updated.ok()) return error(400, updated.error().message);
-            log_line("FTP server " + updated->host + " changed by " + r.peer);
+            log_line(std::string(netfs::protocol_label(updated->protocol)) + " server " + updated->host + " changed by " + r.peer);
             return json(200, JsonValue::object());
         }
-        if (r.path.rfind("/api/ftp/", 0) == 0 && r.method == "DELETE") {
-            Status s = ftp_.remove(r.path.substr(std::string("/api/ftp/").size()));
+        if (r.path.rfind(base + "/", 0) == 0 && r.method == "DELETE") {
+            Status s = servers_.remove(r.path.substr(base.size() + 1));
             return s.ok() ? json(200, JsonValue::object()) : error(500, s.error().message);
         }
         return error(404, "not found");
@@ -1701,12 +1717,13 @@ private:
             e.set("exists", is_directory(l.path));
             list.push(std::move(e));
         }
-        for (const ftp::Server& s : ftp_.list()) {
+        for (const netfs::Server& s : servers_.list()) {
             JsonValue e = JsonValue::object();
-            e.set("label", "FTP: " + s.name);
-            e.set("path", "/ftp/" + s.id);
+            e.set("label", std::string(netfs::protocol_label(s.protocol)) + ": " + s.name);
+            e.set("path", s.path());
             e.set("exists", true);
             e.set("ftp", true);
+            e.set("server", netfs::protocol_name(s.protocol));
             list.push(std::move(e));
         }
         // Paired engines: their Places and where their outputs usually go,
@@ -1752,8 +1769,8 @@ private:
         std::string path = strip_slashes((*body)["path"].str());
         std::string action = r.path.substr(std::string("/api/fs/").size());
         if (action == "mkdir") {
-            if (ftp::Servers::is_ftp(path)) {
-                Status s = ftp_.make_directory(path);
+            if (netfs::Servers::handles(path)) {
+                Status s = servers_.make_directory(path);
                 return s.ok() ? json(200, JsonValue::object()) : error(409, s.error().message);
             }
             if (!path_allowed(path, config_.available_roots())) return error(403, "outside the allowed folders");
@@ -1872,7 +1889,7 @@ private:
         const bool shared = convert::is_provided(spec->input);
         if (!shared && !path_allowed(spec->input, config_.available_roots())) return error(403, "the input is outside the allowed folders");
         if (!shared && !path_exists(spec->input)) return error(400, "the input does not exist: " + spec->input);
-        if (shared && ftp::Servers::is_ftp(spec->input) && !ftp_.exists(spec->input))
+        if (shared && netfs::Servers::handles(spec->input) && !servers_.exists(spec->input))
             return error(400, "the input does not exist: " + spec->input);
         if (shared) {
             // A file on another computer: converted only, into a folder here.
@@ -2028,7 +2045,7 @@ private:
     std::int64_t peer_drives_at_ = 0;
     std::set<std::string> peer_down_; // paired engines that did not answer the last time
     RemoteFiles remote_; // before the queue, whose jobs may read from it
-    ftp::Servers ftp_{config_.state_dir};
+    netfs::Servers servers_{config_.state_dir};
     GameMetaCache meta_{config_.state_dir};
     JobQueue queue_;
     HttpServer server_;

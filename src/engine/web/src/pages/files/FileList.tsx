@@ -3,7 +3,7 @@
 import { useRef } from "preact/hooks";
 import type { Entry } from "../../api/types";
 import { cwd, listing, focusEntry } from "../../state/view";
-import { rootOf, ftpOf, driveName, offlinePeer, shownPath } from "../../state/paths";
+import { rootOf, serverOf, serverAddress, driveName, offlinePeer, shownPath } from "../../state/paths";
 import { isConvertible, KIND_LABEL } from "../../lib/kinds";
 import { base, bytes, date } from "../../lib/format";
 import { t } from "../../lib/i18n";
@@ -24,10 +24,10 @@ function Row(props: { e: Entry; top: boolean }) {
   const { e, top } = props;
   const ref = useRef<HTMLDivElement>(null);
   const m = useMeta(isConvertible(e) && !top ? e : null, ref);
-  const fs = top ? ftpOf(e.path) : null;
+  const fs = top ? serverOf(e.path) : null;
   const r = top ? rootOf(e.path) : null;
   const gone = top ? offlinePeer(e.path) : null; // a paired engine that is off
-  const plain = top ? (r ? t("{free} free of {total}", { free: bytes(r.free), total: bytes(r.total as number) }) : fs ? "FTP · " + fs.user + "@" + fs.host + ":" + fs.port : gone ? t("offline") : shownPath(e.path))
+  const plain = top ? (r ? t("{free} free of {total}", { free: bytes(r.free), total: bytes(r.total as number) }) : fs ? serverAddress(fs, true) : gone ? t("offline") : shownPath(e.path))
     : [e.kind === "folder" ? "" : bytes(e.size), date(e.mtime)].filter(Boolean).join("  ·  ");
   const title = !top && m && m.title ? m.title : null;
   return (
