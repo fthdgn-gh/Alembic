@@ -4,6 +4,7 @@
 .lbl { font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); font-weight: 600; margin: 1.1rem .1rem .45rem; }
 .lbl:first-child { margin-top: .2rem; }
 .opts { display: grid; grid-template-columns: 1fr 1fr 1fr; grid-gap: .5rem; }
+.opts.two { grid-template-columns: 1fr 1fr; }
 .opt { text-align: left; background: #121825; border: 1px solid var(--line2); border-radius: .75rem; padding: .7rem .9rem; }
 .opt b { display: block; font-size: 1rem; }
 .opt span { font-size: .8rem; color: var(--muted); }

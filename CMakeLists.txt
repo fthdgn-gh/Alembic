@@ -211,6 +211,7 @@ if(ALEMBIC_BUILD_ENGINE)
         src/engine/net.cpp
         src/engine/netcrypto.cpp
         src/engine/netfs.cpp
+        src/engine/nfs.cpp
         src/engine/pairing.cpp
         src/engine/peer_fs.cpp
         src/engine/peers.cpp

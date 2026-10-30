@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Network servers games can be read from and saved to: FTP, SMB shares and WebDAV.
+// Network servers games can be read from and saved to: SMB shares, NFS exports, WebDAV and FTP.
 import { useState } from "preact/hooks";
 import type { NetServer, Protocol } from "../../api/types";
 import { api } from "../../api/client";
@@ -14,6 +14,7 @@ import { Head, SmallBtn, Field, useForm, formHints } from "./parts";
 
 const PROTOCOLS: { value: Protocol; label: string; hint: string; port: number }[] = [
   { value: "smb", label: "SMB", hint: "Windows shared folders, NAS", port: 445 },
+  { value: "nfs", label: "NFS", hint: "NAS and Linux exports", port: 2049 },
   { value: "webdav", label: "WebDAV", hint: "NAS, Nextcloud, rclone", port: 80 },
   { value: "ftp", label: "FTP", hint: "FileZilla and other FTP servers", port: 21 },
 ];
@@ -23,7 +24,7 @@ export function NetServers() {
     <>
       <Head text={t("Network servers")} />
       <div class="card">
-        <p class="muted" style="margin:0 0 .5rem">{t("Games on a PC or NAS can be converted from there over SMB (shared folders), WebDAV or FTP, and exFAT, FFPKG, FFPFS and folder outputs saved there. FFPFSC and PKG outputs must be saved on the console first. Nothing is encrypted: files cross the network as they are, FTP and WebDAV send the password unencrypted too, and passwords are kept on the console.")}</p>
+        <p class="muted" style="margin:0 0 .5rem">{t("Games on a PC or NAS can be converted from there over SMB (shared folders), NFS, WebDAV or FTP, and exFAT, FFPKG, FFPFS and folder outputs saved there. FFPFSC and PKG outputs must be saved on the console first. Nothing is encrypted: files cross the network as they are, FTP and WebDAV send the password unencrypted too, and passwords are kept on the console.")}</p>
         {servers.value.map((s) => (
           <div class="ftprow">
             <div class="nm">{ICONS.server()}</div>
@@ -51,9 +52,6 @@ function ServerForm(props: { server: NetServer | null }) {
   const def = PROTOCOLS.find((p) => p.value === protocol)!;
   async function save() {
     if (!host.trim()) { f.setMsg({ text: t("Enter the server's address"), err: true }); return; }
-    if (protocol === "smb" && !root.trim() && host.trim().indexOf("\\\\") !== 0 && host.trim().indexOf("smb://") !== 0) {
-      f.setMsg({ text: t("Enter the share's name"), err: true }); return;
-    }
     f.setBusy(true); f.setMsg({ text: t("Connecting…"), err: false });
     try {
       const body: Record<string, unknown> = { protocol, name: name.trim(), host: host.trim(), port: parseInt(port, 10) || 0, user: user.trim(), root: root.trim() };
@@ -73,7 +71,7 @@ function ServerForm(props: { server: NetServer | null }) {
         {/* The protocol is chosen once: a server keeps it (and its paths) when edited. */}
         {s ? null : <>
           <div class="lbl">{t("Protocol")}</div>
-          <div class="opts">
+          <div class="opts two">
             {PROTOCOLS.map((p) => (
               <button key={p.value} class={"opt" + (protocol === p.value ? " sel" : "")} data-key={"srv:p:" + p.value} data-autofocus={protocol === p.value ? "" : undefined} onClick={() => setProtocol(p.value)}>
                 <b>{p.label}</b><span>{t(p.hint)}</span>
@@ -83,11 +81,14 @@ function ServerForm(props: { server: NetServer | null }) {
         </>}
         <Field label={t("Name")} placeholder={t("My PC")} value={name} onInput={setName} />
         <Field label={t("Address")} placeholder={protocol === "webdav" ? "http://192.168.1.10:5005/dav" : "192.168.1.10"} value={host} onInput={setHost} />
-        {protocol === "smb" ? <Field label={t("Share")} placeholder={t("Games, or Games/PS5")} value={root} onInput={setRoot} /> : null}
+        {protocol === "smb" ? <Field label={t("Share")} placeholder={t("Games or Games/PS5; empty: all")} value={root} onInput={setRoot} /> : null}
         {protocol === "webdav" ? <Field label={t("Path")} placeholder="/" value={root} onInput={setRoot} /> : null}
+        {protocol === "nfs" ? <Field label={t("Export")} placeholder={t("/volume1/games; empty: all")} value={root} onInput={setRoot} /> : null}
         <Field label={t("Port")} inputMode="numeric" placeholder={String(def.port)} value={port} onInput={setPort} />
-        <Field label={t("User")} placeholder={protocol === "ftp" ? "anonymous" : protocol === "smb" ? t("Empty for a guest login") : ""} value={user} onInput={setUser} />
-        <Field label={t("Password")} type="password" placeholder={s ? t("Unchanged") : undefined} value={pass} onInput={setPass} />
+        {protocol === "nfs"
+          ? <Field label={t("User and group ID")} placeholder={t("uid:gid like 1000:1000; empty: 0:0")} value={user} onInput={setUser} />
+          : <Field label={t("User")} placeholder={protocol === "ftp" ? "anonymous" : protocol === "smb" ? t("Empty for a guest login") : ""} value={user} onInput={setUser} />}
+        {protocol === "nfs" ? null : <Field label={t("Password")} type="password" placeholder={s ? t("Unchanged") : undefined} value={pass} onInput={setPass} />}
       </div>
     </Sheet>
   );

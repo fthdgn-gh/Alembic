@@ -61,8 +61,9 @@ export interface Location {
 }
 
 // A network server: /api/servers. `root` is the SMB share ("Games/PS5") or
-// the WebDAV path ("/dav"); `path` is where its files are (/ftp/ID, /smb/ID, /dav/ID).
-export type Protocol = "ftp" | "smb" | "webdav";
+// the WebDAV path ("/dav") or the NFS export; `path` is where its files are
+// (/ftp/ID, /smb/ID, /dav/ID, /nfs/ID). For NFS, `user` is "uid:gid".
+export type Protocol = "ftp" | "smb" | "webdav" | "nfs";
 export interface NetServer { id: string; protocol: Protocol; name: string; host: string; port: number; user: string; root: string; path: string }
 
 // A paired engine's drive; `root` is /peer/<id>/<its path>.

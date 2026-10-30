@@ -3,6 +3,7 @@
 // test vectors), WebDAV's PROPFIND parsing and what users type as addresses.
 #include "netcrypto.hpp"
 #include "netfs.hpp"
+#include "nfs.hpp"
 #include "smb.hpp"
 #include "test.hpp"
 #include "webdav.hpp"
@@ -107,10 +108,11 @@ TEST_CASE(netfs_addresses_as_users_type_them) {
     CHECK(w.root == "Games/PS5");
     CHECK_EQ(w.port, 445);
 
-    netfs::Server noshare;
+    netfs::Server noshare; // the whole server: its shares are the top folders
     noshare.protocol = netfs::Protocol::smb;
     noshare.host = "192.168.1.10";
-    CHECK(!netfs::normalise(noshare).ok());
+    REQUIRE_OK(netfs::normalise(noshare));
+    CHECK(noshare.root.empty());
 
     netfs::Server tls;
     tls.protocol = netfs::Protocol::webdav;
@@ -126,4 +128,31 @@ TEST_CASE(netfs_addresses_as_users_type_them) {
     CHECK(netfs::Servers::handles("/dav/nas/x"));
     CHECK(!netfs::Servers::handles("/smb"));
     CHECK(!netfs::Servers::handles("/data/x"));
+}
+
+TEST_CASE(nfs_exports_are_a_tree_of_folders) {
+    const std::vector<std::string> exports = {"/volume1/games", "/volume1/media", "/srv/nfs"};
+    auto top = nfs::detail::export_children(exports, "/");
+    CHECK_EQ(top.size(), 2u);
+    CHECK(top[0] == "srv" && top[1] == "volume1");
+    auto v1 = nfs::detail::export_children(exports, "/volume1");
+    CHECK(v1.size() == 2 && v1[0] == "games" && v1[1] == "media");
+    CHECK(nfs::detail::export_children(exports, "/volume1/games").empty());
+    CHECK(nfs::detail::export_of(exports, "/volume1/games/PS5/a.pkg") == "/volume1/games");
+    CHECK(nfs::detail::export_of(exports, "/volume1/games") == "/volume1/games");
+    CHECK(nfs::detail::export_of(exports, "/volume1").empty());
+    CHECK(nfs::detail::export_of({"/"}, "/a/b") == "/");
+    CHECK(nfs::detail::export_of({"/data", "/data/games"}, "/data/games/x") == "/data/games");
+
+    netfs::Server n;
+    n.protocol = netfs::Protocol::nfs;
+    n.host = "nas:/volume1/games/";
+    n.user = "1026";
+    REQUIRE_OK(netfs::normalise(n));
+    CHECK(n.host == "nas" && n.root == "/volume1/games" && n.user == "1026:1026" && n.port == 2049);
+    netfs::Server bad;
+    bad.protocol = netfs::Protocol::nfs;
+    bad.host = "nas";
+    bad.user = "admin";
+    CHECK(!netfs::normalise(bad).ok());
 }

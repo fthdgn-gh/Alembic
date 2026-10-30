@@ -22,20 +22,21 @@ export function serverOf(path: string | null | undefined): NetServer | null {
   for (const s of servers.value) if (path === s.path || String(path).indexOf(s.path + "/") === 0) return s;
   return null;
 }
-export const PROTOCOL_LABEL = { ftp: "FTP", smb: "SMB", webdav: "WebDAV" };
-const DEFAULT_PORT = { ftp: 21, smb: 445, webdav: 80 };
+export const PROTOCOL_LABEL = { ftp: "FTP", smb: "SMB", webdav: "WebDAV", nfs: "NFS" };
+const DEFAULT_PORT = { ftp: 21, smb: 445, webdav: 80, nfs: 2049 };
 // Where a server is, as its protocol writes it: "FTP · nas:2121",
 // "SMB · \\pc\Games", "WebDAV · nas:5005/dav".
 export function serverAddress(s: NetServer, withUser?: boolean): string {
   const port = s.port && s.port !== DEFAULT_PORT[s.protocol] ? ":" + s.port : "";
   const user = withUser && s.user ? s.user + "@" : "";
-  if (s.protocol === "smb") return "SMB · \\\\" + s.host + port + "\\" + s.root.replace(/\//g, "\\") + (withUser && s.user ? " · " + s.user : "");
+  if (s.protocol === "smb") return "SMB · \\\\" + s.host + port + (s.root ? "\\" + s.root.replace(/\//g, "\\") : "") + (withUser && s.user ? " · " + s.user : "");
+  if (s.protocol === "nfs") return "NFS · " + s.host + port + (s.root ? ":" + s.root : "") + (withUser && s.user ? " · " + s.user : "");
   if (s.protocol === "webdav") return "WebDAV · " + user + s.host + port + (s.root && s.root !== "/" ? s.root : "");
   return "FTP · " + user + s.host + port;
 }
 // "On an FTP server" and the like, in place of a drive's free space.
 export function onServerText(s: NetServer): string {
-  return s.protocol === "smb" ? t("On an SMB share") : s.protocol === "webdav" ? t("On a WebDAV server") : t("On an FTP server");
+  return s.protocol === "smb" ? t("On an SMB share") : s.protocol === "nfs" ? t("On an NFS export") : s.protocol === "webdav" ? t("On a WebDAV server") : t("On an FTP server");
 }
 // A paired engine that is offline, when `path` is on it.
 export function offlinePeer(path: string | null | undefined) {

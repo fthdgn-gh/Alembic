@@ -109,11 +109,22 @@ std::uint16_t local_port(Socket s) {
     ::getsockname(raw(s), reinterpret_cast<sockaddr*>(&bound), &len);
     return ntohs(bound.sin_port);
 }
-Socket connect(const sockaddr_in& address, int timeout_ms, bool nonblocking, std::string* error) {
+Socket connect(const sockaddr_in& address, int timeout_ms, bool nonblocking, std::string* error, std::uint16_t local_port) {
     Socket s = tcp_socket();
     if (s == kNone) {
         if (error) *error = "socket: " + error_text();
         return kNone;
+    }
+    if (local_port) {
+        set_reuse_address(s);
+        sockaddr_in local{};
+        local.sin_family = AF_INET;
+        local.sin_port = htons(local_port);
+        if (!bind(s, local)) {
+            if (error) *error = "bind: " + error_text();
+            close(s);
+            return kNone;
+        }
     }
     set_blocking(s, false);
     if (::connect(raw(s), reinterpret_cast<const sockaddr*>(&address), sizeof address) != 0) {
@@ -301,11 +312,22 @@ std::uint16_t local_port(Socket s) {
     ::getsockname(raw(s), reinterpret_cast<sockaddr*>(&bound), &len);
     return ntohs(bound.sin_port);
 }
-Socket connect(const sockaddr_in& address, int timeout_ms, bool nonblocking, std::string* error) {
+Socket connect(const sockaddr_in& address, int timeout_ms, bool nonblocking, std::string* error, std::uint16_t local_port) {
     Socket s = tcp_socket();
     if (s == kNone) {
         if (error) *error = "socket: " + error_text();
         return kNone;
+    }
+    if (local_port) {
+        set_reuse_address(s);
+        sockaddr_in local{};
+        local.sin_family = AF_INET;
+        local.sin_port = htons(local_port);
+        if (!bind(s, local)) {
+            if (error) *error = "bind: " + error_text();
+            close(s);
+            return kNone;
+        }
     }
     set_blocking(s, false);
     if (::connect(raw(s), reinterpret_cast<const sockaddr*>(&address), sizeof address) != 0) {

@@ -38,10 +38,11 @@
 //   POST /api/cache/clear             delete the cached game info and icons
 //   POST /api/lang       {lang}       the language of the engine's notifications
 //   POST /api/smp/scan                ask ShadowMount+ to rescan (retry counters reset)
-//   GET  /api/servers                 network servers (FTP, SMB, WebDAV; no passwords); their files
-//                                     are under their "path" (/ftp/<id>, /smb/<id>, /dav/<id>)
+//   GET  /api/servers                 network servers (FTP, SMB, WebDAV, NFS; no passwords); their
+//                                     files are under their "path" (/ftp/, /smb/, /dav/, /nfs/<id>)
 //   POST /api/servers  {protocol, name, host, port, user, password, root}   add one (logs in
-//                                     first); root: the SMB share ("Games/PS5") or WebDAV path
+//                                     first); root: the SMB share ("Games/PS5", "": every share),
+//                                     WebDAV path or NFS export ("": every export); NFS user: uid:gid
 //   PUT  /api/servers/ID  {name, host, port, user[, password], root}   change one (keeps its id
 //                                     and protocol; no password: keeps the saved one)
 //   DELETE /api/servers/ID            forget one

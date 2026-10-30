@@ -110,6 +110,7 @@ struct ProtocolChoice {
 };
 constexpr ProtocolChoice kProtocols[] = {
     {"smb", "SMB", "Windows shared folders, NAS", 445},
+    {"nfs", "NFS", "NAS and Linux exports", 2049},
     {"webdav", "WebDAV", "NAS, Nextcloud, rclone", 80},
     {"ftp", "FTP", "FileZilla and other FTP servers", 21},
 };
@@ -138,7 +139,8 @@ public:
         if (!edit) {
             y += 1.1f * R;
             y += section(ui, t("Protocol"), sheet.x() + 0.1f * R, y, 0.2f);
-            const float w = sheet.w(), tile_w = (w - 1.0f * R) / 3.0f;
+            // Two by two, as .opts.two.
+            const float w = sheet.w(), tile_w = (w - 0.5f * R) / 2.0f;
             float th = 0.0f;
             for (const auto& p : kProtocols)
                 th = std::max(th, 1.0f * R * 1.45f + draw::paragraph_height(ui, Face::regular, t(p.hint), tile_w - 1.8f * R,
@@ -146,7 +148,8 @@ public:
             const float h = th + 1.4f * R + 2.0f;
             int c = 0;
             for (const auto& p : kProtocols) {
-                const Rect r{sheet.x() + static_cast<float>(c++) * (tile_w + 0.5f * R), y, tile_w, h};
+                const Rect r{sheet.x() + static_cast<float>(c % 2) * (tile_w + 0.5f * R), y + static_cast<float>(c / 2) * (h + 0.5f * R), tile_w, h};
+                ++c;
                 const bool sel = protocol == p.value;
                 ui.list->bordered_rect(r, 0.75f * R, sel ? accent.with_alpha(0.12f) : field, 1.0f, sel ? accent : line2);
                 const float bw = draw::text(ui, Face::semibold, p.label, r.x + 0.9f * R,
@@ -161,19 +164,26 @@ public:
                     ui.play(hui::audio::Cue::select);
                 }
             }
-            y += h - 0.3f * R;
+            y += 2.0f * h + 0.5f * R - 0.3f * R;
         }
         field_row(ui, app, "srv:name", sheet.x(), &y, sheet.w(), t("Name"), &name, t("My PC"));
         field_row(ui, app, "srv:host", sheet.x(), &y, sheet.w(), t("Address"), &host,
                   protocol == "webdav" ? "http://192.168.1.10:5005/dav" : "192.168.1.10");
         if (protocol == "smb")
-            field_row(ui, app, "srv:root", sheet.x(), &y, sheet.w(), t("Share"), &root, t("Games, or Games/PS5"));
+            field_row(ui, app, "srv:root", sheet.x(), &y, sheet.w(), t("Share"), &root, t("Games or Games/PS5; empty: all"));
         if (protocol == "webdav") field_row(ui, app, "srv:root", sheet.x(), &y, sheet.w(), t("Path"), &root, "/");
+        if (protocol == "nfs")
+            field_row(ui, app, "srv:root", sheet.x(), &y, sheet.w(), t("Export"), &root, t("/volume1/games; empty: all"));
         field_row(ui, app, "srv:port", sheet.x(), &y, sheet.w(), t("Port"), &port, std::to_string(chosen().port), true);
-        field_row(ui, app, "srv:user", sheet.x(), &y, sheet.w(), t("User"), &user,
-                  protocol == "ftp" ? "anonymous" : protocol == "smb" ? t("Empty for a guest login") : "");
-        field_row(ui, app, "srv:pass", sheet.x(), &y, sheet.w(), t("Password"), &pass, edit ? t("Unchanged") : "", false,
-                  true);
+        if (protocol == "nfs")
+            field_row(ui, app, "srv:user", sheet.x(), &y, sheet.w(), t("User and group ID"), &user,
+                      t("uid:gid like 1000:1000; empty: 0:0"));
+        else
+            field_row(ui, app, "srv:user", sheet.x(), &y, sheet.w(), t("User"), &user,
+                      protocol == "ftp" ? "anonymous" : protocol == "smb" ? t("Empty for a guest login") : "");
+        if (protocol != "nfs")
+            field_row(ui, app, "srv:pass", sheet.x(), &y, sheet.w(), t("Password"), &pass, edit ? t("Unchanged") : "", false,
+                      true);
         sheet.end_body(ui, y);
         if (sheet.button(ui, "srv:save", edit ? t("Save") : t("Add"), draw::Button::primary, busy)) save(app);
         if (sheet.button(ui, "srv:cancel", t("Cancel"), draw::Button::normal)) app.close(this);
@@ -192,11 +202,6 @@ public:
             return;
         }
         const std::string h = trim(host);
-        if (protocol == "smb" && trim(root).empty() && h.rfind("\\\\", 0) != 0 && h.rfind("smb://", 0) != 0) {
-            msg = t("Enter the share's name");
-            err = true;
-            return;
-        }
         busy = true;
         msg = t("Connecting\xE2\x80\xA6");
         err = false;
@@ -645,7 +650,7 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
         float yy = top;
         const float ix = x + 1.2f * R, iw = w - 2.4f * R;
         yy += draw::paragraph(ui, Face::regular,
-                              t("Games on a PC or NAS can be converted from there over SMB (shared folders), WebDAV or FTP, "
+                              t("Games on a PC or NAS can be converted from there over SMB (shared folders), NFS, WebDAV or FTP, "
                                 "and exFAT, FFPKG, FFPFS and folder outputs saved there. FFPFSC and PKG outputs must be saved "
                                 "on the console first. Nothing is encrypted: files cross the network as they are, FTP and "
                                 "WebDAV send the password unencrypted too, and passwords are kept on the console."),

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Network servers as places for inputs and outputs: FTP (ftp.hpp), SMB
-// shares (smb.hpp) and WebDAV servers (webdav.hpp). Each protocol is a
+// shares (smb.hpp), WebDAV servers (webdav.hpp) and NFS exports (nfs.hpp). Each protocol is a
 // Session (log in, list, read from an offset, upload front to back); the
 // server list, the read-ahead cache for inputs and the uploads under a
 // temporary name are shared by all of them.
 //
 // Paths: "/<prefix>/<server id>/<path on the server>", the prefix being
-// "ftp", "smb" or "dav". Inputs read through a cache with one running
+// "ftp", "smb", "dav" or "nfs". Inputs read through a cache with one running
 // download, read ahead on a thread of its own; an output is one upload,
 // front to back, so only formats written strictly in order can go straight
 // to a server.
@@ -25,12 +25,12 @@
 
 namespace alembic::engine::netfs {
 
-enum class Protocol { ftp, smb, webdav };
+enum class Protocol { ftp, smb, webdav, nfs };
 
-const char* protocol_name(Protocol p);                // "ftp", "smb", "webdav" (the API's names)
-const char* protocol_label(Protocol p);               // "FTP", "SMB", "WebDAV"
-const char* path_prefix(Protocol p);                  // "/ftp", "/smb", "/dav"
-std::uint16_t default_port(Protocol p);               // 21, 445, 80
+const char* protocol_name(Protocol p);                // "ftp", "smb", "webdav", "nfs" (the API's names)
+const char* protocol_label(Protocol p);               // "FTP", "SMB", "WebDAV", "NFS"
+const char* path_prefix(Protocol p);                  // "/ftp", "/smb", "/dav", "/nfs"
+std::uint16_t default_port(Protocol p);               // 21, 445, 80, 2049
 std::optional<Protocol> parse_protocol(const std::string& name);
 
 struct Server {
@@ -42,8 +42,10 @@ struct Server {
     std::string user;
     std::string password;
     // SMB: the share, optionally with a folder in it ("Games" or
-    // "Games/PS5"). WebDAV: the server's path for the top folder ("/dav").
-    // FTP: unused.
+    // "Games/PS5"); empty: the server's shares are the top folders. WebDAV:
+    // the server's path for the top folder ("/dav"). NFS: the export
+    // ("/volume1/games"); empty: every export. FTP: unused. For NFS, `user`
+    // is "uid:gid" (AUTH_SYS; empty: 0:0) and there is no password.
     std::string root;
 
     std::string path() const; // "/ftp/<id>"
@@ -133,8 +135,10 @@ Status normalise(Server& server);
 // For the protocols: a TCP connection with time-outs on connecting and on
 // each send and receive (`peer` gets the address it reached), and sending
 // or receiving all of a buffer. Errors start with `label` ("SMB: ...").
+// With `reserved_port`, from a port below 1024 when this system allows it
+// (NFS servers' "secure" exports want one), else from any.
 Result<std::intptr_t> tcp_connect(const std::string& host, std::uint16_t port, int timeout_ms, const char* label,
-                                  std::string* peer = nullptr);
+                                  std::string* peer = nullptr, bool reserved_port = false);
 Status send_all(std::intptr_t socket, const void* data, std::size_t size, const char* label);
 Status recv_all(std::intptr_t socket, void* data, std::size_t size, const char* label);
 

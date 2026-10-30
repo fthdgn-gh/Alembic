@@ -381,7 +381,7 @@ const JsonValue* App::server_of(const std::string& path) const {
 
 std::string App::server_address(const JsonValue& s, bool with_user) {
     const std::string protocol = s["protocol"].str("ftp"), host = s["host"].str(), user = s["user"].str();
-    const long long def = protocol == "smb" ? 445 : protocol == "webdav" ? 80 : 21;
+    const long long def = protocol == "smb" ? 445 : protocol == "webdav" ? 80 : protocol == "nfs" ? 2049 : 21;
     const long long p = s["port"].integer(def);
     const std::string port = p && p != def ? ":" + std::to_string(p) : "";
     const std::string at = with_user && !user.empty() ? user + "@" : "";
@@ -389,7 +389,12 @@ std::string App::server_address(const JsonValue& s, bool with_user) {
         std::string share = s["root"].str();
         for (char& ch : share)
             if (ch == '/') ch = '\\';
-        return "SMB \xC2\xB7 \\\\" + host + port + "\\" + share + (with_user && !user.empty() ? " \xC2\xB7 " + user : "");
+        return "SMB \xC2\xB7 \\\\" + host + port + (share.empty() ? "" : "\\" + share) +
+               (with_user && !user.empty() ? " \xC2\xB7 " + user : "");
+    }
+    if (protocol == "nfs") {
+        const std::string root = s["root"].str();
+        return "NFS \xC2\xB7 " + host + port + (root.empty() ? "" : ":" + root) + (with_user && !user.empty() ? " \xC2\xB7 " + user : "");
     }
     if (protocol == "webdav") {
         const std::string root = s["root"].str();
@@ -400,7 +405,7 @@ std::string App::server_address(const JsonValue& s, bool with_user) {
 
 std::string App::on_server_text(const JsonValue& s) {
     const std::string protocol = s["protocol"].str("ftp");
-    return protocol == "smb" ? t("On an SMB share") : protocol == "webdav" ? t("On a WebDAV server") : t("On an FTP server");
+    return protocol == "smb" ? t("On an SMB share") : protocol == "nfs" ? t("On an NFS export") : protocol == "webdav" ? t("On a WebDAV server") : t("On an FTP server");
 }
 
 std::string App::peer_root(const std::string& path) {

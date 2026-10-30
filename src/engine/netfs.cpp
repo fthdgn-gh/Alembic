@@ -4,6 +4,7 @@
 #include "ftp.hpp"
 #include "json_value.hpp"
 #include "net.hpp"
+#include "nfs.hpp"
 #include "smb.hpp"
 #include "webdav.hpp"
 
@@ -22,6 +23,7 @@ const char* protocol_name(Protocol p) {
     switch (p) {
     case Protocol::smb: return "smb";
     case Protocol::webdav: return "webdav";
+    case Protocol::nfs: return "nfs";
     default: return "ftp";
     }
 }
@@ -30,6 +32,7 @@ const char* protocol_label(Protocol p) {
     switch (p) {
     case Protocol::smb: return "SMB";
     case Protocol::webdav: return "WebDAV";
+    case Protocol::nfs: return "NFS";
     default: return "FTP";
     }
 }
@@ -38,6 +41,7 @@ const char* path_prefix(Protocol p) {
     switch (p) {
     case Protocol::smb: return "/smb";
     case Protocol::webdav: return "/dav";
+    case Protocol::nfs: return "/nfs";
     default: return "/ftp";
     }
 }
@@ -46,6 +50,7 @@ std::uint16_t default_port(Protocol p) {
     switch (p) {
     case Protocol::smb: return 445;
     case Protocol::webdav: return 80;
+    case Protocol::nfs: return 2049;
     default: return 21;
     }
 }
@@ -54,6 +59,7 @@ std::optional<Protocol> parse_protocol(const std::string& name) {
     if (name.empty() || name == "ftp") return Protocol::ftp;
     if (name == "smb") return Protocol::smb;
     if (name == "webdav" || name == "dav") return Protocol::webdav;
+    if (name == "nfs") return Protocol::nfs;
     return std::nullopt;
 }
 
@@ -63,6 +69,7 @@ Result<std::unique_ptr<Session>> connect(const Server& server) {
     switch (server.protocol) {
     case Protocol::smb: return smb::open(server);
     case Protocol::webdav: return webdav::open(server);
+    case Protocol::nfs: return nfs::open(server);
     default: return ftp::open(server);
     }
 }
@@ -108,7 +115,24 @@ Status normalise(Server& s) {
     if (s.protocol == Protocol::smb) {
         while (!s.root.empty() && s.root.front() == '/') s.root.erase(0, 1);
         while (!s.root.empty() && s.root.back() == '/') s.root.pop_back();
-        if (s.root.empty()) return make_error(Errc::invalid_argument, "the SMB server needs a share name");
+    } else if (s.protocol == Protocol::nfs) {
+        // "nas:/volume1/games", as mount writes it.
+        if (std::size_t colon = s.host.find(":/"); colon != std::string::npos) {
+            if (s.root.empty()) s.root = s.host.substr(colon + 1);
+            s.host = s.host.substr(0, colon);
+        }
+        while (s.root.size() > 1 && s.root.back() == '/') s.root.pop_back();
+        if (!s.root.empty() && s.root.front() != '/') s.root = "/" + s.root;
+        if (s.root == "/") s.root.clear();
+        if (!s.user.empty()) {
+            unsigned long uid = 0, gid = 0;
+            char rest = 0;
+            int n = std::sscanf(s.user.c_str(), "%lu:%lu%c", &uid, &gid, &rest);
+            if (n != 2 && !(n == 1 && s.user.find(':') == std::string::npos))
+                return make_error(Errc::invalid_argument, "NFS: enter the user as uid:gid, for example 1000:1000");
+            s.user = std::to_string(uid) + ":" + std::to_string(n == 2 ? gid : uid);
+        }
+        s.password.clear();
     } else if (s.protocol == Protocol::webdav) {
         if (s.root.empty() || s.root.front() != '/') s.root = "/" + s.root;
         while (s.root.size() > 1 && s.root.back() == '/') s.root.pop_back();
@@ -125,7 +149,8 @@ namespace {
 constexpr int kIoTimeoutSeconds = 30;
 }
 
-Result<std::intptr_t> tcp_connect(const std::string& host, std::uint16_t port, int timeout_ms, const char* label, std::string* peer) {
+Result<std::intptr_t> tcp_connect(const std::string& host, std::uint16_t port, int timeout_ms, const char* label, std::string* peer,
+                                  bool reserved_port) {
     auto fail = [&](const std::string& what) { return make_error(Errc::io, std::string(label) + ": " + what); };
     if (!net::startup()) return fail("cannot start the network (Winsock)");
     addrinfo hints{};
@@ -138,7 +163,17 @@ Result<std::intptr_t> tcp_connect(const std::string& host, std::uint16_t port, i
     std::memcpy(&addr, found->ai_addr, sizeof addr);
     ::freeaddrinfo(found);
     std::string why;
-    net::Socket fd = net::connect(addr, timeout_ms, false, &why);
+    net::Socket fd = net::kNone;
+    // Ports below 1024 that are free: a few tries (one in TIME_WAIT towards
+    // this server fails), then any port.
+    for (std::uint16_t local = 1023; reserved_port && fd == net::kNone && local > 1023 - 24; --local) {
+        fd = net::connect(addr, timeout_ms, false, &why, local);
+        if (fd == net::kNone && why.rfind("bind:", 0) == 0 && why.find("in use") == std::string::npos) break; // not allowed here
+        if (fd == net::kNone && why.rfind("bind:", 0) != 0 && why.find("in use") == std::string::npos &&
+            why.find("not available") == std::string::npos && why.find("assign") == std::string::npos)
+            return make_error(Errc::io, std::string(label) + ": cannot connect to " + host + ":" + std::to_string(port) + " (" + why + ")");
+    }
+    if (fd == net::kNone) fd = net::connect(addr, timeout_ms, false, &why);
     if (fd == net::kNone) return fail("cannot connect to " + host + ":" + std::to_string(port) + " (" + why + ")");
     net::set_timeouts(fd, kIoTimeoutSeconds);
     net::set_no_delay(fd);
@@ -417,8 +452,9 @@ Result<Server> Servers::add(Server server) {
     // An id that stays the same for the same server, user and share, so
     // paths last. The port is part of it unless it is the protocol's own.
     std::string base;
-    std::string from = server.host + (server.port == default_port(server.protocol) ? "" : "-" + std::to_string(server.port)) +
-                       "-" + (server.user.empty() ? std::string("guest") : server.user);
+    std::string from = server.host + (server.port == default_port(server.protocol) ? "" : "-" + std::to_string(server.port));
+    // NFS has no login, only the ids it sends; the others name the user (or a guest).
+    if (server.protocol != Protocol::nfs) from += "-" + (server.user.empty() ? std::string("guest") : server.user);
     if (server.protocol != Protocol::ftp && server.root != "/") from += "-" + server.root;
     for (char c : from) base += (std::isalnum(static_cast<unsigned char>(c)) ? c : '-');
     while (base.find("--") != std::string::npos && server.protocol != Protocol::ftp) base.erase(base.find("--"), 1);
@@ -475,7 +511,7 @@ Status Servers::remove(const std::string& id) {
 namespace {
 // The protocol a path's prefix names, and where the server id starts.
 std::optional<Protocol> prefix_of(const std::string& path) {
-    for (Protocol p : {Protocol::ftp, Protocol::smb, Protocol::webdav}) {
+    for (Protocol p : {Protocol::ftp, Protocol::smb, Protocol::webdav, Protocol::nfs}) {
         std::string prefix = std::string(path_prefix(p)) + "/";
         if (path.size() > prefix.size() && path.compare(0, prefix.size(), prefix) == 0) return p;
     }

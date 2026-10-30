@@ -29,7 +29,7 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   (pause, resume, survives a restart); a web page on port 5940 made for
   the controller, opened from a Media-tab shortcut; a Components page that
   downloads third-party files pinned by SHA-256. Inputs can be files shared
-  from a PC browser tab or network servers (FTP, SMB, WebDAV); outputs
+  from a PC browser tab or network servers (SMB, NFS, WebDAV, FTP); outputs
   can go to them (formats written front to back only).
 - **Console app** (`app/`, title `PPSA99594`, work for 0.3.0; see the
   2026-10-25 entry): the engine's page drawn natively with
@@ -117,8 +117,8 @@ app/preview.sh [dir] [script]       # PNGs of the app drawn on this computer (Me
   CRC32C use the CPU's instructions on x86-64 and ARMv8.
 - Network server outputs (FTP, SMB, WebDAV) cannot take FFPFSC or PKG
   (they seek back), and uploads do not resume. No TLS anywhere (FTPS,
-  HTTPS WebDAV) and no SMB encryption; SMB needs the share named (no share
-  listing), no Kerberos.
+  HTTPS WebDAV) and no SMB encryption (owner: next, on its own); no
+  Kerberos; NFS v3 with AUTH_SYS only (no v4, no Kerberos).
 
 ## Reference repositories
 
@@ -2543,6 +2543,47 @@ What it took:
   poll went from every 1.2 s to once in 8-9 s while a folder of six games
   loaded; after the fix it stays at 1.2 s while game info keeps loading.
 
+### 2026-10-30: NFS exports, and SMB servers without a share
+
+- **Owner:** "add NFS support", "let's have the SMB shares too";
+  encryption (SMB, TLS) comes later as its own piece of work.
+- **SMB shares (`smb.cpp`):** a server added without a share lists its
+  shares as the top folders (`/smb/ID/<share>/...`): DCE/RPC over the
+  `srvsvc` pipe on `IPC$` ([MS-RPCE], [MS-SRVS] NetrShareEnumAll level 1,
+  SMB2 WRITE then READ until the last fragment). Disk shares only; C$,
+  ADMIN$ and other names ending in '$' are left out (they can still be
+  named as the share). Each share gets its own tree connect when first
+  used; files remember their tree, so pipelined reads and writes go to the
+  right share. Moving between shares is refused.
+- **NFS (`nfs.cpp`), NFSv3 from RFC 1813 / 5531 / 1833 / 4506:** ONC RPC
+  on TCP with record marking, replies matched by xid (4 reads or writes in
+  flight, sizes from FSINFO up to 1 MiB), AUTH_SYS with the server's
+  "uid:gid" (the User field; empty: 0:0; no password). The portmapper on
+  111 gives MOUNT's port, else MOUNT is asked on the NFS port (rclone,
+  go-nfs). Calls come from a source port below 1024 when the system allows
+  it (Linux "secure" exports), else any (`net::connect` can bind one).
+  READDIRPLUS, else READDIR with LOOKUP; LOOKUP results for folders are
+  cached per session; uploads are CREATE UNCHECKED (size 0), UNSTABLE
+  WRITEs and one COMMIT whose verifier must match the writes' (else "the
+  server restarted during the upload"). Without an export, MOUNT EXPORT's
+  list is shown as a tree (`/volume1/games` as volume1 > games); a server
+  that lists none serves "/". Address may be typed `nas:/volume1/games`.
+- **Page and app:** a fourth protocol tile (2x2 grid, `.opts.two`), Export
+  and "User and group ID" fields for NFS (no password), the share and
+  export optional ("...; empty: all"), "On an NFS export".
+- **Checked on the Mac:** Samba with a second share, a non-ASCII share
+  name and a `$` share: listed (not the `$` one), a conversion into a share
+  of the whole server byte-identical, a guest login. rclone 1.75 `serve
+  nfs` (go-nfs; writes go through its cache, so files show up a few
+  seconds after the job): NFS -> local and NFS -> NFS exFAT of a 1.4 GB
+  package (about 3 s each) and a folder output byte-identical, a single
+  export typed as `host:/path`, non-ASCII names, cancel mid-upload leaves
+  nothing, clear errors for a wrong port or a uid that is not a number.
+  rclone `serve webdav` as a second WebDAV server. **Not tried:** a Linux
+  kernel or NAS NFS server (with a portmapper and "secure" exports), NFS
+  from the console (can the payload bind ports below 1024?), a Windows
+  share list.
+
 ## Making a release
 
 1. **Update the README first** (owner): new features, limits, options;
@@ -2635,11 +2676,12 @@ What it took:
    zlib-compressed PFSC like Sony's packages, hiding the AMPR switch in
    Convert for PS4 games.
 
-8. **Network servers (2026-10-30):** owner to try SMB against a Windows
-   share and a NAS, and WebDAV, from the console. Possible next: SMB
-   outputs written in place (SMB writes at any offset, so FFPFSC and PKG
-   could go straight there), SMB encryption (AES-GCM), listing a server's
-   shares, NFS, SFTP (needs SSH crypto), TLS for FTPS/HTTPS.
+8. **Network servers (2026-10-30):** owner to try SMB (a Windows share,
+   a NAS, a share list), NFS on a NAS and WebDAV from the console.
+   **Next, as its own piece of work (owner): encryption** - SMB 3
+   encryption (AES-GCM/CCM) and TLS (FTPS, HTTPS WebDAV). Also possible:
+   outputs written in place on SMB and NFS (both write at any offset, so
+   FFPFSC and PKG could go straight there), SFTP (needs SSH crypto).
 
 Older plan items (faster reading, PS5 build, LZ4 packs, FPKG, UFS2 and PFS
 writers, the downloader for third-party files) are done; see the log above.

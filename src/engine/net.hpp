@@ -61,8 +61,9 @@ Socket accept(Socket s, sockaddr_in* peer);
 // The port a socket was bound to.
 std::uint16_t local_port(Socket s);
 // Connects with a time-out; the socket comes back blocking unless
-// `nonblocking`. kNone on failure, with the reason in `error`.
-Socket connect(const sockaddr_in& address, int timeout_ms, bool nonblocking, std::string* error);
+// `nonblocking`. kNone on failure, with the reason in `error`. A
+// `local_port` is bound first (NFS servers want one below 1024).
+Socket connect(const sockaddr_in& address, int timeout_ms, bool nonblocking, std::string* error, std::uint16_t local_port = 0);
 
 // This computer's name ("" when unknown).
 std::string host_name();
