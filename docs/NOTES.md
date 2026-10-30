@@ -2590,8 +2590,11 @@ What it took:
 
 1. **Update the README first** (owner): new features, limits, options;
    remake the screenshots if the page changed (`tools/screenshots/shoot.sh`).
-2. Bump the version in `CMakeLists.txt` and the "Where we are" heading
-   above ("Version X.Y.Z" commit).
+2. Bump the version in `CMakeLists.txt`, `contentVersion` in
+   `app/sce_sys/param.json` (`00.00Y.00Z`; `app/build.sh` refuses a
+   mismatch, so CI's app job fails without it: 0.3.3's first tag did) and
+   the "Where we are" heading above ("Version X.Y.Z" commit). Run
+   `app/build.sh` once before tagging.
 3. Tag `vX.Y.Z` with the release notes as its message, **`git tag -a
    --cleanup=verbatim`** (otherwise git drops the `###` heading lines as
    comments; 0.3.2 lost them and the release body was fixed with `gh release
