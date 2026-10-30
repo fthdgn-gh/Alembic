@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (2026-10-26, release 0.3.2, published)
+## Where we are (2026-10-30, release 0.3.3)
 
 ### What works
 
@@ -46,6 +46,8 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   converted from a fake package (package P) starts through ShadowMount+
   1.7beta8, with its "Trophy registration failed"
   (ShadowMount+ #97: it copies only PS5 trophy metadata) (2026-10-26).
+  A package converted from an SMB share (Samba on the owner's Mac,
+  signing required) with the 0.3.3 build (2026-10-30).
 - Mac speeds (14-core M-series): package B (2.8 GB) → exFAT 1.7 s, →
   FFPFSC 5.5 s, → FPKG 9.5 s.
 
@@ -2676,8 +2678,9 @@ What it took:
    zlib-compressed PFSC like Sony's packages, hiding the AMPR switch in
    Convert for PS4 games.
 
-8. **Network servers (2026-10-30):** owner to try SMB (a Windows share,
-   a NAS, a share list), NFS on a NAS and WebDAV from the console.
+8. **Network servers (2026-10-30, 0.3.3):** ✓ SMB from the console
+   (owner). Still to try: a Windows share and a NAS over SMB, NFS on a
+   NAS (with a portmapper and "secure" exports), WebDAV.
    **Next, as its own piece of work (owner): encryption** - SMB 3
    encryption (AES-GCM/CCM) and TLS (FTPS, HTTPS WebDAV). Also possible:
    outputs written in place on SMB and NFS (both write at any offset, so

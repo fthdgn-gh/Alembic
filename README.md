@@ -22,14 +22,13 @@ once it is added; the console and a PC pair and convert for each other;
 conversion carries on after the engine is updated; the engine updates
 itself from a release (loaded through Payload Manager); the console app
 starts from ShadowMount+, starts and restarts the engine, and drives a
-conversion on a paired PC; a package converted from one of the new network
-servers.
+conversion on a paired PC; a package converted from an SMB share.
 PS4 games converted from their packages start from images through
 ShadowMount+ 1.7beta8 (it shows "Trophy registration failed" for them: a
 ShadowMount+ issue, [#97](https://github.com/drakmor/ShadowMountPlus/issues/97)).
-**Not yet:** the other network server types from a console, and real NAS
-boxes and Windows shares (all four were checked on a PC against Samba,
-rclone, WsgiDAV and pyftpdlib); installing an FPKG that Alembic built, PS5
+**Not yet:** NFS and WebDAV from a console, and real NAS boxes and Windows
+shares (all four server types were checked on a PC against Samba, rclone,
+WsgiDAV and pyftpdlib); installing an FPKG that Alembic built, PS5
 or PS4; PS4 updates
 (patch packages) and DLC. LZ4 asset packs work for some games and not for
 others.
