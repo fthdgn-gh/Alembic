@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The engine as the app sees it: requests run on worker threads (a frame
 // never waits for the network) and their replies come back on the frame
-// loop's thread through pump(). Lane 0 is for quick calls the screen waits
-// on; lane 1 for the steady polling and slow calls (inspect, plan), so one
-// never queues behind the other.
+// loop's thread through pump(). Each lane runs its requests one after
+// another, so the lanes keep kinds apart that must not wait for each other:
+// kQuick for calls the screen waits on, kSlow for calls that may take long
+// on a busy disk (game info, icons, inspect, plan), kPoll for the steady
+// polling (jobs, engine state). On a USB drive busy with a conversion, game
+// info and inspect take seconds each: on one lane with the polling, the
+// queue stopped updating until they were done (a store review).
 #pragma once
 
 #include "engine/http.hpp"
@@ -35,7 +39,8 @@ struct Reply {
 class Engine {
 public:
     using Callback = std::function<void(const Reply&)>;
-    static constexpr int kLanes = 2;
+    static constexpr int kQuick = 0, kSlow = 1, kPoll = 2;
+    static constexpr int kLanes = 3;
 
     ~Engine();
     void start(const std::string& host, std::uint16_t port);

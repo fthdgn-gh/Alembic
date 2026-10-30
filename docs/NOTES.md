@@ -2521,6 +2521,28 @@ What it took:
   **Not tried:** a Windows 11 share, a NAS (Synology/QNAP), Nextcloud,
   the console.
 
+### 2026-10-30: the queue stopped updating in the app (store review)
+
+- **Report (Prospero Store review):** while compressing from and to USB,
+  "calculating folder size" made the queue lose track (progress and items
+  stopped updating) until that finished; the job itself went on.
+- **Cause:** the app's client runs each lane's requests one after another,
+  and `/api/jobs`, `/api/peers/jobs`, `/api/pair/incoming`, game info
+  (`/api/meta`) and icons all used lane 1. On a USB drive busy with a
+  conversion, game info, inspect (the Convert dialog walks the whole game
+  folder) and plan take seconds each, and the queue's poll waited behind
+  them. The page is not affected (it asks for two games' info at a time,
+  under the browser's connection limit).
+- **Fix:** a third lane: `Engine::kQuick` (what the screen waits on),
+  `kSlow` (meta, icons, inspect, plan), `kPoll` (jobs, engine state,
+  pairing). `App::api` picks the lane from the request (`App::lane_for`)
+  unless a caller names one.
+- **Reproduced on the Mac:** the app preview against the real engine with a
+  job reading from an FTP server limited to 8 MB/s, behind a proxy that
+  delays meta, inspect and plan by 4 s (as a busy drive would): the queue's
+  poll went from every 1.2 s to once in 8-9 s while a folder of six games
+  loaded; after the fix it stays at 1.2 s while game info keeps loading.
+
 ## Making a release
 
 1. **Update the README first** (owner): new features, limits, options;

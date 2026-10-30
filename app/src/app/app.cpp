@@ -119,8 +119,20 @@ void App::finish_launch() {
 
 // ---------------------------------------------------------------- requests
 
+int App::lane_for(const std::string& method, const std::string& path) {
+    const std::string p = path.substr(0, path.find('?'));
+    // Reading games or walking folders: seconds each while a job keeps the disk busy.
+    if (p == "/api/meta" || p == "/api/icon" || p == "/api/inspect" || p == "/api/plan") return Engine::kSlow;
+    // What the screens poll; never behind the slow calls, nor behind what the person waits for.
+    if (method == "GET" && (p == "/api/jobs" || p == "/api/peers/jobs" || p == "/api/info" || p == "/api/fs/space" ||
+                            p == "/api/locations" || p == "/api/servers" || p == "/api/peer-drives" || p == "/api/peers" || p == "/api/pair/incoming"))
+        return Engine::kPoll;
+    return Engine::kQuick;
+}
+
 void App::api(const std::string& method, const std::string& path, const JsonValue& body, Done done, int lane,
               int timeout_ms) {
+    if (lane < 0) lane = lane_for(method, path);
     engine.call(method, path, body.is_null() ? std::string() : body.dump(), std::move(done), lane, timeout_ms);
 }
 
@@ -302,8 +314,7 @@ void App::refresh_jobs(bool remote_now) {
                         remote_jobs_.clear();
                         const std::string self = info["id"].str();
                         for (const auto& j : pr.json.items()) remote_jobs_.push_back(local_view(j, self));
-                    },
-                    1);
+                    });
             } else if (!any_paired()) {
                 remote_jobs_.clear();
             }
@@ -337,8 +348,7 @@ void App::refresh_jobs(bool remote_now) {
             }
             listed_.insert("");
             jobs = std::move(list);
-        },
-        1);
+        });
 }
 
 // ---------------------------------------------------------------- paths
@@ -501,8 +511,7 @@ void App::pump_meta() {
                     slot.meta.icon = r.json["icon"].boolean();
                 }
                 pump_meta();
-            },
-            1);
+            });
     }
 }
 
@@ -1163,8 +1172,7 @@ void App::watch_incoming() {
                             toast(t("Paired with {name}", {{"name", from}}), Toast::ok);
                 });
             }
-        },
-        1);
+        });
 }
 
 }  // namespace alembic::app

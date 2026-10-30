@@ -125,10 +125,12 @@ public:
 
     // ---- requests ----
     using Done = std::function<void(const Reply&)>;
-    void api(const std::string& method, const std::string& path, const JsonValue& body, Done done, int lane = 0,
+    // `lane` -1: chosen by the request (lane_for), which is what callers want.
+    void api(const std::string& method, const std::string& path, const JsonValue& body, Done done, int lane = -1,
              int timeout_ms = 8000);
-    void get(const std::string& path, Done done, int lane = 0) { api("GET", path, JsonValue(), std::move(done), lane); }
-    void post(const std::string& path, const JsonValue& body, Done done, int lane = 0) {
+    static int lane_for(const std::string& method, const std::string& path);
+    void get(const std::string& path, Done done, int lane = -1) { api("GET", path, JsonValue(), std::move(done), lane); }
+    void post(const std::string& path, const JsonValue& body, Done done, int lane = -1) {
         api("POST", path, body, std::move(done), lane);
     }
     // Calls `done` only when the request worked; else a toast says why.

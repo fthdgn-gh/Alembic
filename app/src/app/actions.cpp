@@ -752,7 +752,7 @@ public:
                 plan_key = want;
                 plan_err.clear();
                 msg.clear();
-            }, 1, 600000);
+            }, Engine::kSlow, 600000);
         }
         const bool plan_ready = plan.is_object() && plan_key == key_now && plan_err.empty();
         const bool packed = inspect["lz4_packed"].boolean();
