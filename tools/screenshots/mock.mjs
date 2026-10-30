@@ -1,5 +1,6 @@
 // A stand-in engine for README screenshots: serves the built page and answers
-// its API with made-up games, a paired PC engine, a NAS share and jobs.
+// its API with made-up games, a paired PC engine, network servers (a NAS
+// share over SMB, an NFS export) and jobs.
 // MOCK_FROZEN=1 keeps the jobs still and MOCK_PAGE=FILE serves another build
 // (for comparing two builds of the page screenshot by screenshot).
 import http from "node:http";
@@ -54,19 +55,25 @@ const DIRS = {
     g(PCROOT, "Mossback.ffpfsc", "ffpfsc", 8.2 * GB),
     g(PCROOT, "Tidewalker.exfat", "exfat", 63.2 * GB),
   ],
+  "/nfs/box": [g("/nfs/box", "Glass Meridian.ffpfsc", "ffpfsc", 12.6 * GB)],
   "/smb/nas": [g("/smb/nas", "Neon Harbor.pkg", "fpkg", 33.1 * GB), g("/smb/nas", "Starlight Drift.exfat", "exfat", 19.0 * GB)],
 };
 DIRS["/peer/" + PC + "/D:"] = [{ name: "Games", path: PCROOT, kind: "folder", mtime: mt }];
 
 const SPACE = [{ root: "/data", total: 825 * GB, free: 312 * GB }, { root: "/mnt/usb0", total: 2000 * GB, free: 1460 * GB }];
 const PEER_DRIVES = [{ id: PC, engine: "Living room PC", platform: "host", root: PCROOT, label: "Games", free: 873 * GB, total: 2000 * GB }];
-const SERVERS = [{ id: "nas", protocol: "smb", name: "NAS", host: "192.168.1.20", port: 445, user: "games", root: "Games", path: "/smb/nas" }];
+const SERVERS = [
+  { id: "nas", protocol: "smb", name: "NAS", host: "192.168.1.20", port: 445, user: "games", root: "Games", path: "/smb/nas" },
+  { id: "box", protocol: "nfs", name: "Media box", host: "192.168.1.40", port: 2049, user: "1000:1000", root: "/srv/games", path: "/nfs/box" },
+];
+const PROTOCOL_LABEL = { ftp: "FTP", smb: "SMB", webdav: "WebDAV", nfs: "NFS" };
 const LOCATIONS = [
   { label: "Internal · homebrew (ShadowMount+)", path: "/data/homebrew", exists: true },
   { label: "Internal storage", path: "/data", exists: true },
   { label: "USB 0 · homebrew", path: "/mnt/usb0/homebrew", exists: true },
   { label: "USB 0", path: "/mnt/usb0", exists: true },
   { label: "SMB: NAS", path: "/smb/nas", exists: true, ftp: true, server: "smb" },
+  { label: "NFS: Media box", path: "/nfs/box", exists: true, ftp: true, server: "nfs" },
   { label: "Living room PC · Games", path: PCROOT, exists: true, peer: PC, engine: "Living room PC", place: "Games" },
   { label: "Living room PC · Finished", path: "/peer/" + PC + "/E:/Finished", exists: true, peer: PC, engine: "Living room PC", place: "Finished", custom: true },
 ];
@@ -131,7 +138,7 @@ function browse(p) {
   if (p === "/" || !p) {
     return { path: "/", parent: null, entries: [
       ...SPACE.map((s) => ({ name: s.root, path: s.root, kind: "folder" })),
-      ...SERVERS.map((s) => ({ name: "SMB: " + s.name, path: s.path, kind: "folder", ftp: true, server: s.protocol })),
+      ...SERVERS.map((s) => ({ name: PROTOCOL_LABEL[s.protocol] + ": " + s.name, path: s.path, kind: "folder", ftp: true, server: s.protocol })),
       ...PEER_DRIVES.map((d) => ({ name: d.engine + " · " + d.label, path: d.root, kind: "folder", peer: d.id })),
     ] };
   }

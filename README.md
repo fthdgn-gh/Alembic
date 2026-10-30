@@ -1,6 +1,6 @@
 # Alembic
 
-![Alembic's page in the PS5 browser: a library of games in several formats, with drives, an FTP server and a paired PC on the left](docs/screenshots/files.png)
+![Alembic's page in the PS5 browser: a library of games in several formats, with drives, a NAS share, an NFS export and a paired PC on the left](docs/screenshots/files.png)
 
 Alembic converts PS5 and PS4 games between the formats homebrew loaders use:
 packages (PS5 debug FPKG, PS4 fake PKG), dump folders, exFAT images, FFPKG
@@ -9,7 +9,8 @@ screen (from 0.3.0) or as a payload with a web page, both driven with the
 controller, and on a PC (Windows, macOS, Linux) as a command-line tool or the
 same engine and page. Engines on your network can
 pair and work together: convert a package that sits on your PC, on the PC's
-processor, straight into the console's storage.
+processor, straight into the console's storage. Games on a PC or NAS can
+also be read from and saved to over SMB, NFS, WebDAV or FTP.
 
 > Work in progress. Back up anything you convert until you have checked the
 > result on your console.
@@ -21,11 +22,15 @@ once it is added; the console and a PC pair and convert for each other;
 conversion carries on after the engine is updated; the engine updates
 itself from a release (loaded through Payload Manager); the console app
 starts from ShadowMount+, starts and restarts the engine, and drives a
-conversion on a paired PC.
+conversion on a paired PC; a package converted from one of the new network
+servers.
 PS4 games converted from their packages start from images through
 ShadowMount+ 1.7beta8 (it shows "Trophy registration failed" for them: a
 ShadowMount+ issue, [#97](https://github.com/drakmor/ShadowMountPlus/issues/97)).
-**Not yet:** installing an FPKG that Alembic built, PS5 or PS4; PS4 updates
+**Not yet:** the other network server types from a console, and real NAS
+boxes and Windows shares (all four were checked on a PC against Samba,
+rclone, WsgiDAV and pyftpdlib); installing an FPKG that Alembic built, PS5
+or PS4; PS4 updates
 (patch packages) and DLC. LZ4 asset packs work for some games and not for
 others.
 
@@ -93,7 +98,7 @@ screen, or its web page in the console's browser (from a shortcut it adds to
 the Media tab) or in any browser on your network at `http://<console-ip>:5940`.
 The app and the page show the same things and work the same way.
 
-![The Alembic app on the PS5: a homebrew folder with games in several formats, drives, an FTP server and a paired PC on the left](docs/screenshots/app.png)
+![The Alembic app on the PS5: a homebrew folder with games in several formats, drives, a NAS share, an NFS export and a paired PC on the left](docs/screenshots/app.png)
 
 **The app** (`PPSA99594`, from 0.3.0), installed either way:
 
@@ -115,8 +120,9 @@ GitHub release first, checked against `SHA256SUMS`).
 
 1. Send `alembic-<version>.elf` (from the releases) to your console's ELF loader.
 2. Open Alembic from the Media tab (or the address above).
-3. In **Files**, pick a game on internal storage, USB, an FTP server or a
-   paired engine's drive (a pill tells PS5 and PS4 games apart), then
+3. In **Files**, pick a game on internal storage, USB, a network server (SMB,
+   NFS, WebDAV or FTP) or a paired engine's drive (a pill tells PS5 and PS4
+   games apart), then
    **Convert**, **Install** (packages), **Copy** or **Move**.
 4. Jobs run one at a time in **Queue**: pause, resume (long jobs continue
    from a checkpoint), reorder, cancel. You get a notification when one
@@ -124,7 +130,7 @@ GitHub release first, checked against `SHA256SUMS`).
 
 ![The Convert dialog: target formats, compression level, the AMPR emulator switch, and the output path on a paired PC](docs/screenshots/convert.png)
 
-![The queue: a running conversion with speed and time left, a paused one that continues from its checkpoint, a copy to FTP, and a job running on the paired PC](docs/screenshots/queue.png)
+![The queue: a running conversion with speed and time left, a paused one that continues from its checkpoint, a copy to a NAS share, and a job running on the paired PC](docs/screenshots/queue.png)
 
 Also on the page:
 
@@ -135,12 +141,23 @@ Also on the page:
   Enter, Esc, S, Q/E and Page Up/Down.
 - **Places:** add any folder to Places from its Options; they show in the
   rail, in Save to, and on paired engines.
-- **FTP servers** (Settings): games on a PC or NAS that runs an FTP server
-  can be converted without copying them to the console first. The server
-  only stores the files: the engine reads the game over the network and does
-  the converting itself. exFAT, FFPKG, FFPFS and folder outputs can be saved
-  back to the server. To have a PC do the work, run Alembic's engine on it
-  instead (see [Working across engines](#working-across-engines)).
+- **Network servers** (Settings, from 0.3.3): games on a PC or NAS can be
+  converted without copying them to the console first, over
+  - **SMB** (Windows shared folders, most NAS boxes): SMB 2 and 3 with
+    signing, as Windows 11 requires; a user and password, or a guest login.
+    Leave the share empty to see all of the server's shares.
+  - **NFS** (NAS and Linux exports): NFSv3, with the uid:gid to use
+    instead of a password. Leave the export empty to see all of them.
+  - **WebDAV** (NAS, Nextcloud, rclone): plain HTTP, Basic or Digest login.
+  - **FTP**: plain FTP.
+
+  The server only stores the files: the engine reads the game over the
+  network and does the converting itself. exFAT, FFPKG, FFPFS and folder
+  outputs can be saved back to the server; FFPFSC and PKG outputs go to the
+  console first. Nothing is encrypted yet (no SMB encryption, FTPS or
+  HTTPS): shares that require encryption are refused with a message. To
+  have a PC do the work, run Alembic's engine on it instead (see
+  [Working across engines](#working-across-engines)).
 - **From this computer:** opened in a PC's browser, the page can share a
   file from that PC for the console to convert.
 - **ShadowMount+:** new images can be picked up without a restart, and
@@ -168,6 +185,8 @@ Also on the page:
   so and offers **Update the app**.
 - **Other engines:** a paired engine that is switched off stays listed as
   offline instead of disappearing.
+- **Busy drives:** the app keeps the queue up to date while game titles
+  and icons load from a drive that a running job keeps busy.
 - Languages: English, Español, Français, Deutsch, 日本語, Türkçe.
 
 State (queue, settings, downloaded components) is kept in `/data/alembic`.
@@ -195,7 +214,7 @@ on any of them. When a job deletes its source after checking the output,
 engines compare SHA-256 digests instead of sending the files back. Files can also be sent between
 engines without converting (Options → Send to another engine).
 
-![Settings: Places, a paired PC and a Mac found on the network, and an FTP server](docs/screenshots/engines.png)
+![Settings: a paired PC and a Mac found on the network, and two network servers: a NAS share over SMB and an NFS export](docs/screenshots/engines.png)
 
 Engines of different Alembic versions work together as long as they talk to
 each other the same way; when that changes in a release, Settings shows which
@@ -350,6 +369,9 @@ Alembic stands on the work of the PS5 homebrew scene. Thank you to:
   and [itsPLK/ps5-payload-manager](https://github.com/itsPLK/ps5-payload-manager).
 - **blackbearreloaded** for [ps5-homebrew-ui](https://github.com/blackbearreloaded/ps5-homebrew-ui),
   the design the page follows.
+- Microsoft's [open specifications](https://learn.microsoft.com/openspecs/)
+  (SMB2/3, NTLM, SPNEGO, DCE/RPC and the share list) and the IETF RFCs for
+  NFSv3, ONC RPC and WebDAV, which the network clients are written from.
 - [zlib](https://zlib.net) and [LZ4](https://github.com/lz4/lz4), bundled
   with the engine, and [Preact](https://github.com/preactjs/preact) with its
   [signals](https://github.com/preactjs/signals), bundled into its page.

@@ -62,10 +62,10 @@ await run(`__alembic.showTab("queue")`);
 await sleep(6000);
 await shot("queue");
 
-// 4. Settings: scroll to the other engines.
+// 4. Settings: the other engines and the network servers.
 await run(`__alembic.showTab("settings")`);
 await sleep(1200);
-await run(`(() => { const s = [...document.querySelectorAll("#settings .sect")].find((x) => x.textContent === "Places"); s.scrollIntoView({ block: "start" }); document.querySelector("#view-settings").scrollTop -= 20; })()`);
+await run(`(() => { const s = [...document.querySelectorAll("#settings .sect")].find((x) => x.textContent === "Other engines"); s.scrollIntoView({ block: "start" }); document.querySelector("#view-settings").scrollTop -= 20; })()`);
 await shot("engines");
 
 ws.close();
