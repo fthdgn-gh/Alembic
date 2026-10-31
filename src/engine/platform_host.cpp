@@ -151,7 +151,7 @@ Status remove_launcher() { return make_error(Errc::unsupported, "the home-screen
 
 std::string cpu_affinity() { return ""; } // PCs: not needed (the console's question)
 std::string thread_cpu() { return ""; }
-std::string set_thread_cpu(std::uint64_t, int) { return ""; }
+std::string set_thread_cpu(std::uint64_t, int, bool) { return ""; }
 
 Status secure_random(std::uint8_t* out, std::size_t size) {
 #ifdef _WIN32

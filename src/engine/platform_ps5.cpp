@@ -515,17 +515,24 @@ std::string thread_cpu() {
     char text[96];
     std::snprintf(text, sizeof text, "mask 0x%llx (rc 0x%x), prio %d (rc 0x%x)", static_cast<unsigned long long>(mask),
                   static_cast<unsigned>(a), prio, static_cast<unsigned>(p));
-    return text;
+    return std::string(text) + ", auth ID " + hex64(kernel_get_ucred_authid(-1));
 }
 
-std::string set_thread_cpu(std::uint64_t mask, int prio) {
+std::string set_thread_cpu(std::uint64_t mask, int prio, bool elevate) {
     const ThreadApi& t = thread_api();
     if (!t.self) return "scePthreadSelf not found (" + t.note + ")";
     void* self = t.self();
     std::string out;
     char text[64];
     if (mask) {
-        const int rc = t.set_affinity ? t.set_affinity(self, mask) : -1;
+        int rc;
+        if (elevate) { // with the shell's auth ID, as the installer calls get it
+            AuthIdScope auth;
+            rc = t.set_affinity ? t.set_affinity(self, mask) : -1;
+            out += std::string("auth ID ") + hex64(auth.saved()) + (auth.changed() ? " raised; " : " not raised; ");
+        } else {
+            rc = t.set_affinity ? t.set_affinity(self, mask) : -1;
+        }
         std::snprintf(text, sizeof text, "setaffinity 0x%llx rc 0x%x", static_cast<unsigned long long>(mask), static_cast<unsigned>(rc));
         out += text;
     }

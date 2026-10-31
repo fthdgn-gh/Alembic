@@ -2833,9 +2833,17 @@ What it took:
   buffers per block wait on the allocator.
 - **Changed:** every encoder buffer (arrays, bit streams, Huffman and
   package-merge lists) lives in the per-thread `EncoderScratch` and is
-  reused; output unchanged (compare.sh, write_samples.sh). Next: the
-  console's bench again, then cap conversion threads on the console at
-  what it measures best.
+  reused; output unchanged (compare.sh, write_samples.sh). On the
+  console: the same job 140 s -> 69 s; Kraken now ~75-80 MB/s on any
+  thread count (no collapse), so no thread cap.
+- **Why so little CPU:** a payload thread starts with core mask 0xEA00
+  (logical CPUs 9, 11, 13, 14, 15) at priority 700 (low; lower numbers
+  are higher). `scePthreadSetaffinity(0xFFFF)` is refused
+  (0x80020001, EPERM); `scePthreadSetprio(500)` works but changes
+  nothing (the five CPUs are shared with the system). `/api/bench?
+  affinity=&prio=&elevate=1` tries these on its own threads only;
+  `elevate` sets the mask under the shell's auth ID, as the installer
+  calls run.
 
 ## Next session
 
