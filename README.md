@@ -178,6 +178,19 @@ Also on the page:
   runtime, ProsperoPkgTool's FPKG key files, LibOrbisPkg's licence and PS4 package keys)
   are downloaded on request from
   their official source and kept only if their SHA-256 matches.
+  **Offline:** fetch them on a PC (the Components page lists each file's
+  URL) and copy them to the console under these exact names; the engine
+  picks them up without a restart:
+
+  | Component | Files on the console |
+  |---|---|
+  | AMPR emulator (ampr_emu 0.4.2.1) | `/data/alembic/runtime/libSceAmpr.sprx` |
+  | FPKG key files | `/data/alembic/keys/passcode.bin`, `/data/alembic/keys/mount_image.bin`, `/data/alembic/keys/metadata_modulus.bin` |
+  | Licence and PS4 package keys | `/data/alembic/keys/ps4/Keys.cs` |
+
+  Key files must be the pinned ones (same SHA-256), or package output
+  refuses them. Another build of `libSceAmpr.sprx` still works but shows
+  as "modified" in Components.
 - **Engine** (Settings): **Restart the engine** starts the same version again
   through the ELF loader; the app also offers **Start the engine** once it
   has stopped.
