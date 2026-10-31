@@ -2913,6 +2913,12 @@ What it took:
   USB package now; page shots with Brave as BROWSER).
 - Owner: the release text does not call Install when done "installing
   images" (misleading): it converts to a package and hands that over.
+- Tagged (`--cleanup=verbatim`) and pushed; every CI job passed and the
+  release is published (elf, app .ffpkg and .zip, CLI for Linux, macOS and
+  Windows, SHA256SUMS). The notes named the app file without its `v`
+  (as 0.3.3's did): fixed in the published notes with `gh release edit`;
+  the files are `alembic-app-v<version>.*`. Catalog record from
+  `tools/catalog_record.py v0.4.0`, for the owner's PR.
 
 ## Next session
 
