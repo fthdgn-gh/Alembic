@@ -2641,7 +2641,22 @@ What it took:
    --cleanup=verbatim`** (otherwise git drops the `###` heading lines as
    comments; 0.3.2 lost them and the release body was fixed with `gh release
    edit --notes-file`), and push the tag: CI builds and publishes the
-   release with the tag's message as its notes.
+   release with the tag's message as its notes. Name the app files as CI
+   does: `alembic-app-v<version>.ffpkg` / `.zip` (0.3.3's and 0.4.0's notes
+   left out the `v`).
+4. Check CI and the published release (every job green; the `.elf`, the
+   app `.ffpkg` and `.zip`, the CLI archives, `SHA256SUMS`).
+5. **ProsperoStore: open the catalog PR (Claude does it, owner,
+   2026-10-31).** `tools/catalog_record.py vX.Y.Z > PPSA99594.json`; sync
+   the fthdgn-gh fork of darkxex/ps5-homebrew-catalog (`gh repo sync
+   fthdgn-gh/ps5-homebrew-catalog --source darkxex/ps5-homebrew-catalog`),
+   branch `update-alembic-X.Y.Z` from upstream `main`, replace
+   `apps/PPSA99594.json`, commit, push to the fork, and `gh pr create -R
+   darkxex/ps5-homebrew-catalog` with the body of the previous one (#956,
+   #993): what changed, the payload's SHA-256 (the app's
+   `assets/alembic.elf`, the same file as the release's `.elf`), the
+   checklist. The catalog's own CLAUDE.md is for its owner's direct pushes,
+   not for contributors.
 
 ### 2026-10-31: Kraken-compressed FPKG output
 
@@ -2917,8 +2932,9 @@ What it took:
   release is published (elf, app .ffpkg and .zip, CLI for Linux, macOS and
   Windows, SHA256SUMS). The notes named the app file without its `v`
   (as 0.3.3's did): fixed in the published notes with `gh release edit`;
-  the files are `alembic-app-v<version>.*`. Catalog record from
-  `tools/catalog_record.py v0.4.0`, for the owner's PR.
+  the files are `alembic-app-v<version>.*`. ProsperoStore:
+  darkxex/ps5-homebrew-catalog#993 (opened by Claude, owner's request;
+  payload SHA-256 `a64e40ea…`, the release's `.elf`).
 
 ## Next session
 
