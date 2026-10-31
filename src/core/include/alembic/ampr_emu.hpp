@@ -48,22 +48,29 @@ struct AttachResult {
     std::string folder;        // where files went (the game folder, or the backport folder)
     std::vector<std::string> written; // paths below `folder`
     bool already_there = false; // nothing to do: the emulator was already in place
+    bool replaced = false;      // another libSceAmpr.sprx was overwritten (`replace`)
     std::vector<std::string> notes;
 };
 
+// With `replace`, a game that already has a libSceAmpr.sprx other than
+// `emulator` gets `emulator` in its place (the same file: nothing to do);
+// without it, any libSceAmpr.sprx already there is left alone.
+
 // A game folder (a dump ShadowMount+ runs as a folder): writes
 // <fakelib>/libSceAmpr.sprx into it, and ampr_emu.index when it has none.
-Result<AttachResult> attach_to_folder(const std::string& folder, const RandomAccess& emulator,
+Result<AttachResult> attach_to_folder(const std::string& folder, const RandomAccess& emulator, bool replace = false,
                                       const ProgressFn& progress = {});
 
 // An image (or any tree that cannot be written to): writes a ShadowMount+
 // backport folder, <backports_root>/<TITLE_ID>/, which ShadowMount+ lays over
 // the mounted game. A backport's fakelib replaces the game's whole fakelib,
 // so the game's own fakelib files are copied next to the emulator (except
-// libkernel.sprx, which ShadowMount+ drops anyway). An existing backport
-// folder for the title only gets the emulator added. ampr_emu.index is
-// written there too when the game has none.
+// libkernel.sprx, which ShadowMount+ drops anyway). ampr_emu.index is
+// written there too when the game has none. An existing backport folder for
+// the title only gets the emulator added (or, with `replace`, put in place of
+// its own).
 Result<AttachResult> attach_backport(const tree::Source& game, const std::string& backports_root,
-                                     const RandomAccess& emulator, const ProgressFn& progress = {});
+                                     const RandomAccess& emulator, bool replace = false,
+                                     const ProgressFn& progress = {});
 
 } // namespace alembic::ampr_emu

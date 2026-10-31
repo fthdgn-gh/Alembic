@@ -55,6 +55,8 @@ struct JobSpec {
     // ampr_emu's libSceAmpr.sprx (the engine's runtime file): "auto" adds it
     // when eboot.bin uses the console's APR and the game ships none,
     // "always" whenever the game ships none, "off" never. Not for FPKG output.
+    // For "ampr_emu" jobs: "replace" puts it in place of another
+    // libSceAmpr.sprx the game already has (otherwise that one stays).
     std::string ampr_emu = "auto";
     // After a successful conversion: compare the output with the input file
     // by file, then delete the input (only if they match).

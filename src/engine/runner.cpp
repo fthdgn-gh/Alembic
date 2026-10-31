@@ -25,6 +25,7 @@
 #include "alembic/ffpfsc.hpp"
 #include "alembic/lz4pack.hpp"
 #include "alembic/resume.hpp"
+#include "alembic/sha256.hpp"
 
 namespace alembic::engine {
 
@@ -632,11 +633,40 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     return r;
 }
 
+namespace {
+
+std::string sha256_of(const RandomAccess& file) {
+    auto size = file.size();
+    if (!size.ok()) return "";
+    Sha256 h;
+    std::vector<std::uint8_t> buffer(1 << 20);
+    for (std::uint64_t at = 0; at < *size;) {
+        auto n = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), *size - at));
+        if (!file.read_at(at, MutableBytes(buffer.data(), n)).ok()) return "";
+        h.update(Bytes(buffer.data(), n));
+        at += n;
+    }
+    return Sha256::hex(h.finish());
+}
+
+std::string file_sha256(const std::string& path) {
+    auto file = File::open(path, File::Mode::read);
+    return file.ok() ? sha256_of(*file) : "";
+}
+
+} // namespace
+
 std::optional<AmprState> ampr_state(const std::string& path, const std::string& passcode) {
     PathStat st = stat_path(path);
     if (st.kind == PathKind::missing && !convert::is_provided(path)) return std::nullopt;
     // Opening a large package and reading its eboot.bin takes a moment.
     std::string key = path + "|" + std::to_string(st.size) + "|" + std::to_string(st.mtime);
+    // A folder's own mtime misses a changed fakelib file.
+    if (st.kind == PathKind::directory)
+        for (const char* dir : {"/fakelib/", "/fakelib2/"}) {
+            PathStat f = stat_path(path + dir + ampr_emu::kFileName);
+            key += "|" + std::to_string(f.size) + "|" + std::to_string(f.mtime);
+        }
     static std::mutex mutex;
     static std::map<std::string, std::optional<AmprState>> cache;
     {
@@ -653,6 +683,15 @@ std::optional<AmprState> ampr_state(const std::string& path, const std::string& 
             const tree::Node* sprx =
                 fakelib && fakelib->is_directory ? tree::find_child_icase(*fakelib, ampr_emu::kFileName) : nullptr;
             a.ships_in_fakelib = sprx && !sprx->is_directory;
+            if (a.ships) {
+                const tree::Node* dir = tree::find_child_icase(input->tree->root(), c->fakelib);
+                const tree::Node* own = dir ? tree::find_child_icase(*dir, ampr_emu::kFileName) : nullptr;
+                if (own)
+                    if (auto file = input->tree->open(*own); file.ok()) a.ships_sha256 = sha256_of(**file);
+            }
+            a.title_id = ffpfsc::read_title_id(*input->tree, input->tree->root()).value_or("");
+            const tree::Node* zstd = tree::find_child_icase(input->tree->root(), "ampr_zstd.index");
+            a.zstd_packs = zstd && !zstd->is_directory;
             state = a;
         }
     }
@@ -660,6 +699,17 @@ std::optional<AmprState> ampr_state(const std::string& path, const std::string& 
     if (cache.size() > 256) cache.clear();
     cache[key] = state;
     return state;
+}
+
+std::string emulator_in_place(const std::string& path, const AmprState& state, const EngineConfig& config) {
+    if (!is_directory(path) && !state.title_id.empty()) {
+        std::string root = backports_root_for(path, state.title_id, config);
+        for (const char* dir : {"fakelib2", "fakelib"}) {
+            std::string folder = root + "/" + state.title_id + "/" + dir;
+            if (!root.empty() && is_directory(folder)) return file_sha256(folder + "/" + ampr_emu::kFileName);
+        }
+    }
+    return state.ships_sha256;
 }
 
 std::vector<std::string> missing_dependencies(const JobSpec& spec, const EngineConfig& config) {
@@ -714,10 +764,19 @@ Result<JsonValue> run_ampr_emu(const JobSpec& spec, const EngineConfig& config, 
     if (!is_regular_file(config.runtime_path()))
         return make_error(Errc::invalid_argument, "the AMPR emulator is not downloaded; get it in Components first");
     ALEMBIC_ASSIGN(File emulator, File::open(config.runtime_path(), File::Mode::read));
+    const bool replace = spec.ampr_emu == "replace";
     if (progress) progress({"Checking eboot.bin", 0, 0});
+    if (replace) {
+        const std::string passcode = spec.passcode.empty() ? std::string(32, '0') : spec.passcode;
+        auto state = ampr_state(input, passcode);
+        const Dependency* in_use = ampr_runtime_by_hash(sha256_of(emulator));
+        if (state && state->zstd_packs && (!in_use || in_use->id != "ampr_runtime_ng"))
+            return make_error(Errc::invalid_argument,
+                              "this game has zstd packs, which only ampr-emu-ng reads; choose it in Components first");
+    }
     ampr_emu::AttachResult result;
     if (is_directory(input)) {
-        ALEMBIC_ASSIGN(result, ampr_emu::attach_to_folder(input, emulator));
+        ALEMBIC_ASSIGN(result, ampr_emu::attach_to_folder(input, emulator, replace));
     } else {
         const std::string passcode = spec.passcode.empty() ? std::string(32, '0') : spec.passcode;
         ALEMBIC_ASSIGN(convert::Input game, convert::open(input, passcode));
@@ -728,12 +787,14 @@ Result<JsonValue> run_ampr_emu(const JobSpec& spec, const EngineConfig& config, 
         if (!title_id) return make_error(Errc::invalid_argument, "the game has no title ID in sce_sys/param.json or param.sfo");
         std::string root = backports_root_for(input, *title_id, config);
         if (root.empty()) return make_error(Errc::invalid_argument, "no backports folder is set");
-        ALEMBIC_ASSIGN(result, ampr_emu::attach_backport(*game.tree, root, emulator));
+        ALEMBIC_ASSIGN(result, ampr_emu::attach_backport(*game.tree, root, emulator, replace));
     }
     JsonValue r = JsonValue::object();
     r.set("method", result.already_there ? "nothing to do: the emulator is already in place"
-                    : is_directory(input) ? "added the AMPR emulator to the game folder"
-                                          : "added the AMPR emulator as a ShadowMount+ backport");
+                    : is_directory(input) ? (result.replaced ? "replaced the AMPR emulator in the game folder"
+                                                             : "added the AMPR emulator to the game folder")
+                    : result.replaced ? "replaced the AMPR emulator through a ShadowMount+ backport"
+                                      : "added the AMPR emulator as a ShadowMount+ backport");
     r.set("output", result.folder);
     JsonValue written = JsonValue::array();
     for (const std::string& w : result.written) written.push(w);

@@ -86,11 +86,41 @@ void App::open_actions(const Entry& e) {
             req.set("input", e.path);
             api("POST", "/api/plan", req, or_toast([this, e](const Reply& r) {
                     const JsonValue plan = r.json;
-                    if (plan["ships_emulator"].boolean()) {
+                    const bool present = plan.has("emulator_present") ? plan["emulator_present"].boolean()
+                                                                       : plan["ships_emulator"].boolean();
+                    const bool folder = e.kind == "folder";
+                    if (present && (plan["emulator_current"].boolean() || plan["runtime_name"].str().empty())) {
                         toast(t("This game already has the AMPR emulator"), Toast::ok);
                         return;
                     }
-                    const bool folder = e.kind == "folder";
+                    if (present) {
+                        // Another libSceAmpr.sprx than the one in use in Components.
+                        const std::string runtime = plan["runtime_name"].str();
+                        if (plan["zstd_packs"].boolean() && runtime.rfind("ampr-emu-ng", 0) != 0) {
+                            toast(t("This game has zstd packs, which only ampr-emu-ng reads; choose it in Components first"),
+                                  Toast::bad);
+                            return;
+                        }
+                        const std::string old = plan["emulator_name"].str().empty() ? t("another libSceAmpr.sprx")
+                                                                                    : plan["emulator_name"].str();
+                        std::string body = "@" + shown_path(e.path) + "\n\n";
+                        body += t("This game has {old}. Replace it with {new}, the one in use in Components?",
+                                  {{"old", old}, {"new", runtime}});
+                        body += "\n\n~";
+                        body += folder ? t("It is overwritten in the game folder's fakelib.")
+                                       : t("The image is not changed: ShadowMount+ gets a backport folder for this title with the new emulator, which it lays over the game when it starts.");
+                        ask(*this, t("Replace the AMPR emulator?"), text_body(body), t("Replace"), false, [this, e] {
+                            JsonValue job = JsonValue::object();
+                            job.set("kind", "ampr_emu");
+                            job.set("input", e.path);
+                            job.set("ampr_emu", "replace");
+                            post("/api/jobs", job, or_toast([this, e](const Reply&) {
+                                toast(t("Queued: {name}", {{"name", e.name}}), Toast::ok);
+                                refresh_jobs();
+                            }));
+                        });
+                        return;
+                    }
                     std::string body = "@" + shown_path(e.path) + "\n\n";
                     body += plan.has("imports_ampr") && !plan["imports_ampr"].boolean()
                                 ? t("This game does not seem to use the console's APR, so it may not need the emulator. It does no harm to add it.")

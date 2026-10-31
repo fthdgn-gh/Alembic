@@ -122,8 +122,10 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
     s.lz4_runtime = j["lz4_runtime"].str();
     s.lz4_unpack = j["lz4_unpack"].boolean();
     s.ampr_emu = j["ampr_emu"].str("auto");
-    if (s.ampr_emu != "auto" && s.ampr_emu != "always" && s.ampr_emu != "off")
-        return make_error(Errc::invalid_argument, "ampr_emu must be auto, always or off");
+    if (s.ampr_emu == "replace" && s.kind != "ampr_emu")
+        return make_error(Errc::invalid_argument, "ampr_emu replace is only for ampr_emu jobs");
+    if (s.ampr_emu != "auto" && s.ampr_emu != "always" && s.ampr_emu != "off" && s.ampr_emu != "replace")
+        return make_error(Errc::invalid_argument, "ampr_emu must be auto, always, off or replace");
     s.delete_source = j["delete_source"].boolean();
     s.verify = j["verify"].boolean(true);
     s.hide_source = j["hide_source"].boolean();

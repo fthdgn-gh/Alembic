@@ -67,10 +67,11 @@ void usage() {
         "                              uses the console's APR and the game ships none (a game\n"
         "                              run from an image or folder needs it; not for .pkg)\n"
         "        --ampr-emu-always     add it even when the game does not seem to need it\n"
-        "  ampr-emu <input> [--ampr-emu FILE] [--backports DIR] [--passcode P]\n"
+        "  ampr-emu <input> [--ampr-emu FILE [--replace]] [--backports DIR] [--passcode P]\n"
         "        tell whether a game needs ampr_emu; with --ampr-emu, add it: into a game\n"
         "        folder directly, or for an image as a ShadowMount+ backport folder\n"
-        "        DIR/<TITLE_ID>/ (on the console DIR is /data/homebrew/backports)\n"
+        "        DIR/<TITLE_ID>/ (on the console DIR is /data/homebrew/backports);\n"
+        "        --replace puts FILE in place of a libSceAmpr.sprx the game already has\n"
         "  fpkg-build <input> <out.pkg> --keys DIR [--seed HEX32] [--package-passcode P]\n"
         "             [--compression stored|kraken] [--overwrite]\n"
         "        build a debug FPKG from a game folder or image; DIR holds ProsperoPkgTool's\n"
@@ -872,18 +873,18 @@ int cmd_ampr_emu(const Args& args) {
     Result<ampr_emu::AttachResult> r = make_error(Errc::invalid_argument, "");
     if (input->format == convert::Format::folder) {
         input->tree.reset();
-        r = ampr_emu::attach_to_folder(path, *file);
+        r = ampr_emu::attach_to_folder(path, *file, args.get("--replace").has_value());
     } else {
         auto backports = args.get("--backports");
         if (!backports)
             return std::fputs("error: an image cannot be changed in place; pass --backports DIR to write a "
                               "ShadowMount+ backport folder (or convert it again with --ampr-emu)\n", stderr), 2;
-        r = ampr_emu::attach_backport(*input->tree, *backports, *file);
+        r = ampr_emu::attach_backport(*input->tree, *backports, *file, args.get("--replace").has_value());
     }
     if (!r.ok()) return fail(r.error());
     for (const std::string& n : r->notes) std::printf("note: %s\n", n.c_str());
     if (r->already_there) return std::printf("nothing to do\n"), 0;
-    std::printf("wrote to %s:\n", r->folder.c_str());
+    std::printf("%s %s:\n", r->replaced ? "replaced the emulator; wrote to" : "wrote to", r->folder.c_str());
     for (const std::string& w : r->written) std::printf("  %s\n", w.c_str());
     return 0;
 }
@@ -930,7 +931,7 @@ int main(int argc, char** argv) {
         return cmd_convert(
             parse(argc, argv, {"--no-ampr", "--case-sensitive", "--overwrite", "--rebuild", "--lz4", "--lz4-unpack",
                                     "--ampr-emu-always"}));
-    if (command == "ampr-emu") return cmd_ampr_emu(parse(argc, argv, {}));
+    if (command == "ampr-emu") return cmd_ampr_emu(parse(argc, argv, {"--replace"}));
     if (command == "lz4-verify") return cmd_lz4_verify(parse(argc, argv, {}));
     if (command == "lz4-info") return cmd_lz4_info(parse(argc, argv, {}));
     if (command == "same") return cmd_same(parse(argc, argv, {}));

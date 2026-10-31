@@ -41,6 +41,13 @@ std::shared_ptr<File> emulator_file(const std::string& dir) {
     return f.ok() ? std::make_shared<File>(std::move(*f)) : nullptr;
 }
 
+// Another emulator build, for replacing.
+std::shared_ptr<File> other_emulator_file(const std::string& dir) {
+    test::write_file(dir + "/other-libSceAmpr.sprx", filler(23456, 4));
+    auto f = File::open(dir + "/other-libSceAmpr.sprx", File::Mode::read);
+    return f.ok() ? std::make_shared<File>(std::move(*f)) : nullptr;
+}
+
 } // namespace
 
 TEST_CASE(ampr_emu_check_finds_the_import) {
@@ -169,6 +176,27 @@ TEST_CASE(ampr_emu_attach_to_folder) {
     auto again = ampr_emu::attach_to_folder(game, *emulator);
     REQUIRE_OK(again);
     CHECK(again->already_there);
+
+    // Another emulator: left alone, unless replacing.
+    auto other = other_emulator_file(tmp);
+    CHECK(other != nullptr);
+    if (!other) return;
+    auto kept = ampr_emu::attach_to_folder(game, *other);
+    REQUIRE_OK(kept);
+    CHECK(kept->already_there);
+    CHECK(test::read_file(game + "/fakelib/libSceAmpr.sprx") == filler(12345, 9));
+    auto index = test::read_file(game + "/ampr_emu.index");
+    auto replaced = ampr_emu::attach_to_folder(game, *other, true);
+    REQUIRE_OK(replaced);
+    CHECK(replaced->replaced);
+    CHECK(!replaced->already_there);
+    CHECK(replaced->written == std::vector<std::string>{"fakelib/libSceAmpr.sprx"});
+    CHECK(test::read_file(game + "/fakelib/libSceAmpr.sprx") == filler(23456, 4));
+    CHECK(test::read_file(game + "/ampr_emu.index") == index);
+    auto same = ampr_emu::attach_to_folder(game, *other, true);
+    REQUIRE_OK(same);
+    CHECK(same->already_there);
+    CHECK(!same->replaced);
 }
 
 TEST_CASE(ampr_emu_attach_backport) {
@@ -208,4 +236,51 @@ TEST_CASE(ampr_emu_attach_backport) {
     CHECK(is_regular_file(tmp2 + "/PPSA01234/fakelib/libSceAmpr.sprx"));
     CHECK(!path_exists(tmp2 + "/PPSA01234/fakelib/libSceAgc.sprx"));
     CHECK(is_regular_file(tmp2 + "/PPSA01234/fakelib/libScePsml.sprx"));
+
+    // Replacing the emulator of a backport folder.
+    auto other = other_emulator_file(tmp);
+    CHECK(other != nullptr);
+    if (!other) return;
+    auto kept = ampr_emu::attach_backport(*image->tree, backports, *other);
+    REQUIRE_OK(kept);
+    CHECK(kept->already_there);
+    auto replaced = ampr_emu::attach_backport(*image->tree, backports, *other, true);
+    REQUIRE_OK(replaced);
+    CHECK(replaced->replaced);
+    CHECK(test::read_file(bp + "/fakelib/libSceAmpr.sprx") == filler(23456, 4));
+    CHECK(test::read_file(bp + "/fakelib/libSceAgc.sprx") == filler(5000, 2));
+}
+
+TEST_CASE(ampr_emu_replace_in_an_image) {
+    // An image that ships an emulator: replacing writes a backport folder.
+    std::string tmp = test::make_temp_dir();
+    std::string game = make_game(tmp, true);
+    auto emulator = emulator_file(tmp);
+    CHECK(emulator != nullptr);
+    if (!emulator) return;
+    REQUIRE_OK(ampr_emu::attach_to_folder(game, *emulator));
+    convert::Options plain;
+    plain.ffpfsc.build_timestamp = 1;
+    REQUIRE_OK(convert::run(game, tmp + "/game.ffpfsc", convert::Format::ffpfsc, plain));
+    auto image = convert::open(tmp + "/game.ffpfsc");
+    REQUIRE_OK(image);
+
+    std::string backports = tmp + "/backports", bp = backports + "/PPSA01234";
+    auto same = ampr_emu::attach_backport(*image->tree, backports, *emulator, true);
+    REQUIRE_OK(same);
+    CHECK(same->already_there);
+    CHECK(!path_exists(bp));
+    auto other = other_emulator_file(tmp);
+    CHECK(other != nullptr);
+    if (!other) return;
+    auto kept = ampr_emu::attach_backport(*image->tree, backports, *other);
+    REQUIRE_OK(kept);
+    CHECK(kept->already_there);
+    CHECK(!path_exists(bp));
+    auto replaced = ampr_emu::attach_backport(*image->tree, backports, *other, true);
+    REQUIRE_OK(replaced);
+    CHECK(replaced->replaced);
+    CHECK(test::read_file(bp + "/fakelib/libSceAmpr.sprx") == filler(23456, 4));
+    CHECK(test::read_file(bp + "/fakelib/libSceAgc.sprx") == filler(5000, 2));
+    CHECK(!path_exists(bp + "/ampr_emu.index")); // the game has its own
 }

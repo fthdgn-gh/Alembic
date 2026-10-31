@@ -179,10 +179,10 @@ Result<std::unique_ptr<tree::Source>> add(const tree::Source& source, const Chec
 
 namespace {
 
-// Writes `data` to a new file at `path` (never over an existing one).
-Status write_copy(const RandomAccess& data, const std::string& path) {
+// Writes `data` to a new file at `path` (over an existing one only with `overwrite`).
+Status write_copy(const RandomAccess& data, const std::string& path, bool overwrite = false) {
     ALEMBIC_ASSIGN(std::uint64_t size, data.size());
-    ALEMBIC_ASSIGN(AtomicOutput out, AtomicOutput::create(path, false));
+    ALEMBIC_ASSIGN(AtomicOutput out, AtomicOutput::create(path, overwrite));
     std::vector<std::uint8_t> buffer(1 << 20);
     for (std::uint64_t at = 0; at < size;) {
         auto n = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), size - at));
@@ -209,6 +209,37 @@ public:
 private:
     const RandomAccess& base_;
 };
+
+// Whether `a` and `b` hold the same bytes.
+Result<bool> same_content(const RandomAccess& a, const RandomAccess& b) {
+    ALEMBIC_ASSIGN(std::uint64_t size, a.size());
+    ALEMBIC_ASSIGN(std::uint64_t other, b.size());
+    if (size != other) return false;
+    std::vector<std::uint8_t> x(1 << 20), y(1 << 20);
+    for (std::uint64_t at = 0; at < size;) {
+        auto n = static_cast<std::size_t>(std::min<std::uint64_t>(x.size(), size - at));
+        ALEMBIC_TRY(a.read_at(at, MutableBytes(x.data(), n)));
+        ALEMBIC_TRY(b.read_at(at, MutableBytes(y.data(), n)));
+        if (std::memcmp(x.data(), y.data(), n) != 0) return false;
+        at += n;
+    }
+    return true;
+}
+
+// The game's own <fakelib>/libSceAmpr.sprx (check.ships_emulator), in its spelling.
+const tree::Node* shipped_emulator(const tree::Source& game, const Check& check) {
+    const tree::Node* dir = child_dir(game.root(), check.fakelib.c_str());
+    const tree::Node* sprx = dir ? tree::find_child_icase(*dir, kFileName) : nullptr;
+    return sprx && !sprx->is_directory ? sprx : nullptr;
+}
+
+// Whether the game's own libSceAmpr.sprx is `emulator`.
+Result<bool> ships_this(const tree::Source& game, const Check& check, const RandomAccess& emulator) {
+    const tree::Node* sprx = shipped_emulator(game, check);
+    if (!sprx) return false;
+    ALEMBIC_ASSIGN(auto file, game.open(*sprx));
+    return same_content(*file, emulator);
+}
 
 bool has_root_file(const tree::Node& root, const char* name) {
     const tree::Node* n = tree::find_child_icase(root, name);
@@ -240,21 +271,30 @@ Status refuse_ps4(const tree::Source& game) {
 
 } // namespace
 
-Result<AttachResult> attach_to_folder(const std::string& folder, const RandomAccess& emulator,
+Result<AttachResult> attach_to_folder(const std::string& folder, const RandomAccess& emulator, bool replace,
                                       const ProgressFn& progress) {
     ALEMBIC_ASSIGN(auto game, tree::open_folder(folder));
     ALEMBIC_TRY(refuse_ps4(*game));
     AttachResult r;
     ALEMBIC_ASSIGN(r.check, check(*game, progress));
     r.folder = folder;
+    std::string rel = r.check.fakelib + "/" + kFileName;
     if (r.check.ships_emulator) {
-        r.already_there = true;
-        r.notes.push_back("the game already has " + r.check.fakelib + "/" + kFileName);
+        const std::string own = r.check.fakelib + "/" + shipped_emulator(*game, r.check)->name;
+        ALEMBIC_ASSIGN(bool same, ships_this(*game, r.check, emulator));
+        if (!replace || same) {
+            r.already_there = true;
+            r.notes.push_back(same ? "the game already has this emulator in " + own : "the game already has " + own);
+            return r;
+        }
+        if (progress && !progress({"Writing the emulator", 0, 0})) return make_error(Errc::cancelled, "cancelled");
+        ALEMBIC_TRY(write_copy(emulator, folder + "/" + own, true));
+        r.written.push_back(own);
+        r.replaced = true;
         return r;
     }
     if (!r.check.imports_ampr) r.notes.push_back("eboot.bin does not name libSceAmpr; the emulator was added anyway");
     if (progress && !progress({"Writing the emulator", 0, 0})) return make_error(Errc::cancelled, "cancelled");
-    std::string rel = r.check.fakelib + "/" + kFileName;
     if (!has_root_file(game->root(), "ampr_emu.index")) {
         ALEMBIC_ASSIGN(std::vector<std::uint8_t> index, index_with_emulator(*game, r.check, emulator));
         ALEMBIC_TRY(write_bytes(index, folder + "/ampr_emu.index"));
@@ -266,14 +306,18 @@ Result<AttachResult> attach_to_folder(const std::string& folder, const RandomAcc
 }
 
 Result<AttachResult> attach_backport(const tree::Source& game, const std::string& backports_root,
-                                     const RandomAccess& emulator, const ProgressFn& progress) {
+                                     const RandomAccess& emulator, bool replace, const ProgressFn& progress) {
     ALEMBIC_TRY(refuse_ps4(game));
     AttachResult r;
     ALEMBIC_ASSIGN(r.check, check(game, progress));
     if (r.check.ships_emulator) {
-        r.already_there = true;
-        r.notes.push_back("the game already has " + r.check.fakelib + "/" + kFileName);
-        return r;
+        ALEMBIC_ASSIGN(bool same, replace ? ships_this(game, r.check, emulator) : Result<bool>(false));
+        if (!replace || same) {
+            r.already_there = true;
+            r.notes.push_back((same ? "the game already has this emulator in " : "the game already has ") +
+                              r.check.fakelib + "/" + kFileName);
+            return r;
+        }
     }
     std::optional<std::string> title_id = ffpfsc::read_title_id(game, game.root());
     if (!title_id) return make_error(Errc::invalid_argument, "the game has no title ID in sce_sys/param.json or param.sfo");
@@ -292,8 +336,16 @@ Result<AttachResult> attach_backport(const tree::Source& game, const std::string
     if (target.empty()) target = r.check.fakelib;
     std::string rel = target + "/" + kFileName;
     if (path_exists(r.folder + "/" + rel)) {
-        r.already_there = true;
-        r.notes.push_back("the backport folder already has " + rel);
+        ALEMBIC_ASSIGN(File existing, File::open(r.folder + "/" + rel, File::Mode::read));
+        ALEMBIC_ASSIGN(bool same, same_content(existing, emulator));
+        if (!replace || same) {
+            r.already_there = true;
+            r.notes.push_back((same ? "the backport folder already has this emulator in " : "the backport folder already has ") + rel);
+            return r;
+        }
+        ALEMBIC_TRY(write_copy(emulator, r.folder + "/" + rel, true));
+        r.written.push_back(rel);
+        r.replaced = true;
         return r;
     }
     if (!fresh) {
@@ -320,6 +372,7 @@ Result<AttachResult> attach_backport(const tree::Source& game, const std::string
     }
     ALEMBIC_TRY(write_copy(emulator, r.folder + "/" + rel));
     r.written.push_back(rel);
+    r.replaced = r.check.ships_emulator; // laid over the game's own
     return r;
 }
 

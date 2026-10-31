@@ -2670,6 +2670,17 @@ What it took:
 - **ShadowMount+'s `update_emulators=1`** replaces a game's fakelib
   `libSceAmpr.sprx` with the one in its emulators folder, if there is one
   there: the component's text says to turn it off.
+- **Replacing a game's emulator** (owner: "just add it to the fakelib
+  folder, like the ones we added after the fact"): "Add the AMPR emulator"
+  on a game whose libSceAmpr.sprx (its backport's, for an image) differs
+  from the one in use offers "Replace" (`ampr_emu: "replace"`, CLI
+  `ampr-emu --replace`): a folder's file is overwritten in place, an image
+  gets (or its backport gets) the new one in a backport folder. No backup,
+  no Convert option (owner's choice). The plan names both (`emulator_name`,
+  `runtime_name`, `emulator_current`). A game with `ampr_zstd.index` only
+  gets ampr-emu-ng. ampr_emu.index is left as it is: its size for
+  `fakelib/libSceAmpr.sprx` goes stale, which nothing reads (ShadowMount+
+  mounts fakelib outside /app0).
 - **Not yet:** tried on the console (owner, with a local build); writing
   zstd packs (a port of the ps5-dump-forge writer, libzstd 1.5.7 to match
   it, its random archive ID would need a seed for an oracle). Waiting on

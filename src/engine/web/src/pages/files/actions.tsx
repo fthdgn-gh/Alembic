@@ -94,7 +94,11 @@ async function addAmpr(e: Entry) {
   let plan: Plan;
   try { plan = await api<Plan>("POST", "/api/plan", { kind: "ampr_emu", input: e.path }); }
   catch (err: any) { toast(tMsg(err.message), "bad"); return; }
-  if (plan.ships_emulator) { toast(t("This game already has the AMPR emulator"), "ok"); return; }
+  const present = plan.emulator_present === undefined ? !!plan.ships_emulator : plan.emulator_present;
+  if (present) {
+    if (plan.emulator_current || !plan.runtime_name) { toast(t("This game already has the AMPR emulator"), "ok"); return; }
+    return replaceAmpr(e, plan);
+  }
   const body = <div>
     <div class="mono">{shownPath(e.path)}</div>
     <p>{plan.imports_ampr === false ? t("This game does not seem to use the console's APR, so it may not need the emulator. It does no harm to add it.")
@@ -106,6 +110,25 @@ async function addAmpr(e: Entry) {
   try {
     if (!await getNeeds(plan, "This needs {name}, which isn't downloaded yet.")) return;
     await api("POST", "/api/jobs", { kind: "ampr_emu", input: e.path });
+    toast(t("Queued: {name}", { name: e.name }), "ok"); refreshJobs();
+  } catch (err: any) { toast(tMsg(err.message), "bad"); }
+}
+
+// The game has another libSceAmpr.sprx than the one in use in Components.
+async function replaceAmpr(e: Entry, plan: Plan) {
+  const isFolder = e.kind === "folder";
+  if (plan.zstd_packs && plan.runtime_name!.indexOf("ampr-emu-ng") !== 0) {
+    toast(t("This game has zstd packs, which only ampr-emu-ng reads; choose it in Components first"), "bad"); return;
+  }
+  const body = <div>
+    <div class="mono">{shownPath(e.path)}</div>
+    <p>{t("This game has {old}. Replace it with {new}, the one in use in Components?", { old: plan.emulator_name || t("another libSceAmpr.sprx"), new: plan.runtime_name! })}</p>
+    <p class="muted">{isFolder ? t("It is overwritten in the game folder's fakelib.")
+      : t("The image is not changed: ShadowMount+ gets a backport folder for this title with the new emulator, which it lays over the game when it starts.")}</p>
+  </div>;
+  if (!await ask({ title: t("Replace the AMPR emulator?"), body, ok: t("Replace") })) return;
+  try {
+    await api("POST", "/api/jobs", { kind: "ampr_emu", input: e.path, ampr_emu: "replace" });
     toast(t("Queued: {name}", { name: e.name }), "ok"); refreshJobs();
   } catch (err: any) { toast(tMsg(err.message), "bad"); }
 }

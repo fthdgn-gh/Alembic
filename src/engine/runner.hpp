@@ -108,9 +108,16 @@ struct AmprState {
     bool imports = false;        // eboot.bin uses the console's APR
     bool ships = false;          // its selected fakelib holds libSceAmpr.sprx
     bool ships_in_fakelib = false; // fakelib/libSceAmpr.sprx itself (what LZ4 packing uses)
+    std::string ships_sha256;      // of that libSceAmpr.sprx (ships)
+    std::string title_id;
+    bool zstd_packs = false;       // ampr_zstd.index at the root: only ampr-emu-ng reads those
     bool needed() const { return imports && !ships; }
 };
 std::optional<AmprState> ampr_state(const std::string& path, const std::string& passcode);
+// SHA-256 of the libSceAmpr.sprx the game runs with: an image's backport
+// folder's, when it has one (it replaces the game's whole fakelib), else the
+// game's own; "" when there is none.
+std::string emulator_in_place(const std::string& path, const AmprState& state, const EngineConfig& config);
 // The folder an "ampr_emu" job writes the backport into for this image:
 // <scan path>/backports when a backport for the title is already there (it
 // would win over the fallback), else config.backports_root.

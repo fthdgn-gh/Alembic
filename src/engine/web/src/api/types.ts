@@ -189,6 +189,12 @@ export interface Plan {
   ampr_needed?: boolean;
   ships_emulator?: boolean;
   imports_ampr?: boolean;
+  // "ampr_emu" plans: the libSceAmpr.sprx the game runs with (its backport's, for an image)
+  emulator_present?: boolean;
+  emulator_name?: string;    // "ampr_emu 0.4.2.1" when it is a known build, else ""
+  emulator_current?: boolean; // it is the one in use in Components
+  runtime_name?: string;     // the one in use in Components
+  zstd_packs?: boolean;
 }
 
 // GET /api/names (name_formats.hpp): the formats Rename suggests names with.

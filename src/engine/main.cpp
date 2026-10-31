@@ -2106,6 +2106,18 @@ private:
                 if (auto a = ampr_state(spec->input, spec->passcode.empty() ? std::string(32, '0') : spec->passcode)) {
                     v.set("imports_ampr", a->imports);
                     v.set("ships_emulator", a->ships);
+                    // Which one it runs with, and the one in use here: the
+                    // page offers to replace it when they differ.
+                    const std::string in_place = emulator_in_place(spec->input, *a, config_);
+                    const std::string runtime_path = config_.runtime_path();
+                    const std::string ours = is_regular_file(runtime_path) ? file_sha256(runtime_path) : "";
+                    const Dependency* known = in_place.empty() ? nullptr : ampr_runtime_by_hash(in_place);
+                    const Dependency* chosen = ours.empty() ? nullptr : ampr_runtime_by_hash(ours);
+                    v.set("emulator_present", !in_place.empty());
+                    v.set("emulator_name", known ? known->short_name : std::string());
+                    v.set("emulator_current", !in_place.empty() && in_place == ours);
+                    v.set("runtime_name", chosen ? chosen->short_name : std::string());
+                    v.set("zstd_packs", a->zstd_packs);
                 }
                 v.set("needs", std::move(needs));
                 if (missing && queue) v.set("error", std::string("this needs the AMPR emulator; get it in Components first"));

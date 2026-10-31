@@ -32,6 +32,7 @@ ENGINE = [
     # how a conversion was done
     "LZ4-packed and {rest}", "LZ4-unpacked and {rest}", "added the AMPR emulator and {rest}",
     "added the AMPR emulator to the game folder", "added the AMPR emulator as a ShadowMount+ backport",
+    "replaced the AMPR emulator in the game folder", "replaced the AMPR emulator through a ShadowMount+ backport",
     "nothing to do: the emulator is already in place",
     "built a debug package from the file tree", "built a PS4 package from the file tree", "built a new exFAT image from the file tree",
     "built a new exFAT image from the file tree and compressed it", "built a new exFAT image from the folder and compressed it",
