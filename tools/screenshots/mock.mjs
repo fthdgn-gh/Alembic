@@ -48,7 +48,7 @@ const DIRS = {
     g("/data/homebrew", "Tidewalker.exfat", "exfat", 63.2 * GB),
   ],
   "/mnt/usb0": [{ name: "homebrew", path: "/mnt/usb0/homebrew", kind: "folder", mtime: mt }],
-  "/mnt/usb0/homebrew": [g("/mnt/usb0/homebrew", "Mossback.ffpfsc", "ffpfsc", 8.2 * GB)],
+  "/mnt/usb0/homebrew": [g("/mnt/usb0/homebrew", "Mossback.ffpfsc", "ffpfsc", 8.2 * GB), g("/mnt/usb0/homebrew", "Ember Lane.pkg", "fpkg", 31.5 * GB)],
   [PCROOT]: [
     g(PCROOT, "Ember Lane.pkg", "fpkg", 31.5 * GB),
     g(PCROOT, "Glass Meridian.pkg", "fpkg", 54.0 * GB),

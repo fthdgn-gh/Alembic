@@ -67,6 +67,7 @@ JsonValue JobSpec::to_json() const {
     j.set("to", to);
     j.set("level", level);
     j.set("pkg_compression", pkg_compression);
+    if (!install_via.empty()) j.set("install_via", install_via);
     j.set("overwrite", overwrite);
     j.set("rebuild", rebuild);
     if (!passcode.empty()) j.set("passcode", passcode);
@@ -102,6 +103,9 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
     s.pkg_compression = j["pkg_compression"].str("stored");
     if (s.pkg_compression != "stored" && s.pkg_compression != "kraken")
         return make_error(Errc::invalid_argument, "pkg_compression must be stored or kraken");
+    s.install_via = j["install_via"].str();
+    if (!s.install_via.empty() && s.install_via != "http")
+        return make_error(Errc::invalid_argument, "install_via must be empty or http");
     s.overwrite = j["overwrite"].boolean();
     s.rebuild = j["rebuild"].boolean();
     s.passcode = j["passcode"].str();

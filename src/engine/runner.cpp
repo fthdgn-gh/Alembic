@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runner.hpp"
+#include "netfs.hpp"
+#include "pkg_sources.hpp"
 #include "deps.hpp"
 #include "fs_ops.hpp"
 #include "game_meta.hpp"
@@ -743,10 +745,19 @@ Result<JsonValue> run_install(const JobSpec& spec, const EngineConfig& config, c
     std::string content_id, title;
     GameMetaCache cache(config.state_dir);
     if (auto m = cache.meta(input); m.ok()) { content_id = m->content_id; title = m->title; }
+    // The installer sees the console's own drives only: a package elsewhere
+    // (a network server, a paired engine, a browser) goes over HTTP.
+    const bool elsewhere = input.rfind("/peer/", 0) == 0 || netfs::Servers::handles(input) || convert::is_provided(input);
+    std::string uri = input;
+    if (spec.install_via == "http" || elsewhere) {
+        ALEMBIC_ASSIGN(std::string token, pkg_sources::add(input));
+        uri = "http://127.0.0.1:" + std::to_string(config.http_port) + "/pkg-source/" + token + ".pkg";
+    }
     if (progress) progress({"Handing it to the system installer", 0, 0});
-    ALEMBIC_TRY(platform::install_package(input, content_id, title));
+    ALEMBIC_TRY(platform::install_package(uri, content_id, title));
     JsonValue r = JsonValue::object();
     r.set("method", "handed to the system installer; it installs in the background (see Downloads)");
+    if (uri != input) r.set("url", uri); // its requests: /api/pkg-sources
     return r;
 }
 

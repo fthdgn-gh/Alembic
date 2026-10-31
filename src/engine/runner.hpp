@@ -16,6 +16,7 @@ namespace alembic::engine {
 
 struct EngineConfig {
     std::string state_dir;
+    std::uint16_t http_port = 5940; // the page and API; packages for the installer (pkg_sources.hpp)
     std::vector<std::string> roots; // inputs, outputs and browsing stay below these
     std::string runtime_path;       // ampr_emu's PackedStdio libSceAmpr.sprx (LZ4 packs and the AMPR emulator)
     // Where "ampr_emu" jobs put ShadowMount+ backport folders for images:

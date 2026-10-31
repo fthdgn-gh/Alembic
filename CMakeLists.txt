@@ -232,6 +232,7 @@ if(ALEMBIC_BUILD_ENGINE)
         src/engine/smp.cpp
         src/engine/text_file.cpp
         src/engine/update.cpp
+        src/engine/pkg_sources.cpp
         src/engine/tls.cpp
         src/engine/webdav.cpp
         ${ALEMBIC_ENGINE_PLATFORM}

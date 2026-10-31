@@ -3,9 +3,11 @@
 
 #include "net.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <string_view>
+#include <vector>
 
 namespace alembic::engine {
 
@@ -54,14 +56,26 @@ std::string trim(std::string s) {
     return s;
 }
 
-void write_response(net::Socket fd, const HttpResponse& r) {
+void write_response(net::Socket fd, const HttpResponse& r, bool head_only = false) {
     std::string head = "HTTP/1.1 " + std::to_string(r.status) + " " + reason(r.status) + "\r\n";
     head += "Content-Type: " + r.content_type + "\r\n";
-    head += "Content-Length: " + std::to_string(r.body.size()) + "\r\n";
+    head += "Content-Length: " + std::to_string(r.stream ? r.stream_length : r.body.size()) + "\r\n";
     head += "Connection: close\r\nCache-Control: no-store\r\n";
     for (const auto& [k, v] : r.headers) head += k + ": " + v + "\r\n";
     head += "\r\n";
-    if (send_all(fd, head.data(), head.size())) send_all(fd, r.body.data(), r.body.size());
+    if (!send_all(fd, head.data(), head.size()) || head_only) return;
+    if (!r.stream) {
+        send_all(fd, r.body.data(), r.body.size());
+        return;
+    }
+    // A file range, a piece at a time (the client may stop reading early).
+    std::vector<std::uint8_t> piece(std::min<std::uint64_t>(r.stream_length, 1u << 20));
+    for (std::uint64_t done = 0; done < r.stream_length;) {
+        const auto n = static_cast<std::size_t>(std::min<std::uint64_t>(piece.size(), r.stream_length - done));
+        if (!r.stream->read_at(r.stream_offset + done, MutableBytes(piece.data(), n)).ok()) return;
+        if (!send_all(fd, reinterpret_cast<const char*>(piece.data()), n)) return;
+        done += n;
+    }
 }
 
 HttpResponse error_response(int status, const std::string& message) {
@@ -234,7 +248,7 @@ void HttpServer::serve(net::Socket fd, std::string peer) {
         req.body.append(buf, static_cast<std::size_t>(n));
     }
     req.body.resize(length);
-    write_response(fd, handler_(req));
+    write_response(fd, handler_(req), req.method == "HEAD");
 }
 
 } // namespace alembic::engine

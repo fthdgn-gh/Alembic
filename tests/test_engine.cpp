@@ -548,3 +548,56 @@ TEST_CASE(update_recognises_and_renames_payloads) {
     // Both are 0.2.3 now: nothing left to update.
     CHECK(find_payloads({root + "/pldmgr", auto_dir}, 3, "0.2.3").empty());
 }
+
+// Packages served to the console's installer (pkg_sources.hpp): ranges,
+// HEAD, refusals, and the record of what was asked for.
+#include "pkg_sources.hpp"
+
+TEST_CASE(pkg_sources_serve_ranges) {
+    std::string dir = test::make_temp_dir();
+    std::vector<std::uint8_t> data(3 * 1024 * 1024 + 7);
+    for (std::size_t i = 0; i < data.size(); ++i) data[i] = static_cast<std::uint8_t>(i * 131 + (i >> 9));
+    test::write_file(dir + "/game.pkg", data);
+    auto token = pkg_sources::add(dir + "/game.pkg");
+    REQUIRE_OK(token);
+    auto get = [&](const std::string& method, const std::string& range, const std::string& peer = "127.0.0.1",
+                   const std::string& name = "") {
+        HttpRequest r;
+        r.method = method;
+        r.path = "/pkg-source/" + (name.empty() ? *token : name) + ".pkg";
+        r.peer = peer;
+        if (!range.empty()) r.headers["range"] = range;
+        return pkg_sources::serve(r);
+    };
+    auto bytes = [&](const HttpResponse& r) {
+        std::vector<std::uint8_t> out(static_cast<std::size_t>(r.stream_length));
+        if (r.stream && !out.empty()) (void)r.stream->read_at(r.stream_offset, MutableBytes(out.data(), out.size()));
+        return out;
+    };
+    auto whole = get("GET", "");
+    CHECK(whole.status == 200 && whole.stream_length == data.size() && bytes(whole) == data);
+    auto head = get("HEAD", "");
+    CHECK(head.status == 200 && head.stream_length == data.size());
+    auto mid = get("GET", "bytes=1000-1999");
+    CHECK(mid.status == 206 && mid.headers["Content-Range"] == "bytes 1000-1999/" + std::to_string(data.size()));
+    CHECK(bytes(mid) == std::vector<std::uint8_t>(data.begin() + 1000, data.begin() + 2000));
+    auto open_end = get("GET", "bytes=3145000-");
+    CHECK(open_end.status == 206 && open_end.stream_length == data.size() - 3145000);
+    auto tail = get("GET", "bytes=-100");
+    CHECK(tail.status == 206 && tail.stream_offset == data.size() - 100 && tail.stream_length == 100);
+    auto past = get("GET", "bytes=999999999-");
+    CHECK(past.status == 416);
+    CHECK(get("GET", "", "192.168.1.5").status == 403); // only this console
+    CHECK(get("GET", "", "127.0.0.1", "0123").status == 404);
+    // The record of what the installer asked for.
+    JsonValue report = pkg_sources::report();
+    bool found = false;
+    for (const JsonValue& s : report.items())
+        if (s["token"].str() == *token) {
+            found = true;
+            CHECK(s["requests"].integer() == 6); // the refused two never reach a source
+            CHECK(s["log"].items().size() == 6);
+            CHECK(s["highest_end"].integer() == static_cast<std::int64_t>(data.size()));
+        }
+    CHECK(found);
+}

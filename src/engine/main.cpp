@@ -78,6 +78,7 @@
 #include "places.hpp"
 #include "platform.hpp"
 #include "netfs.hpp"
+#include "pkg_sources.hpp"
 #include "tls.hpp"
 #include "remote.hpp"
 #include "runner.hpp"
@@ -462,6 +463,9 @@ private:
             resp.body.assign(kIconSvg, kIconSvgSize);
             return resp;
         }
+        // Packages for the console's installer, and how it read them.
+        if (r.path.rfind("/pkg-source/", 0) == 0) return pkg_sources::serve(r);
+        if (r.path == "/api/pkg-sources" && r.method == "GET") return json(200, pkg_sources::report());
         if (r.path == "/api/info" && r.method == "GET") return info();
         if (r.path == "/api/browse" && r.method == "GET") return browse(r);
         if (r.path == "/api/inspect" && r.method == "GET") return inspect(r);
@@ -2181,6 +2185,7 @@ int main(int argc, char** argv) {
         }
     }
     config.roots = roots.empty() ? platform::default_roots() : roots;
+    config.http_port = port;
     config.runtime_path = runtime.empty() ? config.state_dir + "/runtime/libSceAmpr.sprx" : runtime;
     config.backports_root = std::string(platform::name()) == "ps5" ? "/data/homebrew/backports" : config.state_dir + "/backports";
     if (std::string(platform::name()) == "ps5") config.shadowmount_config = "/data/shadowmount/config.ini";

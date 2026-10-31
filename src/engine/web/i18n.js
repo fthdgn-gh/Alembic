@@ -172,6 +172,9 @@ var I18N = {
   "no such job"
  ],
  "tr": {
+  "Install by streaming (test)": "Akışla kur (deneme)",
+  "The console installs it in the background; follow it in Downloads. The engine serves it to the installer: keep the engine running and the file in place until the install has finished.": "Konsol arka planda kurar; İndirilenler'den takip edin. Motor paketi kurucuya sunar: kurulum bitene kadar motoru açık ve dosyayı yerinde tutun.",
+  "The engine serves it to the installer over HTTP and records how it reads it": "Motor paketi kurucuya HTTP üzerinden sunar ve nasıl okuduğunu kaydeder",
   "Encrypt with TLS": "TLS ile şifrele",
   "FTPS: AUTH TLS, or implicit on port 990": "FTPS: AUTH TLS ya da 990 numaralı bağlantı noktasında örtük",
   "HTTPS": "HTTPS",
@@ -862,6 +865,9 @@ var I18N = {
   "built a PS4 package from the file tree": "dosya ağacından PS4 paketi oluşturdu"
  },
  "es": {
+  "Install by streaming (test)": "Instalar en streaming (prueba)",
+  "The console installs it in the background; follow it in Downloads. The engine serves it to the installer: keep the engine running and the file in place until the install has finished.": "La consola lo instala en segundo plano; síguelo en Descargas. El motor se lo sirve al instalador: mantén el motor en marcha y el archivo en su sitio hasta que termine la instalación.",
+  "The engine serves it to the installer over HTTP and records how it reads it": "El motor se lo sirve al instalador por HTTP y registra cómo lo lee",
   "Encrypt with TLS": "Cifrar con TLS",
   "FTPS: AUTH TLS, or implicit on port 990": "FTPS: AUTH TLS, o implícito en el puerto 990",
   "HTTPS": "HTTPS",
@@ -1552,6 +1558,9 @@ var I18N = {
   "built a PS4 package from the file tree": "creó un paquete de PS4 a partir del árbol de archivos"
  },
  "fr": {
+  "Install by streaming (test)": "Installer en streaming (essai)",
+  "The console installs it in the background; follow it in Downloads. The engine serves it to the installer: keep the engine running and the file in place until the install has finished.": "La console l'installe en arrière-plan ; suivez-le dans Téléchargements. Le moteur le sert à l'installateur : gardez le moteur en marche et le fichier en place jusqu'à la fin de l'installation.",
+  "The engine serves it to the installer over HTTP and records how it reads it": "Le moteur le sert à l'installateur par HTTP et enregistre comment il le lit",
   "Encrypt with TLS": "Chiffrer avec TLS",
   "FTPS: AUTH TLS, or implicit on port 990": "FTPS : AUTH TLS, ou implicite sur le port 990",
   "HTTPS": "HTTPS",
@@ -2242,6 +2251,9 @@ var I18N = {
   "built a PS4 package from the file tree": "a créé un paquet PS4 à partir de l'arborescence"
  },
  "de": {
+  "Install by streaming (test)": "Per Streaming installieren (Test)",
+  "The console installs it in the background; follow it in Downloads. The engine serves it to the installer: keep the engine running and the file in place until the install has finished.": "Die Konsole installiert es im Hintergrund; verfolge es unter Downloads. Die Engine liefert es dem Installationsprogramm: lass die Engine laufen und die Datei an ihrem Ort, bis die Installation fertig ist.",
+  "The engine serves it to the installer over HTTP and records how it reads it": "Die Engine liefert es dem Installationsprogramm über HTTP und zeichnet auf, wie es gelesen wird",
   "Encrypt with TLS": "Mit TLS verschlüsseln",
   "FTPS: AUTH TLS, or implicit on port 990": "FTPS: AUTH TLS, oder implizit auf Port 990",
   "HTTPS": "HTTPS",
@@ -2932,6 +2944,9 @@ var I18N = {
   "built a PS4 package from the file tree": "hat aus dem Dateibaum ein PS4-Paket erstellt"
  },
  "ja": {
+  "Install by streaming (test)": "ストリーミングでインストール（テスト）",
+  "The console installs it in the background; follow it in Downloads. The engine serves it to the installer: keep the engine running and the file in place until the install has finished.": "コンソールがバックグラウンドでインストールします。ダウンロードで確認してください。エンジンがインストーラーに配信するので、インストールが終わるまでエンジンを動かしたまま、ファイルをそのままにしてください。",
+  "The engine serves it to the installer over HTTP and records how it reads it": "エンジンが HTTP でインストーラーに配信し、読み取り方を記録します",
   "Encrypt with TLS": "TLS で暗号化",
   "FTPS: AUTH TLS, or implicit on port 990": "FTPS：AUTH TLS、またはポート 990 で暗黙的",
   "HTTPS": "HTTPS",

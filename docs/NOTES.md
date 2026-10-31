@@ -2752,6 +2752,29 @@ What it took:
   **Not tried:** implicit FTPS (port 990 needs root here), a real NAS,
   vsftpd itself, the console.
 
+### 2026-10-31: installing over HTTP (the experiment toward installable images)
+
+- **Why (owner):** images should become installable like FPKGs. Research:
+  `sceAppInstUtilInstallByPackage` takes an `http://` URL as `uri` as well
+  as a path; ps5-web-file-manager (`src/pkg_installer.c`) hands SMB
+  packages over as `http://127.0.0.1:<port>/pkg-source/<id>.pkg`,
+  itsPLK/ps5-pkg-manager and ps5upload install from HTTP with byte ranges,
+  the etaHEN writeup says so too (unverified there). Unknown: what the
+  installer asks for (ranges, order, HEAD), whether it copies the package.
+- **Engine:** `GET`/`HEAD /pkg-source/<token>.pkg` (`pkg_sources.cpp`,
+  127.0.0.1 only, random 128-bit tokens) streams any readable path with
+  `Range` (206, `Content-Range`, `bytes=-n`, 416); the HTTP server can now
+  stream a file range in 1 MiB pieces. Every request is recorded:
+  `GET /api/pkg-sources` (method, range, offset, length, ms, status).
+- **Install jobs:** a package the installer cannot see (network server,
+  paired engine, a browser's file) now goes over that URL by itself;
+  `install_via: "http"` forces it for a local one. Files -> Install by
+  streaming (test), in the page and the app (pictures checked).
+- **Console test (owner):** Install by streaming a small Alembic package,
+  then open `http://<console>:5940/api/pkg-sources` and keep the JSON:
+  it shows how the installer reads. Also: does the install finish, and
+  is the package still needed afterwards?
+
 ## Next session
 
 **Settled (owner, 2026-10-22):**

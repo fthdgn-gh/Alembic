@@ -36,6 +36,9 @@ struct JobSpec {
     std::string to;       // folder, exfat, ffpkg, ffpfsc; empty: from the output name
     int level = 6;        // zlib level for FFPFSC
     std::string pkg_compression = "stored"; // FPKG: stored or kraken (PS4 packages are always stored)
+    // Install: "" hands the installer a path when it can see the file, else
+    // an http:// URL the engine serves (pkg_sources.hpp); "http" always the URL.
+    std::string install_via;
     bool overwrite = false;
     bool rebuild = false; // exFAT input → rebuilt exFAT
     std::string passcode; // FPKG; empty = 32 zeros

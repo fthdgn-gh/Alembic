@@ -45,26 +45,39 @@ void App::open_actions(const Entry& e) {
     };
     if (e.kind == "folder" && e.path != cwd) add(t("Open"), "", false, [this, e] { browse(e.path); });
     if (conv) add(t("Convert\xE2\x80\xA6"), t("To FFPFSC, FFPKG, exFAT or a folder"), false, [this, e] { open_convert(e); });
-    if (e.kind == "fpkg")
-        add(t("Install"), t("Hand it to the console's installer"), false, [this, e] {
+    if (e.kind == "fpkg") {
+        // The installer cannot see packages elsewhere: the engine serves them over HTTP
+        // (Files actions.tsx installPkg); "by streaming" does that for a local one too.
+        const bool elsewhere = e.ftp || !e.peer.empty() || e.shared || e.path.rfind("/peer/", 0) == 0;
+        auto install = [this, e, elsewhere](bool stream) {
             if (!is_ps5()) {
                 toast(t("Installing needs the engine running on a PS5"), Toast::bad);
                 return;
             }
+            const bool streamed = stream || elsewhere;
             ask(*this, t("Install this package?"),
                 text_body("@" + shown_path(e.path) + "\n\n~" +
-                          t("The console installs it in the background; follow it in Downloads. Keep the file until the "
-                            "install has finished.")),
-                t("Install"), false, [this, e] {
+                          (streamed ? t("The console installs it in the background; follow it in Downloads. The engine "
+                                        "serves it to the installer: keep the engine running and the file in place until "
+                                        "the install has finished.")
+                                    : t("The console installs it in the background; follow it in Downloads. Keep the file "
+                                        "until the install has finished."))),
+                t("Install"), false, [this, e, stream] {
                     JsonValue body = JsonValue::object();
                     body.set("kind", "install");
                     body.set("input", e.path);
+                    if (stream) body.set("install_via", "http");
                     post("/api/jobs", body, or_toast([this](const Reply&) {
                         toast(t("Install queued"), Toast::ok);
                         refresh_jobs();
                     }));
                 });
-        });
+        };
+        add(t("Install"), t("Hand it to the console's installer"), false, [install] { install(false); });
+        if (!elsewhere)
+            add(t("Install by streaming (test)"), t("The engine serves it to the installer over HTTP and records how it reads it"),
+                false, [install] { install(true); });
+    }
     if (conv && e.kind != "fpkg")
         add(t("Add the AMPR emulator\xE2\x80\xA6"), t("For games that stop at start from an image or folder"), false, [this, e] {
             JsonValue req = JsonValue::object();

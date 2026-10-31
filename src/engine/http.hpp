@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // A minimal HTTP/1.1 server for the engine API: one request per connection
-// (Connection: close), small bodies, no TLS. Plain sockets (net.hpp), so it runs
+// (Connection: close), small request bodies, no TLS. A reply's body is a
+// string, or a range of a file streamed in pieces (packages for the system
+// installer, pkg_sources.hpp); HEAD gets the headers only. Plain sockets (net.hpp), so it runs
 // the same on the PS5 and on a PC.
 #pragma once
 
+#include "alembic/io.hpp"
 #include "alembic/result.hpp"
 
 #include <atomic>
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -30,6 +34,9 @@ struct HttpResponse {
     std::string content_type = "application/json";
     std::string body;
     std::map<std::string, std::string> headers;
+    // Instead of `body`: [stream_offset, stream_offset + stream_length) of a file.
+    std::shared_ptr<const RandomAccess> stream;
+    std::uint64_t stream_offset = 0, stream_length = 0;
 };
 
 using HttpHandler = std::function<HttpResponse(const HttpRequest&)>;
