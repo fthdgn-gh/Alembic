@@ -25,9 +25,7 @@ export async function openActions(e: Entry) {
   // An image or folder installed like a package: converted, installed, the package deleted.
   if (conv && e.kind !== "fpkg" && info.value && info.value.platform === "ps5")
     items.push({ label: t("Install…"), sub: t("Converts it to a package, installs it, then deletes the package"), value: () => openConvert(e, true) });
-  if (e.kind === "fpkg") items.push({ label: t("Install"), sub: t("Hand it to the console's installer"), value: () => installPkg(e, false) });
-  // An experiment: the installer reads a local package over the engine's HTTP too (it does for packages elsewhere).
-  if (e.kind === "fpkg" && !elsewhere(e)) items.push({ label: t("Install by streaming (test)"), sub: t("The engine serves it to the installer over HTTP and records how it reads it"), value: () => installPkg(e, true) });
+  if (e.kind === "fpkg") items.push({ label: t("Install"), sub: t("Hand it to the console's installer"), value: () => installPkg(e) });
   if (conv && e.kind !== "fpkg") items.push({ label: t("Add the AMPR emulator…"), sub: t("For games that stop at start from an image or folder"), value: () => addAmpr(e) });
   if (conv && e.kind !== "fpkg") items.push(isHiddenName(e.name)
     ? { label: t("Show to ShadowMount+ again"), sub: t("Renames it back to {name}", { name: e.name.slice(1) }), value: () => toggleHidden(e.path) }
@@ -57,17 +55,15 @@ export async function setPlace(path: string, add: boolean) {
 
 // The installer cannot see these itself: the engine serves them over HTTP.
 function elsewhere(e: Entry) { return !!(e.ftp || e.peer || e.shared) || e.path.indexOf("/peer/") === 0; }
-async function installPkg(e: Entry, stream: boolean) {
+async function installPkg(e: Entry) {
   if (info.value && info.value.platform !== "ps5") { toast(t("Installing needs the engine running on a PS5"), "bad"); return; }
-  const streamed = stream || elsewhere(e);
+  const streamed = elsewhere(e);
   const body = <div><div class="mono">{shownPath(e.path)}</div>
     <p class="muted">{streamed
       ? t("The console installs it in the background; follow it in Downloads. The engine serves it to the installer: keep the engine running and the file in place until the install has finished.")
       : t("The console installs it in the background; follow it in Downloads. Keep the file until the install has finished.")}</p></div>;
   if (!await ask({ title: t("Install this package?"), body, ok: t("Install") })) return;
-  const spec: Record<string, unknown> = { kind: "install", input: e.path };
-  if (stream) spec.install_via = "http";
-  try { await api("POST", "/api/jobs", spec); toast(t("Install queued"), "ok"); refreshJobs(); }
+  try { await api("POST", "/api/jobs", { kind: "install", input: e.path }); toast(t("Install queued"), "ok"); refreshJobs(); }
   catch (err: any) { toast(tMsg(err.message), "bad"); }
 }
 

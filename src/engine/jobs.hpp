@@ -42,9 +42,6 @@ struct JobSpec {
     // Convert to FPKG: then hand the package to the installer over HTTP,
     // wait until it has read it all, and delete it (installing an image).
     bool install_after = false;
-    // Tests only (no page or app control): FPKG output with a deliberately
-    // wrong SI digest and checksums (fpkg_build.hpp test_wrong_si_digests).
-    bool test_wrong_si = false;
     bool overwrite = false;
     bool rebuild = false; // exFAT input → rebuilt exFAT
     std::string passcode; // FPKG; empty = 32 zeros

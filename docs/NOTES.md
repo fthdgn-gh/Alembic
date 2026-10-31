@@ -32,6 +32,14 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   downloads third-party files pinned by SHA-256. Inputs can be files shared
   from a PC browser tab or network servers (SMB, NFS, WebDAV, FTP); outputs
   can go to them (formats written front to back only).
+- **Since 0.3.3 (2026-10-31):** Kraken FPKG output (byte-identical to
+  ProsperoPkgTool, ~2x faster on the console after the encoder stopped
+  allocating per block); PS5 packages get a generated debug licence (no
+  lock); Install... on images and folders (convert, install over HTTP,
+  delete; tried on the console); SMB 3 encryption when required; FTPS and
+  HTTPS WebDAV on mbedTLS with certificates pinned on first use.
+  Console limits measured: payloads run on 5 of 16 logical CPUs (mask
+  0xEA00) at priority 700.
 - **Console app** (`app/`, title `PPSA99594`, work for 0.3.0; see the
   2026-10-25 entry): the engine's page drawn natively with
   ps5-homebrew-ui, every section and dialog, talking to the engine on
@@ -2873,6 +2881,26 @@ What it took:
 - **Tested on a PC** with a stand-in installer (`ALEMBIC_FAKE_INSTALLER`:
   the PC engine reads the URL as the console's installer did): converted,
   read, deleted, the source forgotten. **Not tried on the console yet.**
+
+### 2026-10-31: installing on the fly, measured and set aside
+
+- **Console tests:** a package with a deliberately wrong SI (whole-package
+  SHA3 and block CRC32Cs) was refused at once (`0x80b211cd`); the same
+  game with a correct SI installed (stored, from an FFPFSC, with
+  Install..., 89 s, package deleted). So the installer checks the SI, and
+  a package built while the installer reads it needs three generation
+  passes. Estimates on the console: this 1.3 GB game ~90 s stored / ~150
+  s Kraken on the fly vs ~70 / ~80 s today; from a PC engine (network
+  bound) ~25 s; a 100 GB game ~25-30 min from a PC vs ~1.2 h on the
+  console. **Owner: scratch it; keep the improvements.** Install... stays
+  convert, install over HTTP, delete.
+- Removed the test-only pieces: the wrong-SI job option and "Install by
+  streaming (test)". Kept: the HTTP package route (Install..., packages on
+  servers and paired engines), `/api/pkg-sources` and `/api/bench` for
+  diagnosis, the PC stand-in installer (`ALEMBIC_FAKE_INSTALLER`).
+- **Not pursued:** installing on the fly (on the console or from a PC
+  engine), widening the payload's CPU set (kernel-level), a shorter
+  20 s settle before deleting.
 
 ## Next session
 
