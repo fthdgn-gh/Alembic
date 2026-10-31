@@ -2825,11 +2825,17 @@ What it took:
   7.1 on 16: every thread added makes it slower (the Mac scales to
   1.7 GB/s on 14). Conversions use every core, hence 7 MB/s. Fresh vs
   reused tables on one thread: 58 vs 64 MB/s.
-- Two suspects: a shared lock (the allocator) or the process confined to
-  few cores (threads then share them and spin). The bench now also runs
-  SHA-256 (no allocation) and allocation alone on 1..N threads, and
-  reports the CPU affinity (`pthread_getaffinity_np`). Waiting for the
-  console's numbers.
+- Second bench on the console: SHA-256 (no allocation, no locks) 1029,
+  1332, 1559, 1587, 1415 MB/s on 1, 2, 4, 8, 16 threads: the engine gets
+  about 1.5 cores' worth of CPU, whatever the 16 it reports.
+  `pthread_getaffinity_np` gave nothing. Kraken collapses far below that
+  (62 -> 7 MB/s): with so little CPU, threads that allocate dozens of
+  buffers per block wait on the allocator.
+- **Changed:** every encoder buffer (arrays, bit streams, Huffman and
+  package-merge lists) lives in the per-thread `EncoderScratch` and is
+  reused; output unchanged (compare.sh, write_samples.sh). Next: the
+  console's bench again, then cap conversion threads on the console at
+  what it measures best.
 
 ## Next session
 

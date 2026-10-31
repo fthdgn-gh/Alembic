@@ -9,6 +9,7 @@
 
 #include "alembic/io.hpp"
 
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -37,10 +38,17 @@ struct EncodedBlock {
     std::size_t first_chunk_size = 0; // two sub-chunks only
 };
 
-// The match finder's tables, reused from block to block: one per thread.
-// (Allocating them per block costs more than encoding on some systems.)
+// Everything the encoder works in, reused from block to block: one per
+// thread. (On the console, threads that allocate per block mostly wait for
+// the allocator.)
 struct EncoderScratch {
-    std::vector<int> head, prev;
+    EncoderScratch();
+    ~EncoderScratch();
+    EncoderScratch(EncoderScratch&&) noexcept;
+    EncoderScratch& operator=(EncoderScratch&&) noexcept;
+    std::vector<int> head, prev; // the match finder's tables
+    struct Buffers;              // the arrays and bit streams (kraken_encode.cpp)
+    std::unique_ptr<Buffers> buffers;
 };
 
 // Encodes one block of 8 bytes to 256 KiB as ProsperoPkgTool's
