@@ -11,6 +11,7 @@
 // and the header are written, and one read-back pass over the package gives
 // the SI's whole-image digest and per-block CRC32Cs.
 #include "alembic/fpkg_build.hpp"
+#include "alembic/fpkg_ps4.hpp"
 
 #include "alembic/bytes.hpp"
 #include "alembic/fpkg.hpp"
@@ -572,12 +573,32 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
                                                          " next to it; generating DDS pictures is not supported yet");
             }
         }
+        // A game without a licence (a dump never has one) gets a debug one,
+        // placed as if its files were in sce_sys.
+        std::vector<std::pair<std::string, std::vector<std::uint8_t>>> generated;
+        if (!sce_sys_file("license.dat") && !sce_sys_file("license.info")) {
+            if (options.license_keys_file.empty()) {
+                result.warnings.push_back("the game has no licence (sce_sys/license.dat) and no LibOrbisPkg Keys.cs was given to "
+                                          "make one: its title will show a lock on the console");
+            } else {
+                ALEMBIC_ASSIGN(ps4::Keys rif_keys, ps4::load_keys(options.license_keys_file));
+                generated.push_back({"license.dat", ps4::debug_license_dat(rif_keys, param.content_id, 0x10, 0x20)});
+                generated.push_back({"license.info", ps4::debug_license_info(param.content_id, 0x20)});
+                result.generated_license = true;
+            }
+        }
         std::vector<std::pair<std::string, const tree::Node*>> rest = sce_sys;
+        for (const auto& g : generated) rest.push_back({g.first, nullptr});
         std::stable_sort(rest.begin(), rest.end(), [](const auto& a, const auto& b) { return lower(a.first) < lower(b.first); });
         for (const auto& [name, node] : rest) {
             if (ends_with(name, ".dds") || name == "param.sfo") continue;
             std::optional<std::uint32_t> id = sce_sys_entry_id(name);
             if (!id || was(*id)) continue;
+            if (!node) {
+                for (auto& g : generated)
+                    if (g.first == name) add(*id, name, std::move(g.second));
+                continue;
+            }
             ALEMBIC_ASSIGN(std::vector<std::uint8_t> data, read_node(source, *node));
             add(*id, name, std::move(data));
         }

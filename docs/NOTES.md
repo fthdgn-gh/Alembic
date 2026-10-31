@@ -2792,6 +2792,30 @@ What it took:
   makes the second pass byte-exact. Next check: the same with an
   Alembic-made package (does it install, same order?).
 
+### 2026-10-31: PS5 packages get a licence (the lock on the home screen)
+
+- **Console (owner):** an Alembic-made Kraken package (from an FFPFSC
+  dump, installed over HTTP) installed and shows on the home screen, with a
+  lock next to the title. The owner cannot launch titles on that console.
+- **Why:** dumps have no `sce_sys/license.dat`/`license.info`, and like
+  ProsperoPkgTool we only packed them when present. Every sample package
+  carries them (CNT 0x400/0x401, protected): a debug RIF exactly as
+  LibOrbisPkg's `Rif/LicenseDat.cs` makes it (SkuFlag 3, IV and secret
+  from SHA-256 of the content ID, the secret AES-CBC under
+  `rif_debug_key`, signed with `DebugRifKeyset`), with DRM type 0x10 and
+  content type 0x20 for PS5 (0xF/0x1A for PS4), and `license.info` with
+  the content ID and content type. Generated from each sample's content
+  ID, three PS5 and two PS4 samples are byte-identical (one more carries
+  an unsigned licence from another tool).
+- **Now:** `fpkg::ps4::debug_license_dat/info` take the DRM and content
+  type; a PS5 game without a licence gets one when LibOrbisPkg's Keys.cs
+  is given (`--ps4-keys`; the engine uses the ps4_keys component, which
+  PS5 PKG output now needs too); without it, a warning. Placed as if the
+  files were in sce_sys: `tools/pkg-oracle/compare.sh` checks that
+  ProsperoPkgTool, given those files, builds the identical package.
+- **Console test:** convert the same dump again (Components: PS4 package
+  keys), install it: does the lock go?
+
 ## Next session
 
 **Settled (owner, 2026-10-22):**

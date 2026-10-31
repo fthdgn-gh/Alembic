@@ -419,6 +419,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     options.fpkg.keys_folder = config.state_dir + "/keys"; // the fpkg_keys component
     if (spec.pkg_compression == "kraken") options.fpkg.compression = fpkg::build::Compression::kraken;
     options.fpkg_ps4.keys_file = config.state_dir + "/keys/ps4/Keys.cs"; // the ps4_keys component
+    options.fpkg.license_keys_file = options.fpkg_ps4.keys_file;          // PS5 packages' licence too
     if (!spec.seed.empty()) {
         std::array<std::uint8_t, 16> seed{};
         for (std::size_t i = 0; i < 16; ++i) seed[i] = static_cast<std::uint8_t>(std::stoul(spec.seed.substr(2 * i, 2), nullptr, 16));
@@ -665,8 +666,12 @@ std::vector<std::string> missing_dependencies(const JobSpec& spec, const EngineC
                 auto root = ffpfsc::resolve_game_root(game->tree->root());
                 ps4 = root.ok() && ffpfsc::is_ps4_game(*game->tree, **root);
             }
-            const Dependency* keys = find_dependency(ps4 ? "ps4_keys" : "fpkg_keys");
-            if (keys && dependency_state(*keys, config.state_dir) != "installed") out.push_back(keys->id);
+            // A PS5 package also needs LibOrbisPkg's debug licence key: a game
+            // without sce_sys/license.dat gets one generated (else it shows a lock).
+            for (const char* id : ps4 ? std::vector<const char*>{"ps4_keys"} : std::vector<const char*>{"fpkg_keys", "ps4_keys"}) {
+                const Dependency* keys = find_dependency(id);
+                if (keys && dependency_state(*keys, config.state_dir) != "installed") out.push_back(keys->id);
+            }
         }
     }
     return out;

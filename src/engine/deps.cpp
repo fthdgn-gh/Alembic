@@ -71,7 +71,8 @@ const std::vector<Dependency>& dependencies() {
             "ps4_keys",
             "PS4 package keys",
             "The keys a PS4 fake package is built with (Sony's public package keys, the fake image key's modulus) and "
-            "the debug licence key, used when a game has no licence. Needed for PKG output of PS4 games.",
+            "the debug licence key, used when a game has no licence. Needed for PKG output of PS4 games, and for the "
+            "licence of PS5 packages.",
             "maxton/LibOrbisPkg, commit " + kLibOrbisPkgCommit.substr(0, 12) +
                 " (LibOrbisPkg/Util/Keys.cs). That project collected them from the PS4 and its SDK tools.",
             "distributed by LibOrbisPkg (LGPL-3.0); not part of Alembic",

@@ -141,43 +141,6 @@ std::vector<std::uint8_t> entry_keys(const Keys& keys, const std::string& conten
     return out;
 }
 
-// A debug licence for a game application (LicenseDat with SkuFlag 3).
-std::vector<std::uint8_t> license_dat(const Keys& keys, const std::string& content_id) {
-    std::vector<std::uint8_t> d(0x400, 0);
-    put_be32(&d[0x00], 0x52494600);
-    put_be16(&d[0x04], 1);
-    put_be16(&d[0x06], 0xFFFF);
-    put_be64(&d[0x10], 1364222275ull);
-    put_be64(&d[0x18], 0x7FFFFFFFFFFFFFFFull);
-    std::memcpy(&d[0x20], content_id.data(), std::min<std::size_t>(content_id.size(), 36));
-    put_be16(&d[0x50], 0x200); // Debug_0
-    put_be16(&d[0x52], static_cast<std::uint16_t>(kDrmTypePs4));
-    put_be16(&d[0x54], static_cast<std::uint16_t>(kContentTypeGd));
-    put_be16(&d[0x56], 3); // SkuFlag
-    put_be32(&d[0x64], 1);
-    std::uint8_t cid[48] = {};
-    std::memcpy(cid, content_id.data(), std::min<std::size_t>(content_id.size(), 36));
-    crypto::Digest h = crypto::sha256(Bytes(cid, 48));
-    std::uint8_t* iv = &d[0x260];
-    std::uint8_t* secret = &d[0x270]; // 144 bytes
-    std::memcpy(iv, h.data(), 16);
-    std::memcpy(secret, h.data() + 16, 16);
-    crypto::Aes128 key(keys.rif_debug_key.data());
-    crypto::cbc_encrypt(key, iv, MutableBytes(secret, 144));
-    crypto::Digest signed_part = crypto::sha256(Bytes(d.data(), 0x300));
-    std::vector<std::uint8_t> sig = rsa::sign_sha256(keys.rif_modulus, keys.rif_private_exponent, signed_part);
-    std::memcpy(&d[0x300], sig.data(), 256);
-    return d;
-}
-
-std::vector<std::uint8_t> license_info(const std::string& content_id) {
-    std::vector<std::uint8_t> d(0x200, 0);
-    std::memcpy(&d[0], content_id.data(), std::min<std::size_t>(content_id.size(), 36));
-    put_be32(&d[0x44], kContentTypeGd);
-    put_be32(&d[0x4C], 1);
-    return d;
-}
-
 // playgo-chunk.dat for one chunk and one scenario (ChunkDat.FromProject).
 std::vector<std::uint8_t> chunk_dat(const std::string& content_id, std::uint64_t package_size, std::uint64_t inner_size) {
     std::vector<std::uint8_t> d(416, 0);
@@ -483,8 +446,8 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
     if (kept_license.size() != 0x400 || kept_license_info.size() != 0x200) {
         if (!kept_license.empty() || !kept_license_info.empty())
             result.warnings.push_back("the game's licence files have unexpected sizes; a new licence was generated");
-        kept_license = license_dat(keys, content_id);
-        kept_license_info = license_info(content_id);
+        kept_license = debug_license_dat(keys, content_id, kDrmTypePs4, kContentTypeGd);
+        kept_license_info = debug_license_info(content_id, kContentTypeGd);
         result.generated_license = true;
     }
     // sce_sys files that become entries, in the folder's order (not param.sfo).
@@ -798,6 +761,43 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
     ALEMBIC_TRY(out.write_at(0, Bytes(body.data(), body.size())));
     ALEMBIC_TRY(output.commit());
     return result;
+}
+
+std::vector<std::uint8_t> debug_license_dat(const Keys& keys, const std::string& content_id, std::uint16_t drm_type,
+                                            std::uint16_t content_type) {
+    std::vector<std::uint8_t> d(0x400, 0);
+    put_be32(&d[0x00], 0x52494600);
+    put_be16(&d[0x04], 1);
+    put_be16(&d[0x06], 0xFFFF);
+    put_be64(&d[0x10], 1364222275ull);
+    put_be64(&d[0x18], 0x7FFFFFFFFFFFFFFFull);
+    std::memcpy(&d[0x20], content_id.data(), std::min<std::size_t>(content_id.size(), 36));
+    put_be16(&d[0x50], 0x200); // Debug_0
+    put_be16(&d[0x52], drm_type);
+    put_be16(&d[0x54], content_type);
+    put_be16(&d[0x56], 3); // SkuFlag
+    put_be32(&d[0x64], 1);
+    std::uint8_t cid[48] = {};
+    std::memcpy(cid, content_id.data(), std::min<std::size_t>(content_id.size(), 36));
+    crypto::Digest h = crypto::sha256(Bytes(cid, 48));
+    std::uint8_t* iv = &d[0x260];
+    std::uint8_t* secret = &d[0x270]; // 144 bytes
+    std::memcpy(iv, h.data(), 16);
+    std::memcpy(secret, h.data() + 16, 16);
+    crypto::Aes128 key(keys.rif_debug_key.data());
+    crypto::cbc_encrypt(key, iv, MutableBytes(secret, 144));
+    crypto::Digest signed_part = crypto::sha256(Bytes(d.data(), 0x300));
+    std::vector<std::uint8_t> sig = rsa::sign_sha256(keys.rif_modulus, keys.rif_private_exponent, signed_part);
+    std::memcpy(&d[0x300], sig.data(), 256);
+    return d;
+}
+
+std::vector<std::uint8_t> debug_license_info(const std::string& content_id, std::uint16_t content_type) {
+    std::vector<std::uint8_t> d(0x200, 0);
+    std::memcpy(&d[0], content_id.data(), std::min<std::size_t>(content_id.size(), 36));
+    put_be32(&d[0x44], content_type);
+    put_be32(&d[0x4C], 1);
+    return d;
 }
 
 } // namespace alembic::fpkg::ps4

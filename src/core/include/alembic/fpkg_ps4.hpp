@@ -49,6 +49,14 @@ Result<Keys> load_keys(const std::string& keys_cs_path);
 // Parses the text of Keys.cs (no hash check).
 Result<Keys> parse_keys(std::string_view text);
 
+// A debug licence (Rif/LicenseDat.cs: SkuFlag 3, the secret from the content
+// ID under rif_debug_key, signed with DebugRifKeyset) and its license.info.
+// PS4 game applications: DRM type 0xF, content type 0x1A; PS5 ones (their
+// fake packages carry the same licence): 0x10 and 0x20.
+std::vector<std::uint8_t> debug_license_dat(const Keys& keys, const std::string& content_id, std::uint16_t drm_type,
+                                            std::uint16_t content_type);
+std::vector<std::uint8_t> debug_license_info(const std::string& content_id, std::uint16_t content_type);
+
 // sce_sys/keystone for a passcode (Crypto.CreateKeystone).
 std::vector<std::uint8_t> create_keystone(const Keys& keys, const std::string& passcode);
 

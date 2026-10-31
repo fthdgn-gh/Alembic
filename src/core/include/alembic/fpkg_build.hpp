@@ -355,8 +355,14 @@ struct PackageOptions {
     std::uint32_t time_nanoseconds = 0x14DC9380;
     bool overwrite = false;
     unsigned threads = 0; // hashing and encryption workers; 0 = every core
+    // LibOrbisPkg's Keys.cs (fpkg_ps4.hpp): a game without sce_sys/license.dat
+    // and license.info gets a debug licence (fpkg::ps4::debug_license_dat with
+    // DRM 0x10, content type 0x20, as PS5 fake packages carry); without it the
+    // package has none and its title shows a lock on the console.
+    std::string license_keys_file;
 };
 struct PackageResult {
+    bool generated_license = false; // the game had none: a debug licence was made
     std::string content_id;
     std::uint64_t package_length = 0;
     std::size_t inner_files = 0;

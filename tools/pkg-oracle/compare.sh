@@ -89,4 +89,14 @@ for c in stored kraken; do
         echo "same  fpkg-build --compression $c: byte for byte ($(wc -c <"$work/w-alembic-$c.pkg" | tr -d ' ') bytes)"
     else echo "DIFF  fpkg-build --compression $c"; fail=1; fi
 done
+# A generated licence (--ps4-keys, LibOrbisPkg's Keys.cs): put in sce_sys,
+# ProsperoPkgTool packs the same files into the same package.
+ps4_keys="$refs/LibOrbisPkg/LibOrbisPkg/Util/Keys.cs"
+if [[ -f $ps4_keys ]]; then
+    "$alembic" fpkg-build "$game" "$work/l-alembic.pkg" --keys "$keys" --seed $seed --ps4-keys "$ps4_keys" >/dev/null
+    for f in license.dat license.info; do "$alembic" fpkg-dump "$work/l-alembic.pkg" "entry:$f" "$game/sce_sys/$f"; done
+    ppt img_create "$game" --out "$work/l-ppt.pkg" --compression stored --seed $seed --no_right_sprx >/dev/null
+    if cmp -s "$work/l-ppt.pkg" "$work/l-alembic.pkg"; then echo "same  fpkg-build with a generated licence: byte for byte"
+    else echo "DIFF  fpkg-build with a generated licence"; fail=1; fi
+fi
 exit $fail

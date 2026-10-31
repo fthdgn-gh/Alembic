@@ -76,7 +76,9 @@ void usage() {
         "        build a debug FPKG from a game folder or image; DIR holds ProsperoPkgTool's\n"
         "        passcode.bin and mount_image.bin; a fixed --seed makes it reproducible.\n"
         "        --compression kraken compresses the game's files (not executables) with\n"
-        "        Kraken, as ProsperoPkgTool img_create --compression kraken (default stored)\n"
+        "        Kraken, as ProsperoPkgTool img_create --compression kraken (default stored).\n"
+        "        --ps4-keys FILE (LibOrbisPkg's Keys.cs) also gives a PS5 game without\n"
+        "        sce_sys/license.dat a debug licence; without one its title shows a lock\n"
         "        A PS4 game (sce_sys/param.sfo) becomes a PS4 fake package, as LibOrbisPkg's\n"
         "        pkg_build makes it: --ps4-keys FILE (LibOrbisPkg's Util/Keys.cs, pinned by\n"
         "        SHA-256), --package-passcode, --timestamp UNIX, and --creation-date YYYYMMDD\n"
@@ -353,6 +355,8 @@ bool parse_package_options(const Args& args, fpkg::build::PackageOptions& o) {
     if (o.keys_folder.empty() && !args.get("--ps4-keys"))
         return std::fputs("error: pass --keys DIR (passcode.bin, mount_image.bin), or --ps4-keys FILE for a PS4 game\n", stderr), false;
     if (auto p = args.get("--package-passcode")) o.passcode = *p;
+    // The same Keys.cs: a PS5 game without a licence gets a debug one.
+    o.license_keys_file = args.get("--ps4-keys").value_or("");
     if (auto c = args.get("--compression")) {
         if (*c == "stored") o.compression = fpkg::build::Compression::stored;
         else if (*c == "kraken") o.compression = fpkg::build::Compression::kraken;
