@@ -4,9 +4,9 @@
 // direct TCP (port 445); NTLMv2 logins in SPNEGO (or a guest login with no
 // user); every request signed once logged in (HMAC-SHA256, or AES-CMAC from
 // 3.0), as Windows 11 and current NAS systems require. Reads and writes are
-// pipelined, several requests in flight. Not supported: encryption (shares
-// that require it are refused with a message), Kerberos, DFS referrals and
-// listing a server's shares (the share is given with the server).
+// pipelined, several requests in flight. Encryption (SMB 3: AES-128-GCM or
+// -CCM) when the server or a share requires it; encrypted messages are not
+// signed. Not supported: Kerberos, DFS referrals.
 #pragma once
 
 #include "netcrypto.hpp"

@@ -652,8 +652,9 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
         yy += draw::paragraph(ui, Face::regular,
                               t("Games on a PC or NAS can be converted from there over SMB (shared folders), NFS, WebDAV or FTP, "
                                 "and exFAT, FFPKG, FFPFS and folder outputs saved there. FFPFSC and PKG outputs must be saved "
-                                "on the console first. Nothing is encrypted: files cross the network as they are, FTP and "
-                                "WebDAV send the password unencrypted too, and passwords are kept on the console."),
+                                "on the console first. SMB is encrypted when the server or share requires it; otherwise "
+                                "files cross the network as they are, FTP and WebDAV send the password unencrypted too, and "
+                                "passwords are kept on the console."),
                               ix, yy, iw, 1.0f * R, 1.45f * R, muted) +
               0.5f * R;
         bool first = true;

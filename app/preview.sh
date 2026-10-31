@@ -8,6 +8,10 @@
 #   ALEMBIC_ENGINE=127.0.0.1:5940 app/preview.sh out "shot:files"   # a real engine
 #
 # Script words: up down left right x o s t l1 r1 l2 r2 options, wait:<s>, shot:<name>.
+# The Files page starts on the drives list; in the stand-in engine Internal
+# holds one folder, homebrew, with six games. Convert on the second game, to FPKG:
+#   app/preview.sh out "x wait:2 x wait:3 down wait:1 x wait:3 down right x wait:2 shot:convert"
+# (x x: Internal, then homebrew; down x: its second row; down right x: FPKG.)
 # Needs Mesa (Linux: libegl-dev libgl-dev; macOS: brew install mesa) and, for
 # the stand-in engine, Node and a PC build (build/alembic-engine).
 set -euo pipefail

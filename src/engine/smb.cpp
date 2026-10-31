@@ -42,6 +42,7 @@ constexpr std::uint32_t kMoreProcessing = 0xC0000016;
 constexpr std::uint32_t kEndOfFile = 0xC0000011;
 
 constexpr std::uint32_t kFlagResponse = 0x1, kFlagAsync = 0x2, kFlagSigned = 0x8;
+constexpr std::uint16_t kCipherCcm = 0x0001, kCipherGcm = 0x0002; // AES-128
 
 // Access rights, create dispositions and options ([MS-SMB2] 2.2.13).
 constexpr std::uint32_t kReadData = 0x1, kWriteData = 0x2, kReadAttributes = 0x80, kWriteAttributes = 0x100;
@@ -361,6 +362,16 @@ private:
     bool large_mtu_ = false;
     bool sign_ = false;
     std::uint8_t session_key_[16] = {}, signing_key_[16] = {};
+    // Encryption (3.x): the cipher the server took (1 CCM, 2 GCM, 0 none),
+    // the two keys, and whether messages go encrypted now.
+    std::uint16_t cipher_ = 0;
+    bool have_cipher_keys_ = false, encrypt_ = false;
+    std::uint8_t encrypt_key_[16] = {}, decrypt_key_[16] = {};
+    std::uint64_t nonce_counter_ = 0;
+    std::uint8_t nonce_salt_[4] = {};
+    Status require_encryption(const std::string& why);
+    std::vector<std::uint8_t> seal(const std::vector<std::uint8_t>& message);
+    Status unseal(std::vector<std::uint8_t>& bytes);
     netcrypto::Sha512Digest preauth_{}; // 3.1.1
     std::uint64_t session_id_ = 0;
     std::uint32_t tree_id_ = 0;
@@ -415,7 +426,8 @@ Result<std::uint64_t> Client::send(std::uint16_t command, const std::vector<std:
     credits_ = credits_ >= needed ? credits_ - needed : 0;
     Out h;
     h.u8(0xFE).u8('S').u8('M').u8('B').u16(64).u16(credit_charge).u32(0).u16(command).u16(static_cast<std::uint16_t>(needed + 64));
-    h.u32(sign_ && command != kNegotiate && command != kSessionSetup ? kFlagSigned : 0).u32(0).u64(id);
+    const bool sealed = encrypt_ && command != kNegotiate && command != kSessionSetup;
+    h.u32(sign_ && !sealed && command != kNegotiate && command != kSessionSetup ? kFlagSigned : 0).u32(0).u64(id);
     h.u32(0xFEFF).u32(tree_id_).u64(session_id_).zeros(16);
     h.bytes(body);
     if (h.b[16] & kFlagSigned) {
@@ -428,10 +440,13 @@ Result<std::uint64_t> Client::send(std::uint16_t command, const std::vector<std:
         }
         std::memcpy(h.b.data() + 48, sig.data(), 16);
     }
-    std::uint8_t frame[4] = {0, static_cast<std::uint8_t>(h.b.size() >> 16), static_cast<std::uint8_t>(h.b.size() >> 8),
-                             static_cast<std::uint8_t>(h.b.size())};
+    std::vector<std::uint8_t> sealed_bytes;
+    if (sealed) sealed_bytes = seal(h.b);
+    const std::vector<std::uint8_t>& wire = sealed ? sealed_bytes : h.b;
+    std::uint8_t frame[4] = {0, static_cast<std::uint8_t>(wire.size() >> 16), static_cast<std::uint8_t>(wire.size() >> 8),
+                             static_cast<std::uint8_t>(wire.size())};
     ALEMBIC_TRY(netfs::send_all(socket_, frame, 4, "SMB"));
-    ALEMBIC_TRY(netfs::send_all(socket_, h.b.data(), h.b.size(), "SMB"));
+    ALEMBIC_TRY(netfs::send_all(socket_, wire.data(), wire.size(), "SMB"));
     if (sent) *sent = std::move(h.b);
     return id;
 }
@@ -445,7 +460,7 @@ Result<Client::Message> Client::receive() {
         Message m;
         m.bytes.resize(length);
         ALEMBIC_TRY(netfs::recv_all(socket_, m.bytes.data(), length, "SMB"));
-        if (m.bytes[0] == 0xFD) return smb_error("the server encrypts its replies, which Alembic does not support yet");
+        if (m.bytes[0] == 0xFD) ALEMBIC_TRY(unseal(m.bytes));
         if (m.bytes[0] != 0xFE || m.bytes[1] != 'S') return smb_error("not an SMB2 reply (an SMB1-only server?)");
         m.status = get32(m.bytes, 8);
         m.command = get16(m.bytes, 12);
@@ -475,12 +490,12 @@ Result<Client::Message> Client::wait(std::uint64_t id) {
 Status Client::negotiate() {
     static const std::uint16_t dialects[] = {0x0202, 0x0210, 0x0300, 0x0302, 0x0311};
     Out b;
-    b.u16(36).u16(5).u16(1 /* signing enabled */).u16(0).u32(0x4 /* large MTU */);
+    b.u16(36).u16(5).u16(1 /* signing enabled */).u16(0).u32(0x4 /* large MTU */ | 0x40 /* encryption */);
     std::uint8_t guid[16];
     random_bytes(guid, 16);
     b.bytes(guid, 16);
     const std::size_t context_offset_at = b.b.size();
-    b.u32(0).u16(1).u16(0);
+    b.u32(0).u16(2).u16(0);
     for (std::uint16_t d : dialects) b.u16(d);
     b.align(8, 64);
     b.put32(context_offset_at, static_cast<std::uint32_t>(64 + b.b.size()));
@@ -488,6 +503,9 @@ Status Client::negotiate() {
     std::uint8_t salt[32];
     random_bytes(salt, 32);
     b.u16(1).u16(38).u32(0).u16(1).u16(32).u16(1).bytes(salt, 32);
+    // SMB2_ENCRYPTION_CAPABILITIES: AES-128-GCM, then AES-128-CCM.
+    b.align(8, 64);
+    b.u16(2).u16(6).u32(0).u16(2).u16(kCipherGcm).u16(kCipherCcm);
     std::vector<std::uint8_t> request;
     ALEMBIC_ASSIGN(std::uint64_t id, send(kNegotiate, b.b, 0, &request));
     ALEMBIC_ASSIGN(Message r, wait(id));
@@ -500,6 +518,21 @@ Status Client::negotiate() {
     max_transact_ = std::max<std::uint32_t>(get32(m, 64 + 28), 65536);
     max_read_ = std::max<std::uint32_t>(get32(m, 64 + 32), 65536);
     max_write_ = std::max<std::uint32_t>(get32(m, 64 + 36), 65536);
+    // The cipher: 3.0 and 3.0.2 have only CCM; 3.1.1 names one in a context.
+    if (dialect_ == 0x0300 || dialect_ == 0x0302) {
+        if (caps & 0x40) cipher_ = kCipherCcm;
+    } else if (dialect_ == 0x0311) {
+        std::size_t at = get32(m, 64 + 60);
+        for (std::uint16_t n = get16(m, 64 + 6); n > 0 && at + 8 <= m.size(); --n) {
+            const std::uint16_t type = get16(m, at), length = get16(m, at + 2);
+            if (at + 8 + length > m.size()) break;
+            if (type == 2 && length >= 4 && get16(m, at + 8) == 1) {
+                const std::uint16_t c = get16(m, at + 10);
+                if (c == kCipherGcm || c == kCipherCcm) cipher_ = c;
+            }
+            at = (at + 8 + length + 7) & ~std::size_t(7);
+        }
+    }
     if (dialect_ == 0x0311) {
         netcrypto::Sha512 h;
         h.update(Bytes(preauth_.data(), 64));
@@ -629,7 +662,6 @@ Status Client::login(const std::string& user_text, const std::string& password) 
     ALEMBIC_TRY(setup(spnego_response(a.b), &r2));
     if (r2.status != kSuccess) return smb_status("login failed", r2.status);
     const std::uint16_t session_flags = get16(r2.bytes, 64 + 2);
-    if (session_flags & 0x4) return smb_error("the server requires encryption, which Alembic does not support yet");
     const bool guest = anonymous || (session_flags & 0x3);
     if (!guest) {
         std::memcpy(session_key_, exported.data(), 16);
@@ -644,7 +676,77 @@ Status Client::login(const std::string& user_text, const std::string& password) 
             std::memcpy(signing_key_, k.data(), 16);
         }
         sign_ = true;
+        // The encryption keys: client to server, server to client.
+        if (cipher_ && dialect_ == 0x0311) {
+            static const char c2s[] = "SMBC2SCipherKey", s2c[] = "SMBS2CCipherKey";
+            Md e = detail::kdf(session_key_, Bytes(reinterpret_cast<const std::uint8_t*>(c2s), sizeof c2s), Bytes(hash.data(), 64));
+            Md d = detail::kdf(session_key_, Bytes(reinterpret_cast<const std::uint8_t*>(s2c), sizeof s2c), Bytes(hash.data(), 64));
+            std::memcpy(encrypt_key_, e.data(), 16);
+            std::memcpy(decrypt_key_, d.data(), 16);
+            have_cipher_keys_ = true;
+        } else if (cipher_) {
+            static const char label[] = "SMB2AESCCM", in[] = "ServerIn ", out[] = "ServerOut";
+            Md e = detail::kdf(session_key_, Bytes(reinterpret_cast<const std::uint8_t*>(label), sizeof label),
+                               Bytes(reinterpret_cast<const std::uint8_t*>(in), sizeof in));
+            Md d = detail::kdf(session_key_, Bytes(reinterpret_cast<const std::uint8_t*>(label), sizeof label),
+                               Bytes(reinterpret_cast<const std::uint8_t*>(out), sizeof out));
+            std::memcpy(encrypt_key_, e.data(), 16);
+            std::memcpy(decrypt_key_, d.data(), 16);
+            have_cipher_keys_ = true;
+        }
     }
+    if (session_flags & 0x4) ALEMBIC_TRY(require_encryption("the server"));
+    return {};
+}
+
+// From now on every request goes encrypted (the server, or a share, wants it).
+Status Client::require_encryption(const std::string& why) {
+    if (encrypt_) return {};
+    if (dialect_ < 0x0300) return smb_error(why + " requires encryption, which needs SMB 3 (the server chose an older dialect)");
+    if (!have_cipher_keys_)
+        return smb_error(why + (cipher_ ? " requires encryption, which needs a user account (not a guest login)"
+                                        : " requires encryption with a cipher Alembic does not have (AES-128-GCM or -CCM)"));
+    encrypt_ = true;
+    random_bytes(nonce_salt_, sizeof nonce_salt_);
+    return {};
+}
+
+// SMB2 TRANSFORM_HEADER around `message`: the tag in Signature, the nonce
+// (a counter and a per-session salt, never repeated), the AAD from Nonce on.
+std::vector<std::uint8_t> Client::seal(const std::vector<std::uint8_t>& message) {
+    std::vector<std::uint8_t> out(52 + message.size());
+    out[0] = 0xFD;
+    out[1] = 'S';
+    out[2] = 'M';
+    out[3] = 'B';
+    const std::uint64_t n = nonce_counter_++;
+    for (int i = 0; i < 8; ++i) out[20 + i] = static_cast<std::uint8_t>(n >> (8 * i));
+    const std::size_t nonce_size = cipher_ == kCipherGcm ? 12 : 11;
+    std::memcpy(&out[28], nonce_salt_, nonce_size - 8);
+    for (int i = 0; i < 4; ++i) out[36 + i] = static_cast<std::uint8_t>(message.size() >> (8 * i));
+    out[42] = 1; // Flags: encrypted
+    for (int i = 0; i < 8; ++i) out[44 + i] = static_cast<std::uint8_t>(session_id_ >> (8 * i));
+    std::memcpy(&out[52], message.data(), message.size());
+    const Bytes aad(&out[20], 32);
+    const MutableBytes data(&out[52], message.size());
+    if (cipher_ == kCipherGcm) netcrypto::aes_gcm_encrypt(encrypt_key_, &out[20], aad, data, &out[4]);
+    else netcrypto::aes_ccm_encrypt(encrypt_key_, Bytes(&out[20], 11), aad, data, MutableBytes(&out[4], 16));
+    return out;
+}
+
+// The message inside a TRANSFORM_HEADER, checked against its tag.
+Status Client::unseal(std::vector<std::uint8_t>& bytes) {
+    if (!have_cipher_keys_) return smb_error("the server sent an encrypted reply before encryption was set up");
+    if (bytes.size() < 52 + 64) return smb_error("an encrypted reply is too short");
+    if (get64(bytes, 44) != session_id_) return smb_error("an encrypted reply belongs to another session");
+    const std::uint32_t size = get32(bytes, 36);
+    if (size != bytes.size() - 52) return smb_error("an encrypted reply has the wrong length");
+    const Bytes aad(&bytes[20], 32);
+    const MutableBytes data(&bytes[52], size);
+    const bool ok = cipher_ == kCipherGcm ? netcrypto::aes_gcm_decrypt(decrypt_key_, &bytes[20], aad, data, &bytes[4])
+                                          : netcrypto::aes_ccm_decrypt(decrypt_key_, Bytes(&bytes[20], 11), aad, data, Bytes(&bytes[4], 16));
+    if (!ok) return smb_error("an encrypted reply failed its integrity check (wrong key, or changed on the way)");
+    bytes.erase(bytes.begin(), bytes.begin() + 52);
     return {};
 }
 
@@ -655,7 +757,7 @@ Result<std::uint32_t> Client::tree_connect(const std::string& share) {
     tree_id_ = 0;
     ALEMBIC_ASSIGN(Message r, call(kTreeConnect, b.b));
     if (r.status != kSuccess) return smb_status("cannot open the share " + share, r.status);
-    if (get32(r.bytes, 64 + 4) & 0x8000) return smb_error("the share " + share + " requires encryption, which Alembic does not support yet");
+    if (get32(r.bytes, 64 + 4) & 0x8000) ALEMBIC_TRY(require_encryption("the share " + share));
     return get32(r.bytes, 36);
 }
 

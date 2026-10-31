@@ -24,7 +24,7 @@ export function NetServers() {
     <>
       <Head text={t("Network servers")} />
       <div class="card">
-        <p class="muted" style="margin:0 0 .5rem">{t("Games on a PC or NAS can be converted from there over SMB (shared folders), NFS, WebDAV or FTP, and exFAT, FFPKG, FFPFS and folder outputs saved there. FFPFSC and PKG outputs must be saved on the console first. Nothing is encrypted: files cross the network as they are, FTP and WebDAV send the password unencrypted too, and passwords are kept on the console.")}</p>
+        <p class="muted" style="margin:0 0 .5rem">{t("Games on a PC or NAS can be converted from there over SMB (shared folders), NFS, WebDAV or FTP, and exFAT, FFPKG, FFPFS and folder outputs saved there. FFPFSC and PKG outputs must be saved on the console first. SMB is encrypted when the server or share requires it; otherwise files cross the network as they are, FTP and WebDAV send the password unencrypted too, and passwords are kept on the console.")}</p>
         {servers.value.map((s) => (
           <div class="ftprow">
             <div class="nm">{ICONS.server()}</div>

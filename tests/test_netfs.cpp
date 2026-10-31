@@ -8,6 +8,9 @@
 #include "test.hpp"
 #include "webdav.hpp"
 
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -47,6 +50,84 @@ TEST_CASE(netcrypto_hashes_match_their_standards) {
     CHECK(hex_of(netcrypto::aes_cmac(k.data(), Bytes(m.data(), 16))) == "070a16b46b4d4144f79bdd9dd04a287c");
     CHECK(hex_of(netcrypto::aes_cmac(k.data(), Bytes(m.data(), 40))) == "dfa66747de9ae63030ca32611497c827");
     CHECK(hex_of(netcrypto::aes_cmac(k.data(), Bytes(m.data(), 64))) == "51f0bebf7e3b9d92fc49741779363cfe");
+}
+
+TEST_CASE(netcrypto_ciphers_match_their_standards) {
+    // AES-GCM: the GCM specification's test cases 2 and 4 (McGrew and Viega).
+    {
+        std::vector<std::uint8_t> key(16, 0), nonce(12, 0), data(16, 0);
+        std::uint8_t tag[16];
+        netcrypto::aes_gcm_encrypt(key.data(), nonce.data(), Bytes(), MutableBytes(data.data(), data.size()), tag);
+        CHECK(hex_of(data) == std::string("0388dace60b6a392f328c2b971b2fe78"));
+        CHECK(netcrypto::hex(Bytes(tag, 16)) == std::string("ab6e47d42cec13bdf53a67b21257bddf"));
+    }
+    const auto key = unhex("feffe9928665731c6d6a8f9467308308");
+    {
+        const auto nonce = unhex("cafebabefacedbaddecaf888");
+        const auto aad = unhex("feedfacedeadbeeffeedfacedeadbeefabaddad2");
+        const auto plain = unhex("d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a721c3c0c95956809532fcf0e24"
+                                 "49a6b525b16aedf5aa0de657ba637b39");
+        std::vector<std::uint8_t> data = plain;
+        std::uint8_t tag[16];
+        netcrypto::aes_gcm_encrypt(key.data(), nonce.data(), bytes_of(aad), MutableBytes(data.data(), data.size()), tag);
+        CHECK(hex_of(data) == std::string("42831ec2217774244b7221b784d0d49ce3aa212f2c02a4e035c17e2329aca12e21d514b25466931c"
+                                           "7d8f6a5aac84aa051ba30b396a0aac973d58e091"));
+        CHECK(netcrypto::hex(Bytes(tag, 16)) == std::string("5bc94fbc3221a5db94fae95ae7121a47"));
+        // A changed byte is refused and the data left as it came.
+        std::vector<std::uint8_t> bad = data;
+        bad[5] ^= 1;
+        CHECK(!netcrypto::aes_gcm_decrypt(key.data(), nonce.data(), bytes_of(aad), MutableBytes(bad.data(), bad.size()), tag));
+        CHECK(bad[5] == (data[5] ^ 1));
+        CHECK(netcrypto::aes_gcm_decrypt(key.data(), nonce.data(), bytes_of(aad), MutableBytes(data.data(), data.size()), tag));
+        CHECK(data == plain);
+    }
+    // AES-CCM: RFC 3610 packet vector 1 (13-byte nonce, 8-byte tag).
+    {
+        std::vector<std::uint8_t> k, nonce = unhex("00000003020100a0a1a2a3a4a5"), aad, data;
+        for (int i = 0xC0; i < 0xD0; ++i) k.push_back(static_cast<std::uint8_t>(i));
+        for (int i = 0; i < 8; ++i) aad.push_back(static_cast<std::uint8_t>(i));
+        for (int i = 8; i < 0x1F; ++i) data.push_back(static_cast<std::uint8_t>(i));
+        std::uint8_t tag[8];
+        netcrypto::aes_ccm_encrypt(k.data(), bytes_of(nonce), bytes_of(aad), MutableBytes(data.data(), data.size()), MutableBytes(tag, 8));
+        CHECK(hex_of(data) == std::string("588c979a61c663d2f066d0c2c0f989806d5f6b61dac384"));
+        CHECK(netcrypto::hex(Bytes(tag, 8)) == std::string("17e8d12cfdf926e0"));
+    }
+    // AES-CCM as SMB 3 uses it (11-byte nonce, 16-byte tag), checked with
+    // Python's cryptography (OpenSSL) AESCCM; then the way back.
+    {
+        std::vector<std::uint8_t> nonce, aad, plain;
+        for (int i = 1; i < 12; ++i) nonce.push_back(static_cast<std::uint8_t>(i));
+        for (int i = 100; i < 132; ++i) aad.push_back(static_cast<std::uint8_t>(i));
+        for (int i = 0; i < 100; ++i) plain.push_back(static_cast<std::uint8_t>(i * 7));
+        std::vector<std::uint8_t> data = plain;
+        std::uint8_t tag[16];
+        netcrypto::aes_ccm_encrypt(key.data(), bytes_of(nonce), bytes_of(aad), MutableBytes(data.data(), data.size()), MutableBytes(tag, 16));
+        CHECK(hex_of(data) + netcrypto::hex(Bytes(tag, 16)) ==
+                 std::string("f0b1018318886154d5d4d3c6f7b77d5827e791b919bb7a3655adaf583d4c87aaeb5881810bba813dfedf28543691d6cd"
+                             "88483e0e59358f93529a1d81bcc025ddaa28bddb84e9317f11f55c21f06367e3a23d5d01715321ff3b2df4cd4adb6dff"
+                             "a6a3822ea915af378b61b4f1d440271b049928d5"));
+        std::uint8_t bad_tag[16];
+        std::memcpy(bad_tag, tag, 16);
+        bad_tag[15] ^= 0x80;
+        std::vector<std::uint8_t> copy = data;
+        CHECK(!netcrypto::aes_ccm_decrypt(key.data(), bytes_of(nonce), bytes_of(aad), MutableBytes(copy.data(), copy.size()), Bytes(bad_tag, 16)));
+        CHECK(copy == data);
+        CHECK(netcrypto::aes_ccm_decrypt(key.data(), bytes_of(nonce), bytes_of(aad), MutableBytes(data.data(), data.size()), Bytes(tag, 16)));
+        CHECK(data == plain);
+    }
+    // Long messages cross the keystream batches (64 blocks) and an odd tail.
+    for (std::size_t n : {std::size_t(0), std::size_t(1), std::size_t(1023), std::size_t(1024), std::size_t(70001)}) {
+        std::vector<std::uint8_t> plain(n), nonce(12, 9), aad(32, 3);
+        for (std::size_t i = 0; i < n; ++i) plain[i] = static_cast<std::uint8_t>(i * 31 + 7);
+        std::vector<std::uint8_t> g = plain, c = plain;
+        std::uint8_t tg[16], tc[16];
+        netcrypto::aes_gcm_encrypt(key.data(), nonce.data(), bytes_of(aad), MutableBytes(g.data(), g.size()), tg);
+        netcrypto::aes_ccm_encrypt(key.data(), Bytes(nonce.data(), 11), bytes_of(aad), MutableBytes(c.data(), c.size()), MutableBytes(tc, 16));
+        CHECK(n == 0 || g != plain);
+        CHECK(netcrypto::aes_gcm_decrypt(key.data(), nonce.data(), bytes_of(aad), MutableBytes(g.data(), g.size()), tg));
+        CHECK(netcrypto::aes_ccm_decrypt(key.data(), Bytes(nonce.data(), 11), bytes_of(aad), MutableBytes(c.data(), c.size()), Bytes(tc, 16)));
+        CHECK(g == plain && c == plain);
+    }
 }
 
 TEST_CASE(smb_ntlmv2_matches_the_ms_nlmp_example) {
@@ -155,4 +236,75 @@ TEST_CASE(nfs_exports_are_a_tree_of_folders) {
     bad.host = "nas";
     bad.user = "admin";
     CHECK(!netfs::normalise(bad).ok());
+}
+
+// A real SMB server, when ALEMBIC_SMB_TEST is "host:port:share:user:password"
+// (tools/netfs/samba_check.sh runs Samba that way in each configuration).
+TEST_CASE(smb_live_session) {
+    const char* spec = std::getenv("ALEMBIC_SMB_TEST");
+    if (!spec || !*spec) {
+        std::printf("  (skipped: ALEMBIC_SMB_TEST not set)\n");
+        return;
+    }
+    std::vector<std::string> f;
+    for (std::string s = spec;;) {
+        std::size_t c = s.find(':');
+        if (f.size() == 4 || c == std::string::npos) {
+            f.push_back(s);
+            break;
+        }
+        f.push_back(s.substr(0, c));
+        s = s.substr(c + 1);
+    }
+    CHECK(f.size() == 5);
+    if (f.size() != 5) return;
+    netfs::Server server;
+    server.protocol = netfs::Protocol::smb;
+    server.host = f[0];
+    server.port = static_cast<std::uint16_t>(std::stoi(f[1]));
+    server.root = f[2];
+    server.user = f[3];
+    server.password = f[4];
+    auto session = smb::open(server);
+    if (!session.ok()) std::printf("  open: %s\n", session.error().message.c_str());
+    CHECK(session.ok());
+    if (!session.ok()) return;
+    netfs::Session& s = **session;
+
+    // 3 MiB and a bit: several 1 MiB writes and reads in flight.
+    std::vector<std::uint8_t> data(3 * 1024 * 1024 + 12345);
+    std::uint32_t x = 12345;
+    for (auto& b : data) b = static_cast<std::uint8_t>((x = x * 1664525u + 1013904223u) >> 24);
+    // Files at the top of the share: unprivileged Samba on macOS cannot make
+    // folders (its mkdir renames a temporary folder, which fails there).
+    (void)s.remove("/alembic-live-a.bin");
+    (void)s.remove("/alembic-live-b.bin");
+    REQUIRE_OK(s.start_upload("/alembic-live-a.bin"));
+    for (std::size_t at = 0; at < data.size(); at += 300000)
+        REQUIRE_OK(s.write(Bytes(data.data() + at, std::min<std::size_t>(300000, data.size() - at))));
+    REQUIRE_OK(s.finish_upload());
+    auto size = s.size("/alembic-live-a.bin");
+    REQUIRE_OK(size);
+    CHECK(*size == data.size());
+    auto listing = s.list("/");
+    REQUIRE_OK(listing);
+    bool listed = false;
+    for (const netfs::Entry& e : *listing) listed = listed || (e.name == "alembic-live-a.bin" && e.size == data.size());
+    CHECK(listed);
+    auto download = [&](std::uint64_t from) {
+        std::vector<std::uint8_t> got;
+        if (!s.start_download("/alembic-live-a.bin", from).ok()) return got;
+        std::vector<std::uint8_t> buf(200000);
+        for (;;) {
+            auto n = s.read(MutableBytes(buf.data(), buf.size()));
+            if (!n.ok() || *n == 0) break;
+            got.insert(got.end(), buf.begin(), buf.begin() + static_cast<std::ptrdiff_t>(*n));
+        }
+        return got;
+    };
+    CHECK(download(0) == data);
+    CHECK(download(1000001) == std::vector<std::uint8_t>(data.begin() + 1000001, data.end()));
+    REQUIRE_OK(s.rename("/alembic-live-a.bin", "/alembic-live-b.bin"));
+    CHECK(!s.size("/alembic-live-a.bin").ok());
+    REQUIRE_OK(s.remove("/alembic-live-b.bin"));
 }

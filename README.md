@@ -153,8 +153,9 @@ Also on the page:
   The server only stores the files: the engine reads the game over the
   network and does the converting itself. exFAT, FFPKG, FFPFS and folder
   outputs can be saved back to the server; FFPFSC and PKG outputs go to the
-  console first. Nothing is encrypted yet (no SMB encryption, FTPS or
-  HTTPS): shares that require encryption are refused with a message. To
+  console first. SMB traffic is encrypted (AES-128-GCM or -CCM, SMB 3)
+  when the server or share requires it; otherwise nothing is encrypted yet
+  (no FTPS or HTTPS). To
   have a PC do the work, run Alembic's engine on it instead (see
   [Working across engines](#working-across-engines)).
 - **From this computer:** opened in a PC's browser, the page can share a

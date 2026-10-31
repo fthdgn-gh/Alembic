@@ -3,6 +3,7 @@
 
 #include "alembic/crypto.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <vector>
 
@@ -289,6 +290,233 @@ Md aes_cmac(const std::uint8_t key[16], Bytes message) {
     Md out;
     aes.encrypt_block(x, out.data());
     return out;
+}
+
+// ---------------------------------------------------------------- AES-GCM and AES-CCM
+
+namespace {
+
+// XORs the CTR keystream from `counter` (its last `inc_bytes` bytes count up,
+// big-endian) into `data`: many blocks per call, for the AES instructions.
+void ctr_xor(const crypto::Aes128& aes, std::uint8_t counter[16], int inc_bytes, MutableBytes data) {
+    constexpr std::size_t kBatch = 64;
+    std::uint8_t blocks[kBatch * 16];
+    for (std::size_t at = 0; at < data.size();) {
+        const std::size_t n = std::min(kBatch, (data.size() - at + 15) / 16);
+        for (std::size_t b = 0; b < n; ++b) {
+            std::memcpy(blocks + b * 16, counter, 16);
+            for (int i = 15; i >= 16 - inc_bytes; --i)
+                if (++counter[i] != 0) break;
+        }
+        aes.encrypt_blocks(blocks, blocks, n);
+        const std::size_t len = std::min(n * 16, data.size() - at);
+        for (std::size_t i = 0; i < len; ++i) data[at + i] ^= blocks[i];
+        at += len;
+    }
+}
+
+bool same_tag(const std::uint8_t* a, const std::uint8_t* b, std::size_t n) {
+    std::uint8_t diff = 0; // no early exit: the time does not tell where they differ
+    for (std::size_t i = 0; i < n; ++i) diff |= a[i] ^ b[i];
+    return diff == 0;
+}
+
+// GHASH (SP 800-38D 6.4) with Shoup's 4-bit tables.
+class Ghash {
+public:
+    explicit Ghash(const std::uint8_t h[16]) {
+        std::uint64_t vh = be64(h), vl = be64(h + 8);
+        hh_[8] = vh;
+        hl_[8] = vl;
+        for (int i = 4; i > 0; i >>= 1) {
+            const std::uint64_t t = (vl & 1) ? 0xe100000000000000ULL : 0;
+            vl = (vh << 63) | (vl >> 1);
+            vh = (vh >> 1) ^ t;
+            hh_[i] = vh;
+            hl_[i] = vl;
+        }
+        for (int i = 2; i <= 8; i *= 2)
+            for (int j = 1; j < i; ++j) {
+                hh_[i + j] = hh_[i] ^ hh_[j];
+                hl_[i + j] = hl_[i] ^ hl_[j];
+            }
+    }
+    // Absorbs `data`, zero-padded to whole blocks.
+    void update(Bytes data) {
+        for (std::size_t at = 0; at < data.size(); at += 16) {
+            const std::size_t n = std::min<std::size_t>(16, data.size() - at);
+            for (std::size_t i = 0; i < n; ++i) y_[i] ^= data[at + i];
+            multiply();
+        }
+    }
+    void finish(std::uint64_t aad_bytes, std::uint64_t text_bytes, std::uint8_t out[16]) {
+        std::uint8_t lengths[16];
+        for (int i = 0; i < 8; ++i) {
+            lengths[i] = static_cast<std::uint8_t>((aad_bytes * 8) >> (56 - 8 * i));
+            lengths[8 + i] = static_cast<std::uint8_t>((text_bytes * 8) >> (56 - 8 * i));
+        }
+        update(Bytes(lengths, 16));
+        std::memcpy(out, y_, 16);
+    }
+
+private:
+    void multiply() {
+        static const std::uint64_t last4[16] = {0x0000, 0x1c20, 0x3840, 0x2460, 0x7080, 0x6ca0, 0x48c0, 0x54e0,
+                                                0xe100, 0xfd20, 0xd940, 0xc560, 0x9180, 0x8da0, 0xa9c0, 0xb5e0};
+        int lo = y_[15] & 0xf;
+        std::uint64_t zh = hh_[lo], zl = hl_[lo];
+        for (int i = 15; i >= 0; --i) {
+            lo = y_[i] & 0xf;
+            const int hi = (y_[i] >> 4) & 0xf;
+            if (i != 15) {
+                const int rem = static_cast<int>(zl & 0xf);
+                zl = (zh << 60) | (zl >> 4);
+                zh = (zh >> 4) ^ (last4[rem] << 48) ^ hh_[lo];
+                zl ^= hl_[lo];
+            }
+            const int rem = static_cast<int>(zl & 0xf);
+            zl = (zh << 60) | (zl >> 4);
+            zh = (zh >> 4) ^ (last4[rem] << 48) ^ hh_[hi];
+            zl ^= hl_[hi];
+        }
+        for (int i = 0; i < 8; ++i) {
+            y_[i] = static_cast<std::uint8_t>(zh >> (56 - 8 * i));
+            y_[8 + i] = static_cast<std::uint8_t>(zl >> (56 - 8 * i));
+        }
+    }
+    std::uint64_t hh_[16] = {}, hl_[16] = {};
+    std::uint8_t y_[16] = {};
+};
+
+// The GCM tag over `aad` and the ciphertext `text`.
+void gcm_tag(const crypto::Aes128& aes, const std::uint8_t nonce[12], Bytes aad, Bytes text, std::uint8_t tag[16]) {
+    std::uint8_t h[16] = {}, j0[16] = {};
+    aes.encrypt_block(h, h);
+    Ghash g(h);
+    g.update(aad);
+    g.update(text);
+    g.finish(aad.size(), text.size(), tag);
+    std::memcpy(j0, nonce, 12);
+    j0[15] = 1;
+    aes.encrypt_block(j0, j0);
+    for (int i = 0; i < 16; ++i) tag[i] ^= j0[i];
+}
+
+void gcm_ctr(const crypto::Aes128& aes, const std::uint8_t nonce[12], MutableBytes data) {
+    std::uint8_t counter[16] = {};
+    std::memcpy(counter, nonce, 12);
+    counter[15] = 2; // inc32(J0)
+    ctr_xor(aes, counter, 4, data);
+}
+
+// The unencrypted CCM tag T (SP 800-38C A.2): CBC-MAC over B0, the encoded
+// associated data and the payload.
+void ccm_mac(const crypto::Aes128& aes, Bytes nonce, Bytes aad, Bytes text, std::size_t t, std::uint8_t mac[16]) {
+    const std::size_t q = 15 - nonce.size();
+    std::uint8_t x[16] = {};
+    x[0] = static_cast<std::uint8_t>((aad.empty() ? 0 : 0x40) | (((t - 2) / 2) << 3) | (q - 1));
+    std::memcpy(x + 1, nonce.data(), nonce.size());
+    for (std::size_t i = 0; i < q; ++i) x[15 - i] = static_cast<std::uint8_t>(i < 8 ? std::uint64_t(text.size()) >> (8 * i) : 0);
+    aes.encrypt_block(x, x);
+    std::uint8_t block[16];
+    std::size_t fill = 0;
+    auto absorb = [&](const std::uint8_t* p, std::size_t n) {
+        for (std::size_t i = 0; i < n; ++i) {
+            block[fill++] = p[i];
+            if (fill == 16) {
+                for (int k = 0; k < 16; ++k) x[k] ^= block[k];
+                aes.encrypt_block(x, x);
+                fill = 0;
+            }
+        }
+    };
+    auto flush = [&] {
+        if (fill == 0) return;
+        std::memset(block + fill, 0, 16 - fill);
+        for (int k = 0; k < 16; ++k) x[k] ^= block[k];
+        aes.encrypt_block(x, x);
+        fill = 0;
+    };
+    if (!aad.empty()) {
+        std::uint8_t len[6];
+        std::size_t n;
+        if (aad.size() < 0xFF00) {
+            len[0] = static_cast<std::uint8_t>(aad.size() >> 8);
+            len[1] = static_cast<std::uint8_t>(aad.size());
+            n = 2;
+        } else {
+            len[0] = 0xFF;
+            len[1] = 0xFE;
+            for (int i = 0; i < 4; ++i) len[2 + i] = static_cast<std::uint8_t>(std::uint64_t(aad.size()) >> (24 - 8 * i));
+            n = 6;
+        }
+        absorb(len, n);
+        absorb(aad.data(), aad.size());
+        flush();
+    }
+    absorb(text.data(), text.size());
+    flush();
+    std::memcpy(mac, x, 16);
+}
+
+// Counter block i: flags (q - 1), the nonce, i in q bytes.
+void ccm_counter(Bytes nonce, std::uint8_t counter[16]) {
+    std::memset(counter, 0, 16);
+    counter[0] = static_cast<std::uint8_t>(15 - nonce.size() - 1);
+    std::memcpy(counter + 1, nonce.data(), nonce.size());
+}
+
+bool ccm_shape_ok(Bytes nonce, std::size_t t) {
+    return nonce.size() >= 7 && nonce.size() <= 13 && t >= 4 && t <= 16 && t % 2 == 0;
+}
+
+} // namespace
+
+void aes_gcm_encrypt(const std::uint8_t key[16], const std::uint8_t nonce[12], Bytes aad, MutableBytes data,
+                     std::uint8_t tag[16]) {
+    crypto::Aes128 aes(key);
+    gcm_ctr(aes, nonce, data);
+    gcm_tag(aes, nonce, aad, Bytes(data.data(), data.size()), tag);
+}
+
+bool aes_gcm_decrypt(const std::uint8_t key[16], const std::uint8_t nonce[12], Bytes aad, MutableBytes data,
+                     const std::uint8_t tag[16]) {
+    crypto::Aes128 aes(key);
+    std::uint8_t expected[16];
+    gcm_tag(aes, nonce, aad, Bytes(data.data(), data.size()), expected);
+    if (!same_tag(expected, tag, 16)) return false;
+    gcm_ctr(aes, nonce, data);
+    return true;
+}
+
+void aes_ccm_encrypt(const std::uint8_t key[16], Bytes nonce, Bytes aad, MutableBytes data, MutableBytes tag) {
+    if (!ccm_shape_ok(nonce, tag.size())) return;
+    crypto::Aes128 aes(key);
+    std::uint8_t mac[16], counter[16], s0[16];
+    ccm_mac(aes, nonce, aad, Bytes(data.data(), data.size()), tag.size(), mac);
+    ccm_counter(nonce, counter);
+    aes.encrypt_block(counter, s0);
+    counter[15] = 1;
+    ctr_xor(aes, counter, static_cast<int>(15 - nonce.size()), data);
+    for (std::size_t i = 0; i < tag.size(); ++i) tag[i] = mac[i] ^ s0[i];
+}
+
+bool aes_ccm_decrypt(const std::uint8_t key[16], Bytes nonce, Bytes aad, MutableBytes data, Bytes tag) {
+    if (!ccm_shape_ok(nonce, tag.size())) return false;
+    crypto::Aes128 aes(key);
+    std::uint8_t mac[16], counter[16], s0[16];
+    ccm_counter(nonce, counter);
+    aes.encrypt_block(counter, s0);
+    // CCM authenticates the plaintext: decrypt a copy, check, then keep it.
+    std::vector<std::uint8_t> plain(data.begin(), data.end());
+    counter[15] = 1;
+    ctr_xor(aes, counter, static_cast<int>(15 - nonce.size()), MutableBytes(plain.data(), plain.size()));
+    ccm_mac(aes, nonce, aad, Bytes(plain.data(), plain.size()), tag.size(), mac);
+    std::uint8_t expected[16];
+    for (std::size_t i = 0; i < tag.size(); ++i) expected[i] = mac[i] ^ s0[i];
+    if (!same_tag(expected, tag.data(), tag.size())) return false;
+    if (!plain.empty()) std::memcpy(data.data(), plain.data(), plain.size());
+    return true;
 }
 
 } // namespace alembic::engine::netcrypto

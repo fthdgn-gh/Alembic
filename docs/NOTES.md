@@ -61,6 +61,8 @@ tools/pkg-oracle/compare.sh         # FPKG reading/writing vs ProsperoPkgTool/Li
 tools/pkg-oracle/check_samples.sh   # owner's real files in .refs/samples/ (~4 min; skips files over
                                     # ALEMBIC_SAMPLES_MAX_GB GiB, default 20; cleans up after each step)
 tools/lz4-oracle/compare.sh         # LZ4 packs vs ampr_pack.py (needs .refs/venv, Homebrew lz4)
+tools/pkg-oracle/write_samples.sh   # fpkg-build vs img_create on every real PS5 package (stored, Kraken)
+tools/netfs/samba_check.sh          # the SMB client against Samba: encryption required/not, 3.0-3.1.1
 app/build.sh                        # the console app: build-app/dist/PPSA99594 (+ .zip)
 app/preview.sh [dir] [script]       # PNGs of the app drawn on this computer (Mesa)
 ```
@@ -122,9 +124,10 @@ app/preview.sh [dir] [script]       # PNGs of the app drawn on this computer (Me
   them); inflate and Kraken decode read ahead on worker threads; AES and
   CRC32C use the CPU's instructions on x86-64 and ARMv8.
 - Network server outputs (FTP, SMB, WebDAV) cannot take FFPFSC or PKG
-  (they seek back), and uploads do not resume. No TLS anywhere (FTPS,
-  HTTPS WebDAV) and no SMB encryption (owner: next, on its own); no
-  Kerberos; NFS v3 with AUTH_SYS only (no v4, no Kerberos).
+  (they seek back), and uploads do not resume. SMB 3 encryption only when
+  the server or share requires it (no "always" option yet); no TLS yet
+  (FTPS, HTTPS WebDAV; next); no Kerberos; NFS v3 with AUTH_SYS only (no
+  v4, no Kerberos).
 
 ## Reference repositories
 
@@ -2660,9 +2663,50 @@ What it took:
   5.9 s); a 1.3 GB package: 10 s, 1.6 GB (2.7 GB stored), every file reads
   back. Unit tests: encoder round trips through our decoder; a Kraken build
   paused and resumed equals an uninterrupted one (1 and 3 threads).
-- The app preview (`app/preview.sh`) does not take input after opening a
-  folder in the stand-in engine (same on c74b123), so the app's new row was
-  not seen in a picture; it reuses the zlib level row's `choice_row`.
+- App pictures (`app/preview.sh`): the Compression row shows for FPKG and
+  steps to Kraken; hidden for the PS4 game. (A first try seemed to stall:
+  the drives list's ✕ opens Internal, whose only row is homebrew, so a
+  `down` there does nothing. preview.sh now carries a working example.)
+
+### 2026-10-31: SMB 3 encryption; real packages written byte for byte
+
+- **SMB encryption** (owner: "go ahead with encryption"; SMB first, TLS
+  next): `smb.cpp` offers AES-128-GCM and AES-128-CCM (3.1.1 encryption
+  context; 3.0/3.0.2 the capability bit, CCM), derives the keys at login
+  ([MS-SMB2] 3.1.4.2: "SMBC2SCipherKey"/"SMBS2CCipherKey" over the preauth
+  hash for 3.1.1, "SMB2AESCCM" with "ServerIn "/"ServerOut" before) and,
+  once the session or a share asks for it, sends every request in a
+  TRANSFORM_HEADER (nonce: a counter and a per-session salt) and opens the
+  encrypted replies, checking their tags. Encrypted requests are not
+  signed. Guest logins and 2.x dialects cannot encrypt: a share that
+  requires it says so. Windows' client behaves the same (encrypts only on
+  demand); an "always encrypt" setting is possible later.
+- Ciphers in `netcrypto.cpp`, from SP 800-38D/38C on the core's AES
+  (keystream 64 blocks at a time for the AES instructions; GHASH with
+  4-bit tables): GCM spec test cases 2 and 4, RFC 3610 vector 1, an SMB-
+  shaped CCM vector from Python's cryptography; tampered data is refused
+  and left as it was. ~320 MB/s GCM, ~480 MB/s CCM on one Mac core.
+- `tools/netfs/samba_check.sh` runs Homebrew Samba 4.25 (unprivileged,
+  127.0.0.1:4450) in seven setups and the live test `smb_live_session`
+  (3 MiB up, list, down whole and from an offset, rename, remove): 3.1.1
+  GCM, 3.1.1 CCM-only, 3.0.2, 3.0 (all "required"), share-only required,
+  no encryption: all pass; 2.1 with a share requiring it: refused. With
+  sealing switched off on purpose the five "required" setups fail, so a
+  pass means the traffic was encrypted. Samba on macOS notes: users with
+  `pdbedit -a` (`smbpasswd -a` needs root), the share path resolved
+  (`/tmp` is a link), `nt acl support = no` and fixed modes, and it cannot
+  make folders unprivileged (4.25 renames a temporary folder), so the live
+  test uses files only.
+- **Real packages:** `tools/pkg-oracle/write_samples.sh` unpacks every
+  sample PS5 package and builds it with both tools: all byte-identical,
+  stored and Kraken (a 1.9 GB game: 374 MB with Kraken). Two samples
+  ProsperoPkgTool refuses (no contentId, PS4-style PlayGo); the 80 GB one
+  is over the default size limit. `patch_prosperopkgtool.py` gives
+  ProsperoPkgTool's SI hashing its own managed SHA3 so it can build
+  packages over 1 GiB on macOS.
+- `app/preview.sh` was fine: a first try of the Convert dialog pressed
+  `down` on the Internal drive's single folder. Its usage now has a
+  working example.
 
 ## Next session
 
@@ -2749,8 +2793,9 @@ What it took:
 8. **Network servers (2026-10-30, 0.3.3):** ✓ SMB from the console
    (owner). Still to try: a Windows share and a NAS over SMB, NFS on a
    NAS (with a portmapper and "secure" exports), WebDAV.
-   **Next, as its own piece of work (owner): encryption** - SMB 3
-   encryption (AES-GCM/CCM) and TLS (FTPS, HTTPS WebDAV). Decided
+   **Next, as its own piece of work (owner): encryption** - ✓ SMB 3
+   encryption (2026-10-31, when required); TLS (FTPS, HTTPS WebDAV) next.
+   Decided
    (owner, 2026-10-31): TLS through the console's libSceSsl on the PS5 and
    vendored mbedTLS (Apache-2.0, 3.6 LTS) on PCs; servers' certificates
    pinned on first use (the fingerprint shown and confirmed once, a change
