@@ -39,8 +39,8 @@ ENGINE = [
     "unwrapped the exFAT image unchanged", "unwrapped the PFS image unchanged", "unwrapped the UFS2 image unchanged",
     "another queued job uses it",
     # components (deps.cpp)
-    "AMPR emulator (ampr_emu)", "FPKG key files", "PS4 package keys",
-    "The keys a PS4 fake package is built with (Sony's public package keys, the fake image key's modulus) and the debug licence key, used when a game has no licence. Needed for PKG output of PS4 games.",
+    "AMPR emulator (ampr_emu)", "FPKG key files", "Licence and PS4 package keys",
+    "The debug licence key, for packages of games that have no licence (without one, the title shows a lock), and the keys a PS4 fake package is built with (Sony's public package keys, the fake image key's modulus). Needed for PKG output.",
     "Stands in for the console's APR file reader (fakelib/libSceAmpr.sprx), so games that use it start from an image or folder; also reads LZ4 packs. Added to such games when converting, or to an existing game.",
     "The public RSA-3072 moduli a debug FPKG is built with (passcode key wraps, image key wrap, metadata header). Needed for PKG output.",
     # shortcut status (main.cpp), the simple ones

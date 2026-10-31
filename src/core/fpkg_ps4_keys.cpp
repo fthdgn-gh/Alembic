@@ -101,8 +101,8 @@ Result<Keys> parse_keys(std::string_view text) {
 Result<Keys> load_keys(const std::string& keys_cs_path) {
     auto file = File::open(keys_cs_path, File::Mode::read);
     if (!file.ok())
-        return make_error(Errc::invalid_argument, "missing the PS4 key file " + keys_cs_path +
-                                                      " (get the PS4 package keys in Components, or pass --ps4-keys FILE)");
+        return make_error(Errc::invalid_argument, "missing LibOrbisPkg's key file " + keys_cs_path +
+                                                      " (get the licence and PS4 package keys in Components, or pass --ps4-keys FILE)");
     ALEMBIC_ASSIGN(std::uint64_t size, file->size());
     if (size > 1024 * 1024) return invalid("the file is too large");
     std::vector<std::uint8_t> data(static_cast<std::size_t>(size));

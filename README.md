@@ -168,7 +168,7 @@ Also on the page:
 - **ShadowMount+:** new images can be picked up without a restart, and
   sources can be hidden from it once converted.
 - **Components:** third-party files Alembic needs but doesn't ship (ampr_emu's
-  runtime, ProsperoPkgTool's FPKG key files, LibOrbisPkg's PS4 package keys)
+  runtime, ProsperoPkgTool's FPKG key files, LibOrbisPkg's licence and PS4 package keys)
   are downloaded on request from
   their official source and kept only if their SHA-256 matches.
 - **Engine** (Settings): **Restart the engine** starts the same version again
