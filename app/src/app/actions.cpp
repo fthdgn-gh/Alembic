@@ -543,6 +543,7 @@ public:
     int level = 1;  // index: 1 / 6 / 9
     int pkg_comp = 0; // index: stored / kraken
     bool install = false; // FPKG: install it when done, then delete it (ConvertDialog.tsx)
+    bool keep_pkg = false; // ...or keep it
     int profile = 0;
     int lz4_level = 1;  // index: 1 / 9 / 12
     bool lz4 = false, unpack = false, ampr = true, verify = true, del = false, hide = false, over = false;
@@ -611,6 +612,7 @@ public:
         s.set("level", levels[std::clamp(level, 0, 2)]);
         s.set("pkg_compression", pkg_comp == 1 ? "kraken" : "stored");
         s.set("install_after", install_on);
+        s.set("keep_package", install_on && keep_pkg);
         s.set("lz4", lz4_on);
         s.set("lz4_unpack", unpack_on);
         s.set("lz4_profile", profiles[static_cast<std::size_t>(std::clamp(profile, 0, static_cast<int>(profiles.size()) - 1))]);
@@ -841,6 +843,13 @@ public:
                             t("The package goes to the console's installer and is deleted once the installer has read it; it "
                               "needs room until then"),
                             &install);
+        if (installable(app, target) && install) {
+            const float ix = x + 1.25f * R + 0.9f * R + 2.0f, iw = lw - (ix - x);
+            const float top = y;
+            y += switch_row(ui, "cv:keep", ix, y, iw, t("Keep the package"),
+                            t("Leaves the .pkg after installing, to install again or elsewhere"), &keep_pkg);
+            ui.list->rounded_rect({x + 1.25f * R, top, 2.0f, y - top - 0.5f * R}, 0.0f, line);
+        }
         if (!packed) y += switch_row(ui, "cv:lz4", x, y, lw, t("Pack into LZ4 asset packs"), t("For ampr_emu games"), &lz4);
         if (lz4_on) {
             const float ix = x + 1.25f * R + 0.9f * R + 2.0f, iw = lw - (ix - x);

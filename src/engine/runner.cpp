@@ -404,7 +404,8 @@ Result<convert::Comparison> check_output(const std::string& input, const std::st
 }
 
 namespace {
-Status install_then_remove(const std::string& package, const EngineConfig& config, const ProgressFn& progress, JsonValue& r);
+Status install_then_remove(const std::string& package, const EngineConfig& config, const ProgressFn& progress, JsonValue& r,
+                           bool keep);
 }
 
 Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress) {
@@ -572,7 +573,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
 
     if (spec.install_after) {
         if (to != convert::Format::fpkg) return make_error(Errc::invalid_argument, "only a package can be installed");
-        ALEMBIC_TRY(install_then_remove(output, config, progress, r));
+        ALEMBIC_TRY(install_then_remove(output, config, progress, r, spec.keep_package));
     }
     if (spec.delete_source) {
         if (spec.verify) {
@@ -780,8 +781,9 @@ namespace {
 
 // Installs a package the job just built: over HTTP, so the engine sees the
 // installer read it; once all of it was read and the installer has been
-// quiet for a while, the package goes (the installer copies it).
-Status install_then_remove(const std::string& package, const EngineConfig& config, const ProgressFn& progress, JsonValue& r) {
+// quiet for a while, the package goes (the installer copies it), unless kept.
+Status install_then_remove(const std::string& package, const EngineConfig& config, const ProgressFn& progress, JsonValue& r,
+                           bool keep) {
     std::string content_id, title;
     GameMetaCache cache(config.state_dir);
     if (auto m = cache.meta(package); m.ok()) {
@@ -813,7 +815,9 @@ Status install_then_remove(const std::string& package, const EngineConfig& confi
             return make_error(Errc::io, "the console's installer stopped reading the package part way (it stays: " + package + ")");
     }
     r.set("installed", true);
-    if (Status removed = remove_tree(package); !removed.ok()) {
+    if (keep) {
+        r.set("package_kept", "kept as asked");
+    } else if (Status removed = remove_tree(package); !removed.ok()) {
         r.set("package_kept", removed.error().message);
     } else {
         r.set("package_removed", true);

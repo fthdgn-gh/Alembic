@@ -127,7 +127,7 @@ GitHub release first, checked against `SHA256SUMS`).
    **Convert**, **Install**, **Copy** or **Move**. Install on an image or a
    folder converts it to a package, hands that to the console's installer
    and deletes it once the installer has read it (it needs room for the
-   package until then).
+   package until then), unless **Keep the package** is on.
 4. Jobs run one at a time in **Queue**: pause, resume (long jobs continue
    from a checkpoint), reorder, cancel. You get a notification when one
    finishes.

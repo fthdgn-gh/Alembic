@@ -172,6 +172,8 @@ var I18N = {
   "no such job"
  ],
  "tr": {
+  "Keep the package": "Paketi sakla",
+  "Leaves the .pkg after installing, to install again or elsewhere": ".pkg dosyasını kurulumdan sonra bırakır; yeniden ya da başka yerde kurmak için",
   "Install when done": "Bitince kur",
   "The package goes to the console's installer and is deleted once the installer has read it; it needs room until then": "Paket konsolun yükleyicisine gider ve yükleyici okuyunca silinir; o zamana kadar yer gerekir",
   "Install…": "Kur…",
@@ -868,6 +870,8 @@ var I18N = {
   "built a PS4 package from the file tree": "dosya ağacından PS4 paketi oluşturdu"
  },
  "es": {
+  "Keep the package": "Conservar el paquete",
+  "Leaves the .pkg after installing, to install again or elsewhere": "Deja el .pkg tras instalarlo, para volver a instalarlo o en otro sitio",
   "Install when done": "Instalar al terminar",
   "The package goes to the console's installer and is deleted once the installer has read it; it needs room until then": "El paquete va al instalador de la consola y se borra cuando el instalador lo ha leído; hasta entonces necesita espacio",
   "Install…": "Instalar…",
@@ -1564,6 +1568,8 @@ var I18N = {
   "built a PS4 package from the file tree": "creó un paquete de PS4 a partir del árbol de archivos"
  },
  "fr": {
+  "Keep the package": "Garder le paquet",
+  "Leaves the .pkg after installing, to install again or elsewhere": "Laisse le .pkg après l'installation, pour réinstaller ou installer ailleurs",
   "Install when done": "Installer à la fin",
   "The package goes to the console's installer and is deleted once the installer has read it; it needs room until then": "Le paquet va à l'installateur de la console et est supprimé une fois lu par l'installateur ; il faut de la place jusque-là",
   "Install…": "Installer…",
@@ -2260,6 +2266,8 @@ var I18N = {
   "built a PS4 package from the file tree": "a créé un paquet PS4 à partir de l'arborescence"
  },
  "de": {
+  "Keep the package": "Paket behalten",
+  "Leaves the .pkg after installing, to install again or elsewhere": "Lässt das .pkg nach der Installation liegen, um es erneut oder anderswo zu installieren",
   "Install when done": "Nach Abschluss installieren",
   "The package goes to the console's installer and is deleted once the installer has read it; it needs room until then": "Das Paket geht an das Installationsprogramm der Konsole und wird gelöscht, sobald es gelesen wurde; bis dahin braucht es Platz",
   "Install…": "Installieren…",
@@ -2956,6 +2964,8 @@ var I18N = {
   "built a PS4 package from the file tree": "hat aus dem Dateibaum ein PS4-Paket erstellt"
  },
  "ja": {
+  "Keep the package": "パッケージを残す",
+  "Leaves the .pkg after installing, to install again or elsewhere": "インストール後も .pkg を残します。再インストールや別の場所でのインストール用です",
   "Install when done": "完了後にインストール",
   "The package goes to the console's installer and is deleted once the installer has read it; it needs room until then": "パッケージはコンソールのインストーラーに渡され、読み終わると削除されます。それまで空き容量が必要です",
   "Install…": "インストール…",

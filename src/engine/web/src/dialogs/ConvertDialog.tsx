@@ -74,6 +74,7 @@ function Convert(props: { entry: Entry; ctl: Control; install: boolean }) {
   const rt = info.value ? info.value.lz4_runtime : null;
   const [to, setTo] = useState(props.install ? "fpkg" : entry.kind === "ffpfsc" ? "ffpkg" : "ffpfsc");
   const [installWant, setInstall] = useState(props.install);
+  const [keepPkg, setKeepPkg] = useState(false);
   const [dest, setDest] = useState(() => initialDest(entry));
   const [inspect, setInspect] = useState<Inspect | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -119,7 +120,7 @@ function Convert(props: { entry: Entry; ctl: Control; install: boolean }) {
   const amprHidden = target === "fpkg" || lz4; // packing adds its runtime anyway
   const spec = {
     input: entry.path, to: target, output_dir: dest, output_name: name.trim(), level, pkg_compression: pkgComp,
-    install_after: installable && target === "fpkg" && installWant, lz4, lz4_unpack: unpack,
+    install_after: installable && target === "fpkg" && installWant, keep_package: keepPkg, lz4, lz4_unpack: unpack,
     lz4_profile: profile, lz4_level: lz4Level, delete_source: del, verify, overwrite: over,
     ampr_emu: ampr ? "auto" : "off", hide_source: !hideHidden && hideWant && !del,
   };
@@ -233,6 +234,9 @@ function Convert(props: { entry: Entry; ctl: Control; install: boolean }) {
             options={[{ value: "stored", label: t("Stored · fastest") }, { value: "kraken", label: t("Kraken · smaller") }]} />
           <SwitchRow label={t("Install when done")} hint={t("The package goes to the console's installer and is deleted once the installer has read it; it needs room until then")}
             on={installWant} onChange={setInstall} hidden={!installable || target !== "fpkg"} dataKey="cv:install" />
+          <div class="indent" hidden={!installable || target !== "fpkg" || !installWant}>
+            <SwitchRow label={t("Keep the package")} hint={t("Leaves the .pkg after installing, to install again or elsewhere")} on={keepPkg} onChange={setKeepPkg} dataKey="cv:keep" />
+          </div>
           <SwitchRow label={t("Pack into LZ4 asset packs")} hint={t("For ampr_emu games")} on={lz4} onChange={setLz4} hidden={packedSrc} />
           <div class="indent" hidden={!lz4}>
             <ChoiceRow label={t("Profile")} hint={t("Automatic uses a console-tested profile when one matches")} options={profiles} value={profile} onChange={setProfile} />

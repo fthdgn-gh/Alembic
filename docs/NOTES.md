@@ -2874,7 +2874,8 @@ What it took:
   was read and the installer has been quiet for 20 s the package is
   deleted (`installed`, `package_removed` in the result). No reading within
   2 min, or a 10-min pause part way: the job fails and the package stays.
-  Not with `delete_source`.
+  Not with `delete_source`. `keep_package` (Convert: "Keep the package",
+  owner's request) leaves it after installing.
 - **Page and app:** Convert -> FPKG -> "Install when done" (PS5 engines,
   PS5 games); Files -> Install... on images and folders opens Convert that
   way. Pictures of both checked.
