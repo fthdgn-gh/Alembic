@@ -30,6 +30,7 @@ struct Source {
     std::chrono::steady_clock::time_point added;
     std::vector<Request> requests; // the first kKeep
     std::uint64_t request_count = 0, bytes_served = 0, highest_end = 0;
+    std::chrono::steady_clock::time_point last; // the last request's start
 };
 
 constexpr std::size_t kKeep = 4000;
@@ -105,6 +106,7 @@ Result<std::string> add(const std::string& path) {
     s->file = std::make_shared<File>(std::move(file));
     s->size = size;
     s->added = std::chrono::steady_clock::now();
+    s->last = s->added;
     std::lock_guard<std::mutex> lock(mutex);
     sources.push_back(s);
     while (sources.size() > kSources) sources.pop_front();
@@ -155,6 +157,7 @@ HttpResponse serve(const HttpRequest& request) {
     {
         std::lock_guard<std::mutex> lock(mutex);
         ++s->request_count;
+        s->last = std::chrono::steady_clock::now();
         if (request.method == "GET" && rec.status < 300) {
             s->bytes_served += rec.length;
             s->highest_end = std::max(s->highest_end, rec.from + rec.length);
@@ -162,6 +165,31 @@ HttpResponse serve(const HttpRequest& request) {
         if (s->requests.size() < kKeep) s->requests.push_back(rec);
     }
     return r;
+}
+
+std::optional<Status> status(const std::string& token) {
+    std::lock_guard<std::mutex> lock(mutex);
+    for (const auto& s : sources)
+        if (s->token == token) {
+            Status st;
+            st.size = s->size;
+            st.served = s->bytes_served;
+            st.requests = s->request_count;
+            // A request in progress streams for a while: idle counts from its start,
+            // so the waiter allows for the longest one (an 18 MiB range).
+            st.idle_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - s->last).count();
+            return st;
+        }
+    return std::nullopt;
+}
+
+void remove(const std::string& token) {
+    std::lock_guard<std::mutex> lock(mutex);
+    for (auto it = sources.begin(); it != sources.end(); ++it)
+        if ((*it)->token == token) {
+            sources.erase(it);
+            return;
+        }
 }
 
 JsonValue report() {

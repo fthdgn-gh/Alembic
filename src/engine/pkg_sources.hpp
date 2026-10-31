@@ -14,6 +14,7 @@
 #include "http.hpp"
 #include "json_value.hpp"
 
+#include <optional>
 #include <string>
 
 namespace alembic::engine::pkg_sources {
@@ -29,5 +30,16 @@ HttpResponse serve(const HttpRequest& request);
 
 // Every source with the requests it got: for /api/pkg-sources.
 JsonValue report();
+
+// How far the installer has read a source: for jobs that wait for it.
+struct Status {
+    std::uint64_t size = 0;
+    std::uint64_t served = 0;   // bytes sent (each about once, plus small repeated probes)
+    std::uint64_t requests = 0;
+    std::int64_t idle_ms = 0;   // since the last request started, or since it was added
+};
+std::optional<Status> status(const std::string& token);
+// Forgets a source (its file is closed once no request uses it).
+void remove(const std::string& token);
 
 } // namespace alembic::engine::pkg_sources

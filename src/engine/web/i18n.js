@@ -172,6 +172,11 @@ var I18N = {
   "no such job"
  ],
  "tr": {
+  "Install when done": "Bitince kur",
+  "The package goes to the console's installer and is deleted once the installer has read it; it needs room until then": "Paket konsolun yükleyicisine gider ve yükleyici okuyunca silinir; o zamana kadar yer gerekir",
+  "Install…": "Kur…",
+  "Converts it to a package, installs it, then deletes the package": "Pakete dönüştürür, kurar, sonra paketi siler",
+  "Installing (the console reads the package)": "Kuruluyor (konsol paketi okuyor)",
   "Install by streaming (test)": "Akışla kur (deneme)",
   "The console installs it in the background; follow it in Downloads. The engine serves it to the installer: keep the engine running and the file in place until the install has finished.": "Konsol arka planda kurar; İndirilenler'den takip edin. Motor paketi kurucuya sunar: kurulum bitene kadar motoru açık ve dosyayı yerinde tutun.",
   "The engine serves it to the installer over HTTP and records how it reads it": "Motor paketi kurucuya HTTP üzerinden sunar ve nasıl okuduğunu kaydeder",
@@ -865,6 +870,11 @@ var I18N = {
   "built a PS4 package from the file tree": "dosya ağacından PS4 paketi oluşturdu"
  },
  "es": {
+  "Install when done": "Instalar al terminar",
+  "The package goes to the console's installer and is deleted once the installer has read it; it needs room until then": "El paquete va al instalador de la consola y se borra cuando el instalador lo ha leído; hasta entonces necesita espacio",
+  "Install…": "Instalar…",
+  "Converts it to a package, installs it, then deletes the package": "Lo convierte en un paquete, lo instala y luego borra el paquete",
+  "Installing (the console reads the package)": "Instalando (la consola lee el paquete)",
   "Install by streaming (test)": "Instalar en streaming (prueba)",
   "The console installs it in the background; follow it in Downloads. The engine serves it to the installer: keep the engine running and the file in place until the install has finished.": "La consola lo instala en segundo plano; síguelo en Descargas. El motor se lo sirve al instalador: mantén el motor en marcha y el archivo en su sitio hasta que termine la instalación.",
   "The engine serves it to the installer over HTTP and records how it reads it": "El motor se lo sirve al instalador por HTTP y registra cómo lo lee",
@@ -1558,6 +1568,11 @@ var I18N = {
   "built a PS4 package from the file tree": "creó un paquete de PS4 a partir del árbol de archivos"
  },
  "fr": {
+  "Install when done": "Installer à la fin",
+  "The package goes to the console's installer and is deleted once the installer has read it; it needs room until then": "Le paquet va à l'installateur de la console et est supprimé une fois lu par l'installateur ; il faut de la place jusque-là",
+  "Install…": "Installer…",
+  "Converts it to a package, installs it, then deletes the package": "Le convertit en paquet, l'installe, puis supprime le paquet",
+  "Installing (the console reads the package)": "Installation (la console lit le paquet)",
   "Install by streaming (test)": "Installer en streaming (essai)",
   "The console installs it in the background; follow it in Downloads. The engine serves it to the installer: keep the engine running and the file in place until the install has finished.": "La console l'installe en arrière-plan ; suivez-le dans Téléchargements. Le moteur le sert à l'installateur : gardez le moteur en marche et le fichier en place jusqu'à la fin de l'installation.",
   "The engine serves it to the installer over HTTP and records how it reads it": "Le moteur le sert à l'installateur par HTTP et enregistre comment il le lit",
@@ -2251,6 +2266,11 @@ var I18N = {
   "built a PS4 package from the file tree": "a créé un paquet PS4 à partir de l'arborescence"
  },
  "de": {
+  "Install when done": "Nach Abschluss installieren",
+  "The package goes to the console's installer and is deleted once the installer has read it; it needs room until then": "Das Paket geht an das Installationsprogramm der Konsole und wird gelöscht, sobald es gelesen wurde; bis dahin braucht es Platz",
+  "Install…": "Installieren…",
+  "Converts it to a package, installs it, then deletes the package": "Wandelt es in ein Paket um, installiert es und löscht dann das Paket",
+  "Installing (the console reads the package)": "Wird installiert (die Konsole liest das Paket)",
   "Install by streaming (test)": "Per Streaming installieren (Test)",
   "The console installs it in the background; follow it in Downloads. The engine serves it to the installer: keep the engine running and the file in place until the install has finished.": "Die Konsole installiert es im Hintergrund; verfolge es unter Downloads. Die Engine liefert es dem Installationsprogramm: lass die Engine laufen und die Datei an ihrem Ort, bis die Installation fertig ist.",
   "The engine serves it to the installer over HTTP and records how it reads it": "Die Engine liefert es dem Installationsprogramm über HTTP und zeichnet auf, wie es gelesen wird",
@@ -2944,6 +2964,11 @@ var I18N = {
   "built a PS4 package from the file tree": "hat aus dem Dateibaum ein PS4-Paket erstellt"
  },
  "ja": {
+  "Install when done": "完了後にインストール",
+  "The package goes to the console's installer and is deleted once the installer has read it; it needs room until then": "パッケージはコンソールのインストーラーに渡され、読み終わると削除されます。それまで空き容量が必要です",
+  "Install…": "インストール…",
+  "Converts it to a package, installs it, then deletes the package": "パッケージに変換してインストールし、その後パッケージを削除します",
+  "Installing (the console reads the package)": "インストール中（コンソールがパッケージを読み込み中）",
   "Install by streaming (test)": "ストリーミングでインストール（テスト）",
   "The console installs it in the background; follow it in Downloads. The engine serves it to the installer: keep the engine running and the file in place until the install has finished.": "コンソールがバックグラウンドでインストールします。ダウンロードで確認してください。エンジンがインストーラーに配信するので、インストールが終わるまでエンジンを動かしたまま、ファイルをそのままにしてください。",
   "The engine serves it to the installer over HTTP and records how it reads it": "エンジンが HTTP でインストーラーに配信し、読み取り方を記録します",

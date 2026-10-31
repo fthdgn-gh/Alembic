@@ -2852,6 +2852,28 @@ What it took:
   mask would need kernel-level changes (as jailbreak tools make); not
   pursued: conversions are already 2x faster.
 
+### 2026-10-31: installing an image like a package
+
+- **Why (owner):** "the main goal is to have these images installable
+  like they are FPKG files". Building the package on the fly while the
+  installer reads it (no temporary file) would take three generation
+  passes: the SI the installer reads first holds a SHA3 over [0, SI) in
+  file order, starting with the header computed last. So: convert, then
+  install, then delete.
+- **Engine:** convert jobs to FPKG take `install_after`: the package goes
+  to the installer over HTTP (`pkg_sources`), the job shows "Installing
+  (the console reads the package)" by the bytes served, and once all of it
+  was read and the installer has been quiet for 20 s the package is
+  deleted (`installed`, `package_removed` in the result). No reading within
+  2 min, or a 10-min pause part way: the job fails and the package stays.
+  Not with `delete_source`.
+- **Page and app:** Convert -> FPKG -> "Install when done" (PS5 engines,
+  PS5 games); Files -> Install... on images and folders opens Convert that
+  way. Pictures of both checked.
+- **Tested on a PC** with a stand-in installer (`ALEMBIC_FAKE_INSTALLER`:
+  the PC engine reads the URL as the console's installer did): converted,
+  read, deleted, the source forgotten. **Not tried on the console yet.**
+
 ## Next session
 
 **Settled (owner, 2026-10-22):**

@@ -44,9 +44,10 @@ function destLabel(v: string) {
 // What the dialog's □ and Add to queue do, set by the open dialog.
 interface Control { go: () => void }
 
-export function openConvert(entry: Entry) {
+// `install`: opened as "Install…" (FPKG, installed when done).
+export function openConvert(entry: Entry, install?: boolean) {
   const ctl: Control = { go: () => {} };
-  openOverlay<string>(() => <Convert entry={entry} ctl={ctl} />,
+  openOverlay<string>(() => <Convert entry={entry} ctl={ctl} install={!!install} />,
     { hints: [["dpad", t("Move, change")], ["x", t("Choose")], ["o", t("Cancel"), goBack], ["s", t("Add to queue"), () => ctl.go()]], onSquare: () => ctl.go() })
     .then((v) => { if (v === "deps") showTab("deps"); });
 }
@@ -67,11 +68,12 @@ function initialDest(entry: Entry): string {
   return d;
 }
 
-function Convert(props: { entry: Entry; ctl: Control }) {
+function Convert(props: { entry: Entry; ctl: Control; install: boolean }) {
   const entry = props.entry;
   const m = cachedMeta(entry);
   const rt = info.value ? info.value.lz4_runtime : null;
-  const [to, setTo] = useState(entry.kind === "ffpfsc" ? "ffpkg" : "ffpfsc");
+  const [to, setTo] = useState(props.install ? "fpkg" : entry.kind === "ffpfsc" ? "ffpkg" : "ffpfsc");
+  const [installWant, setInstall] = useState(props.install);
   const [dest, setDest] = useState(() => initialDest(entry));
   const [inspect, setInspect] = useState<Inspect | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -105,7 +107,9 @@ function Convert(props: { entry: Entry; ctl: Control }) {
   // An LZ4-packed game can't be packed again, only unpacked.
   const packedSrc = !!(inspect && inspect.lz4_packed);
   const lz4 = lz4Want && !packedSrc, unpack = unpackWant && packedSrc;
-  const del = !entry.shared && delWant;
+  // A PS5 package can go straight to the console's installer (then it is deleted).
+  const installable = to === "fpkg" && !!info.value && info.value.platform === "ps5" && !(m && m.platform === "ps4");
+  const del = !entry.shared && delWant && !(installable && installWant);
   // The source's own format is no conversion, except when packing or unpacking
   // LZ4 (an exFAT game into an LZ4-packed exFAT, say).
   const sameFormat = entry.game ? "folder" : entry.kind;
@@ -114,7 +118,8 @@ function Convert(props: { entry: Entry; ctl: Control }) {
   const hideHidden = entry.kind === "fpkg" || isHiddenName(entry.name) || del || target === "fpkg" || !!entry.shared;
   const amprHidden = target === "fpkg" || lz4; // packing adds its runtime anyway
   const spec = {
-    input: entry.path, to: target, output_dir: dest, output_name: name.trim(), level, pkg_compression: pkgComp, lz4, lz4_unpack: unpack,
+    input: entry.path, to: target, output_dir: dest, output_name: name.trim(), level, pkg_compression: pkgComp,
+    install_after: installable && target === "fpkg" && installWant, lz4, lz4_unpack: unpack,
     lz4_profile: profile, lz4_level: lz4Level, delete_source: del, verify, overwrite: over,
     ampr_emu: ampr ? "auto" : "off", hide_source: !hideHidden && hideWant && !del,
   };
@@ -226,6 +231,8 @@ function Convert(props: { entry: Entry; ctl: Control }) {
           <ChoiceRow label={t("Compression")} hint={t("Executables stay uncompressed; matches ProsperoPkgTool byte for byte")}
             hidden={target !== "fpkg" || !!(m && m.platform === "ps4")} value={pkgComp} onChange={setPkgComp}
             options={[{ value: "stored", label: t("Stored · fastest") }, { value: "kraken", label: t("Kraken · smaller") }]} />
+          <SwitchRow label={t("Install when done")} hint={t("The package goes to the console's installer and is deleted once the installer has read it; it needs room until then")}
+            on={installWant} onChange={setInstall} hidden={!installable || target !== "fpkg"} dataKey="cv:install" />
           <SwitchRow label={t("Pack into LZ4 asset packs")} hint={t("For ampr_emu games")} on={lz4} onChange={setLz4} hidden={packedSrc} />
           <div class="indent" hidden={!lz4}>
             <ChoiceRow label={t("Profile")} hint={t("Automatic uses a console-tested profile when one matches")} options={profiles} value={profile} onChange={setProfile} />
@@ -240,7 +247,7 @@ function Convert(props: { entry: Entry; ctl: Control }) {
           {/* ampr_emu for games that use the console's APR (not packages: installed, they have the real one). */}
           <SwitchRow label={t("Add the AMPR emulator when the game needs it")} hint={t("Games that use the console's APR stop at start from an image or folder without it")} on={ampr} onChange={setAmpr} hidden={amprHidden} />
           <SwitchRow label={t("Delete the source when done")} hint={entry.kind === "fpkg" || entry.kind === "ffpkg" ? t("Frees {size} after a successful conversion", { size: bytes(entry.size) }) : t("Frees its space after a successful conversion")}
-            on={del} onChange={setDel} hidden={!!entry.shared} />
+            on={del} onChange={setDel} hidden={!!entry.shared || (installable && installWant && target === "fpkg")} />
           <div class="indent" hidden={!del}>
             <SwitchRow label={t("Check the output first")} hint={t("Compares every file before deleting; recommended")} on={verify} onChange={setVerify} />
           </div>

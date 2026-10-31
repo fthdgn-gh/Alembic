@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "platform.hpp"
+#include "net.hpp"
+#include <thread>
 
 #include "alembic/io.hpp"
 
@@ -134,8 +136,35 @@ Result<std::vector<std::uint8_t>> http_get(const std::string& url, std::size_t m
     return data;
 }
 
-Status install_package(const std::string&, const std::string&, const std::string&) {
-    return make_error(Errc::unsupported, "installing packages needs a PS5");
+// For tests on a PC (ALEMBIC_FAKE_INSTALLER set): an http:// package is read
+// the way the console's installer read one (2026-10-31): header probes, the
+// tail, then everything in 18 MiB ranges, two at a time. Nothing installs.
+Status install_package(const std::string& uri, const std::string&, const std::string&) {
+    if (!std::getenv("ALEMBIC_FAKE_INSTALLER") || uri.rfind("http://127.0.0.1:", 0) != 0)
+        return make_error(Errc::unsupported, "installing packages needs a PS5");
+    const std::string rest = uri.substr(std::string("http://127.0.0.1:").size());
+    const auto port = static_cast<std::uint16_t>(std::atoi(rest.c_str()));
+    const std::string path = rest.substr(rest.find('/'));
+    std::thread([port, path] {
+        auto get = [&](std::uint64_t from, std::uint64_t to) {
+            return net::http_request("127.0.0.1", port, "GET", path, "", 30000, 32u << 20,
+                                     {{"Range", "bytes=" + std::to_string(from) + "-" + std::to_string(to)}});
+        };
+        auto first = get(0, 65535);
+        if (!first.ok()) return;
+        auto head = net::http_request("127.0.0.1", port, "HEAD", path, "", 30000);
+        (void)head;
+        // The size from a probe of the last byte (Content-Range is not returned by http_request).
+        std::uint64_t size = 0;
+        for (std::uint64_t step = std::uint64_t(1) << 40; step; step >>= 1)
+            if (auto r = get(size + step - 1, size + step - 1); r.ok() && r->status == 206) size += step;
+        constexpr std::uint64_t kRange = 18u << 20;
+        for (std::uint64_t at = 0; at < size; at += kRange) {
+            auto r = get(at, std::min(size, at + kRange) - 1);
+            if (!r.ok() || r->status != 206) return;
+        }
+    }).detach();
+    return {};
 }
 
 bool launcher_supported() { return false; }

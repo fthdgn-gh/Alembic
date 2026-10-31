@@ -18,7 +18,9 @@ also be read from and saved to over SMB, NFS, WebDAV or FTP.
 **Tried on a console so far:** FFPFSC images made from dumps and from
 packages run through ShadowMount+; games that need the AMPR emulator start
 once it is added; the console and a PC pair and convert for each other;
-**Install** hands a debug package to the console's installer; a paused
+**Install** hands a debug package to the console's installer, and an
+image or dump converted to a package (with a generated debug licence, so
+no lock on the title) installs too; a paused
 conversion carries on after the engine is updated; the engine updates
 itself from a release (loaded through Payload Manager); the console app
 starts from ShadowMount+, starts and restarts the engine, and drives a
@@ -122,7 +124,10 @@ GitHub release first, checked against `SHA256SUMS`).
 3. In **Files**, pick a game on internal storage, USB, a network server (SMB,
    NFS, WebDAV or FTP) or a paired engine's drive (a pill tells PS5 and PS4
    games apart), then
-   **Convert**, **Install** (packages), **Copy** or **Move**.
+   **Convert**, **Install**, **Copy** or **Move**. Install on an image or a
+   folder converts it to a package, hands that to the console's installer
+   and deletes it once the installer has read it (it needs room for the
+   package until then).
 4. Jobs run one at a time in **Queue**: pause, resume (long jobs continue
    from a checkpoint), reorder, cancel. You get a notification when one
    finishes.

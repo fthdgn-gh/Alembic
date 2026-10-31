@@ -194,7 +194,7 @@ public:
 
     // ---- actions shared by pages and dialogs ----
     void open_actions(const Entry& e);
-    void open_convert(const Entry& e);
+    void open_convert(const Entry& e, bool install = false); // install: as "Install…" (FPKG, installed when done)
     void open_dest(const Entry* e, const std::string& kind, const std::string& start,
                    std::function<void(const std::string& folder)> picked = nullptr);
     void toggle_hidden(const std::string& path, bool quiet = false);

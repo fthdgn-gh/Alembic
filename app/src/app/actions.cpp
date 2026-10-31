@@ -45,6 +45,10 @@ void App::open_actions(const Entry& e) {
     };
     if (e.kind == "folder" && e.path != cwd) add(t("Open"), "", false, [this, e] { browse(e.path); });
     if (conv) add(t("Convert\xE2\x80\xA6"), t("To FFPFSC, FFPKG, exFAT or a folder"), false, [this, e] { open_convert(e); });
+    // An image or folder installed like a package: converted, installed, the package deleted.
+    if (conv && e.kind != "fpkg" && is_ps5())
+        add(t("Install\xE2\x80\xA6"), t("Converts it to a package, installs it, then deletes the package"), false,
+            [this, e] { open_convert(e, true); });
     if (e.kind == "fpkg") {
         // The installer cannot see packages elsewhere: the engine serves them over HTTP
         // (Files actions.tsx installPkg); "by streaming" does that for a local one too.
@@ -542,6 +546,7 @@ public:
     std::string problem;
     int level = 1;  // index: 1 / 6 / 9
     int pkg_comp = 0; // index: stored / kraken
+    bool install = false; // FPKG: install it when done, then delete it (ConvertDialog.tsx)
     int profile = 0;
     int lz4_level = 1;  // index: 1 / 9 / 12
     bool lz4 = false, unpack = false, ampr = true, verify = true, del = false, hide = false, over = false;
@@ -578,15 +583,22 @@ public:
                 1, 600000);
     }
 
+    // A PS5 package can go straight to the console's installer.
+    bool installable(App& app, const std::string& target) const {
+        const Meta* m = app.meta(entry.path, entry.mtime, entry.size);
+        return target == "fpkg" && app.is_ps5() && !(m && m->platform == "ps4");
+    }
+
     JsonValue spec(App& app, std::string* key_out) {
         const bool packed = inspect["lz4_packed"].boolean();
         const bool lz4_on = lz4 && !packed, unpack_on = unpack && packed;
-        const bool del_on = !entry.shared && del;
         const std::string same = entry.game ? "folder" : entry.kind;
         std::vector<std::string> offered;
         for (const auto& f : kFormats)
             if (f.value != same || lz4_on || unpack_on) offered.push_back(f.value);
         const std::string target = std::find(offered.begin(), offered.end(), to) != offered.end() ? to : offered.front();
+        const bool install_on = install && installable(app, target);
+        const bool del_on = !entry.shared && del && !install_on;
         const bool hide_hidden = entry.kind == "fpkg" || is_hidden_name(entry.name) || del_on || target == "fpkg" || entry.shared;
         static const int levels[] = {1, 6, 9};
         static const int lz4_levels[] = {1, 9, 12};
@@ -602,6 +614,7 @@ public:
         s.set("output_name", n);
         s.set("level", levels[std::clamp(level, 0, 2)]);
         s.set("pkg_compression", pkg_comp == 1 ? "kraken" : "stored");
+        s.set("install_after", install_on);
         s.set("lz4", lz4_on);
         s.set("lz4_unpack", unpack_on);
         s.set("lz4_profile", profiles[static_cast<std::size_t>(std::clamp(profile, 0, static_cast<int>(profiles.size()) - 1))]);
@@ -827,6 +840,11 @@ public:
             y += choice_row(ui, "cv:pkgcomp", x, y, lw, t("Compression"),
                             t("Executables stay uncompressed; matches ProsperoPkgTool byte for byte"),
                             {t("Stored \xC2\xB7 fastest"), t("Kraken \xC2\xB7 smaller")}, &pkg_comp);
+        if (installable(app, target))
+            y += switch_row(ui, "cv:install", x, y, lw, t("Install when done"),
+                            t("The package goes to the console's installer and is deleted once the installer has read it; it "
+                              "needs room until then"),
+                            &install);
         if (!packed) y += switch_row(ui, "cv:lz4", x, y, lw, t("Pack into LZ4 asset packs"), t("For ampr_emu games"), &lz4);
         if (lz4_on) {
             const float ix = x + 1.25f * R + 0.9f * R + 2.0f, iw = lw - (ix - x);
@@ -860,7 +878,7 @@ public:
         if (!ampr_hidden)
             y += switch_row(ui, "cv:ampr", x, y, lw, t("Add the AMPR emulator when the game needs it"),
                             t("Games that use the console's APR stop at start from an image or folder without it"), &ampr);
-        if (!entry.shared)
+        if (!entry.shared && !(install && installable(app, target)))
             y += switch_row(ui, "cv:del", x, y, lw, t("Delete the source when done"),
                             entry.kind == "fpkg" || entry.kind == "ffpkg"
                                 ? t("Frees {size} after a successful conversion", {{"size", bytes(entry.size)}})
@@ -1019,10 +1037,11 @@ public:
 
 }  // namespace
 
-void App::open_convert(const Entry& e) {
+void App::open_convert(const Entry& e, bool install) {
     auto c = std::make_unique<Convert>();
     c->entry = e;
-    c->to = e.kind == "ffpfsc" ? "ffpkg" : "ffpfsc";
+    c->to = install ? "fpkg" : e.kind == "ffpfsc" ? "ffpkg" : "ffpfsc";
+    c->install = install;
     std::string d = prefs["dest"].str();
     // A shared file has no folder on the console: it goes to a place here.
     if (e.shared && d.empty() && !locations.items().empty()) d = locations.items()[0]["path"].str();

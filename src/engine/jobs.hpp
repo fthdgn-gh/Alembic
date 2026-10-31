@@ -39,6 +39,9 @@ struct JobSpec {
     // Install: "" hands the installer a path when it can see the file, else
     // an http:// URL the engine serves (pkg_sources.hpp); "http" always the URL.
     std::string install_via;
+    // Convert to FPKG: then hand the package to the installer over HTTP,
+    // wait until it has read it all, and delete it (installing an image).
+    bool install_after = false;
     bool overwrite = false;
     bool rebuild = false; // exFAT input → rebuilt exFAT
     std::string passcode; // FPKG; empty = 32 zeros

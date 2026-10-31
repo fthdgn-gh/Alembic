@@ -22,6 +22,9 @@ export async function openActions(e: Entry) {
   const items: { label: string; sub?: string; danger?: boolean; value: () => void }[] = [];
   if (e.kind === "folder" && e.path !== cwd.value) items.push({ label: t("Open"), value: () => browse(e.path) });
   if (conv) items.push({ label: t("Convert…"), sub: t("To FFPFSC, FFPKG, exFAT or a folder"), value: () => openConvert(e) });
+  // An image or folder installed like a package: converted, installed, the package deleted.
+  if (conv && e.kind !== "fpkg" && info.value && info.value.platform === "ps5")
+    items.push({ label: t("Install…"), sub: t("Converts it to a package, installs it, then deletes the package"), value: () => openConvert(e, true) });
   if (e.kind === "fpkg") items.push({ label: t("Install"), sub: t("Hand it to the console's installer"), value: () => installPkg(e, false) });
   // An experiment: the installer reads a local package over the engine's HTTP too (it does for packages elsewhere).
   if (e.kind === "fpkg" && !elsewhere(e)) items.push({ label: t("Install by streaming (test)"), sub: t("The engine serves it to the installer over HTTP and records how it reads it"), value: () => installPkg(e, true) });

@@ -122,6 +122,7 @@ export interface Spec {
   to: string;
   level: number;
   pkg_compression?: string; // "stored" or "kraken"
+  install_after?: boolean; // FPKG: install it, then delete it
   lz4: boolean;
   lz4_profile: string;
   lz4_level: number;

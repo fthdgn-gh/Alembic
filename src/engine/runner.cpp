@@ -403,6 +403,10 @@ Result<convert::Comparison> check_output(const std::string& input, const std::st
     return cmp;
 }
 
+namespace {
+Status install_then_remove(const std::string& package, const EngineConfig& config, const ProgressFn& progress, JsonValue& r);
+}
+
 Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress) {
     ALEMBIC_ASSIGN(convert::Format to, target_format(spec));
     ALEMBIC_ASSIGN(std::string output, resolve_output(spec));
@@ -566,6 +570,10 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
         r.set("lz4", std::move(l));
     }
 
+    if (spec.install_after) {
+        if (to != convert::Format::fpkg) return make_error(Errc::invalid_argument, "only a package can be installed");
+        ALEMBIC_TRY(install_then_remove(output, config, progress, r));
+    }
     if (spec.delete_source) {
         if (spec.verify) {
             ALEMBIC_ASSIGN(convert::Comparison cmp, check_output(spec.input, output, options.passcode, config, progress));
@@ -767,6 +775,53 @@ Result<JsonValue> run_install(const JobSpec& spec, const EngineConfig& config, c
     if (uri != input) r.set("url", uri); // its requests: /api/pkg-sources
     return r;
 }
+
+namespace {
+
+// Installs a package the job just built: over HTTP, so the engine sees the
+// installer read it; once all of it was read and the installer has been
+// quiet for a while, the package goes (the installer copies it).
+Status install_then_remove(const std::string& package, const EngineConfig& config, const ProgressFn& progress, JsonValue& r) {
+    std::string content_id, title;
+    GameMetaCache cache(config.state_dir);
+    if (auto m = cache.meta(package); m.ok()) {
+        content_id = m->content_id;
+        title = m->title;
+    }
+    ALEMBIC_ASSIGN(std::string token, pkg_sources::add(package));
+    struct Forget {
+        std::string token;
+        ~Forget() { pkg_sources::remove(token); }
+    } forget{token};
+    const std::string uri = "http://127.0.0.1:" + std::to_string(config.http_port) + "/pkg-source/" + token + ".pkg";
+    if (progress && !progress({"Handing it to the system installer", 0, 0})) return make_error(Errc::cancelled, "cancelled");
+    ALEMBIC_TRY(platform::install_package(uri, content_id, title));
+    constexpr std::int64_t kStartMs = 120000;  // the installer starts reading within seconds
+    constexpr std::int64_t kStallMs = 600000;  // a pause this long mid-way: something went wrong
+    constexpr std::int64_t kSettleMs = 20000;  // all read and quiet: done
+    for (;;) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        auto st = pkg_sources::status(token);
+        if (!st) return make_error(Errc::io, "lost track of the install");
+        const std::uint64_t done = std::min(st->served, st->size);
+        if (progress && !progress({"Installing (the console reads the package)", done, st->size}))
+            return make_error(Errc::cancelled, "stopped waiting; the console may still be installing (the package stays: " + package + ")");
+        if (st->requests == 0 && st->idle_ms > kStartMs)
+            return make_error(Errc::io, "the console's installer did not start reading the package (it stays: " + package + ")");
+        if (st->served >= st->size && st->idle_ms > kSettleMs) break;
+        if (st->requests > 0 && st->idle_ms > kStallMs)
+            return make_error(Errc::io, "the console's installer stopped reading the package part way (it stays: " + package + ")");
+    }
+    r.set("installed", true);
+    if (Status removed = remove_tree(package); !removed.ok()) {
+        r.set("package_kept", removed.error().message);
+    } else {
+        r.set("package_removed", true);
+    }
+    return {};
+}
+
+} // namespace
 
 JsonValue kraken_bench(std::uint64_t mask, int prio) {
     // Game-like data: runs of text-ish tokens, short repeats and noise.
