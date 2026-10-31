@@ -3,6 +3,9 @@
 // (GPL-3.0-or-later), their own icon drakmor/ShadowMountPlus's src/sm_log.c
 // (GPL-3.0-or-later); keeping the console awake follows PS5-LZ4-Compression's
 // src/lzc_power_guard.c (GPL-3.0-or-later).
+#include <pthread.h>
+#include <pthread_np.h>
+#include <sys/cpuset.h>
 #include "platform.hpp"
 #include "https_ps5.hpp"
 
@@ -473,6 +476,22 @@ Status remove_launcher() {
 // The system's random generator (libSceRandom), found like the installer
 // above: the weak import, else the module loaded now; failing both, libc's
 // arc4random_buf (the kernel's generator).
+// pthread_getaffinity_np (FreeBSD's, in the payload SDK's libc): for /api/bench.
+std::string cpu_affinity() {
+    cpuset_t set;
+    CPU_ZERO(&set);
+    if (pthread_getaffinity_np(pthread_self(), sizeof set, &set) != 0) return "";
+    std::string out;
+    for (int c = 0; c < CPU_SETSIZE; ++c) {
+        if (!CPU_ISSET(c, &set)) continue;
+        int end = c;
+        while (end + 1 < CPU_SETSIZE && CPU_ISSET(end + 1, &set)) ++end;
+        out += (out.empty() ? "" : ",") + std::to_string(c) + (end > c ? "-" + std::to_string(end) : "");
+        c = end;
+    }
+    return out;
+}
+
 extern "C" int sceRandomGetRandomNumber(void* buffer, std::size_t size) __attribute__((weak));
 extern "C" void arc4random_buf(void* buffer, std::size_t size);
 

@@ -59,6 +59,9 @@ void set_process_name(const char* name);
 // Fills `out` from the system's random generator (for keys); fails rather
 // than give weaker bytes.
 Status secure_random(std::uint8_t* out, std::size_t size);
+
+// The CPUs this thread may run on ("0-3,8"), or "" when the system does not say.
+std::string cpu_affinity();
 // Where the engine keeps its queue and log.
 std::string default_state_dir();
 

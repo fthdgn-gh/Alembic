@@ -2813,8 +2813,23 @@ What it took:
   PS5 PKG output now needs too); without it, a warning. Placed as if the
   files were in sce_sys: `tools/pkg-oracle/compare.sh` checks that
   ProsperoPkgTool, given those files, builds the identical package.
-- **Console test:** convert the same dump again (Components: PS4 package
-  keys), install it: does the lock go?
+- **Console (owner):** converted again with the licence and installed over
+  HTTP: the lock is gone. The installer read it as it read the other
+  package (probes, SI, SC, then the PFS in 18 MiB ranges in order).
+
+### 2026-10-31: why conversions crawl on the console (/api/bench)
+
+- Kraken conversions ran at 7.8 MB/s on the console (95 MB/s on one Mac
+  thread). `GET /api/bench` on the console: it reports 16 cores; the
+  Kraken encoder does 64 MB/s on 1 thread, 38 on 2, 10 on 4, 7.3 on 8,
+  7.1 on 16: every thread added makes it slower (the Mac scales to
+  1.7 GB/s on 14). Conversions use every core, hence 7 MB/s. Fresh vs
+  reused tables on one thread: 58 vs 64 MB/s.
+- Two suspects: a shared lock (the allocator) or the process confined to
+  few cores (threads then share them and spin). The bench now also runs
+  SHA-256 (no allocation) and allocation alone on 1..N threads, and
+  reports the CPU affinity (`pthread_getaffinity_np`). Waiting for the
+  console's numbers.
 
 ## Next session
 

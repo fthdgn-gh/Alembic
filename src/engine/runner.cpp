@@ -20,6 +20,7 @@
 
 #include "alembic/ampr_emu.hpp"
 #include "alembic/convert.hpp"
+#include "alembic/crypto.hpp"
 #include "alembic/kraken.hpp"
 #include "alembic/ffpfsc.hpp"
 #include "alembic/lz4pack.hpp"
@@ -814,6 +815,36 @@ JsonValue kraken_bench() {
         if (n == cores) break;
     }
     v.set("mb_s_by_threads", std::move(by));
+    // Telling a shared lock (the allocator) from too few cores: SHA-256 of
+    // a buffer (no allocation) and allocation alone, on the same threads.
+    auto spread = [&](unsigned threads, auto&& work) {
+        const auto t0 = std::chrono::steady_clock::now();
+        std::vector<std::thread> pool;
+        for (unsigned t = 0; t < threads; ++t) pool.emplace_back([&, t] { work(t, threads); });
+        for (std::thread& t : pool) t.join();
+        return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    };
+    JsonValue hash = JsonValue::object(), alloc = JsonValue::object();
+    for (unsigned t = 1;; t *= 2) {
+        const unsigned n = std::min(t, cores);
+        const double hs = spread(n, [&](unsigned i, unsigned count) {
+            for (std::size_t b = i; b < blocks; b += count) (void)crypto::sha256(Bytes(data.data() + b * kBlock, kBlock));
+        });
+        hash.set(std::to_string(n), hs > 0 ? kTotal / 1e6 / hs : 0.0);
+        constexpr int kAllocs = 400000;
+        const double as = spread(n, [&](unsigned i, unsigned count) {
+            for (int k = static_cast<int>(i); k < kAllocs; k += static_cast<int>(count)) {
+                std::vector<std::uint8_t> v(65536 + static_cast<std::size_t>(k % 1024));
+                v[0] = static_cast<std::uint8_t>(k);
+                v.back() = v[0];
+            }
+        });
+        alloc.set(std::to_string(n), as > 0 ? kAllocs / as / 1000.0 : 0.0);
+        if (n == cores) break;
+    }
+    v.set("sha256_mb_s_by_threads", std::move(hash));
+    v.set("allocations_k_per_s_by_threads", std::move(alloc));
+    v.set("cpu_affinity", platform::cpu_affinity());
     return v;
 }
 
