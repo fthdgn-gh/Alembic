@@ -105,6 +105,13 @@ std::string make_package_game(const std::string& parent) {
     test::write_file(root + "/data/a.bin", pattern(3 * 1024 * 1024 + 5, 2));
     test::write_file(root + "/data/b.bin", pattern(1500000, 3));
     test::write_file(root + "/data/c.bin", pattern(10, 4));
+    // Compressible, so a Kraken build has pieces of every size on disk.
+    std::vector<std::uint8_t> text;
+    for (std::uint32_t i = 0; text.size() < 2 * 1024 * 1024; ++i) {
+        std::string line = "line " + std::to_string(i * 7919 % 100003) + " of the alembic test game\n";
+        text.insert(text.end(), line.begin(), line.end());
+    }
+    test::write_file(root + "/data/t.txt", text);
     return root;
 }
 
@@ -128,9 +135,14 @@ TEST_CASE(fpkg_resume_matches_uninterrupted) {
     }
     std::string tmp = test::make_temp_dir();
     std::string game = make_package_game(tmp);
-    for (unsigned threads : {1u, 3u}) {
+    for (auto [threads, compression] : {std::pair{1u, fpkg::build::Compression::stored},
+                                        std::pair{3u, fpkg::build::Compression::stored},
+                                        std::pair{1u, fpkg::build::Compression::kraken},
+                                        std::pair{3u, fpkg::build::Compression::kraken}}) {
+        const bool kraken = compression == fpkg::build::Compression::kraken;
         std::string reference = tmp + "/ref.pkg", output = tmp + "/out.pkg";
         convert::Options plain = package_options(keys, threads);
+        plain.fpkg.compression = compression;
         plain.overwrite = true;
         REQUIRE_OK(convert::run(game, reference, convert::Format::fpkg, plain));
         for (bool latest : {false, true}) {
@@ -151,6 +163,7 @@ TEST_CASE(fpkg_resume_matches_uninterrupted) {
             if (saved.size() < 5) return;
             CHECK(is_regular_file(session.partial_path + ".state"));
             CHECK(is_regular_file(session.partial_path + ".digests"));
+            CHECK(is_regular_file(session.partial_path + ".chunks") == kraken);
             // A crash leaves torn data past the checkpoint.
             std::vector<std::uint8_t> partial = test::read_file(session.partial_path);
             partial.insert(partial.end(), 100000, 0xA5);
@@ -175,6 +188,17 @@ TEST_CASE(fpkg_resume_matches_uninterrupted) {
             CHECK(!path_exists(session.partial_path));
             CHECK(!path_exists(session.partial_path + ".state"));
             CHECK(!path_exists(session.partial_path + ".digests"));
+            CHECK(!path_exists(session.partial_path + ".chunks"));
+            // A checkpoint is only good for the compression it was made with.
+            if (kraken) {
+                convert::Options other = o;
+                other.fpkg.compression = fpkg::build::Compression::stored;
+                session.from = saved.back();
+                (void)remove_file(output);
+                auto wrong = convert::run(game, output, convert::Format::fpkg, other);
+                CHECK(!wrong.ok());
+            }
         }
+        if (kraken) CHECK(test::read_file(reference).size() < 7 * 1024 * 1024); // the text shrank
     }
 }

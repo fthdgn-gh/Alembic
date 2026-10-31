@@ -66,6 +66,7 @@ JsonValue JobSpec::to_json() const {
     if (!output_name.empty()) j.set("output_name", output_name);
     j.set("to", to);
     j.set("level", level);
+    j.set("pkg_compression", pkg_compression);
     j.set("overwrite", overwrite);
     j.set("rebuild", rebuild);
     if (!passcode.empty()) j.set("passcode", passcode);
@@ -98,6 +99,9 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
         return make_error(Errc::invalid_argument, "output_name must be a plain file name");
     s.to = j["to"].str();
     s.level = static_cast<int>(j["level"].integer(6));
+    s.pkg_compression = j["pkg_compression"].str("stored");
+    if (s.pkg_compression != "stored" && s.pkg_compression != "kraken")
+        return make_error(Errc::invalid_argument, "pkg_compression must be stored or kraken");
     s.overwrite = j["overwrite"].boolean();
     s.rebuild = j["rebuild"].boolean();
     s.passcode = j["passcode"].str();

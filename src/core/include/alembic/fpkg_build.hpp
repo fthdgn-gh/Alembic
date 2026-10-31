@@ -122,6 +122,15 @@ struct InnerImage {
     std::uint64_t encoded_bytes = 0; // payload as stored
 };
 
+// How one kChunk piece was written: what a checkpoint keeps of a Kraken
+// build, since the piece's size on disk depends on how it compressed.
+struct ChunkCode {
+    std::uint32_t stored_length = 0; // bytes on disk
+    std::uint8_t flags = 0;          // 0: stored
+    std::uint32_t first_chunk_compressed_length = 0;
+};
+inline constexpr std::size_t kChunkCodeBytes = 8; // as checkpoints save it
+
 // Where the data part of an inner image stands, for checkpoints: files are
 // written in afid order (empty ones have no data), each in kChunk pieces.
 struct InnerProgress {
@@ -129,20 +138,22 @@ struct InnerProgress {
     std::size_t file = 0;          // the file in progress, by data order
     std::uint64_t file_offset = 0; // its bytes already written (a multiple of kChunk, or its length)
     std::uint32_t source_block = 0;
-    std::vector<crypto::Digest> finished; // SHA3 of the files before it
+    std::vector<crypto::Digest> finished; // SHA3 (of the bytes on disk) of the files before it
     std::array<std::uint8_t, crypto::Sha3_256::kStateBytes> hash{}; // of the file in progress
+    // Kraken builds: every piece so far (source_block of them), in order.
+    std::vector<ChunkCode> chunks;
 };
 
 struct InnerOptions {
     Compression compression = Compression::stored;
-    unsigned threads = 0; // > 1 (or 0, every core): file hashes on a helper thread
+    unsigned threads = 0; // > 1 (or 0, every core): file hashes on a helper thread, Kraken on every core
     // Continue a build whose sink already holds resume_from->written bytes.
     const InnerProgress* resume_from = nullptr;
     // Called after a chunk, every checkpoint_interval payload bytes, while the
     // data is streamed (not for the metadata after it).
     std::function<Status(const InnerProgress&)> checkpoint;
     std::uint64_t checkpoint_interval = 0;
-    int kraken_level = 7; // recorded in the container header
+    int kraken_level = 7; // recorded in the container header; the encoder has one strategy
     std::int64_t time_seconds = 0x6A31A5B9;
     std::uint32_t time_nanoseconds = 0x14DC9380;
 };
@@ -324,6 +335,10 @@ std::uint64_t inner_path_hash(const std::string& path);
 // A stored PFSv3 container around `payload` (ProsperoPfsv3Writer.WriteStored).
 std::vector<std::uint8_t> pfsv3_stored(const std::vector<std::uint8_t>& payload, int level = 7,
                                        std::uint32_t block_size = kContainerBlock);
+// The Kraken one (WriteCompressed): each block compressed where that makes it
+// smaller, stored otherwise; `blocks` gets one entry per block.
+std::vector<std::uint8_t> pfsv3_compressed(const std::vector<std::uint8_t>& payload, std::vector<ContainerBlock>& blocks,
+                                           int level = 7, std::uint32_t block_size = kContainerBlock);
 
 } // namespace alembic::fpkg::build
 

@@ -217,6 +217,7 @@ std::string fingerprint(const JobSpec& spec, const std::string& output, const En
     v.set("output", output);
     v.set("to", spec.to);
     v.set("level", spec.level);
+    if (spec.pkg_compression != "stored") v.set("pkg_compression", spec.pkg_compression); // older checkpoints had none
     v.set("rebuild", spec.rebuild);
     v.set("cluster_size", spec.cluster_size);
     v.set("lz4_unpack", spec.lz4_unpack);
@@ -413,6 +414,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     options.ffpfsc.compression.threads = config.threads;
     options.lz4_unpack = spec.lz4_unpack;
     options.fpkg.keys_folder = config.state_dir + "/keys"; // the fpkg_keys component
+    if (spec.pkg_compression == "kraken") options.fpkg.compression = fpkg::build::Compression::kraken;
     options.fpkg_ps4.keys_file = config.state_dir + "/keys/ps4/Keys.cs"; // the ps4_keys component
     if (!spec.seed.empty()) {
         std::array<std::uint8_t, 16> seed{};

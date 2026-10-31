@@ -35,6 +35,7 @@ struct JobSpec {
     std::string output_name; // empty: the input's name with the target's extension
     std::string to;       // folder, exfat, ffpkg, ffpfsc; empty: from the output name
     int level = 6;        // zlib level for FFPFSC
+    std::string pkg_compression = "stored"; // FPKG: stored or kraken (PS4 packages are always stored)
     bool overwrite = false;
     bool rebuild = false; // exFAT input → rebuilt exFAT
     std::string passcode; // FPKG; empty = 32 zeros

@@ -117,6 +117,7 @@ export interface Spec {
   output_dir?: string;
   to: string;
   level: number;
+  pkg_compression?: string; // "stored" or "kraken"
   lz4: boolean;
   lz4_profile: string;
   lz4_level: number;

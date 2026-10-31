@@ -28,7 +28,7 @@ export const FORMATS = [
   { value: "ffpfs", label: "FFPFS", hint: "PFS image, uncompressed (experimental in ShadowMount+)" },
   { value: "exfat", label: "exFAT", hint: "Plain image, fastest to load" },
   { value: "folder", label: "Folder", hint: "Loose files" },
-  { value: "fpkg", label: "FPKG", hint: "Debug package to install, uncompressed" },
+  { value: "fpkg", label: "FPKG", hint: "Debug package to install" },
 ];
 
 export function rememberFolder(path: string) {
@@ -76,6 +76,7 @@ function Convert(props: { entry: Entry; ctl: Control }) {
   const [inspect, setInspect] = useState<Inspect | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [level, setLevel] = useState(6);
+  const [pkgComp, setPkgComp] = useState("stored");
   const [profile, setProfile] = useState("auto");
   const [lz4Level, setLz4Level] = useState(9);
   const [lz4Want, setLz4] = useState(false);
@@ -113,7 +114,7 @@ function Convert(props: { entry: Entry; ctl: Control }) {
   const hideHidden = entry.kind === "fpkg" || isHiddenName(entry.name) || del || target === "fpkg" || !!entry.shared;
   const amprHidden = target === "fpkg" || lz4; // packing adds its runtime anyway
   const spec = {
-    input: entry.path, to: target, output_dir: dest, output_name: name.trim(), level, lz4, lz4_unpack: unpack,
+    input: entry.path, to: target, output_dir: dest, output_name: name.trim(), level, pkg_compression: pkgComp, lz4, lz4_unpack: unpack,
     lz4_profile: profile, lz4_level: lz4Level, delete_source: del, verify, overwrite: over,
     ampr_emu: ampr ? "auto" : "off", hide_source: !hideHidden && hideWant && !del,
   };
@@ -221,6 +222,10 @@ function Convert(props: { entry: Entry; ctl: Control }) {
           <div class="lbl">{t("Options")}</div>
           <ChoiceRow label={t("Compression")} hint={t("Level 9 matches PS5PKGTool byte for byte")} hidden={target !== "ffpfsc"} value={level} onChange={setLevel}
             options={[{ value: 1, label: t("1 · fastest") }, { value: 6, label: t("6 · balanced") }, { value: 9, label: t("9 · smallest") }]} />
+          {/* PS4 packages are always written stored. */}
+          <ChoiceRow label={t("Compression")} hint={t("Executables stay uncompressed; matches ProsperoPkgTool byte for byte")}
+            hidden={target !== "fpkg" || !!(m && m.platform === "ps4")} value={pkgComp} onChange={setPkgComp}
+            options={[{ value: "stored", label: t("Stored · fastest") }, { value: "kraken", label: t("Kraken · smaller") }]} />
           <SwitchRow label={t("Pack into LZ4 asset packs")} hint={t("For ampr_emu games")} on={lz4} onChange={setLz4} hidden={packedSrc} />
           <div class="indent" hidden={!lz4}>
             <ChoiceRow label={t("Profile")} hint={t("Automatic uses a console-tested profile when one matches")} options={profiles} value={profile} onChange={setProfile} />

@@ -44,7 +44,7 @@ inline constexpr std::uint64_t kLz4Format = 7;        // LZ4 packing (see lz4pac
 
 // Side files a writer keeps next to the partial output when a State is too
 // small for its checkpoint; they go with it.
-inline constexpr const char* kSidecarSuffixes[] = {".state", ".digests", ".lz4"};
+inline constexpr const char* kSidecarSuffixes[] = {".state", ".digests", ".lz4", ".chunks"};
 // The partial output's name: "<output>" + this (a folder output has none,
 // but its side files use the same name).
 inline constexpr const char* kPartialSuffix = ".alembic-partial";

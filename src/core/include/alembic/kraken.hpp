@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Decoder for the header-stripped Oodle Kraken ("newLZ") blocks inside a PS5
-// package's inner image. Ported from pearlxcore/ProsperoPkgTool (MIT)
-// Compression/KrakenDecoder.cs, whose structure follows the public "ooz"
-// Kraken decoder. Every index derived from the input is bounds-checked, so a
-// corrupt block fails cleanly instead of reading or writing out of bounds.
+// The header-stripped Oodle Kraken ("newLZ") blocks inside a PS5 package's
+// inner image. Decoder (kraken.cpp) ported from pearlxcore/ProsperoPkgTool
+// (MIT) Compression/KrakenDecoder.cs, whose structure follows the public
+// "ooz" Kraken decoder: every index derived from the input is bounds-checked,
+// so a corrupt block fails cleanly. Encoder (kraken_encode.cpp) ported from
+// the same tool's KrakenLzEncoder.cs and KrakenHuffmanArrayEncoder.cs.
 #pragma once
 
 #include "alembic/io.hpp"
+
+#include <optional>
+#include <vector>
 
 namespace alembic::kraken {
 
@@ -26,5 +30,16 @@ enum class DecodeStatus { success, malformed, unsupported_entropy };
 // decoded size). `first_chunk_size` is the compressed size of the first
 // sub-chunk; it is only used when the block has two sub-chunks.
 DecodeStatus decode_block(Bytes payload, int flags, std::size_t first_chunk_size, MutableBytes dst);
+
+struct EncodedBlock {
+    std::vector<std::uint8_t> payload;
+    int flags = 0;                    // kChunk0NewLz, plus kChunk1NewLz with two sub-chunks
+    std::size_t first_chunk_size = 0; // two sub-chunks only
+};
+
+// Encodes one block of 8 bytes to 256 KiB as ProsperoPkgTool's
+// KrakenEncoder.TryEncodeNewLz does; nullopt when it would not be smaller
+// (the caller stores the block instead).
+std::optional<EncodedBlock> encode_block(Bytes input);
 
 } // namespace alembic::kraken

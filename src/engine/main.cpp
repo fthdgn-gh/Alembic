@@ -1873,6 +1873,11 @@ private:
             if (!spec[field].str().empty()) spec.set(field, *p);
         }
         spec.set("lz4_runtime", std::string()); // the engine there uses its own
+        // Engines up to 0.3.3 ignore pkg_compression and would build a stored package.
+        if (spec["pkg_compression"].str() == "kraken")
+            if (auto p = discovery_->find(id); p && update::compare_versions(p->who.version, "0.3.3") <= 0)
+                return error(409, "Alembic " + p->who.version + " on " + p->who.name +
+                                      " cannot make compressed packages: update it, or convert on this engine");
         auto reply = peer_fs::request(*discovery_, *pairing_, id, "POST", "/api/peer/jobs", {}, spec.dump(), 60000, 1u << 20);
         if (!reply.ok()) return error(502, reply.error().message);
         auto v = parse_json(*reply);

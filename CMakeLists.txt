@@ -83,6 +83,7 @@ add_library(alembic_core STATIC
     src/core/resume.cpp
     src/core/json.cpp
     src/core/kraken.cpp
+    src/core/kraken_encode.cpp
     src/core/lz4pack_build.cpp
     src/core/lz4pack_format.cpp
     src/core/lz4pack_profile.cpp
@@ -265,6 +266,7 @@ if(ALEMBIC_BUILD_TESTS)
         tests/test_ffpfsc.cpp
         tests/test_fpkg_build.cpp
         tests/test_json.cpp
+        tests/test_kraken.cpp
         tests/test_lz4pack.cpp
         tests/test_mounts.cpp
         tests/test_pfs.cpp

@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (2026-10-30, release 0.3.3, published)
+## Where we are (2026-10-31, after release 0.3.3)
 
 ### What works
 
@@ -18,8 +18,9 @@ Chronological log below; **read "Where we are" and "Next session" first.**
 
 - **Byte-identical to the references:** exFAT, FFPFSC and FFPKG to
   PS5PKGTool (AMPR index with `--ampr-scheme ps5pkgtool`, PFSC at
-  `--level 9`); FFPFS to MkPFS; FPKG (stored) to ProsperoPkgTool
-  `img_create --seed S --no_right_sprx`; LZ4 packs to `ampr_pack.py`.
+  `--level 9`); FFPFS to MkPFS; FPKG (stored and Kraken) to
+  ProsperoPkgTool `img_create --seed S --no_right_sprx [--compression
+  kraken]`; LZ4 packs to `ampr_pack.py`.
 - **CLI** (`build/alembic`, run with no arguments for the list): `convert`
   (any row to any column, `--lz4`, `--ampr-emu`), `ampr-emu`, `fpkg-build`,
   `ls`, `cat`, `same`, `lz4-info|verify`, `ffpfsc-info|extract|verify`,
@@ -97,9 +98,12 @@ app/preview.sh [dir] [script]       # PNGs of the app drawn on this computer (Me
 
 ### Known limitations
 
-- Writing FPKG: stored packages only (`convert --to fpkg`, `fpkg-build`, the
-  engine); no Kraken, fake-signing, DDS generation or keystone generation.
-  Not yet installed on a console.
+- Writing FPKG: stored or Kraken (`--compression kraken`, the page's
+  Compression choice). The Kraken encoder is ProsperoPkgTool's (greedy/lazy
+  LZ parse, raw or Huffman arrays): a 1.3 GB package came out at 1.6 GB
+  (2.7 GB stored), so Sony's encoder still does better. No fake-signing,
+  DDS generation or keystone generation. Not yet installed on a console,
+  stored or Kraken.
 - LZ4 packs: hit and miss on the console (owner, 2026-10-22: "works when it
   works", left as it is). Pass 1 keeps ~200 bytes per chunk in RAM (456 MB
   for 2.2M chunks).
@@ -2626,6 +2630,40 @@ What it took:
    edit --notes-file`), and push the tag: CI builds and publishes the
    release with the tag's message as its notes.
 
+### 2026-10-31: Kraken-compressed FPKG output
+
+- `fpkg-build` / `convert --to fpkg` take `--compression stored|kraken`;
+  the engine's job spec has `pkg_compression` (default stored), the page
+  and the app a Compression choice for FPKG (hidden for PS4 games: their
+  packages are always stored).
+- Encoder (`src/core/kraken_encode.cpp`): ProsperoPkgTool's (MIT, `f2c91cd`)
+  KrakenLzEncoder + KrakenHuffmanArrayEncoder, byte for byte: hash chains
+  (4-byte hash, 2^18 heads, 128 candidates), lazy matching, raw or
+  package-merge Huffman arrays (code lengths up to 11), the excess framing
+  for long lengths. A block is kept only when smaller; each file's last
+  piece and executables / keystone / PlayGo-boundary files stay stored.
+- Around it: the PFSv3 metadata container compresses its 256 KiB blocks
+  (`pfsv3_compressed`), NAPS gets Kraken records (codec selectors from the
+  encoder flags), naps_meta_18 the per-sub-chunk sizes and 0x40450000 flag,
+  the NAPS header compression type 2. Pieces are encoded on every core in
+  batches and written in order (same bytes for any thread count).
+- Checkpoints: a Kraken piece's size on disk varies, so a `.chunks` side
+  file (8 bytes per 128 KiB piece, appended like `.digests`) keeps how each
+  piece was written; the State says which compression it was made with.
+  Stored checkpoints from 0.3.3 still continue.
+- Engines up to 0.3.3 ignore `pkg_compression`: a Kraken job is not sent to
+  such a paired engine (409, "update it, or convert on this engine"); no
+  protocol bump.
+- Checked: `tools/pkg-oracle/compare.sh` now also builds the test game with
+  both tools and compares (stored 5.6 MB, Kraken 1.6 MB: same bytes); a real
+  118 MB package is byte-identical too (Alembic 0.4 s, ProsperoPkgTool
+  5.9 s); a 1.3 GB package: 10 s, 1.6 GB (2.7 GB stored), every file reads
+  back. Unit tests: encoder round trips through our decoder; a Kraken build
+  paused and resumed equals an uninterrupted one (1 and 3 threads).
+- The app preview (`app/preview.sh`) does not take input after opening a
+  folder in the stand-in engine (same on c74b123), so the app's new row was
+  not seen in a picture; it reuses the zlib level row's `choice_row`.
+
 ## Next session
 
 **Settled (owner, 2026-10-22):**
@@ -2675,8 +2713,10 @@ What it took:
    ✓ owner: an FPKG on the PC converted by the PC engine into an FFPFSC
    written to the console works, started from the console app
    (2026-10-25).
-5. Smaller: retail/patch packages, NAPS shuffle layouts, Kraken-compressed
-   FPKG output, less pass-1 memory for LZ4.
+5. Smaller: retail/patch packages, NAPS shuffle layouts, less pass-1
+   memory for LZ4. ✓ Kraken-compressed FPKG output (2026-10-31); owner:
+   install one on the console. Possible later: LibProsperoPKG's stronger
+   encoder (optimal parse) as a "smallest" mode, with no byte oracle.
 7. **Payload limits, parked (owner, 2026-10-27).** The engine runs in its
    own process from the ELF loader (spawned via `SceRedisServer`), so the
    app's `param.json` (`kernel.flexibleMemorySize`, the PS5 Pro memory bit
@@ -2710,7 +2750,12 @@ What it took:
    (owner). Still to try: a Windows share and a NAS over SMB, NFS on a
    NAS (with a portmapper and "secure" exports), WebDAV.
    **Next, as its own piece of work (owner): encryption** - SMB 3
-   encryption (AES-GCM/CCM) and TLS (FTPS, HTTPS WebDAV). Also possible:
+   encryption (AES-GCM/CCM) and TLS (FTPS, HTTPS WebDAV). Decided
+   (owner, 2026-10-31): TLS through the console's libSceSsl on the PS5 and
+   vendored mbedTLS (Apache-2.0, 3.6 LTS) on PCs; servers' certificates
+   pinned on first use (the fingerprint shown and confirmed once, a change
+   refused with a clear message). SMB 3 encryption written from the
+   standards like the rest of netcrypto. Also possible:
    outputs written in place on SMB and NFS (both write at any offset, so
    FFPFSC and PKG could go straight there), SFTP (needs SSH crypto).
 

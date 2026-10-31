@@ -517,7 +517,7 @@ const Format kFormats[] = {
     {"ffpfs", "FFPFS", "PFS image, uncompressed (experimental in ShadowMount+)"},
     {"exfat", "exFAT", "Plain image, fastest to load"},
     {"folder", "Folder", "Loose files"},
-    {"fpkg", "FPKG", "Debug package to install, uncompressed"},
+    {"fpkg", "FPKG", "Debug package to install"},
 };
 
 class Convert : public Overlay {
@@ -528,6 +528,7 @@ public:
     JsonValue inspect;
     std::string problem;
     int level = 1;  // index: 1 / 6 / 9
+    int pkg_comp = 0; // index: stored / kraken
     int profile = 0;
     int lz4_level = 1;  // index: 1 / 9 / 12
     bool lz4 = false, unpack = false, ampr = true, verify = true, del = false, hide = false, over = false;
@@ -587,6 +588,7 @@ public:
         while (!n.empty() && n.back() == ' ') n.pop_back();
         s.set("output_name", n);
         s.set("level", levels[std::clamp(level, 0, 2)]);
+        s.set("pkg_compression", pkg_comp == 1 ? "kraken" : "stored");
         s.set("lz4", lz4_on);
         s.set("lz4_unpack", unpack_on);
         s.set("lz4_profile", profiles[static_cast<std::size_t>(std::clamp(profile, 0, static_cast<int>(profiles.size()) - 1))]);
@@ -806,6 +808,12 @@ public:
         if (target == "ffpfsc")
             y += choice_row(ui, "cv:level", x, y, lw, t("Compression"), t("Level 9 matches PS5PKGTool byte for byte"),
                             {t("1 \xC2\xB7 fastest"), t("6 \xC2\xB7 balanced"), t("9 \xC2\xB7 smallest")}, &level);
+        // PS4 packages are always written stored.
+        const Meta* game_meta = app.meta(entry.path, entry.mtime, entry.size);
+        if (target == "fpkg" && !(game_meta && game_meta->platform == "ps4"))
+            y += choice_row(ui, "cv:pkgcomp", x, y, lw, t("Compression"),
+                            t("Executables stay uncompressed; matches ProsperoPkgTool byte for byte"),
+                            {t("Stored \xC2\xB7 fastest"), t("Kraken \xC2\xB7 smaller")}, &pkg_comp);
         if (!packed) y += switch_row(ui, "cv:lz4", x, y, lw, t("Pack into LZ4 asset packs"), t("For ampr_emu games"), &lz4);
         if (lz4_on) {
             const float ix = x + 1.25f * R + 0.9f * R + 2.0f, iw = lw - (ix - x);

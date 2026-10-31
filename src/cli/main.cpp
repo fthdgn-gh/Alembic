@@ -42,8 +42,9 @@ void usage() {
         "        --volume-name fix what it takes from the clock, process and param.json)\n"
         "        (.ffpfs: uncompressed PFS, byte-identical to MkPFS pack folder --raw\n"
         "        --no-compress; takes --timestamp, --block-size, --case-sensitive, --no-ampr)\n"
-        "        (.pkg: a stored debug FPKG, as fpkg-build; needs --keys DIR, takes --seed\n"
-        "        and --package-passcode; for a PS4 game a PS4 package, needs --ps4-keys FILE)\n"
+        "        (.pkg: a debug FPKG, as fpkg-build; needs --keys DIR, takes --seed,\n"
+        "        --package-passcode and --compression; for a PS4 game a PS4 package, needs\n"
+        "        --ps4-keys FILE)\n"
         "        (.exfat/.img, .ffpfsc, or a trailing '/' for a folder). Images are\n"
         "        copied unchanged unless --rebuild asks for a fresh exFAT layout.\n"
         "        Takes the ffpfsc and exfat options below, and:\n"
@@ -70,9 +71,12 @@ void usage() {
         "        tell whether a game needs ampr_emu; with --ampr-emu, add it: into a game\n"
         "        folder directly, or for an image as a ShadowMount+ backport folder\n"
         "        DIR/<TITLE_ID>/ (on the console DIR is /data/homebrew/backports)\n"
-        "  fpkg-build <input> <out.pkg> --keys DIR [--seed HEX32] [--package-passcode P] [--overwrite]\n"
-        "        build a stored debug FPKG from a game folder or image; DIR holds ProsperoPkgTool's\n"
-        "        passcode.bin and mount_image.bin; a fixed --seed makes it reproducible\n"
+        "  fpkg-build <input> <out.pkg> --keys DIR [--seed HEX32] [--package-passcode P]\n"
+        "             [--compression stored|kraken] [--overwrite]\n"
+        "        build a debug FPKG from a game folder or image; DIR holds ProsperoPkgTool's\n"
+        "        passcode.bin and mount_image.bin; a fixed --seed makes it reproducible.\n"
+        "        --compression kraken compresses the game's files (not executables) with\n"
+        "        Kraken, as ProsperoPkgTool img_create --compression kraken (default stored)\n"
         "        A PS4 game (sce_sys/param.sfo) becomes a PS4 fake package, as LibOrbisPkg's\n"
         "        pkg_build makes it: --ps4-keys FILE (LibOrbisPkg's Util/Keys.cs, pinned by\n"
         "        SHA-256), --package-passcode, --timestamp UNIX, and --creation-date YYYYMMDD\n"
@@ -349,6 +353,11 @@ bool parse_package_options(const Args& args, fpkg::build::PackageOptions& o) {
     if (o.keys_folder.empty() && !args.get("--ps4-keys"))
         return std::fputs("error: pass --keys DIR (passcode.bin, mount_image.bin), or --ps4-keys FILE for a PS4 game\n", stderr), false;
     if (auto p = args.get("--package-passcode")) o.passcode = *p;
+    if (auto c = args.get("--compression")) {
+        if (*c == "stored") o.compression = fpkg::build::Compression::stored;
+        else if (*c == "kraken") o.compression = fpkg::build::Compression::kraken;
+        else return std::fputs("error: --compression takes stored or kraken\n", stderr), false;
+    }
     if (auto hex = args.get("--seed")) {
         if (hex->size() != 32) return std::fputs("error: --seed takes 32 hex digits\n", stderr), false;
         std::array<std::uint8_t, 16> seed{};

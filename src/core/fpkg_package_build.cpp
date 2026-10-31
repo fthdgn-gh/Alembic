@@ -223,8 +223,12 @@ std::vector<std::uint8_t> meta18(const InnerImage& inner, std::uint64_t inner_im
     for (const ContainerBlock& b : inner.metadata_blocks) {
         std::uint64_t in_container = meta_cursor - inner.metadata_on_disk_offset;
         crypto::Digest d = crypto::sha3_256(Bytes(inner.container.data() + in_container, b.compressed_size));
-        blocks.push_back({meta_cursor, b.compressed_size, b.uncompressed_size, b.compressed_size, 0, 0x40050000u, false, 0,
-                          0x3E9, d});
+        const bool compressed = b.flags != 0 && b.compressed_size < b.uncompressed_size;
+        const bool two = compressed && b.multi_chunk;
+        const std::uint32_t c0 = two ? b.first_chunk_compressed_size : b.compressed_size;
+        const std::uint32_t c1 = two ? b.compressed_size - b.first_chunk_compressed_size : 0;
+        blocks.push_back({meta_cursor, b.compressed_size, b.uncompressed_size, c0, c1, two ? 0x40450000u : 0x40050000u,
+                          false, 0, 0x3E9, d});
         meta_cursor += b.compressed_size;
     }
     int meta_first = -1;
@@ -468,8 +472,6 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
                                     const PackageOptions& options, const ProgressFn& progress, resume::Session* session) {
     PackageResult result;
     if (options.passcode.size() != 32) return make_error(Errc::invalid_argument, "the passcode must be 32 characters");
-    if (options.compression != Compression::stored)
-        return make_error(Errc::unsupported, "Kraken-compressed packages are not supported yet (use stored)");
     ALEMBIC_ASSIGN(PackageKeys keys, load_package_keys(options.keys_folder));
 
     // ---- Inputs, as img_create collects them. ----
@@ -600,6 +602,8 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
         if (resume::get(st, "format") != resume::kFpkgFormat) return invalid("it is not a package checkpoint");
         std::uint64_t blocks = resume::get(st, "blocks"), state_size = resume::get(st, "state_size");
         if (blocks > 0x7FFFFFFF || state_size > (1u << 30)) return invalid("bad values");
+        if (resume::get(st, "compression") != (options.compression == Compression::kraken ? 1u : 0u))
+            return invalid("it was made with another compression");
         auto blob = read_whole(resume::sidecar_path(*session, ".state"), state_size);
         if (!blob.ok()) return invalid(blob.error().message);
         if (crypto::crc32c(*blob) != resume::get(st, "state_crc")) return invalid("its side file does not match");
@@ -609,6 +613,17 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
             return invalid("inconsistent positions");
         auto digests = read_whole(resume::sidecar_path(*session, ".digests"), blocks * 32);
         if (!digests.ok()) return invalid(digests.error().message);
+        if (options.compression == Compression::kraken) {
+            auto chunks = read_whole(resume::sidecar_path(*session, ".chunks"), std::uint64_t(p.source_block) * kChunkCodeBytes);
+            if (!chunks.ok()) return invalid(chunks.error().message);
+            p.chunks.resize(p.source_block);
+            for (std::size_t i = 0; i < p.chunks.size(); ++i) {
+                const std::uint8_t* q = chunks->data() + i * kChunkCodeBytes;
+                p.chunks[i].stored_length = q[0] | (std::uint32_t(q[1]) << 8) | (std::uint32_t(q[2]) << 16);
+                p.chunks[i].flags = q[3];
+                p.chunks[i].first_chunk_compressed_length = get_u32(q + 4);
+            }
+        }
         resume_digests.resize(static_cast<std::size_t>(blocks));
         for (std::size_t i = 0; i < resume_digests.size(); ++i) std::memcpy(resume_digests[i].data(), digests->data() + i * 32, 32);
         std::array<std::uint8_t, 16> seed{};
@@ -642,11 +657,13 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
     ALEMBIC_TRY(outer.begin_file("pfs_image.dat", false));
     if (resume_point) ALEMBIC_TRY(outer.resume(std::move(resume_digests), resume_pending, resume_point->written));
     InnerOptions inner_options;
+    inner_options.compression = options.compression;
     inner_options.time_seconds = options.time_seconds;
     inner_options.time_nanoseconds = options.time_nanoseconds;
     inner_options.threads = options.threads;
     if (resume_point) inner_options.resume_from = &*resume_point;
     std::uint64_t digests_saved = resume_point ? resume_point->written / kInnerBlock : 0;
+    std::uint64_t chunks_saved = resume_point ? resume_point->chunks.size() : 0;
     if (session && session->save) {
         inner_options.checkpoint_interval = session->interval;
         inner_options.checkpoint = [&](const InnerProgress& p) -> Status {
@@ -669,6 +686,29 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
                 ALEMBIC_TRY(f->sync());
                 digests_saved = digests.size();
             }
+            if (options.compression == Compression::kraken) {
+                // How each piece compressed, appended like the digests.
+                const std::string path = resume::sidecar_path(*session, ".chunks");
+                auto f = chunks_saved ? File::open(path, File::Mode::read_write) : File::open(path, File::Mode::create_new);
+                if (!f.ok() && !chunks_saved) {
+                    (void)remove_file(path);
+                    f = File::open(path, File::Mode::create_new);
+                }
+                if (!f.ok()) return f.error();
+                std::vector<std::uint8_t> add((p.chunks.size() - chunks_saved) * kChunkCodeBytes);
+                for (std::size_t i = chunks_saved; i < p.chunks.size(); ++i) {
+                    std::uint8_t* q = add.data() + (i - chunks_saved) * kChunkCodeBytes;
+                    const ChunkCode& c = p.chunks[i];
+                    q[0] = static_cast<std::uint8_t>(c.stored_length);
+                    q[1] = static_cast<std::uint8_t>(c.stored_length >> 8);
+                    q[2] = static_cast<std::uint8_t>(c.stored_length >> 16);
+                    q[3] = c.flags;
+                    put_u32(q + 4, c.first_chunk_compressed_length);
+                }
+                ALEMBIC_TRY(f->write_at(chunks_saved * kChunkCodeBytes, add));
+                ALEMBIC_TRY(f->sync());
+                chunks_saved = p.chunks.size();
+            }
             std::vector<std::uint8_t> blob = encode_checkpoint(p, outer.pending());
             {
                 ALEMBIC_ASSIGN(AtomicOutput side, AtomicOutput::create(resume::sidecar_path(*session, ".state"), true));
@@ -683,12 +723,13 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
             st["seed_hi"] = get_u64(outer_options.seed.data() + 8);
             st["state_size"] = blob.size();
             st["state_crc"] = crypto::crc32c(blob);
+            st["compression"] = options.compression == Compression::kraken ? 1 : 0;
             return session->save(st);
         };
     }
     ALEMBIC_ASSIGN(InnerImage inner, write_inner_image(files, inner_options, outer, progress));
     ALEMBIC_TRY(outer.end_file(inner.ndblock * kInnerBlock));
-    ALEMBIC_ASSIGN(Naps naps, build_naps(inner, Compression::stored));
+    ALEMBIC_ASSIGN(Naps naps, build_naps(inner, options.compression));
     ALEMBIC_TRY(outer.begin_file("naps_pkg_layout.dat", true));
     ALEMBIC_TRY(outer.write(naps.blob));
     ALEMBIC_TRY(outer.end_file(naps.blob.size()));

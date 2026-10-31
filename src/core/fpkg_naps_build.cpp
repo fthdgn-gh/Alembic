@@ -69,6 +69,23 @@ public:
         emit(e);
         return {};
     }
+    // A Kraken block (EmitEncoded / EmitEncodedMetadata): the codec selectors
+    // from the encoder's flags, the even chunk's compressed size.
+    Status kraken(std::uint64_t on_disk, std::uint64_t logical, std::uint64_t uncompressed, std::uint64_t stream,
+                  std::uint64_t even_length, int flags, bool multi_chunk) {
+        if (stream == 0 || stream >= uncompressed)
+            return make_error(Errc::invalid_data, "NAPS: a Kraken block must be smaller than its raw block");
+        PlanEntry e;
+        e.start_run = needs_run(on_disk);
+        e.on_disk = on_disk;
+        e.logical = logical;
+        e.even_length = even_length;
+        e.stream = stream;
+        e.even = static_cast<std::uint8_t>(1 | ((flags & 2) ? 4 : 0) | ((flags & 1) ? 2 : 0));
+        e.odd = multi_chunk ? static_cast<std::uint8_t>(((flags & 0x20) == 0 ? 1 : 4) | ((flags & 0x10) ? 2 : 0)) : 0;
+        emit(e);
+        return {};
+    }
     void hole(std::uint64_t on_disk, std::uint64_t logical, std::uint64_t stream, bool full, bool start_run) {
         PlanEntry e;
         e.start_run = start_run || needs_run(on_disk); // short-circuit, as the reference does
@@ -130,8 +147,11 @@ Result<Naps> build_naps(const InnerImage& inner, Compression compression) {
     for (const EncodedBlock& b : inner.encoded_blocks) {
         if (b.uncompressed_length == 0) continue;
         if (b.uncompressed_length > kUBlock) return make_error(Errc::invalid_data, "NAPS: an encoded block exceeds 256 KiB");
-        if (!b.is_stored) return make_error(Errc::unsupported, "NAPS: Kraken blocks are not supported yet");
-        if (b.uncompressed_length == kUBlock && b.stored_length == kUBlock)
+        if (!b.is_stored) {
+            const bool multi = b.uncompressed_length > 0x20000;
+            ALEMBIC_TRY(emitter.kraken(b.physical_offset, b.logical_offset, b.uncompressed_length, b.stored_length,
+                                       multi ? b.first_chunk_compressed_length : b.stored_length, b.flags, multi));
+        } else if (b.uncompressed_length == kUBlock && b.stored_length == kUBlock)
             emitter.stored_full(b.physical_offset, b.logical_offset);
         else
             ALEMBIC_TRY(emitter.stored_tail(b.physical_offset, b.logical_offset, b.uncompressed_length, b.stored_length));
@@ -157,9 +177,12 @@ Result<Naps> build_naps(const InnerImage& inner, Compression compression) {
     std::uint64_t meta_logical = inner.meta_base_logical;
     std::uint64_t meta_on_disk = inner.metadata_on_disk_offset + (inner.container.size() >= 0xAE ? get_u32(&inner.container[0xAA]) : 0);
     for (const ContainerBlock& b : inner.metadata_blocks) {
-        if (b.flags != 0 && b.compressed_size < b.uncompressed_size)
-            return make_error(Errc::unsupported, "NAPS: Kraken metadata is not supported yet");
-        if (b.compressed_size >= kUBlock) emitter.stored_full(meta_on_disk, meta_logical);
+        if (b.flags != 0 && b.compressed_size < b.uncompressed_size) {
+            if (b.uncompressed_size > 0)
+                ALEMBIC_TRY(emitter.kraken(meta_on_disk, meta_logical, b.uncompressed_size, b.compressed_size,
+                                           b.multi_chunk ? b.first_chunk_compressed_size : b.compressed_size,
+                                           b.multi_chunk ? 0x22 : 0x02, b.multi_chunk));
+        } else if (b.compressed_size >= kUBlock) emitter.stored_full(meta_on_disk, meta_logical);
         else ALEMBIC_TRY(emitter.stored_tail(meta_on_disk, meta_logical, b.uncompressed_size, b.compressed_size));
         meta_logical += b.uncompressed_size;
         meta_on_disk += b.compressed_size;

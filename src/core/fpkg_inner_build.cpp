@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The inner image (pfs_image.dat) of a debug package. Ported from
 // pearlxcore/ProsperoPkgTool (MIT) Containers/ProsperoInnerImageAssembler.cs
-// and Containers/ProsperoPfsv3Writer.cs (stored path).
+// and Containers/ProsperoPfsv3Writer.cs, stored or Kraken.
 //
 // Layout, data first: [file payloads][32-byte block-info table][metadata in a
 // PFSv3 container]. Files are placed in afid order; the metadata region (a
@@ -14,11 +14,15 @@
 
 #include "alembic/bytes.hpp"
 #include "alembic/crypto.hpp"
+#include "alembic/kraken.hpp"
 
 #include <algorithm>
+#include <condition_variable>
 #include <cstring>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <optional>
 
 namespace alembic::fpkg::build {
 
@@ -278,7 +282,12 @@ std::uint64_t inner_path_hash(const std::string& path) {
     return hash_bytes(p);
 }
 
-std::vector<std::uint8_t> pfsv3_stored(const std::vector<std::uint8_t>& payload, int level, std::uint32_t block_size) {
+namespace {
+
+// ProsperoPfsv3Writer.WriteStored and WriteCompressed: one layout, blocks
+// either stored or Kraken (`kraken`: tried on every block).
+std::vector<std::uint8_t> pfsv3_container(const std::vector<std::uint8_t>& payload, int level, std::uint32_t block_size,
+                                          bool kraken, std::vector<ContainerBlock>* blocks_out) {
     static const std::uint8_t kGitHash[20] = {0x23, 0x98, 0x7d, 0x16, 0xc9, 0x20, 0x9a, 0xc7, 0x28, 0x37,
                                               0x19, 0x32, 0x7e, 0x0f, 0x50, 0x6b, 0xbc, 0xf4, 0x59, 0xf4};
     static const std::uint8_t kShuffle[64] = {
@@ -290,12 +299,34 @@ std::vector<std::uint8_t> pfsv3_stored(const std::vector<std::uint8_t>& payload,
     constexpr std::size_t kHeader = 0x48, kDir = 16, kSections = 7;
     const std::size_t n = payload.size();
     const std::size_t blocks = n == 0 ? 1 : div_round_up(n, block_size);
+    // Each block's bytes in the data section: Kraken where it is smaller.
+    std::vector<std::optional<kraken::EncodedBlock>> encoded(blocks);
+    std::size_t data_size = 0;
+    for (std::size_t i = 0; i < blocks; ++i) {
+        const std::size_t start = i * static_cast<std::size_t>(block_size);
+        const std::size_t size = n == 0 ? 0 : std::min<std::size_t>(block_size, n - start);
+        if (kraken && size > 0) {
+            encoded[i] = kraken::encode_block(Bytes(payload.data() + start, size));
+            if (encoded[i] && encoded[i]->payload.size() >= size) encoded[i].reset();
+        }
+        const std::size_t enc = encoded[i] ? encoded[i]->payload.size() : size;
+        if (blocks_out) {
+            ContainerBlock cb{static_cast<std::uint32_t>(enc), static_cast<std::uint32_t>(size), false, 0, 0};
+            if (encoded[i]) {
+                cb.flags = static_cast<std::uint8_t>(encoded[i]->flags);
+                cb.multi_chunk = encoded[i]->flags == (kraken::kChunk0NewLz | kraken::kChunk1NewLz);
+                cb.first_chunk_compressed_size = static_cast<std::uint32_t>(encoded[i]->first_chunk_size);
+            }
+            blocks_out->push_back(cb);
+        }
+        data_size += enc;
+    }
     const std::size_t sec1 = sizeof kGitHash, sec2 = sizeof kShuffle, sec3 = (blocks + 1) * kDir, sec4 = blocks * 32,
                       sec5 = blocks * kDir;
     const std::size_t off1 = kHeader + kSections * kDir;
     const std::size_t off2 = align_up(off1 + sec1, 8), off3 = align_up(off2 + sec2, 8), off4 = align_up(off3 + sec3, 8),
                       off5 = align_up(off4 + sec4, 8), off6 = align_up(off5 + sec5, 8), off7 = align_up(off6, 0x400);
-    std::vector<std::uint8_t> b(off7 + n, 0);
+    std::vector<std::uint8_t> b(off7 + data_size, 0);
     put_u32(&b[0], 0x43534650); // 'PFSC'
     put_u16(&b[4], 3);
     put_u16(&b[6], kSections);
@@ -316,22 +347,34 @@ std::vector<std::uint8_t> pfsv3_stored(const std::vector<std::uint8_t>& payload,
     dir(3, 4, off4, sec4);
     dir(4, 5, off5, sec5);
     dir(5, 6, off6, 0);
-    dir(6, 7, off7, n);
+    dir(6, 7, off7, data_size);
     std::memcpy(&b[off1], kGitHash, sec1);
     std::memcpy(&b[off2], kShuffle, sec2);
-    std::uint64_t cumulative = 0;
+    std::uint64_t plain = 0, stored = 0;
     for (std::size_t i = 0; i < blocks; ++i) {
-        std::size_t size = n == 0 ? 0 : static_cast<std::size_t>(std::min<std::uint64_t>(block_size, n - cumulative));
-        std::uint64_t flags = 0x0C | (size > block_size / 2 ? 0xC0 : 0);
-        std::uint64_t hint = std::min<std::uint64_t>(size ? size - 1 : 0, 0x1FFFF);
-        put_u64(&b[off3 + i * kDir], cumulative | (flags << 48));
-        put_u64(&b[off3 + i * kDir + 8], cumulative | (hint << 44));
-        crypto::Digest d = crypto::sha3_256(Bytes(payload.data() + cumulative, size));
+        std::size_t size = n == 0 ? 0 : static_cast<std::size_t>(std::min<std::uint64_t>(block_size, n - plain));
+        std::uint64_t flags, hint;
+        Bytes bytes(payload.data() + plain, size);
+        if (encoded[i]) {
+            const kraken::EncodedBlock& e = *encoded[i];
+            flags = static_cast<std::uint64_t>(e.flags);
+            const bool multi = e.flags == (kraken::kChunk0NewLz | kraken::kChunk1NewLz);
+            const std::size_t h = (multi ? e.first_chunk_size : e.payload.size()) - 1;
+            hint = std::min<std::uint64_t>(h, 0x1FFFF);
+            bytes = Bytes(e.payload.data(), e.payload.size());
+        } else {
+            flags = 0x0C | (size > block_size / 2 ? 0xC0 : 0);
+            hint = std::min<std::uint64_t>(size ? size - 1 : 0, 0x1FFFF);
+        }
+        put_u64(&b[off3 + i * kDir], stored | (flags << 48));
+        put_u64(&b[off3 + i * kDir + 8], plain | (hint << 44));
+        crypto::Digest d = crypto::sha3_256(Bytes(payload.data() + plain, size));
         std::memcpy(&b[off4 + i * 32], d.data(), 32);
-        if (size) std::memcpy(&b[off7 + cumulative], payload.data() + cumulative, size);
-        cumulative += size;
+        if (!bytes.empty()) std::memcpy(&b[off7 + stored], bytes.data(), bytes.size());
+        plain += size;
+        stored += bytes.size();
     }
-    put_u64(&b[off3 + blocks * kDir], n);
+    put_u64(&b[off3 + blocks * kDir], data_size);
     put_u64(&b[off3 + blocks * kDir + 8], n);
     // File digest: SHA3-256(header32 || shuffle || boundaries || block hashes).
     std::uint8_t header32[32] = {};
@@ -348,11 +391,21 @@ std::vector<std::uint8_t> pfsv3_stored(const std::vector<std::uint8_t>& payload,
     return b;
 }
 
+} // namespace
+
+std::vector<std::uint8_t> pfsv3_stored(const std::vector<std::uint8_t>& payload, int level, std::uint32_t block_size) {
+    return pfsv3_container(payload, level, block_size, false, nullptr);
+}
+
+std::vector<std::uint8_t> pfsv3_compressed(const std::vector<std::uint8_t>& payload, std::vector<ContainerBlock>& blocks,
+                                           int level, std::uint32_t block_size) {
+    blocks.clear();
+    return pfsv3_container(payload, level, block_size, true, &blocks);
+}
+
 Result<InnerImage> write_inner_image(const std::vector<InnerFile>& files, const InnerOptions& options, ByteSink& sink,
                                      const ProgressFn& progress) {
     if (files.empty()) return make_error(Errc::invalid_argument, "a package needs at least one file");
-    if (options.compression != Compression::stored)
-        return make_error(Errc::unsupported, "Kraken-compressed packages are not supported yet");
 
     // ---- 1. The folder tree (paths in ordinal order). ----
     std::vector<const InnerFile*> sorted;
@@ -480,25 +533,34 @@ Result<InnerImage> write_inner_image(const std::vector<InnerFile>& files, const 
 
     // ---- 4. Payloads, in afid order. ----
     // Resuming, files and chunks before the checkpoint are only booked: their
-    // bytes are already in the sink and their hashes come from the checkpoint.
+    // bytes are already in the sink, their hashes and (Kraken) their sizes on
+    // disk come from the checkpoint.
     InnerImage result;
     Writer out(sink);
+    const bool kraken_mode = options.compression == Compression::kraken;
     const InnerProgress* from = options.resume_from;
     if (from) {
-        if (from->file > afid_order.size() || from->finished.size() != from->file)
+        if (from->file > afid_order.size() || from->finished.size() != from->file ||
+            (kraken_mode && from->chunks.size() != from->source_block))
             return make_error(Errc::invalid_data, "the package checkpoint does not match the game's files");
         out.skip_to(from->written);
     }
     std::uint64_t pos = 0;
     std::uint32_t source_block = 0;
-    std::uint64_t payload_total = 0, payload_done = 0, next_checkpoint = options.checkpoint_interval;
+    std::uint64_t payload_total = 0, payload_done = 0, encoded_total = 0, next_checkpoint = options.checkpoint_interval;
     for (FileNode* f : afid_order) payload_total += f->length;
-    std::vector<std::uint8_t> buffer(kChunk);
-    // The files' SHA3 runs beside the reading (the hasher copies each piece).
+    std::vector<ChunkCode> codes; // Kraken: every piece so far, for checkpoints
+    // Kraken encodes a batch of pieces on every core, then writes them in order.
+    const unsigned workers = kraken_mode ? worker_count(options.threads) : 1;
+    std::unique_ptr<Pool> pool = workers > 1 ? std::make_unique<Pool>(workers) : nullptr;
+    const std::size_t batch = kraken_mode ? std::max<std::size_t>(2 * workers, 1) : 1;
+    std::vector<std::vector<std::uint8_t>> raw(batch, std::vector<std::uint8_t>(kChunk));
+    std::vector<std::optional<kraken::EncodedBlock>> coded(batch);
+    // The files' SHA3 (of their bytes on disk) runs beside the reading (the hasher copies each piece).
     crypto::BackgroundSha3 hasher(worker_count(options.threads) > 1, kChunk);
     for (std::size_t index = 0; index < afid_order.size(); ++index) {
         FileNode* f = afid_order[index];
-        f->store_raw = true; // stored mode (Kraken would leave non-raw files compressible)
+        f->store_raw = !kraken_mode || f->whole_block_raw;
         bool align_before = f->whole_block_raw ||
                             (f->store_raw && pos % kBs != 0 && f->length > kBs - pos % kBs);
         if (align_before) pos = round_up(pos, kBs);
@@ -506,7 +568,41 @@ Result<InnerImage> write_inner_image(const std::vector<InnerFile>& files, const 
         const bool done_before = from && index < from->file;
         const bool current = from && index == from->file;
         const std::uint64_t skip = done_before ? f->length : current ? from->file_offset : 0;
-        if (current && (skip > f->length || (skip % kChunk != 0 && skip != f->length) || from->written != pos + skip))
+        if (current && (skip > f->length || (skip % kChunk != 0 && skip != f->length)))
+            return make_error(Errc::invalid_data, "the package checkpoint does not match the game's files");
+        std::uint64_t physical = pos;
+        auto book = [&](std::uint64_t off, std::uint32_t n, const ChunkCode& c) {
+            EncodedBlock e;
+            e.source_block_index = source_block++;
+            e.logical_offset = f->logical + off;
+            e.uncompressed_length = n;
+            e.stored_length = c.stored_length;
+            e.is_stored = c.flags == 0;
+            e.flags = c.flags;
+            e.first_chunk_compressed_length = c.first_chunk_compressed_length;
+            e.physical_offset = physical;
+            physical += c.stored_length;
+            encoded_total += c.stored_length;
+            result.encoded_blocks.push_back(e);
+            if (kraken_mode) codes.push_back(c);
+        };
+        // Pieces already written.
+        std::uint64_t off = 0;
+        while (off < skip) {
+            auto n = static_cast<std::uint32_t>(std::min<std::uint64_t>(kChunk, f->length - off));
+            ChunkCode c{n, 0, 0};
+            if (kraken_mode) {
+                if (source_block >= from->chunks.size())
+                    return make_error(Errc::invalid_data, "the package checkpoint does not match the game's files");
+                c = from->chunks[source_block];
+                if (c.stored_length == 0 || c.stored_length > n || (c.flags == 0 && c.stored_length != n))
+                    return make_error(Errc::invalid_data, "the package checkpoint is damaged");
+            }
+            book(off, n, c);
+            off += n;
+            payload_done += n;
+        }
+        if (current && from->written != physical)
             return make_error(Errc::invalid_data, "the package checkpoint does not match the game's files");
         std::shared_ptr<const RandomAccess> in;
         if (skip < f->length) {
@@ -515,50 +611,87 @@ Result<InnerImage> write_inner_image(const std::vector<InnerFile>& files, const 
             ALEMBIC_ASSIGN(std::uint64_t actual, in->size());
             if (actual != f->length) return make_error(Errc::invalid_data, "a file changed size: " + f->full_path);
         }
-        std::uint64_t physical = pos;
         crypto::Sha3_256 hash = current ? crypto::Sha3_256::restore(from->hash.data()) : crypto::Sha3_256();
         // On an early return the helper must be done with `hash` before it goes.
         struct WaitFirst {
             crypto::BackgroundSha3& h;
             ~WaitFirst() { h.wait(); }
         } wait_first{hasher};
-        for (std::uint64_t off = 0; off < f->length;) {
-            auto n = static_cast<std::uint32_t>(std::min<std::uint64_t>(kChunk, f->length - off));
-            if (off >= skip) {
-                ALEMBIC_TRY(in->read_at(off, MutableBytes(buffer.data(), n)));
-                ALEMBIC_TRY(out.write(Bytes(buffer.data(), n)));
-                hasher.update(hash, Bytes(buffer.data(), n));
+        while (off < f->length) {
+            // Read a batch of pieces, Kraken-encode them (not the file's last
+            // piece, nor raw files), then write them in order.
+            std::size_t k = 0;
+            std::uint32_t sizes[256];
+            const std::size_t room = std::min<std::size_t>(batch, 256);
+            for (std::uint64_t o = off; k < room && o < f->length; ++k) {
+                sizes[k] = static_cast<std::uint32_t>(std::min<std::uint64_t>(kChunk, f->length - o));
+                ALEMBIC_TRY(in->read_at(o, MutableBytes(raw[k].data(), sizes[k])));
+                o += sizes[k];
             }
-            EncodedBlock e;
-            e.source_block_index = source_block++;
-            e.logical_offset = f->logical + off;
-            e.uncompressed_length = n;
-            e.stored_length = n;
-            e.is_stored = true;
-            e.physical_offset = physical;
-            physical += n;
-            result.encoded_blocks.push_back(e);
-            off += n;
-            payload_done += n;
-            if (off <= skip) continue;
-            // A stop (pause or cancel) saves a checkpoint at this very point too.
-            const bool stop = progress && !progress({"Building the inner image", payload_done, payload_total});
-            if (options.checkpoint && (stop || (options.checkpoint_interval && payload_done >= next_checkpoint))) {
-                next_checkpoint = payload_done + options.checkpoint_interval;
-                hasher.wait();
-                InnerProgress p;
-                p.written = out.pos();
-                p.file = index;
-                p.file_offset = off;
-                p.source_block = source_block;
-                p.finished.reserve(index);
-                for (std::size_t k = 0; k < index; ++k) p.finished.push_back(afid_order[k]->sha3);
-                p.hash = hash.save();
-                ALEMBIC_TRY(options.checkpoint(p));
+            const bool compress = kraken_mode && !f->store_raw;
+            if (compress) {
+                std::uint64_t o = off;
+                std::size_t todo = 0;
+                for (std::size_t i = 0; i < k; ++i) {
+                    coded[i].reset();
+                    if (o + sizes[i] < f->length) ++todo;
+                    o += sizes[i];
+                }
+                std::mutex m;
+                std::condition_variable cv;
+                std::size_t left = todo;
+                o = off;
+                for (std::size_t i = 0; i < k; ++i) {
+                    const bool terminal = o + sizes[i] >= f->length;
+                    o += sizes[i];
+                    if (terminal) continue;
+                    auto job = [&, i](unsigned) {
+                        std::optional<kraken::EncodedBlock> e = kraken::encode_block(Bytes(raw[i].data(), sizes[i]));
+                        std::lock_guard<std::mutex> lock(m);
+                        coded[i] = std::move(e);
+                        if (--left == 0) cv.notify_one();
+                    };
+                    if (pool) pool->submit(job);
+                    else job(0);
+                }
+                std::unique_lock<std::mutex> lock(m);
+                cv.wait(lock, [&] { return left == 0; });
             }
-            if (stop) return make_error(Errc::cancelled, "cancelled");
+            for (std::size_t i = 0; i < k; ++i) {
+                const std::uint32_t n = sizes[i];
+                Bytes bytes(raw[i].data(), n);
+                ChunkCode c{n, 0, 0};
+                if (compress && coded[i]) {
+                    const kraken::EncodedBlock& e = *coded[i];
+                    bytes = Bytes(e.payload.data(), e.payload.size());
+                    c = {static_cast<std::uint32_t>(e.payload.size()), static_cast<std::uint8_t>(e.flags),
+                         static_cast<std::uint32_t>(e.first_chunk_size)};
+                }
+                ALEMBIC_TRY(out.write(bytes));
+                hasher.update(hash, bytes);
+                book(off, n, c);
+                off += n;
+                payload_done += n;
+                // A stop (pause or cancel) saves a checkpoint at this very point too.
+                const bool stop = progress && !progress({"Building the inner image", payload_done, payload_total});
+                if (options.checkpoint && (stop || (options.checkpoint_interval && payload_done >= next_checkpoint))) {
+                    next_checkpoint = payload_done + options.checkpoint_interval;
+                    hasher.wait();
+                    InnerProgress p;
+                    p.written = out.pos();
+                    p.file = index;
+                    p.file_offset = off;
+                    p.source_block = source_block;
+                    p.finished.reserve(index);
+                    for (std::size_t q = 0; q < index; ++q) p.finished.push_back(afid_order[q]->sha3);
+                    p.hash = hash.save();
+                    if (kraken_mode) p.chunks = codes;
+                    ALEMBIC_TRY(options.checkpoint(p));
+                }
+                if (stop) return make_error(Errc::cancelled, "cancelled");
+            }
         }
-        f->encoded = f->length;
+        f->encoded = physical - pos;
         if (done_before) {
             f->sha3 = from->finished[index];
         } else {
@@ -571,7 +704,7 @@ Result<InnerImage> write_inner_image(const std::vector<InnerFile>& files, const 
     if (from && from->file >= afid_order.size() && out.pos() < from->written)
         return make_error(Errc::invalid_data, "the package checkpoint does not match the game's files");
     result.raw_bytes = payload_total;
-    result.encoded_bytes = payload_total;
+    result.encoded_bytes = encoded_total;
 
     std::uint64_t data_end = 0;
     for (FileNode* f : afid_order) data_end = std::max(data_end, f->logical + f->length);
@@ -750,10 +883,14 @@ Result<InnerImage> write_inner_image(const std::vector<InnerFile>& files, const 
     ALEMBIC_TRY(out.zeros_to(pos));
     ALEMBIC_TRY(out.write(info));
     pos += info.size();
-    result.container = pfsv3_stored(meta, options.kraken_level);
-    for (std::size_t i = 0; i < meta.size(); i += kContainerBlock) {
-        auto size = static_cast<std::uint32_t>(std::min<std::size_t>(kContainerBlock, meta.size() - i));
-        result.metadata_blocks.push_back({size, size, false, 0, 0});
+    if (kraken_mode) {
+        result.container = pfsv3_compressed(meta, result.metadata_blocks, options.kraken_level);
+    } else {
+        result.container = pfsv3_stored(meta, options.kraken_level);
+        for (std::size_t i = 0; i < meta.size(); i += kContainerBlock) {
+            auto size = static_cast<std::uint32_t>(std::min<std::size_t>(kContainerBlock, meta.size() - i));
+            result.metadata_blocks.push_back({size, size, false, 0, 0});
+        }
     }
     pos = round_up(pos, kBs);
     result.metadata_on_disk_offset = pos;

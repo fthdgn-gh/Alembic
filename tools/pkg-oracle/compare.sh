@@ -4,7 +4,10 @@
 # then checks Alembic's reader against them:
 #   - FIH digest, CNT entry digests and outer superblock ICV verify,
 #   - the decrypted pfs_image.dat equals ProsperoPkgTool's native-decrypt,
-#   - the param.json CNT entry equals the source file.
+#   - the param.json CNT entry equals the source file,
+# and Alembic's writer against ProsperoPkgTool's:
+#   - fpkg-build equals img_create --seed S --no_right_sprx byte for byte,
+#     stored and Kraken.
 #   tools/pkg-oracle/compare.sh [refs-dir]   (default: .refs)
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -37,6 +40,8 @@ open(f"{g}/Data/noise.bin", "wb").write(r.randbytes(400000))
 open(f"{g}/Data/zeros.bin", "wb").write(bytes(600000))
 open(f"{g}/Data/empty.bin", "wb").write(b"")
 open(f"{g}/Data/Deep/Er/small.txt", "wb").write(b"x" * 33)
+words = [b"alembic ", b"kraken ", b"block ", b"\n", b'{"a": 1}, ', b"package "]
+open(f"{g}/Data/words.txt", "wb").write(b"".join(r.choice(words) for _ in range(300000)))
 PY
 
 ppt img_create "$game" --out "$work/ppt-kraken.pkg" --compression kraken >/dev/null
@@ -70,5 +75,18 @@ for name in ppt-kraken ppt-stored lib; do
     "$alembic" fpkg-dump "$pkg" entry:param.json "$work/$name.param.json"
     if cmp -s "$work/$name.param.json" "$game/sce_sys/param.json"; then echo "same  $name: param.json entry"
     else echo "DIFF  $name: param.json entry"; fail=1; fi
+done
+
+# Writing. Alembic does not generate a keystone: the game takes the one
+# ProsperoPkgTool generated above, so both tools build the same input.
+keys="$refs/ProsperoPkgTool/ProsperoPkgTool/Keys"
+seed=0102030405060708090a0b0c0d0e0f10
+"$alembic" cat "$work/ppt-stored.pkg" sce_sys/keystone "$game/sce_sys/keystone"
+for c in stored kraken; do
+    ppt img_create "$game" --out "$work/w-ppt-$c.pkg" --compression $c --seed $seed --no_right_sprx >/dev/null
+    "$alembic" fpkg-build "$game" "$work/w-alembic-$c.pkg" --keys "$keys" --seed $seed --compression $c >/dev/null
+    if cmp -s "$work/w-ppt-$c.pkg" "$work/w-alembic-$c.pkg"; then
+        echo "same  fpkg-build --compression $c: byte for byte ($(wc -c <"$work/w-alembic-$c.pkg" | tr -d ' ') bytes)"
+    else echo "DIFF  fpkg-build --compression $c"; fail=1; fi
 done
 exit $fail
