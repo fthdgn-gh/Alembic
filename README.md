@@ -1,6 +1,6 @@
 # Alembic
 
-![Alembic's page in the PS5 browser: a library of games in several formats, with drives, a NAS share, an NFS export and a paired PC on the left](docs/screenshots/files.png)
+![Alembic's page in the PS5 browser: a library of games in several formats, with drives, a NAS share, an NFS export, an FTPS server and a paired PC on the left](docs/screenshots/files.png)
 
 Alembic converts PS5 and PS4 games between the formats homebrew loaders use:
 packages (PS5 debug FPKG, PS4 fake PKG), dump folders, exFAT images, FFPKG
@@ -18,9 +18,9 @@ also be read from and saved to over SMB, NFS, WebDAV or FTP.
 **Tried on a console so far:** FFPFSC images made from dumps and from
 packages run through ShadowMount+; games that need the AMPR emulator start
 once it is added; the console and a PC pair and convert for each other;
-**Install** hands a debug package to the console's installer, and an
-image or dump converted to a package (with a generated debug licence, so
-no lock on the title) installs too; a paused
+**Install** hands a debug package to the console's installer, including
+packages Alembic builds from a dump (stored or Kraken, with a generated
+debug licence, so no lock on the title); a paused
 conversion carries on after the engine is updated; the engine updates
 itself from a release (loaded through Payload Manager); the console app
 starts from ShadowMount+, starts and restarts the engine, and drives a
@@ -28,11 +28,11 @@ conversion on a paired PC; a package converted from an SMB share.
 PS4 games converted from their packages start from images through
 ShadowMount+ 1.7beta8 (it shows "Trophy registration failed" for them: a
 ShadowMount+ issue, [#97](https://github.com/drakmor/ShadowMountPlus/issues/97)).
-**Not yet:** NFS and WebDAV from a console, and real NAS boxes and Windows
-shares (all four server types were checked on a PC against Samba, rclone,
-WsgiDAV and pyftpdlib); installing an FPKG that Alembic built, PS5
-or PS4; PS4 updates
-(patch packages) and DLC. LZ4 asset packs work for some games and not for
+**Not yet:** NFS, WebDAV, SMB encryption, FTPS and HTTPS from a console,
+and real NAS boxes and Windows shares (all of them were checked on a PC
+against Samba, rclone, WsgiDAV and pyftpdlib); starting a game installed
+from an Alembic package (installs were tried, starting it was not); a PS4
+package Alembic built; PS4 updates (patch packages) and DLC. LZ4 asset packs work for some games and not for
 others.
 
 ## What it does
@@ -77,7 +77,8 @@ and the app mark each game with a **PS5** (white) or **PS4** (black) pill.
   [MkPFS](https://github.com/PSBrew/MkPFS) (`pack folder --raw
   --no-compress`); FPKG output matches
   [ProsperoPkgTool](https://github.com/pearlxcore/ProsperoPkgTool)
-  (`img_create`, stored, with the same fixed seed); PS4 packages match
+  (`img_create`, stored or `--compression kraken`, with the same fixed
+  seed); PS4 packages match
   [LibOrbisPkg](https://github.com/maxton/LibOrbisPkg)'s `pkg_build`, also
   when rebuilding a package from the project its `pkg_makegp4` extracts.
 - **LZ4 asset packs** for drakmor's [ampr_emu](https://github.com/drakmor/ampr_emu)
@@ -124,10 +125,11 @@ GitHub release first, checked against `SHA256SUMS`).
 3. In **Files**, pick a game on internal storage, USB, a network server (SMB,
    NFS, WebDAV or FTP) or a paired engine's drive (a pill tells PS5 and PS4
    games apart), then
-   **Convert**, **Install**, **Copy** or **Move**. Install on an image or a
-   folder converts it to a package, hands that to the console's installer
-   and deletes it once the installer has read it (it needs room for the
-   package until then), unless **Keep the package** is on.
+   **Convert**, **Install** (packages), **Copy** or **Move**. Converting a
+   PS5 game to a package can hand it to the console's installer when done
+   (**Install when done**); the package is then deleted once the installer
+   has read it, unless **Keep the package** is on, so it needs room until
+   then.
 4. Jobs run one at a time in **Queue**: pause, resume (long jobs continue
    from a checkpoint), reorder, cancel. You get a notification when one
    finishes.
@@ -331,7 +333,8 @@ it follows. They need the reference projects checked out in `.refs/`
 
 ```sh
 tools/oracle/compare.sh        # exFAT, FFPKG, FFPFS, FFPFSC vs PS5PKGTool and MkPFS
-tools/pkg-oracle/compare.sh    # FPKG reading vs packages built by ProsperoPkgTool / LibProsperoPKG
+tools/pkg-oracle/compare.sh    # FPKG reading and writing vs ProsperoPkgTool / LibProsperoPKG
+tools/pkg-oracle/write_samples.sh  # FPKG writing vs ProsperoPkgTool on your own packages
 tools/lz4-oracle/compare.sh    # LZ4 packs vs ampr_emu's ampr_pack.py
 tools/ps4-oracle/compare.sh    # PS4 packages vs LibOrbisPkg's pkg_build, pkg_extract and pkg_validate
 ```
@@ -342,7 +345,7 @@ tools/ps4-oracle/compare.sh    # PS4 packages vs LibOrbisPkg's pkg_build, pkg_ex
   in this repository or its binaries. FPKG output uses ProsperoPkgTool's
   published key files; PS4 package output uses LibOrbisPkg's `Keys.cs` (it
   also holds the debug licence key, used only to generate a licence for a
-  game that has none). The engine downloads both on request.
+  game that has none, PS5 or PS4). The engine downloads both on request.
 - No third-party binaries: ampr_emu's `libSceAmpr.sprx` is downloaded from its
   official release, pinned by SHA-256.
 

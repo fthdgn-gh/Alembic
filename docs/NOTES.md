@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (2026-10-31, after release 0.3.3)
+## Where we are (2026-10-31, release 0.4.0)
 
 ### What works
 
@@ -32,7 +32,7 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   downloads third-party files pinned by SHA-256. Inputs can be files shared
   from a PC browser tab or network servers (SMB, NFS, WebDAV, FTP); outputs
   can go to them (formats written front to back only).
-- **Since 0.3.3 (2026-10-31):** Kraken FPKG output (byte-identical to
+- **In 0.4.0 (2026-10-31):** Kraken FPKG output (byte-identical to
   ProsperoPkgTool, ~2x faster on the console after the encoder stopped
   allocating per block); PS5 packages get a generated debug licence (no
   lock); Install... on images and folders (convert, install over HTTP,
@@ -2902,6 +2902,17 @@ What it took:
 - **Not pursued:** installing on the fly (on the console or from a PC
   engine), widening the payload's CPU set (kernel-level), a shorter
   20 s settle before deleting.
+
+### 2026-10-31: version 0.4.0
+
+- Engine and app 0.4.0 (CMake, the app's contentVersion 00.004.000).
+  README: what was tried on a console (Alembic-built packages install,
+  no lock), what was not (starting such a game; NFS, WebDAV, SMB
+  encryption, FTPS, HTTPS from a console), Kraken parity, Install when
+  done; screenshots retaken (the stand-in engine has an FTPS server and a
+  USB package now; page shots with Brave as BROWSER).
+- Owner: the release text does not call Install when done "installing
+  images" (misleading): it converts to a package and hands that over.
 
 ## Next session
 
