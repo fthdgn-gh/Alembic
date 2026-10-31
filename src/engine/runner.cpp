@@ -768,7 +768,7 @@ Result<JsonValue> run_install(const JobSpec& spec, const EngineConfig& config, c
     return r;
 }
 
-JsonValue kraken_bench(std::uint64_t mask, int prio, bool elevate) {
+JsonValue kraken_bench(std::uint64_t mask, int prio) {
     // Game-like data: runs of text-ish tokens, short repeats and noise.
     constexpr std::size_t kBlock = 0x40000, kTotal = 16u << 20;
     std::vector<std::uint8_t> data(kTotal);
@@ -793,7 +793,7 @@ JsonValue kraken_bench(std::uint64_t mask, int prio, bool elevate) {
         std::atomic<std::size_t> next_block{0};
         for (unsigned t = 0; t < threads; ++t)
             pool.emplace_back([&] {
-                if (mask || prio >= 0) (void)platform::set_thread_cpu(mask, prio, elevate);
+                if (mask || prio >= 0) (void)platform::set_thread_cpu(mask, prio);
                 kraken::EncoderScratch scratch;
                 for (std::size_t b; (b = next_block++) < blocks;) {
                     Bytes block(data.data() + b * kBlock, kBlock);
@@ -814,7 +814,7 @@ JsonValue kraken_bench(std::uint64_t mask, int prio, bool elevate) {
         std::thread probe([&] {
             before = platform::thread_cpu();
             if (mask || prio >= 0) {
-                applied = platform::set_thread_cpu(mask, prio, elevate);
+                applied = platform::set_thread_cpu(mask, prio);
                 after = platform::thread_cpu();
             }
         });
@@ -840,7 +840,7 @@ JsonValue kraken_bench(std::uint64_t mask, int prio, bool elevate) {
         std::vector<std::thread> pool;
         for (unsigned t = 0; t < threads; ++t)
             pool.emplace_back([&, t] {
-                if (mask || prio >= 0) (void)platform::set_thread_cpu(mask, prio, elevate);
+                if (mask || prio >= 0) (void)platform::set_thread_cpu(mask, prio);
                 work(t, threads);
             });
         for (std::thread& t : pool) t.join();

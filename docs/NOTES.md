@@ -2844,6 +2844,13 @@ What it took:
   affinity=&prio=&elevate=1` tries these on its own threads only;
   `elevate` sets the mask under the shell's auth ID, as the installer
   calls run.
+- **`elevate=1` hung the engine** (no HTTP answer at all, the ELF loader's
+  port closed too): every bench thread raised and restored the process's
+  auth ID at once through the payload's kernel read/write helpers, which
+  are not meant for concurrent use. Removed. Raising privileges stays a
+  one-thread, one-call affair (the installer calls). Widening the core
+  mask would need kernel-level changes (as jailbreak tools make); not
+  pursued: conversions are already 2x faster.
 
 ## Next session
 

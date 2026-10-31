@@ -471,8 +471,7 @@ private:
             int prio = -1;
             if (auto it = r.query.find("affinity"); it != r.query.end()) mask = std::strtoull(it->second.c_str(), nullptr, 16);
             if (auto it = r.query.find("prio"); it != r.query.end()) prio = std::atoi(it->second.c_str());
-            const bool elevate = r.query.count("elevate") && r.query.at("elevate") == "1";
-            return json(200, kraken_bench(mask, prio, elevate));
+            return json(200, kraken_bench(mask, prio));
         }
         if (r.path == "/api/info" && r.method == "GET") return info();
         if (r.path == "/api/browse" && r.method == "GET") return browse(r);

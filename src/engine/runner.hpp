@@ -120,7 +120,7 @@ Result<JsonValue> run_transfer(const JobSpec& spec, const EngineConfig& config, 
 // 1, 2, 4, ... threads up to the cores it reports. MB/s each, and the cores.
 // `mask` (non-zero) and `prio` (>= 0): each bench thread sets its own core
 // mask and priority first (platform::set_thread_cpu), to try them safely.
-JsonValue kraken_bench(std::uint64_t mask = 0, int prio = -1, bool elevate = false);
+JsonValue kraken_bench(std::uint64_t mask = 0, int prio = -1);
 
 Result<JsonValue> run_job(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress);
 

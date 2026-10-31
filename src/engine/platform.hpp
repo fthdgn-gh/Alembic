@@ -68,8 +68,7 @@ std::string cpu_affinity();
 // alone); the text says what each call returned. For /api/bench's
 // experiments; "" on PCs.
 std::string thread_cpu();
-// `elevate`: the mask is set with the shell's auth ID, as the installer calls are.
-std::string set_thread_cpu(std::uint64_t mask, int prio, bool elevate = false);
+std::string set_thread_cpu(std::uint64_t mask, int prio);
 // Where the engine keeps its queue and log.
 std::string default_state_dir();
 
