@@ -64,7 +64,11 @@ export interface Location {
 // the WebDAV path ("/dav") or the NFS export; `path` is where its files are
 // (/ftp/ID, /smb/ID, /dav/ID, /nfs/ID). For NFS, `user` is "uid:gid".
 export type Protocol = "ftp" | "smb" | "webdav" | "nfs";
-export interface NetServer { id: string; protocol: Protocol; name: string; host: string; port: number; user: string; root: string; path: string }
+export interface NetServer {
+  id: string; protocol: Protocol; name: string; host: string; port: number; user: string; root: string; path: string;
+  tls?: boolean; // FTPS / HTTPS (engines before TLS send none)
+  fingerprint?: string; // the trusted certificate's SHA-256
+}
 
 // A paired engine's drive; `root` is /peer/<id>/<its path>.
 export interface PeerDrive { id: string; engine: string; platform: string; root: string; label: string; free: number; total?: number }

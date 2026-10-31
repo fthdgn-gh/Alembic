@@ -30,7 +30,7 @@ enum class Protocol { ftp, smb, webdav, nfs };
 const char* protocol_name(Protocol p);                // "ftp", "smb", "webdav", "nfs" (the API's names)
 const char* protocol_label(Protocol p);               // "FTP", "SMB", "WebDAV", "NFS"
 const char* path_prefix(Protocol p);                  // "/ftp", "/smb", "/dav", "/nfs"
-std::uint16_t default_port(Protocol p);               // 21, 445, 80, 2049
+std::uint16_t default_port(Protocol p, bool tls = false); // 21, 445, 80 (443 with TLS), 2049
 std::optional<Protocol> parse_protocol(const std::string& name);
 
 struct Server {
@@ -47,6 +47,11 @@ struct Server {
     // ("/volume1/games"); empty: every export. FTP: unused. For NFS, `user`
     // is "uid:gid" (AUTH_SYS; empty: 0:0) and there is no password.
     std::string root;
+    // FTP and WebDAV: TLS (FTPS: explicit AUTH TLS, implicit on port 990;
+    // HTTPS for WebDAV), with the server certificate's trusted SHA-256
+    // fingerprint (tls.hpp; empty until the user trusts it).
+    bool tls = false;
+    std::string fingerprint;
 
     std::string path() const; // "/ftp/<id>"
 };

@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// FTP servers (netfs.hpp): plain FTP (RFC 959) with passive data connections
+// FTP servers (netfs.hpp): FTP (RFC 959) with passive data connections
 // (EPSV, else PASV), binary type, MLSD (else LIST) and REST for reading from
-// an offset. No TLS: passwords cross the network as text.
+// an offset. FTPS (RFC 4217) when the server asks for TLS: explicit (AUTH
+// TLS), or implicit on port 990; PROT P, so file data is encrypted too, and
+// each data connection resumes the control connection's TLS session (many
+// servers require that). Without TLS, passwords cross the network as text.
 #pragma once
 
 #include "netfs.hpp"
+#include "tls.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -46,8 +50,11 @@ private:
     };
     Result<Reply> reply();
     Result<Reply> command(const std::string& line);
-    Status open_data(); // EPSV, else PASV
-    std::intptr_t control_ = -1, data_ = -1; // net::Socket
+    Status open_data();   // EPSV, else PASV
+    Status secure_data(); // FTPS: TLS on the data connection, after the 1xx reply
+    tls::Link control_, data_;
+    bool tls_ = false;
+    std::string host_, fingerprint_;
     std::string peer_; // the server's address, for passive connections
     std::string buffer_;
     bool data_ended_ = false;

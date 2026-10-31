@@ -78,6 +78,7 @@
 #include "places.hpp"
 #include "platform.hpp"
 #include "netfs.hpp"
+#include "tls.hpp"
 #include "remote.hpp"
 #include "runner.hpp"
 #include "update.hpp"
@@ -1384,7 +1385,17 @@ private:
         v.set("user", s.user);
         v.set("root", s.root);
         v.set("path", s.path());
+        v.set("tls", s.tls);
+        if (!s.fingerprint.empty()) v.set("fingerprint", s.fingerprint);
         return v;
+    }
+    // A failed login check: with TLS, a certificate not trusted yet (or
+    // changed) also gives its fingerprint, for the page to ask about.
+    static HttpResponse server_error(const Error& e) {
+        JsonValue v = JsonValue::object();
+        v.set("error", e.message);
+        if (auto fp = tls::untrusted_fingerprint(e)) v.set("certificate", *fp);
+        return json(400, v);
     }
     static Result<netfs::Server> server_from(const JsonValue& body, netfs::Protocol protocol) {
         netfs::Server s;
@@ -1397,6 +1408,8 @@ private:
         s.user = body["user"].str();
         s.password = body["password"].str();
         s.root = body["root"].str();
+        s.tls = body["tls"].boolean();
+        s.fingerprint = body["fingerprint"].str();
         return s;
     }
     HttpResponse servers_action(const HttpRequest& r) {
@@ -1414,7 +1427,7 @@ private:
             auto s = server_from(*body, *protocol);
             if (!s.ok()) return error(400, s.error().message);
             auto added = servers_.add(*s);
-            if (!added.ok()) return error(400, added.error().message);
+            if (!added.ok()) return server_error(added.error());
             log_line(std::string(netfs::protocol_label(added->protocol)) + " server " + added->host + " added by " + r.peer);
             JsonValue v = JsonValue::object();
             v.set("id", added->id);
@@ -1429,7 +1442,7 @@ private:
             // No "password": keep the saved one.
             const bool keep = !(*body).has("password");
             auto updated = servers_.update(r.path.substr(base.size() + 1), *s, keep);
-            if (!updated.ok()) return error(400, updated.error().message);
+            if (!updated.ok()) return server_error(updated.error());
             log_line(std::string(netfs::protocol_label(updated->protocol)) + " server " + updated->host + " changed by " + r.peer);
             return json(200, JsonValue::object());
         }

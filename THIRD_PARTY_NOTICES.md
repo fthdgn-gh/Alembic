@@ -26,6 +26,7 @@ Ported files say where they come from in their header comment.
 | --- | --- | --- |
 | [zlib](https://zlib.net) 1.3.1 (release tarball, SHA-256 `9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23`) | zlib (`third_party/zlib/LICENSE`) | `third_party/zlib/`: the library sources needed for deflate/inflate, unchanged; built for the PS5 (the payload SDK has no zlib), or on a PC with `-DALEMBIC_BUNDLED_ZLIB=ON` |
 | [lz4/lz4](https://github.com/lz4/lz4) v1.10.0 (tag commit `ebb370ca`) | BSD-2-Clause (notice below) | `third_party/lz4/`: `lz4.c`, `lz4.h`, `lz4hc.c`, `lz4hc.h`, `xxhash.c`, `xxhash.h`, unchanged |
+| [Mbed-TLS/mbedtls](https://github.com/Mbed-TLS/mbedtls) 3.6.7 LTS (release tarball, SHA-256 `a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6`) | Apache-2.0 OR GPL-2.0-or-later; used under Apache-2.0 (`third_party/mbedtls/LICENSE`) | `third_party/mbedtls/`: `include/` and `library/`, unchanged, configured by Alembic's `alembic_config.h`; TLS for FTPS and HTTPS WebDAV (`src/engine/tls.cpp`) on every platform |
 
 ## Bundled into the engine's web page
 
@@ -93,6 +94,8 @@ or in Alembic's binaries.
 | [zlib](https://zlib.net) | zlib | linked for PFSC compression and CRC-32 |
 | drakmor/ampr_emu `tools/ampr_pack.py` | GPL-3.0 | `tools/lz4-oracle/compare.sh` packs and verifies with it |
 | maxton/LibOrbisPkg `PkgTool` | LGPL-3.0 | `tools/ps4-oracle/compare.sh` builds, extracts and validates PS4 packages with it |
+| [Samba](https://www.samba.org) (Homebrew) | GPL-3.0 | `tools/netfs/samba_check.sh` tests the SMB client against it |
+| [pyftpdlib](https://github.com/giampaolo/pyftpdlib), [pyOpenSSL](https://github.com/pyca/pyopenssl), [WsgiDAV](https://github.com/mar10/wsgidav), [cheroot](https://github.com/cherrypy/cheroot) | MIT / Apache-2.0 / MIT / BSD-3-Clause | `tools/netfs/tls_check.sh` runs FTPS and HTTPS WebDAV test servers with them |
 
 ## LibOrbisPkg license
 

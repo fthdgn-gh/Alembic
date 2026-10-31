@@ -45,6 +45,15 @@ endif()
 # The PS5 build forbids exceptions and RTTI, so the host build does too.
 set(ALEMBIC_COMPILE_OPTIONS -fno-exceptions -fno-rtti -Wall -Wextra -Wpedantic)
 
+# Mbed TLS 3.6.7 (Apache-2.0): TLS for FTPS and HTTPS WebDAV, configured by
+# third_party/mbedtls/alembic_config.h (see UPSTREAM.md there).
+file(GLOB ALEMBIC_MBEDTLS_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mbedtls/library/*.c)
+add_library(alembic_mbedtls STATIC ${ALEMBIC_MBEDTLS_SOURCES})
+target_include_directories(alembic_mbedtls PUBLIC third_party/mbedtls/include PRIVATE third_party/mbedtls/library)
+target_compile_definitions(alembic_mbedtls PUBLIC MBEDTLS_USER_CONFIG_FILE="${CMAKE_CURRENT_SOURCE_DIR}/third_party/mbedtls/alembic_config.h")
+target_compile_options(alembic_mbedtls PRIVATE -O2)
+target_link_libraries(alembic_mbedtls PUBLIC Threads::Threads)
+
 # LZ4 1.10.0 (BSD-2-Clause), the version ampr_emu's runtime pins.
 add_library(alembic_lz4 STATIC third_party/lz4/lz4.c third_party/lz4/lz4hc.c third_party/lz4/xxhash.c)
 target_include_directories(alembic_lz4 PUBLIC third_party/lz4)
@@ -223,12 +232,13 @@ if(ALEMBIC_BUILD_ENGINE)
         src/engine/smp.cpp
         src/engine/text_file.cpp
         src/engine/update.cpp
+        src/engine/tls.cpp
         src/engine/webdav.cpp
         ${ALEMBIC_ENGINE_PLATFORM}
     )
     target_include_directories(alembic_engine_lib PUBLIC src/engine)
     target_compile_options(alembic_engine_lib PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
-    target_link_libraries(alembic_engine_lib PUBLIC alembic_core)
+    target_link_libraries(alembic_engine_lib PUBLIC alembic_core PRIVATE alembic_mbedtls)
     if(WIN32)
         target_link_libraries(alembic_engine_lib PUBLIC ws2_32 iphlpapi bcrypt)
     endif()

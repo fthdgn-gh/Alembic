@@ -2,14 +2,15 @@
 // Network servers games can be read from and saved to: SMB shares, NFS exports, WebDAV and FTP.
 import { useState } from "preact/hooks";
 import type { NetServer, Protocol } from "../../api/types";
-import { api } from "../../api/client";
+import { api, ApiError } from "../../api/client";
 import { servers, loadInfo } from "../../state/engine";
-import { serverAddress } from "../../state/paths";
+import { serverAddress, defaultPort } from "../../state/paths";
 import { t, tMsg } from "../../lib/i18n";
 import { ICONS } from "../../components/Icons";
 import { Sheet, openOverlay, closeOverlay } from "../../components/Overlay";
 import { ask } from "../../components/Dialogs";
 import { toast } from "../../components/Toasts";
+import { SwitchRow } from "../../components/Rows";
 import { Head, SmallBtn, Field, useForm, formHints } from "./parts";
 
 const PROTOCOLS: { value: Protocol; label: string; hint: string; port: number }[] = [
@@ -24,7 +25,7 @@ export function NetServers() {
     <>
       <Head text={t("Network servers")} />
       <div class="card">
-        <p class="muted" style="margin:0 0 .5rem">{t("Games on a PC or NAS can be converted from there over SMB (shared folders), NFS, WebDAV or FTP, and exFAT, FFPKG, FFPFS and folder outputs saved there. FFPFSC and PKG outputs must be saved on the console first. SMB is encrypted when the server or share requires it; otherwise files cross the network as they are, FTP and WebDAV send the password unencrypted too, and passwords are kept on the console.")}</p>
+        <p class="muted" style="margin:0 0 .5rem">{t("Games on a PC or NAS can be converted from there over SMB (shared folders), NFS, WebDAV or FTP, and exFAT, FFPKG, FFPFS and folder outputs saved there. FFPFSC and PKG outputs must be saved on the console first. SMB is encrypted when the server or share requires it, FTP and WebDAV when TLS is on (the server's certificate is trusted on first use); otherwise files and FTP and WebDAV passwords cross the network as they are. Passwords are kept on the console.")}</p>
         {servers.value.map((s) => (
           <div class="ftprow">
             <div class="nm">{ICONS.server()}</div>
@@ -48,25 +49,42 @@ function ServerForm(props: { server: NetServer | null }) {
   const [port, setPort] = useState(s ? String(s.port) : "");
   const [root, setRoot] = useState(s ? (s.protocol === "webdav" && s.root === "/" ? "" : s.root) : "");
   const [user, setUser] = useState(s ? s.user : ""), [pass, setPass] = useState("");
+  const [tls, setTls] = useState(!!(s && s.tls));
   const f = useForm();
-  const def = PROTOCOLS.find((p) => p.value === protocol)!;
-  async function save() {
+  const canTls = protocol === "ftp" || protocol === "webdav";
+  async function save(fingerprint?: string) {
     if (!host.trim()) { f.setMsg({ text: t("Enter the server's address"), err: true }); return; }
     f.setBusy(true); f.setMsg({ text: t("Connecting…"), err: false });
+    const body: Record<string, unknown> = { protocol, name: name.trim(), host: host.trim(), port: parseInt(port, 10) || 0, user: user.trim(), root: root.trim() };
+    if (canTls && tls) {
+      body.tls = true;
+      // The certificate trusted before, or the one just confirmed.
+      const pin = fingerprint || (s && s.fingerprint);
+      if (pin) body.fingerprint = pin;
+    }
+    // Editing: an empty password keeps the saved one.
+    if (!s || pass) body.password = pass;
     try {
-      const body: Record<string, unknown> = { protocol, name: name.trim(), host: host.trim(), port: parseInt(port, 10) || 0, user: user.trim(), root: root.trim() };
-      // Editing: an empty password keeps the saved one.
-      if (!s || pass) body.password = pass;
       if (s) await api("PUT", "/api/servers/" + encodeURIComponent(s.id), body);
       else await api("POST", "/api/servers", body);
       toast(s ? t("Server saved") : t("Server added"), "ok");
       closeOverlay(true);
       loadInfo().catch(() => {});
-    } catch (e: any) { f.setMsg({ text: tMsg(e.message), err: true }); f.setBusy(false); }
+    } catch (e: any) {
+      // A certificate seen for the first time, or a changed one: ask, then try again with it.
+      const cert = e instanceof ApiError && typeof e.data.certificate === "string" ? e.data.certificate as string : "";
+      if (cert && !fingerprint) {
+        f.setMsg({ text: "", err: false });
+        if (await trustCertificate(name.trim() || host.trim(), cert, !!(s && s.fingerprint && s.fingerprint !== cert))) return save(cert);
+        f.setBusy(false);
+        return;
+      }
+      f.setMsg({ text: tMsg(e.message), err: true }); f.setBusy(false);
+    }
   }
   return (
     <Sheet title={s ? t("Edit {name}", { name: s.name }) : t("Add a server")} cls="narrow" foot={<><f.Msg /><button class="btn" onClick={() => closeOverlay(null)}>{t("Cancel")}</button>
-      <button class="btn primary" disabled={f.busy} onClick={save}>{s ? t("Save") : t("Add")}</button></>}>
+      <button class="btn primary" disabled={f.busy} onClick={() => save()}>{s ? t("Save") : t("Add")}</button></>}>
       <div>
         {/* The protocol is chosen once: a server keeps it (and its paths) when edited. */}
         {s ? null : <>
@@ -84,7 +102,8 @@ function ServerForm(props: { server: NetServer | null }) {
         {protocol === "smb" ? <Field label={t("Share")} placeholder={t("Games or Games/PS5; empty: all")} value={root} onInput={setRoot} /> : null}
         {protocol === "webdav" ? <Field label={t("Path")} placeholder="/" value={root} onInput={setRoot} /> : null}
         {protocol === "nfs" ? <Field label={t("Export")} placeholder={t("/volume1/games; empty: all")} value={root} onInput={setRoot} /> : null}
-        <Field label={t("Port")} inputMode="numeric" placeholder={String(def.port)} value={port} onInput={setPort} />
+        <SwitchRow label={t("Encrypt with TLS")} hint={protocol === "ftp" ? t("FTPS: AUTH TLS, or implicit on port 990") : t("HTTPS")} on={tls} onChange={setTls} hidden={!canTls} dataKey="srv:tls" />
+        <Field label={t("Port")} inputMode="numeric" placeholder={String(defaultPort(protocol, canTls && tls))} value={port} onInput={setPort} />
         {protocol === "nfs"
           ? <Field label={t("User and group ID")} placeholder={t("uid:gid like 1000:1000; empty: 0:0")} value={user} onInput={setUser} />
           : <Field label={t("User")} placeholder={protocol === "ftp" ? "anonymous" : protocol === "smb" ? t("Empty for a guest login") : ""} value={user} onInput={setUser} />}
@@ -92,6 +111,20 @@ function ServerForm(props: { server: NetServer | null }) {
       </div>
     </Sheet>
   );
+}
+// Trust on first use: the fingerprint to compare with what the server shows.
+function trustCertificate(server: string, fingerprint: string, changed: boolean): Promise<string | true | null> {
+  return ask({
+    title: changed ? t("{name}'s certificate changed", { name: server }) : t("Trust {name}'s certificate?", { name: server }),
+    body: <>
+      <p style="margin-top:0">{changed
+        ? t("This is not the certificate trusted before. If the server's certificate was not renewed or replaced, someone may be between this engine and the server.")
+        : t("This is the first time this certificate is seen. Check that its SHA-256 fingerprint matches the one the server shows before trusting it.")}</p>
+      <p class="mono">{fingerprint}</p>
+    </>,
+    ok: changed ? t("Trust the new certificate") : t("Trust"),
+    danger: changed,
+  });
 }
 async function removeServer(s: NetServer) {
   if (!await ask({ title: t("Remove {name}?", { name: s.name }), body: <p style="margin-top:0">{t("Its files stay on the server; jobs that use it will fail.")}</p>, ok: t("Remove"), danger: true })) return;

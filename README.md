@@ -143,20 +143,25 @@ Also on the page:
 - **Network servers** (Settings, from 0.3.3): games on a PC or NAS can be
   converted without copying them to the console first, over
   - **SMB** (Windows shared folders, most NAS boxes): SMB 2 and 3 with
-    signing, as Windows 11 requires; a user and password, or a guest login.
-    Leave the share empty to see all of the server's shares.
+    signing, as Windows 11 requires, and SMB 3 encryption (AES-128-GCM or
+    -CCM) when the server or share requires it; a user and password, or a
+    guest login. Leave the share empty to see all of the server's shares.
   - **NFS** (NAS and Linux exports): NFSv3, with the uid:gid to use
     instead of a password. Leave the export empty to see all of them.
-  - **WebDAV** (NAS, Nextcloud, rclone): plain HTTP, Basic or Digest login.
-  - **FTP**: plain FTP.
+  - **WebDAV** (NAS, Nextcloud, rclone): HTTP or HTTPS, Basic or Digest
+    login.
+  - **FTP**: FTP or FTPS (explicit, or implicit on port 990).
 
   The server only stores the files: the engine reads the game over the
   network and does the converting itself. exFAT, FFPKG, FFPFS and folder
   outputs can be saved back to the server; FFPFSC and PKG outputs go to the
-  console first. SMB traffic is encrypted (AES-128-GCM or -CCM, SMB 3)
-  when the server or share requires it; otherwise nothing is encrypted yet
-  (no FTPS or HTTPS). To
-  have a PC do the work, run Alembic's engine on it instead (see
+  console first. With **Encrypt with TLS** on, FTP and WebDAV go over
+  TLS 1.2 or 1.3 (mbedTLS). Home servers mostly have self-signed
+  certificates, so Alembic trusts a server's certificate on first use, as
+  SSH does: the first connection shows its SHA-256 fingerprint to compare
+  with the server's and asks; later connections must show the same one,
+  and a changed certificate is refused with a warning. To have a PC do the
+  work, run Alembic's engine on it instead (see
   [Working across engines](#working-across-engines)).
 - **From this computer:** opened in a PC's browser, the page can share a
   file from that PC for the console to convert.

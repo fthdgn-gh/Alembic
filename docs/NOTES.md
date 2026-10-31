@@ -63,6 +63,7 @@ tools/pkg-oracle/check_samples.sh   # owner's real files in .refs/samples/ (~4 m
 tools/lz4-oracle/compare.sh         # LZ4 packs vs ampr_pack.py (needs .refs/venv, Homebrew lz4)
 tools/pkg-oracle/write_samples.sh   # fpkg-build vs img_create on every real PS5 package (stored, Kraken)
 tools/netfs/samba_check.sh          # the SMB client against Samba: encryption required/not, 3.0-3.1.1
+tools/netfs/tls_check.sh            # FTPS and HTTPS WebDAV against local servers (TLS 1.2/1.3, RSA/ECDSA)
 app/build.sh                        # the console app: build-app/dist/PPSA99594 (+ .zip)
 app/preview.sh [dir] [script]       # PNGs of the app drawn on this computer (Mesa)
 ```
@@ -125,9 +126,10 @@ app/preview.sh [dir] [script]       # PNGs of the app drawn on this computer (Me
   CRC32C use the CPU's instructions on x86-64 and ARMv8.
 - Network server outputs (FTP, SMB, WebDAV) cannot take FFPFSC or PKG
   (they seek back), and uploads do not resume. SMB 3 encryption only when
-  the server or share requires it (no "always" option yet); no TLS yet
-  (FTPS, HTTPS WebDAV; next); no Kerberos; NFS v3 with AUTH_SYS only (no
-  v4, no Kerberos).
+  the server or share requires it (no "always" option yet); FTPS and HTTPS
+  WebDAV with certificates pinned on first use (no CA checking; implicit
+  FTPS on port 990 untried); no SFTP; no Kerberos; NFS v3 with AUTH_SYS
+  only (no v4, no Kerberos).
 
 ## Reference repositories
 
@@ -2708,6 +2710,48 @@ What it took:
   `down` on the Internal drive's single folder. Its usage now has a
   working example.
 
+### 2026-10-31: TLS for FTP and WebDAV (FTPS, HTTPS), pinned on first use
+
+- **Decision (owner):** mbedTLS everywhere, not the console's libSceSsl:
+  the payload SDK declares only `sceSslInit`/`sceSslTerm` and no homebrew
+  we have runs TLS on its own sockets, so that would have been an
+  undocumented API tried only on the console. Mbed TLS 3.6.7 LTS
+  (Apache-2.0) is vendored in `third_party/mbedtls` (sources unchanged,
+  SHA-256 in its UPSTREAM.md) with `alembic_config.h`: no sockets, files or
+  entropy of its own (our `net`, `platform::secure_random` as PSA's
+  external RNG), threading on, client only, no DTLS. Payload 5.9 MB.
+- `src/engine/tls.hpp`: `tls::Link`, a connection that can switch to TLS
+  (1.2 or 1.3) after it opened (FTPS's AUTH TLS). Trust on first use: the
+  server certificate's SHA-256 (DER) is compared with the pinned one;
+  none yet: refused as "not trusted yet (SHA-256 ...)", a different one:
+  "changed". mbedTLS still checks the handshake's signature with the
+  certificate's key, so the pin binds the key.
+- FTP: explicit FTPS (AUTH TLS, PBSZ 0, PROT P), implicit on port 990,
+  TLS on each data connection after the 1xx reply, resuming the control
+  connection's session (vsftpd and ProFTPD require it). mbedTLS 3 hands a
+  session out only once and drops TLS 1.3 tickets unless told to signal
+  them: the Link keeps a copy (refreshed per ticket) for every resumer.
+- WebDAV: HTTPS on the same keep-alive connection; Host and Destination
+  use https and port 443 by default. `https://`, `davs://` and `ftps://`
+  addresses switch TLS on (SFTP still refused).
+- Servers keep `tls` and `fingerprint` (servers.json, `/api/servers`). An
+  add or edit that meets an unknown or changed certificate answers 400
+  with `certificate`; the page and the app ask ("Trust {name}'s
+  certificate?", the fingerprint to compare; a changed one warns and its
+  button is red) and send the same request again with `fingerprint`.
+  Settings show FTPS / WebDAV (HTTPS); the stand-in engine has an FTPS
+  server whose first save brings up the dialog (pictures of both checked).
+- **Checked:** `tools/netfs/tls_check.sh` (self-signed certificates,
+  pyftpdlib with TLS required on control and data and, like vsftpd,
+  session reuse required; WsgiDAV on cheroot): FTPS TLS 1.3 and 1.2,
+  HTTPS WebDAV 1.3 and 1.2, ECDSA P-256 for both, plain FTP and WebDAV:
+  all pass the trust steps and the live session. macOS's curl (LibreSSL
+  3.3) fails the TLS 1.3 reuse check that Alembic passes. Through the PC
+  engine's API: unknown certificate -> 400 with it, wrong pin -> changed,
+  right pin -> saved and browsable. PS5 payload and Windows build.
+  **Not tried:** implicit FTPS (port 990 needs root here), a real NAS,
+  vsftpd itself, the console.
+
 ## Next session
 
 **Settled (owner, 2026-10-22):**
@@ -2794,8 +2838,9 @@ What it took:
    (owner). Still to try: a Windows share and a NAS over SMB, NFS on a
    NAS (with a portmapper and "secure" exports), WebDAV.
    **Next, as its own piece of work (owner): encryption** - ✓ SMB 3
-   encryption (2026-10-31, when required); TLS (FTPS, HTTPS WebDAV) next.
-   Decided
+   encryption (2026-10-31, when required); ✓ TLS (FTPS, HTTPS WebDAV,
+   2026-10-31, mbedTLS on every platform instead of libSceSsl, see the log).
+   Still possible: an "always encrypt" SMB option, SFTP. Decided
    (owner, 2026-10-31): TLS through the console's libSceSsl on the PS5 and
    vendored mbedTLS (Apache-2.0, 3.6 LTS) on PCs; servers' certificates
    pinned on first use (the fingerprint shown and confirmed once, a change

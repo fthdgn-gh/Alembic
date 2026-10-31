@@ -34,7 +34,7 @@ Result<net::Socket> connect_to(const std::string& host, std::uint16_t port, int 
     return netfs::tcp_connect(host, port, timeout_ms, "FTP", peer);
 }
 
-Status send_all(net::Socket fd, const char* data, std::size_t size) { return netfs::send_all(fd, data, size, "FTP"); }
+Status send_all(tls::Link& link, const char* data, std::size_t size) { return link.send_all(data, size, "FTP"); }
 
 // "type=file;size=12;modify=20261019101500; name" (MLSD)
 bool parse_mlsd(const std::string& line, Entry& e) {
@@ -103,10 +103,10 @@ bool parse_list(const std::string& line, Entry& e) {
 // ---------------------------------------------------------------- Connection
 
 Connection::~Connection() {
-    if (data_ != net::kNone) net::close(data_);
-    if (control_ != net::kNone) {
+    data_.close();
+    if (control_.is_open()) {
         (void)send_all(control_, "QUIT\r\n", 6);
-        net::close(control_);
+        control_.close();
     }
 }
 
@@ -118,7 +118,7 @@ Result<Connection::Reply> Connection::reply() {
         std::size_t eol;
         while ((eol = buffer_.find("\r\n")) == std::string::npos) {
             char chunk[4096];
-            long n = net::recv(control_, chunk, sizeof chunk);
+            long n = control_.recv(chunk, sizeof chunk);
             if (n < 0 && net::should_retry()) continue;
             if (n <= 0) return net_error("the server closed the connection");
             buffer_.append(chunk, static_cast<std::size_t>(n));
@@ -145,9 +145,20 @@ Result<Connection::Reply> Connection::command(const std::string& line) {
 
 Result<std::unique_ptr<Connection>> Connection::open(const netfs::Server& server, int timeout_ms) {
     std::unique_ptr<Connection> c(new Connection());
-    ALEMBIC_ASSIGN(c->control_, connect_to(server.host, server.port, timeout_ms, &c->peer_));
+    ALEMBIC_ASSIGN(net::Socket control, connect_to(server.host, server.port, timeout_ms, &c->peer_));
+    c->control_ = tls::Link(control);
+    c->tls_ = server.tls;
+    c->host_ = server.host;
+    c->fingerprint_ = server.fingerprint;
+    const bool implicit = server.tls && server.port == 990;
+    if (implicit) ALEMBIC_TRY(c->control_.start_tls(server.host, server.fingerprint));
     ALEMBIC_ASSIGN(Reply hello, c->reply());
     if (hello.code != 220) return net_error("the server refused the connection: " + hello.text);
+    if (server.tls && !implicit) {
+        ALEMBIC_ASSIGN(Reply auth, c->command("AUTH TLS"));
+        if (auth.code != 234) return net_error("the server does not offer TLS (AUTH TLS: " + auth.text + ")");
+        ALEMBIC_TRY(c->control_.start_tls(server.host, server.fingerprint));
+    }
     ALEMBIC_ASSIGN(Reply user, c->command("USER " + server.user));
     if (user.code == 331 || user.code == 332) {
         // Anonymous logins conventionally give an e-mail-like password; some
@@ -159,6 +170,13 @@ Result<std::unique_ptr<Connection>> Connection::open(const netfs::Server& server
     } else if (user.code != 230) {
         return net_error("login failed: " + user.text);
     }
+    if (server.tls) {
+        // File data encrypted too (RFC 4217: PBSZ 0, then PROT P).
+        ALEMBIC_ASSIGN(Reply pbsz, c->command("PBSZ 0"));
+        if (pbsz.code != 200) return net_error("the server refused PBSZ: " + pbsz.text);
+        ALEMBIC_ASSIGN(Reply prot, c->command("PROT P"));
+        if (prot.code != 200) return net_error("the server refused encrypted data connections: " + prot.text);
+    }
     ALEMBIC_ASSIGN(Reply type, c->command("TYPE I"));
     if (type.code != 200) return net_error("binary mode refused: " + type.text);
     (void)c->command("OPTS UTF8 ON"); // optional
@@ -166,10 +184,7 @@ Result<std::unique_ptr<Connection>> Connection::open(const netfs::Server& server
 }
 
 Status Connection::open_data() {
-    if (data_ >= 0) {
-        net::close(data_);
-        data_ = -1;
-    }
+    data_.close();
     std::uint16_t port = 0;
     ALEMBIC_ASSIGN(Reply epsv, command("EPSV"));
     if (epsv.code == 229) {
@@ -188,9 +203,17 @@ Status Connection::open_data() {
             return net_error("cannot read the passive address: " + pasv.text);
         port = static_cast<std::uint16_t>(v[4] * 256 + v[5]);
     }
-    ALEMBIC_ASSIGN(data_, connect_to(peer_, port, 10000));
+    ALEMBIC_ASSIGN(net::Socket data, connect_to(peer_, port, 10000));
+    data_ = tls::Link(data);
     data_ended_ = false;
     return {};
+}
+
+Status Connection::secure_data() {
+    if (!tls_) return {};
+    Status s = data_.start_tls(host_, fingerprint_, &control_);
+    if (!s.ok()) data_.close();
+    return s;
 }
 
 Result<std::uint64_t> Connection::size(const std::string& path) {
@@ -209,21 +232,20 @@ Result<std::vector<Entry>> Connection::list(const std::string& directory) {
         ALEMBIC_ASSIGN(r, command("LIST " + directory));
     }
     if (r.code != 150 && r.code != 125) {
-        net::close(data_);
-        data_ = -1;
+        data_.close();
         return make_error(Errc::invalid_argument, "FTP: cannot list " + directory + ": " + r.text);
     }
+    ALEMBIC_TRY(secure_data());
     std::string text;
     char chunk[16384];
     for (;;) {
-        long n = net::recv(data_, chunk, sizeof chunk);
-        if (n < 0 && net::should_retry()) continue;
+        long n = data_.recv(chunk, sizeof chunk);
+        if (n < 0 && !data_.secure() && net::should_retry()) continue;
         if (n < 0) return net_error("listing interrupted");
         if (n == 0) break;
         text.append(chunk, static_cast<std::size_t>(n));
     }
-    net::close(data_);
-    data_ = -1;
+    data_.close();
     ALEMBIC_ASSIGN(Reply done, reply());
     if (done.code != 226 && done.code != 250) return net_error("listing failed: " + done.text);
     std::vector<Entry> out;
@@ -267,23 +289,21 @@ Status Connection::start_download(const std::string& path, std::uint64_t offset)
     }
     ALEMBIC_ASSIGN(Reply r, command("RETR " + path));
     if (r.code != 150 && r.code != 125) {
-        net::close(data_);
-        data_ = -1;
+        data_.close();
         return make_error(Errc::io, "FTP: cannot read " + path + ": " + r.text);
     }
-    return {};
+    return secure_data();
 }
 
 Result<std::size_t> Connection::read(MutableBytes out) {
-    if (data_ < 0 || data_ended_) return std::size_t{0};
+    if (!data_.is_open() || data_ended_) return std::size_t{0};
     for (;;) {
-        long n = net::recv(data_, out.data(), out.size());
-        if (n < 0 && net::should_retry()) continue;
+        long n = data_.recv(out.data(), out.size());
+        if (n < 0 && !data_.secure() && net::should_retry()) continue;
         if (n < 0) return net_error("download interrupted");
         if (n == 0) {
             data_ended_ = true;
-            net::close(data_);
-            data_ = -1;
+            data_.close();
             ALEMBIC_ASSIGN(Reply done, reply());
             if (done.code != 226 && done.code != 250) return net_error("download failed: " + done.text);
         }
@@ -292,14 +312,13 @@ Result<std::size_t> Connection::read(MutableBytes out) {
 }
 
 Status Connection::stop_download() {
-    if (data_ < 0) return {};
+    if (!data_.is_open()) return {};
     // Dropping the data connection ends the transfer. The server then sends
     // its one final reply for it: 426, or 226 if it had already sent
     // everything. Nothing else is sent until that reply is read: servers
     // answer other commands (ABOR, NOOP) during a transfer, in either order
     // with that reply, which put every later reply one command behind.
-    net::close(data_);
-    data_ = -1;
+    data_.close();
     ALEMBIC_ASSIGN(Reply r, reply()); // fails after the receive timeout
     (void)r;
     return {};
@@ -309,22 +328,20 @@ Status Connection::start_upload(const std::string& path) {
     ALEMBIC_TRY(open_data());
     ALEMBIC_ASSIGN(Reply r, command("STOR " + path));
     if (r.code != 150 && r.code != 125) {
-        net::close(data_);
-        data_ = -1;
+        data_.close();
         return make_error(Errc::io, "FTP: cannot write " + path + ": " + r.text);
     }
-    return {};
+    return secure_data();
 }
 
 Status Connection::write(Bytes data) {
-    if (data_ < 0) return net_error("no upload is open");
+    if (!data_.is_open()) return net_error("no upload is open");
     return send_all(data_, reinterpret_cast<const char*>(data.data()), data.size());
 }
 
 Status Connection::finish_upload() {
-    if (data_ < 0) return net_error("no upload is open");
-    net::close(data_);
-    data_ = -1;
+    if (!data_.is_open()) return net_error("no upload is open");
+    data_.close(); // TLS: close_notify first, so the server knows the file is whole
     ALEMBIC_ASSIGN(Reply done, reply());
     if (done.code != 226 && done.code != 250) return net_error("upload failed: " + done.text);
     return {};

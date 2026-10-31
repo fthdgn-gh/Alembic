@@ -4,6 +4,7 @@
 #include "net.hpp"
 #include "netcrypto.hpp"
 #include "platform.hpp"
+#include "tls.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -318,18 +319,27 @@ private:
         if (folder && p.back() != '/') p += '/';
         return detail::encode_path(p);
     }
-    std::string origin() const {
-        return "http://" + server_.host + (server_.port == 80 ? "" : ":" + std::to_string(server_.port));
+    // "host" or "host:port", as Host and Destination give it.
+    std::string authority() const {
+        return server_.host + (server_.port == (server_.tls ? 443 : 80) ? "" : ":" + std::to_string(server_.port));
     }
+    std::string origin() const { return (server_.tls ? "https://" : "http://") + authority(); }
 
     void drop() {
-        if (socket_ != net::kNone) net::close(socket_);
-        socket_ = net::kNone;
+        link_.close();
         buffer_.clear();
     }
     Status connect() {
-        if (socket_ != net::kNone) return {};
-        ALEMBIC_ASSIGN(socket_, netfs::tcp_connect(server_.host, server_.port, 10000, "WebDAV"));
+        if (link_.is_open()) return {};
+        ALEMBIC_ASSIGN(net::Socket s, netfs::tcp_connect(server_.host, server_.port, 10000, "WebDAV"));
+        link_ = tls::Link(s);
+        if (server_.tls) {
+            Status t = link_.start_tls(server_.host, server_.fingerprint);
+            if (!t.ok()) {
+                link_.close();
+                return t;
+            }
+        }
         return {};
     }
     std::string authorization(const std::string& method, const std::string& uri);
@@ -347,7 +357,7 @@ private:
                              const std::string& body = "");
 
     netfs::Server server_;
-    net::Socket socket_ = net::kNone;
+    tls::Link link_; // HTTPS: TLS on it
     std::string buffer_; // received, not yet used
 
     enum class Auth { none, basic, digest } auth_ = Auth::none;
@@ -449,13 +459,12 @@ bool Client::learn_auth(const Response& r) {
 
 Status Client::send_head(const std::string& method, const std::string& uri, const std::string& extra, std::size_t body_size,
                          bool chunked) {
-    std::string head = method + " " + uri + " HTTP/1.1\r\nHost: " + server_.host +
-                       (server_.port == 80 ? "" : ":" + std::to_string(server_.port)) +
+    std::string head = method + " " + uri + " HTTP/1.1\r\nHost: " + authority() +
                        "\r\nUser-Agent: Alembic\r\nConnection: keep-alive\r\n" + authorization(method, uri) + extra;
     if (chunked) head += "Transfer-Encoding: chunked\r\n";
     else if (body_size || method == "PUT" || method == "PROPFIND") head += "Content-Length: " + std::to_string(body_size) + "\r\n";
     head += "\r\n";
-    return netfs::send_all(socket_, head.data(), head.size(), "WebDAV");
+    return link_.send_all(head.data(), head.size(), "WebDAV");
 }
 
 Result<std::string> Client::line() {
@@ -469,8 +478,8 @@ Result<std::string> Client::line() {
         }
         if (buffer_.size() > 65536) return dav_error("a reply line is too long");
         char chunk[8192];
-        long n = net::recv(socket_, chunk, sizeof chunk);
-        if (n < 0 && net::should_retry()) continue;
+        long n = link_.recv(chunk, sizeof chunk);
+        if (n < 0 && !link_.secure() && net::should_retry()) continue;
         if (n <= 0) return dav_error("the server closed the connection");
         buffer_.append(chunk, static_cast<std::size_t>(n));
     }
@@ -551,8 +560,8 @@ Result<std::size_t> Client::body_some(char* out, std::size_t size) {
             }
             return n;
         }
-        long n = net::recv(socket_, out, want);
-        if (n < 0 && net::should_retry()) continue;
+        long n = link_.recv(out, want);
+        if (n < 0 && !link_.secure() && net::should_retry()) continue;
         if (n < 0) return dav_error("download interrupted");
         if (n == 0) {
             if (until_close_) {
@@ -572,10 +581,10 @@ Result<std::size_t> Client::body_some(char* out, std::size_t size) {
 Result<Response> Client::request(const std::string& method, const std::string& uri, const std::string& extra, const std::string& body) {
     if (streaming_) ALEMBIC_TRY(stop_download());
     for (int attempt = 0; attempt < 4; ++attempt) {
-        const bool fresh = socket_ == net::kNone;
+        const bool fresh = !link_.is_open();
         ALEMBIC_TRY(connect());
         Status sent = send_head(method, uri, extra, body.size(), false);
-        if (sent.ok() && !body.empty()) sent = netfs::send_all(socket_, body.data(), body.size(), "WebDAV");
+        if (sent.ok() && !body.empty()) sent = link_.send_all(body.data(), body.size(), "WebDAV");
         Result<Response> r = sent.ok() ? read_head() : Result<Response>(sent.error());
         if (!r.ok()) {
             drop();
@@ -657,7 +666,7 @@ Status Client::start_download(const std::string& path, std::uint64_t offset) {
     if (streaming_) ALEMBIC_TRY(stop_download());
     const std::string uri = target(path);
     for (int attempt = 0; attempt < 4; ++attempt) {
-        const bool fresh = socket_ == net::kNone;
+        const bool fresh = !link_.is_open();
         ALEMBIC_TRY(connect());
         Status sent = send_head("GET", uri, offset ? "Range: bytes=" + std::to_string(offset) + "-\r\n" : "", 0, false);
         Result<Response> r = sent.ok() ? read_head() : Result<Response>(sent.error());
@@ -732,15 +741,15 @@ Status Client::write(Bytes data) {
     if (data.empty()) return {};
     char size[24];
     std::snprintf(size, sizeof size, "%zx\r\n", data.size());
-    ALEMBIC_TRY(netfs::send_all(socket_, size, std::strlen(size), "WebDAV"));
-    ALEMBIC_TRY(netfs::send_all(socket_, data.data(), data.size(), "WebDAV"));
-    return netfs::send_all(socket_, "\r\n", 2, "WebDAV");
+    ALEMBIC_TRY(link_.send_all(size, std::strlen(size), "WebDAV"));
+    ALEMBIC_TRY(link_.send_all(data.data(), data.size(), "WebDAV"));
+    return link_.send_all("\r\n", 2, "WebDAV");
 }
 
 Status Client::finish_upload() {
     if (!uploading_) return {};
     uploading_ = false;
-    Status s = netfs::send_all(socket_, "0\r\n\r\n", 5, "WebDAV");
+    Status s = link_.send_all("0\r\n\r\n", 5, "WebDAV");
     if (!s.ok()) {
         drop();
         return s;

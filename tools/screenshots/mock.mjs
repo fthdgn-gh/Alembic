@@ -65,6 +65,7 @@ const PEER_DRIVES = [{ id: PC, engine: "Living room PC", platform: "host", root:
 const SERVERS = [
   { id: "nas", protocol: "smb", name: "NAS", host: "192.168.1.20", port: 445, user: "games", root: "Games", path: "/smb/nas" },
   { id: "box", protocol: "nfs", name: "Media box", host: "192.168.1.40", port: 2049, user: "1000:1000", root: "/srv/games", path: "/nfs/box" },
+  { id: "files", protocol: "ftp", name: "File server", host: "192.168.1.30", port: 21, user: "games", root: "", tls: true, path: "/ftp/files" },
 ];
 const PROTOCOL_LABEL = { ftp: "FTP", smb: "SMB", webdav: "WebDAV", nfs: "NFS" };
 const LOCATIONS = [
@@ -166,6 +167,14 @@ http.createServer((req, res) => {
     if (p === "/api/info") return send(res, 200, INFO);
     if (p === "/api/fs/space") return send(res, 200, SPACE);
     if (p === "/api/locations") return send(res, 200, LOCATIONS);
+    // Adding a TLS server: the first try meets an unknown certificate (the trust dialog).
+    if ((p === "/api/servers" && req.method === "POST") || (p.indexOf("/api/servers/") === 0 && req.method === "PUT")) {
+      if (json.tls && !json.fingerprint) {
+        const fp = "3F:A1:9C:07:52:E8:4B:D0:6E:21:9A:C4:7F:13:88:5B:E2:0D:C9:41:76:AF:3B:58:90:12:DE:64:A7:C5:2B:F8";
+        return send(res, 400, { error: "the server's certificate is not trusted yet (SHA-256 " + fp + ")", certificate: fp });
+      }
+      return send(res, 200, { id: "new", path: "/ftp/new" });
+    }
     if (p === "/api/servers" || p === "/api/ftp") return send(res, 200, SERVERS);
     if (p === "/api/peer-drives") return send(res, 200, PEER_DRIVES);
     if (p === "/api/peers") return send(res, 200, PEERS);

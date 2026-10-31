@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// WebDAV servers (netfs.hpp), RFC 4918 over plain HTTP/1.1: PROPFIND to
+// WebDAV servers (netfs.hpp), RFC 4918 over HTTP/1.1: PROPFIND to
 // list, GET with a Range to read from an offset, PUT with chunked transfer
 // coding to upload, MKCOL, MOVE and DELETE. Basic and Digest (RFC 7616,
-// MD5) logins. No HTTPS: passwords and files cross the network unencrypted
-// (Basic sends the password as text).
+// MD5) logins. HTTPS when the server is set to TLS (tls.hpp, its certificate
+// pinned on first use); over plain HTTP, passwords and files cross the
+// network unencrypted (Basic sends the password as text).
 #pragma once
 
 #include "netfs.hpp"

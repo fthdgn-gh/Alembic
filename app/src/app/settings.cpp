@@ -120,6 +120,8 @@ public:
     std::vector<Hint> hints(App&) override { return {{Glyph::cross, t("Choose")}, {Glyph::circle, t("Cancel")}}; }
     JsonValue server;  // null: a new one
     std::string protocol = "smb", name, host, port, root, user, pass;
+    bool tls = false;        // FTPS / HTTPS (FTP and WebDAV)
+    std::string fingerprint; // the certificate trusted before (editing)
     std::string msg;
     bool err = false, busy = false;
     Sheet sheet;
@@ -174,7 +176,12 @@ public:
         if (protocol == "webdav") field_row(ui, app, "srv:root", sheet.x(), &y, sheet.w(), t("Path"), &root, "/");
         if (protocol == "nfs")
             field_row(ui, app, "srv:root", sheet.x(), &y, sheet.w(), t("Export"), &root, t("/volume1/games; empty: all"));
-        field_row(ui, app, "srv:port", sheet.x(), &y, sheet.w(), t("Port"), &port, std::to_string(chosen().port), true);
+        const bool can_tls = protocol == "ftp" || protocol == "webdav";
+        if (can_tls)
+            y += switch_row(ui, "srv:tls", sheet.x(), y, sheet.w(), t("Encrypt with TLS"),
+                            protocol == "ftp" ? t("FTPS: AUTH TLS, or implicit on port 990") : t("HTTPS"), &tls);
+        field_row(ui, app, "srv:port", sheet.x(), &y, sheet.w(), t("Port"), &port,
+                  std::to_string(protocol == "webdav" && tls ? 443 : chosen().port), true);
         if (protocol == "nfs")
             field_row(ui, app, "srv:user", sheet.x(), &y, sheet.w(), t("User and group ID"), &user,
                       t("uid:gid like 1000:1000; empty: 0:0"));
@@ -190,7 +197,7 @@ public:
         sheet.message(ui, msg, err);
         sheet.end(ui);
     }
-    void save(App& app) {
+    void save(App& app, const std::string& confirmed = "") {
         auto trim = [](std::string s) {
             while (!s.empty() && s.back() == ' ') s.pop_back();
             while (!s.empty() && s.front() == ' ') s.erase(0, 1);
@@ -212,12 +219,42 @@ public:
         body.set("port", std::max(0, std::atoi(port.c_str())));
         body.set("user", trim(user));
         body.set("root", trim(root));
+        if ((protocol == "ftp" || protocol == "webdav") && tls) {
+            body.set("tls", true);
+            // The certificate trusted before, or the one just confirmed.
+            const std::string pin = confirmed.empty() ? fingerprint : confirmed;
+            if (!pin.empty()) body.set("fingerprint", pin);
+        }
         // Editing: an empty password keeps the saved one.
         if (!server.is_object() || !pass.empty()) body.set("password", pass);
         const int k = key;
         const bool edit = server.is_object();
-        auto done = [&app, k, edit, this](const Reply& r) {
+        const std::string shown = trim(name).empty() ? h : trim(name);
+        auto done = [&app, k, edit, shown, confirmed, this](const Reply& r) {
             if (!app.overlay_alive(k)) return;
+            // A certificate seen for the first time, or a changed one: ask,
+            // then try again with it (NetServers.tsx trustCertificate).
+            const std::string cert = r.ok() ? std::string() : r.json["certificate"].str();
+            if (!cert.empty() && confirmed.empty()) {
+                const bool changed = !fingerprint.empty() && fingerprint != cert;
+                msg.clear();
+                ask(app,
+                    changed ? t("{name}'s certificate changed", {{"name", shown}})
+                            : t("Trust {name}'s certificate?", {{"name", shown}}),
+                    text_body((changed ? t("This is not the certificate trusted before. If the server's certificate was not "
+                                           "renewed or replaced, someone may be between this engine and the server.")
+                                       : t("This is the first time this certificate is seen. Check that its SHA-256 "
+                                           "fingerprint matches the one the server shows before trusting it.")) +
+                              "\n\n@" + cert),
+                    changed ? t("Trust the new certificate") : t("Trust"), changed,
+                    [&app, k, cert, this] {
+                        if (app.overlay_alive(k)) save(app, cert);
+                    },
+                    [&app, k, this] {
+                        if (app.overlay_alive(k)) busy = false;
+                    });
+                return;
+            }
             if (!r.ok()) {
                 msg = t_msg(r.error());
                 err = true;
@@ -652,9 +689,9 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
         yy += draw::paragraph(ui, Face::regular,
                               t("Games on a PC or NAS can be converted from there over SMB (shared folders), NFS, WebDAV or FTP, "
                                 "and exFAT, FFPKG, FFPFS and folder outputs saved there. FFPFSC and PKG outputs must be saved "
-                                "on the console first. SMB is encrypted when the server or share requires it; otherwise "
-                                "files cross the network as they are, FTP and WebDAV send the password unencrypted too, and "
-                                "passwords are kept on the console."),
+                                "on the console first. SMB is encrypted when the server or share requires it, FTP and "
+                                "WebDAV when TLS is on (the server's certificate is trusted on first use); otherwise files and "
+                                "FTP and WebDAV passwords cross the network as they are. Passwords are kept on the console."),
                               ix, yy, iw, 1.0f * R, 1.45f * R, muted) +
               0.5f * R;
         bool first = true;
@@ -671,6 +708,8 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
                                f->host = server["host"].str();
                                f->port = std::to_string(server["port"].integer(0));
                                f->root = server["root"].str();
+                               f->tls = server["tls"].boolean();
+                               f->fingerprint = server["fingerprint"].str();
                                if (f->protocol == "webdav" && f->root == "/") f->root.clear();
                                f->user = server["user"].str();
                                app.open(std::move(f));

@@ -46,10 +46,10 @@ const char* path_prefix(Protocol p) {
     }
 }
 
-std::uint16_t default_port(Protocol p) {
+std::uint16_t default_port(Protocol p, bool tls) {
     switch (p) {
     case Protocol::smb: return 445;
-    case Protocol::webdav: return 80;
+    case Protocol::webdav: return tls ? 443 : 80;
     case Protocol::nfs: return 2049;
     default: return 21;
     }
@@ -89,8 +89,8 @@ Status normalise(Server& s) {
         std::string kind = s.host.substr(0, scheme);
         for (char& c : kind) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         std::string rest = s.host.substr(scheme + 3);
-        if (kind == "https" || kind == "davs" || kind == "ftps" || kind == "sftp")
-            return make_error(Errc::invalid_argument, kind + " is not supported: use plain " + protocol_label(s.protocol));
+        if (kind == "sftp") return make_error(Errc::invalid_argument, "SFTP is not supported: use FTP or FTPS");
+        if (kind == "https" || kind == "davs" || kind == "ftps") s.tls = true;
         std::size_t slash = rest.find('/');
         std::string authority = rest.substr(0, slash), path = slash == std::string::npos ? "" : rest.substr(slash);
         if (std::size_t at = authority.rfind('@'); at != std::string::npos) authority = authority.substr(at + 1);
@@ -109,7 +109,11 @@ Status normalise(Server& s) {
         if (slash != std::string::npos && s.root.empty()) s.root = rest.substr(slash + 1);
     }
     if (s.host.empty()) return make_error(Errc::invalid_argument, std::string("the ") + protocol_label(s.protocol) + " server needs an address");
-    if (!s.port) s.port = default_port(s.protocol);
+    if (s.protocol != Protocol::ftp && s.protocol != Protocol::webdav) {
+        s.tls = false;
+        s.fingerprint.clear();
+    }
+    if (!s.port) s.port = default_port(s.protocol, s.tls);
     for (char& c : s.root)
         if (c == '\\') c = '/';
     if (s.protocol == Protocol::smb) {
@@ -412,6 +416,8 @@ Servers::Servers(std::string state_dir)
         server.user = s["user"].str(*protocol == Protocol::ftp ? "anonymous" : "");
         server.password = s["password"].str();
         server.root = s["root"].str();
+        server.tls = s["tls"].boolean();
+        server.fingerprint = s["fingerprint"].str();
         if (!server.id.empty() && !server.host.empty()) servers_.push_back(std::move(server));
     }
 }
@@ -435,6 +441,8 @@ Status Servers::save() const {
         v.set("user", s.user);
         v.set("password", s.password);
         if (!s.root.empty()) v.set("root", s.root);
+        if (s.tls) v.set("tls", true);
+        if (!s.fingerprint.empty()) v.set("fingerprint", s.fingerprint);
         list.push(std::move(v));
     }
     JsonValue root = JsonValue::object();
@@ -452,7 +460,7 @@ Result<Server> Servers::add(Server server) {
     // An id that stays the same for the same server, user and share, so
     // paths last. The port is part of it unless it is the protocol's own.
     std::string base;
-    std::string from = server.host + (server.port == default_port(server.protocol) ? "" : "-" + std::to_string(server.port));
+    std::string from = server.host + (server.port == default_port(server.protocol, server.tls) ? "" : "-" + std::to_string(server.port));
     // NFS has no login, only the ids it sends; the others name the user (or a guest).
     if (server.protocol != Protocol::nfs) from += "-" + (server.user.empty() ? std::string("guest") : server.user);
     if (server.protocol != Protocol::ftp && server.root != "/") from += "-" + server.root;

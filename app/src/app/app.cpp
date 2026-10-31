@@ -381,7 +381,8 @@ const JsonValue* App::server_of(const std::string& path) const {
 
 std::string App::server_address(const JsonValue& s, bool with_user) {
     const std::string protocol = s["protocol"].str("ftp"), host = s["host"].str(), user = s["user"].str();
-    const long long def = protocol == "smb" ? 445 : protocol == "webdav" ? 80 : protocol == "nfs" ? 2049 : 21;
+    const bool tls = s["tls"].boolean();
+    const long long def = protocol == "smb" ? 445 : protocol == "webdav" ? (tls ? 443 : 80) : protocol == "nfs" ? 2049 : 21;
     const long long p = s["port"].integer(def);
     const std::string port = p && p != def ? ":" + std::to_string(p) : "";
     const std::string at = with_user && !user.empty() ? user + "@" : "";
@@ -398,9 +399,9 @@ std::string App::server_address(const JsonValue& s, bool with_user) {
     }
     if (protocol == "webdav") {
         const std::string root = s["root"].str();
-        return "WebDAV \xC2\xB7 " + at + host + port + (root.empty() || root == "/" ? "" : root);
+        return (tls ? "WebDAV (HTTPS) \xC2\xB7 " : "WebDAV \xC2\xB7 ") + at + host + port + (root.empty() || root == "/" ? "" : root);
     }
-    return "FTP \xC2\xB7 " + at + host + port;
+    return (tls ? "FTPS \xC2\xB7 " : "FTP \xC2\xB7 ") + at + host + port;
 }
 
 std::string App::on_server_text(const JsonValue& s) {

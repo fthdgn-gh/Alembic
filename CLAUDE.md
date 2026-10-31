@@ -119,6 +119,12 @@ environment in `.refs/mkpfs-venv`).
   Windows) and sockets through `src/engine/net.hpp`: no direct POSIX
   file, folder or socket calls (nor `fopen`) outside those and
   `platform_ps5.cpp`.
+- **Encryption on the network:** SMB 3 encryption (AES-128-GCM/CCM,
+  `netcrypto`) when the server or share requires it; FTPS and HTTPS WebDAV
+  through `src/engine/tls.hpp` on vendored Mbed TLS 3.6 LTS
+  (`third_party/mbedtls`, on every platform: libSceSsl has no documented
+  socket API). Certificates are pinned on first use (SHA-256 kept with the
+  server; the page and app ask), never checked against CAs.
 - **License:** GPL-3.0-or-later, compatible with every source we port from.
 - **Third-party files at run time:** the engine's Components page downloads
   them on request from a fixed URL, pinned by SHA-256 (`src/engine/deps.cpp`):

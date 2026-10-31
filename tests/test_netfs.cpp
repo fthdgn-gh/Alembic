@@ -5,9 +5,11 @@
 #include "netfs.hpp"
 #include "nfs.hpp"
 #include "smb.hpp"
+#include "tls.hpp"
 #include "test.hpp"
 #include "webdav.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -195,10 +197,29 @@ TEST_CASE(netfs_addresses_as_users_type_them) {
     REQUIRE_OK(netfs::normalise(noshare));
     CHECK(noshare.root.empty());
 
+    // https:// and ftps:// switch TLS on (port 443 for WebDAV); SFTP is refused.
     netfs::Server tls;
     tls.protocol = netfs::Protocol::webdav;
     tls.host = "https://cloud.example/remote.php/dav";
-    CHECK(!netfs::normalise(tls).ok());
+    REQUIRE_OK(netfs::normalise(tls));
+    CHECK(tls.tls && tls.port == 443 && tls.host == "cloud.example" && tls.root == "/remote.php/dav");
+    netfs::Server ftps;
+    ftps.protocol = netfs::Protocol::ftp;
+    ftps.host = "ftps://nas:2121";
+    REQUIRE_OK(netfs::normalise(ftps));
+    CHECK(ftps.tls && ftps.port == 2121 && ftps.host == "nas");
+    netfs::Server sftp;
+    sftp.protocol = netfs::Protocol::ftp;
+    sftp.host = "sftp://nas";
+    CHECK(!netfs::normalise(sftp).ok());
+    // TLS means nothing for SMB and NFS.
+    netfs::Server smb_tls;
+    smb_tls.protocol = netfs::Protocol::smb;
+    smb_tls.host = "pc";
+    smb_tls.tls = true;
+    smb_tls.fingerprint = "AA";
+    REQUIRE_OK(netfs::normalise(smb_tls));
+    CHECK(!smb_tls.tls && smb_tls.fingerprint.empty());
 
     netfs::Server f;
     f.host = "10.0.0.2";
@@ -238,45 +259,16 @@ TEST_CASE(nfs_exports_are_a_tree_of_folders) {
     CHECK(!netfs::normalise(bad).ok());
 }
 
-// A real SMB server, when ALEMBIC_SMB_TEST is "host:port:share:user:password"
-// (tools/netfs/samba_check.sh runs Samba that way in each configuration).
-TEST_CASE(smb_live_session) {
-    const char* spec = std::getenv("ALEMBIC_SMB_TEST");
-    if (!spec || !*spec) {
-        std::printf("  (skipped: ALEMBIC_SMB_TEST not set)\n");
-        return;
-    }
-    std::vector<std::string> f;
-    for (std::string s = spec;;) {
-        std::size_t c = s.find(':');
-        if (f.size() == 4 || c == std::string::npos) {
-            f.push_back(s);
-            break;
-        }
-        f.push_back(s.substr(0, c));
-        s = s.substr(c + 1);
-    }
-    CHECK(f.size() == 5);
-    if (f.size() != 5) return;
-    netfs::Server server;
-    server.protocol = netfs::Protocol::smb;
-    server.host = f[0];
-    server.port = static_cast<std::uint16_t>(std::stoi(f[1]));
-    server.root = f[2];
-    server.user = f[3];
-    server.password = f[4];
-    auto session = smb::open(server);
-    if (!session.ok()) std::printf("  open: %s\n", session.error().message.c_str());
-    CHECK(session.ok());
-    if (!session.ok()) return;
-    netfs::Session& s = **session;
-
-    // 3 MiB and a bit: several 1 MiB writes and reads in flight.
+// Upload, list, download (whole and from an offset), rename and remove on a
+// real server: the live tests below.
+namespace {
+void live_session(netfs::Session& s) {
+    // 3 MiB and a bit: several 1 MiB writes and reads in flight. Files at
+    // the top: unprivileged Samba on macOS cannot make folders (its mkdir
+    // renames a temporary folder, which fails there).
     std::vector<std::uint8_t> data(3 * 1024 * 1024 + 12345);
     std::uint32_t x = 12345;
     for (auto& b : data) b = static_cast<std::uint8_t>((x = x * 1664525u + 1013904223u) >> 24);
-    // Files at the top of the share: unprivileged Samba on macOS cannot make
-    // folders (its mkdir renames a temporary folder, which fails there).
     (void)s.remove("/alembic-live-a.bin");
     (void)s.remove("/alembic-live-b.bin");
     REQUIRE_OK(s.start_upload("/alembic-live-a.bin"));
@@ -304,7 +296,96 @@ TEST_CASE(smb_live_session) {
     };
     CHECK(download(0) == data);
     CHECK(download(1000001) == std::vector<std::uint8_t>(data.begin() + 1000001, data.end()));
+    // A download stopped part way, then the connection used again.
+    REQUIRE_OK(s.start_download("/alembic-live-a.bin", 0));
+    std::vector<std::uint8_t> some(100000);
+    CHECK(s.read(MutableBytes(some.data(), some.size())).ok());
+    CHECK(s.stop_download().ok());
     REQUIRE_OK(s.rename("/alembic-live-a.bin", "/alembic-live-b.bin"));
     CHECK(!s.size("/alembic-live-a.bin").ok());
     REQUIRE_OK(s.remove("/alembic-live-b.bin"));
+}
+
+std::vector<std::string> split(std::string s, char sep, std::size_t fields) {
+    std::vector<std::string> f;
+    for (;;) {
+        std::size_t c = s.find(sep);
+        if (f.size() + 1 == fields || c == std::string::npos) {
+            f.push_back(s);
+            break;
+        }
+        f.push_back(s.substr(0, c));
+        s = s.substr(c + 1);
+    }
+    return f;
+}
+} // namespace
+
+// A real SMB server, when ALEMBIC_SMB_TEST is "host:port:share:user:password"
+// (tools/netfs/samba_check.sh runs Samba that way in each configuration).
+TEST_CASE(smb_live_session) {
+    const char* spec = std::getenv("ALEMBIC_SMB_TEST");
+    if (!spec || !*spec) {
+        std::printf("  (skipped: ALEMBIC_SMB_TEST not set)\n");
+        return;
+    }
+    std::vector<std::string> f = split(spec, ':', 5);
+    CHECK(f.size() == 5);
+    if (f.size() != 5) return;
+    netfs::Server server;
+    server.protocol = netfs::Protocol::smb;
+    server.host = f[0];
+    server.port = static_cast<std::uint16_t>(std::stoi(f[1]));
+    server.root = f[2];
+    server.user = f[3];
+    server.password = f[4];
+    auto session = smb::open(server);
+    if (!session.ok()) std::printf("  open: %s\n", session.error().message.c_str());
+    CHECK(session.ok());
+    if (!session.ok()) return;
+    live_session(**session);
+}
+
+// Any network server, when ALEMBIC_NETFS_TEST is
+// "protocol|host|port|root|user|password|tls|fingerprint" (tls "1" or "0";
+// tools/netfs/tls_check.sh). With TLS, the trust steps come first: no pin
+// is refused as "not trusted yet" with the fingerprint, a wrong pin as
+// "changed", and only the right pin gets through.
+TEST_CASE(netfs_live_session) {
+    const char* spec = std::getenv("ALEMBIC_NETFS_TEST");
+    if (!spec || !*spec) {
+        std::printf("  (skipped: ALEMBIC_NETFS_TEST not set)\n");
+        return;
+    }
+    std::vector<std::string> f = split(spec, '|', 8);
+    CHECK(f.size() == 8);
+    if (f.size() != 8) return;
+    netfs::Server server;
+    auto protocol = netfs::parse_protocol(f[0]);
+    CHECK(protocol.has_value());
+    if (!protocol) return;
+    server.protocol = *protocol;
+    server.host = f[1];
+    server.port = static_cast<std::uint16_t>(std::stoi(f[2]));
+    server.root = f[3];
+    server.user = f[4];
+    server.password = f[5];
+    server.tls = f[6] == "1";
+    if (server.tls) {
+        server.fingerprint = "";
+        auto first = netfs::connect(server);
+        CHECK(!first.ok());
+        auto seen = first.ok() ? std::nullopt : tls::untrusted_fingerprint(first.error());
+        CHECK(seen.has_value() && *seen == f[7]);
+        if (!first.ok() && (!seen || *seen != f[7])) std::printf("  first: %s\n", first.error().message.c_str());
+        server.fingerprint = std::string(f[7].size(), 'A');
+        auto wrong = netfs::connect(server);
+        CHECK(!wrong.ok() && wrong.error().message.find("changed") != std::string::npos);
+        server.fingerprint = f[7];
+    }
+    auto session = netfs::connect(server);
+    if (!session.ok()) std::printf("  open: %s\n", session.error().message.c_str());
+    CHECK(session.ok());
+    if (!session.ok()) return;
+    live_session(**session);
 }

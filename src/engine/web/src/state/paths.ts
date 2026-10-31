@@ -24,15 +24,16 @@ export function serverOf(path: string | null | undefined): NetServer | null {
 }
 export const PROTOCOL_LABEL = { ftp: "FTP", smb: "SMB", webdav: "WebDAV", nfs: "NFS" };
 const DEFAULT_PORT = { ftp: 21, smb: 445, webdav: 80, nfs: 2049 };
+export function defaultPort(protocol: NetServer["protocol"], tls?: boolean) { return protocol === "webdav" && tls ? 443 : DEFAULT_PORT[protocol]; }
 // Where a server is, as its protocol writes it: "FTP · nas:2121",
 // "SMB · \\pc\Games", "WebDAV · nas:5005/dav".
 export function serverAddress(s: NetServer, withUser?: boolean): string {
-  const port = s.port && s.port !== DEFAULT_PORT[s.protocol] ? ":" + s.port : "";
+  const port = s.port && s.port !== defaultPort(s.protocol, s.tls) ? ":" + s.port : "";
   const user = withUser && s.user ? s.user + "@" : "";
   if (s.protocol === "smb") return "SMB · \\\\" + s.host + port + (s.root ? "\\" + s.root.replace(/\//g, "\\") : "") + (withUser && s.user ? " · " + s.user : "");
   if (s.protocol === "nfs") return "NFS · " + s.host + port + (s.root ? ":" + s.root : "") + (withUser && s.user ? " · " + s.user : "");
-  if (s.protocol === "webdav") return "WebDAV · " + user + s.host + port + (s.root && s.root !== "/" ? s.root : "");
-  return "FTP · " + user + s.host + port;
+  if (s.protocol === "webdav") return (s.tls ? "WebDAV (HTTPS) · " : "WebDAV · ") + user + s.host + port + (s.root && s.root !== "/" ? s.root : "");
+  return (s.tls ? "FTPS · " : "FTP · ") + user + s.host + port;
 }
 // "On an FTP server" and the like, in place of a drive's free space.
 export function onServerText(s: NetServer): string {
