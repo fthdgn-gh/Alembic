@@ -423,6 +423,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     options.lz4_unpack = spec.lz4_unpack;
     options.fpkg.keys_folder = config.state_dir + "/keys"; // the fpkg_keys component
     if (spec.pkg_compression == "kraken") options.fpkg.compression = fpkg::build::Compression::kraken;
+    options.fpkg.test_wrong_si_digests = spec.test_wrong_si;
     options.fpkg_ps4.keys_file = config.state_dir + "/keys/ps4/Keys.cs"; // the ps4_keys component
     options.fpkg.license_keys_file = options.fpkg_ps4.keys_file;          // PS5 packages' licence too
     if (!spec.seed.empty()) {

@@ -843,6 +843,13 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
         hasher.wait();
     }
     crypto::Digest image_digest = remote_digest ? *remote_digest : image_hash.finish();
+    if (options.test_wrong_si_digests) {
+        // A test package: does the console's installer check these? (An SI
+        // that needs no whole-package pass would allow installing on the fly.)
+        for (auto& b : image_digest) b = static_cast<std::uint8_t>(b ^ 0xA5);
+        for (std::size_t i = 0; i < crc.size(); ++i) crc[i] = static_cast<std::uint8_t>(crc[i] ^ 0x5A);
+        result.warnings.push_back("TEST PACKAGE: the SI's whole-package digest and block checksums are deliberately wrong");
+    }
 
     // ---- The SI segment. ----
     const std::uint64_t inner_image_size = get_u64(&header[0xA0]);

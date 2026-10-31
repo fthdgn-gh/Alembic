@@ -360,6 +360,10 @@ struct PackageOptions {
     // DRM 0x10, content type 0x20, as PS5 fake packages carry); without it the
     // package has none and its title shows a lock on the console.
     std::string license_keys_file;
+    // Tests only: the SI's whole-package SHA3 (naps_meta_18) and per-block
+    // CRC32Cs (playgo-chunk.crc) are written wrong on purpose, to learn
+    // whether the console's installer checks them.
+    bool test_wrong_si_digests = false;
 };
 struct PackageResult {
     bool generated_license = false; // the game had none: a debug licence was made

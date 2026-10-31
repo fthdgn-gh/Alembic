@@ -69,6 +69,7 @@ JsonValue JobSpec::to_json() const {
     j.set("pkg_compression", pkg_compression);
     if (!install_via.empty()) j.set("install_via", install_via);
     if (install_after) j.set("install_after", true);
+    if (test_wrong_si) j.set("test_wrong_si", true);
     j.set("overwrite", overwrite);
     j.set("rebuild", rebuild);
     if (!passcode.empty()) j.set("passcode", passcode);
@@ -106,6 +107,7 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
         return make_error(Errc::invalid_argument, "pkg_compression must be stored or kraken");
     s.install_via = j["install_via"].str();
     s.install_after = j["install_after"].boolean();
+    s.test_wrong_si = j["test_wrong_si"].boolean();
     if (s.install_after && s.delete_source)
         return make_error(Errc::invalid_argument, "installing and deleting the source are not done in one job");
     if (!s.install_via.empty() && s.install_via != "http")
