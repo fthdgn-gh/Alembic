@@ -178,15 +178,17 @@ Also on the page:
   runtime, ProsperoPkgTool's FPKG key files, LibOrbisPkg's licence and PS4 package keys)
   are downloaded on request from
   their official source and kept only if their SHA-256 matches.
-  **Offline:** fetch them on a PC (the Components page lists each file's
-  URL) and copy them to the console under these exact names; the engine
-  picks them up without a restart:
+  **Offline:** download them on a PC from the links below (the pinned
+  versions the engine fetches itself) and copy them to the console under
+  these exact names; the engine picks them up without a restart:
 
-  | Component | Files on the console |
-  |---|---|
-  | AMPR emulator (ampr_emu 0.4.2.1) | `/data/alembic/runtime/libSceAmpr.sprx` |
-  | FPKG key files | `/data/alembic/keys/passcode.bin`, `/data/alembic/keys/mount_image.bin`, `/data/alembic/keys/metadata_modulus.bin` |
-  | Licence and PS4 package keys | `/data/alembic/keys/ps4/Keys.cs` |
+  | Component | Download | Put it at | SHA-256 |
+  |---|---|---|---|
+  | AMPR emulator (ampr_emu 0.4.2.1) | [libSceAmpr.sprx](https://github.com/drakmor/ampr_emu/releases/download/0.4.2.1/libSceAmpr.sprx) | `/data/alembic/runtime/libSceAmpr.sprx` | `69e6c4d5e4f5fb83c9e01815db5861c4c75734acbf4595cafa50d4c218116d1a` |
+  | FPKG key files | [passcode.bin](https://raw.githubusercontent.com/pearlxcore/ProsperoPkgTool/f2c91cd7a5d8440b7b9ae5e0b1154334093bf613/ProsperoPkgTool/Keys/passcode.bin) | `/data/alembic/keys/passcode.bin` | `81e8283d582f522d8da34565ecd6ab39a38b3d3c0cacef078df97d2b285ec24e` |
+  | | [mount_image.bin](https://raw.githubusercontent.com/pearlxcore/ProsperoPkgTool/f2c91cd7a5d8440b7b9ae5e0b1154334093bf613/ProsperoPkgTool/Keys/mount_image.bin) | `/data/alembic/keys/mount_image.bin` | `4510462812321cea26b4c0155e363955b16e31b89252b92510accad02eca5cd0` |
+  | | [metadata_modulus.bin](https://raw.githubusercontent.com/pearlxcore/ProsperoPkgTool/f2c91cd7a5d8440b7b9ae5e0b1154334093bf613/ProsperoPkgTool/Keys/metadata_modulus.bin) | `/data/alembic/keys/metadata_modulus.bin` | `4a585ee47fea88d6b121d5e8afc9829438a27ee325cebec56a2ff537129a37c5` |
+  | Licence and PS4 package keys | [Keys.cs](https://raw.githubusercontent.com/maxton/LibOrbisPkg/643477263b2644e0803e0f58b8726ea4e3f3b7d4/LibOrbisPkg/Util/Keys.cs) | `/data/alembic/keys/ps4/Keys.cs` | `48b44dd03e653a5c0991b0a2975477802ea2639c4e6ea3270b2ff20a1856f8a7` |
 
   Key files must be the pinned ones (same SHA-256), or package output
   refuses them. Another build of `libSceAmpr.sprx` still works but shows
