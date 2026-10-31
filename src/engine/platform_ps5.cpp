@@ -476,6 +476,67 @@ Status remove_launcher() {
 // The system's random generator (libSceRandom), found like the installer
 // above: the weak import, else the module loaded now; failing both, libc's
 // arc4random_buf (the kernel's generator).
+// The kernel's own thread calls (libkernel), as drakmor/ampr_emu uses them
+// for its workers: a 64-bit core mask and a priority per thread. The SDK
+// has no stubs for them, so they are looked up in libkernel.
+struct ThreadApi {
+    void* (*self)(void) = nullptr;
+    int (*get_affinity)(void*, std::uint64_t*) = nullptr;
+    int (*set_affinity)(void*, std::uint64_t) = nullptr;
+    int (*get_prio)(void*, int*) = nullptr;
+    int (*set_prio)(void*, int) = nullptr;
+    std::string note;
+};
+
+const ThreadApi& thread_api() {
+    static ThreadApi api;
+    static std::once_flag once;
+    std::call_once(once, [] {
+        std::uint32_t h = 0;
+        bool have = module_handle("libkernel.sprx", "/system/common/lib/libkernel.sprx", h, api.note);
+        if (!have) have = module_handle("libkernel_sys.sprx", "/system/common/lib/libkernel_sys.sprx", h, api.note);
+        pick(api.self, decltype(api.self)(nullptr), h, have, "scePthreadSelf", nullptr);
+        pick(api.get_affinity, decltype(api.get_affinity)(nullptr), h, have, "scePthreadGetaffinity", nullptr);
+        pick(api.set_affinity, decltype(api.set_affinity)(nullptr), h, have, "scePthreadSetaffinity", nullptr);
+        pick(api.get_prio, decltype(api.get_prio)(nullptr), h, have, "scePthreadGetprio", nullptr);
+        pick(api.set_prio, decltype(api.set_prio)(nullptr), h, have, "scePthreadSetprio", nullptr);
+    });
+    return api;
+}
+
+std::string thread_cpu() {
+    const ThreadApi& t = thread_api();
+    if (!t.self) return "scePthreadSelf not found (" + t.note + ")";
+    void* self = t.self();
+    std::uint64_t mask = 0;
+    int prio = -1;
+    const int a = t.get_affinity ? t.get_affinity(self, &mask) : -1;
+    const int p = t.get_prio ? t.get_prio(self, &prio) : -1;
+    char text[96];
+    std::snprintf(text, sizeof text, "mask 0x%llx (rc 0x%x), prio %d (rc 0x%x)", static_cast<unsigned long long>(mask),
+                  static_cast<unsigned>(a), prio, static_cast<unsigned>(p));
+    return text;
+}
+
+std::string set_thread_cpu(std::uint64_t mask, int prio) {
+    const ThreadApi& t = thread_api();
+    if (!t.self) return "scePthreadSelf not found (" + t.note + ")";
+    void* self = t.self();
+    std::string out;
+    char text[64];
+    if (mask) {
+        const int rc = t.set_affinity ? t.set_affinity(self, mask) : -1;
+        std::snprintf(text, sizeof text, "setaffinity 0x%llx rc 0x%x", static_cast<unsigned long long>(mask), static_cast<unsigned>(rc));
+        out += text;
+    }
+    if (prio >= 0) {
+        const int rc = t.set_prio ? t.set_prio(self, prio) : -1;
+        std::snprintf(text, sizeof text, "%ssetprio %d rc 0x%x", out.empty() ? "" : "; ", prio, static_cast<unsigned>(rc));
+        out += text;
+    }
+    return out;
+}
+
 // pthread_getaffinity_np (FreeBSD's, in the payload SDK's libc): for /api/bench.
 std::string cpu_affinity() {
     cpuset_t set;

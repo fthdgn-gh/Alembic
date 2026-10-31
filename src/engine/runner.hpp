@@ -118,7 +118,9 @@ Result<JsonValue> run_transfer(const JobSpec& spec, const EngineConfig& config, 
 // How fast this machine encodes Kraken (GET /api/bench): 16 MB of game-like
 // data with fresh tables per block on one thread, then with reused tables on
 // 1, 2, 4, ... threads up to the cores it reports. MB/s each, and the cores.
-JsonValue kraken_bench();
+// `mask` (non-zero) and `prio` (>= 0): each bench thread sets its own core
+// mask and priority first (platform::set_thread_cpu), to try them safely.
+JsonValue kraken_bench(std::uint64_t mask = 0, int prio = -1);
 
 Result<JsonValue> run_job(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress);
 

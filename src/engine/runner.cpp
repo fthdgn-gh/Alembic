@@ -768,7 +768,7 @@ Result<JsonValue> run_install(const JobSpec& spec, const EngineConfig& config, c
     return r;
 }
 
-JsonValue kraken_bench() {
+JsonValue kraken_bench(std::uint64_t mask, int prio) {
     // Game-like data: runs of text-ish tokens, short repeats and noise.
     constexpr std::size_t kBlock = 0x40000, kTotal = 16u << 20;
     std::vector<std::uint8_t> data(kTotal);
@@ -793,6 +793,7 @@ JsonValue kraken_bench() {
         std::atomic<std::size_t> next_block{0};
         for (unsigned t = 0; t < threads; ++t)
             pool.emplace_back([&] {
+                if (mask || prio >= 0) (void)platform::set_thread_cpu(mask, prio);
                 kraken::EncoderScratch scratch;
                 for (std::size_t b; (b = next_block++) < blocks;) {
                     Bytes block(data.data() + b * kBlock, kBlock);
@@ -807,6 +808,23 @@ JsonValue kraken_bench() {
     const unsigned cores = std::max(1u, std::thread::hardware_concurrency());
     JsonValue v = JsonValue::object();
     v.set("cores", static_cast<std::int64_t>(cores));
+    // What a thread starts with, and what the requested settings give it.
+    {
+        std::string before, applied, after;
+        std::thread probe([&] {
+            before = platform::thread_cpu();
+            if (mask || prio >= 0) {
+                applied = platform::set_thread_cpu(mask, prio);
+                after = platform::thread_cpu();
+            }
+        });
+        probe.join();
+        v.set("thread_before", before);
+        if (!applied.empty()) {
+            v.set("applied", applied);
+            v.set("thread_after", after);
+        }
+    }
     v.set("fresh_tables_1_thread_mb_s", run(1, true));
     JsonValue by = JsonValue::object();
     for (unsigned t = 1;; t *= 2) {
@@ -820,7 +838,11 @@ JsonValue kraken_bench() {
     auto spread = [&](unsigned threads, auto&& work) {
         const auto t0 = std::chrono::steady_clock::now();
         std::vector<std::thread> pool;
-        for (unsigned t = 0; t < threads; ++t) pool.emplace_back([&, t] { work(t, threads); });
+        for (unsigned t = 0; t < threads; ++t)
+            pool.emplace_back([&, t] {
+                if (mask || prio >= 0) (void)platform::set_thread_cpu(mask, prio);
+                work(t, threads);
+            });
         for (std::thread& t : pool) t.join();
         return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     };

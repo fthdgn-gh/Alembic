@@ -62,6 +62,13 @@ Status secure_random(std::uint8_t* out, std::size_t size);
 
 // The CPUs this thread may run on ("0-3,8"), or "" when the system does not say.
 std::string cpu_affinity();
+
+// This thread's core mask and priority as the console's kernel reports them
+// ("mask 0x..., prio N"), and changing them (`mask` 0 or `prio` < 0: left
+// alone); the text says what each call returned. For /api/bench's
+// experiments; "" on PCs.
+std::string thread_cpu();
+std::string set_thread_cpu(std::uint64_t mask, int prio);
 // Where the engine keeps its queue and log.
 std::string default_state_dir();
 

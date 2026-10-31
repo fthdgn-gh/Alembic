@@ -466,7 +466,13 @@ private:
         // Packages for the console's installer, and how it read them.
         if (r.path.rfind("/pkg-source/", 0) == 0) return pkg_sources::serve(r);
         if (r.path == "/api/pkg-sources" && r.method == "GET") return json(200, pkg_sources::report());
-        if (r.path == "/api/bench" && r.method == "GET") return json(200, kraken_bench()); // a few seconds
+        if (r.path == "/api/bench" && r.method == "GET") { // a few seconds; ?affinity=<hex mask>&prio=<n> to try them
+            std::uint64_t mask = 0;
+            int prio = -1;
+            if (auto it = r.query.find("affinity"); it != r.query.end()) mask = std::strtoull(it->second.c_str(), nullptr, 16);
+            if (auto it = r.query.find("prio"); it != r.query.end()) prio = std::atoi(it->second.c_str());
+            return json(200, kraken_bench(mask, prio));
+        }
         if (r.path == "/api/info" && r.method == "GET") return info();
         if (r.path == "/api/browse" && r.method == "GET") return browse(r);
         if (r.path == "/api/inspect" && r.method == "GET") return inspect(r);
