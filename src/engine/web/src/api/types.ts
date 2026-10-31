@@ -14,7 +14,7 @@ export interface Info {
   local_url: string;
   open_to_network: boolean;
   roots: string[];
-  lz4_runtime: { path: string; present: boolean; sha256: string; pinned: boolean };
+  lz4_runtime: { path: string; present: boolean; sha256: string; pinned: boolean; name?: string };
   lz4_profiles: { id: string; label: string; tested: string }[];
   busy: boolean;
   launcher: { supported: boolean; installed: boolean; title_id: string; status: string; off: boolean };
@@ -178,6 +178,8 @@ export interface Dep {
   state: string;
   files: DepFile[];
   bytes: number;
+  group?: string; // "ampr_runtime": one of the group is in use
+  in_use?: boolean;
 }
 
 export interface Plan {

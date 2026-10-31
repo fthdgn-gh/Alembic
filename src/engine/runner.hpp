@@ -18,7 +18,7 @@ struct EngineConfig {
     std::string state_dir;
     std::uint16_t http_port = 5940; // the page and API; packages for the installer (pkg_sources.hpp)
     std::vector<std::string> roots; // inputs, outputs and browsing stay below these
-    std::string runtime_path;       // ampr_emu's PackedStdio libSceAmpr.sprx (LZ4 packs and the AMPR emulator)
+    std::string runtime_override;   // --runtime: this libSceAmpr.sprx instead of the Components one
     // Where "ampr_emu" jobs put ShadowMount+ backport folders for images:
     // /data/homebrew/backports on the console (ShadowMount+'s fallback,
     // checked whatever its scan paths are).
@@ -45,6 +45,10 @@ struct EngineConfig {
 
     // The roots that can be used right now (mounted drives only).
     std::vector<std::string> available_roots() const;
+    // The AMPR emulator (fakelib/libSceAmpr.sprx, which also reads LZ4 packs)
+    // conversions add: runtime_override, else the one in use in Components
+    // (ampr_runtime_in_use), else where ampr_emu's would be (not there).
+    std::string runtime_path() const;
 };
 
 // The output a job writes: spec.output, or next to the input with the
@@ -123,10 +127,5 @@ Result<JsonValue> run_transfer(const JobSpec& spec, const EngineConfig& config, 
 JsonValue kraken_bench(std::uint64_t mask = 0, int prio = -1);
 
 Result<JsonValue> run_job(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress);
-
-// SHA-256 of ampr_emu 0.4.2.1's PackedStdio libSceAmpr.sprx (the official
-// release asset), the runtime LZ4 packs are tested with.
-inline constexpr const char* kPinnedRuntimeSha256 =
-    "69e6c4d5e4f5fb83c9e01815db5861c4c75734acbf4595cafa50d4c218116d1a";
 
 } // namespace alembic::engine

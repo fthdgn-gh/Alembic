@@ -26,7 +26,7 @@
 //   DELETE /api/jobs/ID               remove a finished job
 //   POST /api/jobs/clear              remove every finished job
 //   GET  /api/deps                    third-party files Alembic can download, and their state
-//   POST /api/deps/ID/install | /remove
+//   POST /api/deps/ID/install | /remove | /use (an AMPR emulator: the one conversions add)
 //   GET  /api/meta?path=P             title, title ID, version of a package, image or game folder
 //   GET  /api/icon?path=P             its sce_sys/icon0.png
 //   GET  /api/locations               suggested destinations (mounted drives only)
@@ -654,12 +654,15 @@ private:
             if (is_directory(root)) roots.push(root);
         v.set("roots", std::move(roots));
         JsonValue runtime = JsonValue::object();
-        runtime.set("path", config_.runtime_path);
-        bool present = !config_.runtime_path.empty() && is_regular_file(config_.runtime_path);
+        const std::string runtime_path = config_.runtime_path();
+        runtime.set("path", runtime_path);
+        bool present = is_regular_file(runtime_path);
         runtime.set("present", present);
-        std::string digest = present ? file_sha256(config_.runtime_path) : "";
+        std::string digest = present ? file_sha256(runtime_path) : "";
         runtime.set("sha256", digest);
-        runtime.set("pinned", digest == kPinnedRuntimeSha256);
+        const Dependency* known = present ? ampr_runtime_by_hash(digest) : nullptr;
+        runtime.set("pinned", known != nullptr);
+        runtime.set("name", known ? known->short_name : std::string());
         v.set("lz4_runtime", std::move(runtime));
         JsonValue profiles = JsonValue::array();
         for (const lz4pack::BundledProfile& p : lz4pack::bundled_profiles()) {
@@ -1550,10 +1553,12 @@ private:
         if (slash == std::string::npos) return error(404, "not found");
         const Dependency* dep = find_dependency(rest.substr(0, slash));
         std::string action = rest.substr(slash + 1);
-        if (!dep || (action != "install" && action != "remove")) return error(404, "not found");
+        if (!dep || (action != "install" && action != "remove" && action != "use")) return error(404, "not found");
         std::lock_guard<std::mutex> lock(deps_mutex_); // one download or removal at a time
         log_line(action + " " + dep->id + " requested by " + r.peer);
-        Status s = action == "install" ? install_dependency(*dep, config_.state_dir) : remove_dependency(*dep, config_.state_dir);
+        Status s = action == "install" ? install_dependency(*dep, config_.state_dir)
+                   : action == "use"   ? use_dependency(*dep, config_.state_dir)
+                                       : remove_dependency(*dep, config_.state_dir);
         if (!s.ok()) {
             log_line(action + " " + dep->id + " failed: " + s.error().message);
             return error(502, s.error().message);
@@ -2356,7 +2361,7 @@ int main(int argc, char** argv) {
     }
     config.roots = roots.empty() ? platform::default_roots() : roots;
     config.http_port = port;
-    config.runtime_path = runtime.empty() ? config.state_dir + "/runtime/libSceAmpr.sprx" : runtime;
+    config.runtime_override = runtime;
     config.backports_root = std::string(platform::name()) == "ps5" ? "/data/homebrew/backports" : config.state_dir + "/backports";
     if (std::string(platform::name()) == "ps5") config.shadowmount_config = "/data/shadowmount/config.ini";
     config.shadowmount_address = shadowmount;

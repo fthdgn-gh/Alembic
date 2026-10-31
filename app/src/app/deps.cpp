@@ -73,7 +73,8 @@ void DepsPage::build(Ui& ui, App& app, const Rect& area) {
         if (ui.visible(card)) {
             ui.list->bordered_rect(card, radius, panel, 1.0f, line);
             const float hy = y + pad_y + 1.05f * R * 0.725f;
-            const float sw = draw::state_pill(ui, pill_state, t(pill), x + w - pad_x, hy);
+            float sw = draw::state_pill(ui, pill_state, t(pill), x + w - pad_x, hy);
+            if (d["in_use"].boolean()) sw += 0.75f * R + draw::state_pill(ui, "running", t("in use"), x + w - pad_x - sw - 0.75f * R, hy);
             draw::text_fit(ui, Face::semibold, t(d["label"].str()), x + pad_x, draw::baseline(hy, 1.05f * R), 1.05f * R,
                            iw - sw - 1.0f * R, style::text);
             float yy = y + pad_y + 1.05f * R * 1.45f + 0.5f * R;
@@ -92,7 +93,10 @@ void DepsPage::build(Ui& ui, App& app, const Rect& area) {
             app.post("/api/deps/" + did + "/" + action, JsonValue::object(), [this, &app, d, action](const Reply& r) {
                 const std::string name = t(d["label"].str());
                 if (r.ok())
-                    app.toast(t(action == "install" ? "{name} installed" : "{name} removed", {{"name", name}}),
+                    app.toast(t(action == "install" ? "{name} installed"
+                                : action == "use"   ? "{name} is now in use"
+                                                    : "{name} removed",
+                                {{"name", name}}),
                               App::Toast::ok);
                 else
                     app.toast(t_msg(r.error()), App::Toast::bad);
@@ -116,7 +120,14 @@ void DepsPage::build(Ui& ui, App& app, const Rect& area) {
                 run("install");
             right -= bw + 0.5f * R;
         }
-        if (starts_with(busy_, id + ":")) {
+        if (!d["group"].str().empty() && state == "installed" && !d["in_use"].boolean()) {
+            const std::string label = t("Use this one");
+            const float bw = draw::button_width(ui, label, true);
+            if (draw::button(ui, Id("dep:use") / id, {right - bw, by, bw, bh}, label, draw::Button::normal, true, busy))
+                run("use");
+            right -= bw + 0.5f * R;
+        }
+        if (starts_with(busy_, id + ":") && busy_ != id + ":use") {
             const bool installing = busy_.size() > 7 && busy_.substr(busy_.size() - 7) == "install";
             draw::text(ui, Face::regular, installing ? t("Downloading\xE2\x80\xA6") : t("Removing\xE2\x80\xA6"), right,
                        draw::baseline(by + bh * 0.5f, 1.0f * R), 1.0f * R, muted, Align::right);

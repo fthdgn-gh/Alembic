@@ -170,6 +170,13 @@ std::vector<std::string> EngineConfig::available_roots() const {
     return out;
 }
 
+std::string EngineConfig::runtime_path() const {
+    if (!runtime_override.empty()) return runtime_override;
+    const Dependency* dep = ampr_runtime_in_use(state_dir);
+    if (!dep) dep = find_dependency(kAmprRuntimeGroup);
+    return state_dir + "/" + dep->files[0].path;
+}
+
 bool path_allowed(const std::string& path, const std::vector<std::string>& roots) {
     if (!is_absolute_path(path) || path.find('\\') != std::string::npos) return false;
     // Another engine's files ("/peer/<id>/..."): that engine keeps to its own
@@ -234,7 +241,7 @@ std::string fingerprint(const JobSpec& spec, const std::string& output, const En
         // Packing: its settings, and the runtime file it puts in the game.
         v.set("lz4_profile", spec.lz4_profile);
         v.set("lz4_level", spec.lz4_level);
-        std::string runtime = spec.lz4_runtime.empty() ? config.runtime_path : spec.lz4_runtime;
+        std::string runtime = spec.lz4_runtime.empty() ? config.runtime_path() : spec.lz4_runtime;
         v.set("lz4_runtime", runtime);
         if (PathStat rs = stat_path(runtime); rs.kind != PathKind::missing) {
             v.set("lz4_runtime_size", static_cast<std::int64_t>(rs.size));
@@ -437,8 +444,8 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
 
     // The AMPR emulator, from the runtime component (missing_dependencies
     // asks for it when the game needs it).
-    if (!spec.lz4 && spec.ampr_emu != "off" && to != convert::Format::fpkg && is_regular_file(config.runtime_path)) {
-        ALEMBIC_ASSIGN(File file, File::open(config.runtime_path, File::Mode::read));
+    if (!spec.lz4 && spec.ampr_emu != "off" && to != convert::Format::fpkg && is_regular_file(config.runtime_path())) {
+        ALEMBIC_ASSIGN(File file, File::open(config.runtime_path(), File::Mode::read));
         options.ampr_emulator = std::make_shared<File>(std::move(file));
         options.ampr_emulator_always = spec.ampr_emu == "always";
     }
@@ -454,7 +461,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
         lz4pack::PackOptions pack;
         pack.config = std::move(choice.config);
         pack.config.workers = config.threads;
-        std::string runtime = spec.lz4_runtime.empty() ? config.runtime_path : spec.lz4_runtime;
+        std::string runtime = spec.lz4_runtime.empty() ? config.runtime_path() : spec.lz4_runtime;
         if (!runtime.empty() && is_regular_file(runtime)) {
             ALEMBIC_ASSIGN(File file, File::open(runtime, File::Mode::read));
             pack.runtime_module = std::make_shared<File>(std::move(file));
@@ -659,7 +666,7 @@ std::vector<std::string> missing_dependencies(const JobSpec& spec, const EngineC
     std::vector<std::string> out;
     const std::string passcode = spec.passcode.empty() ? std::string(32, '0') : spec.passcode;
     const std::string input = strip_slashes(spec.input);
-    const bool have_runtime = is_regular_file(config.runtime_path);
+    const bool have_runtime = is_regular_file(config.runtime_path());
     if (spec.kind == "ampr_emu" && !have_runtime) out.push_back("ampr_runtime");
     if (spec.kind == "convert") {
         auto to = target_format(spec);
@@ -704,9 +711,9 @@ std::string backports_root_for(const std::string& image, const std::string& titl
 Result<JsonValue> run_ampr_emu(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress) {
     std::string input = strip_slashes(spec.input);
     if (!path_allowed(input, config.available_roots())) return make_error(Errc::invalid_argument, "outside the allowed folders");
-    if (!is_regular_file(config.runtime_path))
+    if (!is_regular_file(config.runtime_path()))
         return make_error(Errc::invalid_argument, "the AMPR emulator is not downloaded; get it in Components first");
-    ALEMBIC_ASSIGN(File emulator, File::open(config.runtime_path, File::Mode::read));
+    ALEMBIC_ASSIGN(File emulator, File::open(config.runtime_path(), File::Mode::read));
     if (progress) progress({"Checking eboot.bin", 0, 0});
     ampr_emu::AttachResult result;
     if (is_directory(input)) {

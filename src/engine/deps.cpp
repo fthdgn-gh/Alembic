@@ -32,6 +32,11 @@ const std::string kPptCommit = "f2c91cd7a5d8440b7b9ae5e0b1154334093bf613";
 // maxton/LibOrbisPkg: Keys.cs, the PS4 package keys (fpkg_ps4.hpp kKeysFileSha256).
 const std::string kLibOrbisPkgCommit = "643477263b2644e0803e0f58b8726ea4e3f3b7d4";
 
+// Which AMPR emulator was chosen last (its id).
+std::string in_use_file(const std::string& state_dir) {
+    return state_dir + "/runtime/in-use";
+}
+
 std::string ppt_key(const std::string& name) {
     return "https://raw.githubusercontent.com/pearlxcore/ProsperoPkgTool/" + kPptCommit + "/ProsperoPkgTool/Keys/" + name;
 }
@@ -49,6 +54,22 @@ const std::vector<Dependency>& dependencies() {
             "GPL-3.0",
             {{"https://github.com/drakmor/ampr_emu/releases/download/0.4.2.1/libSceAmpr.sprx",
               "69e6c4d5e4f5fb83c9e01815db5861c4c75734acbf4595cafa50d4c218116d1a", 423350, "runtime/libSceAmpr.sprx"}},
+            kAmprRuntimeGroup,
+            "ampr_emu 0.4.2.1",
+        },
+        {
+            "ampr_runtime_ng",
+            "AMPR emulator (ampr-emu-ng)",
+            "A rewrite of ampr_emu that reads faster and uses less memory; reads the same LZ4 packs. Conversions add "
+            "the AMPR emulator marked “in use”. ShadowMount+ swaps a game's libSceAmpr.sprx for the one in its emulators folder "
+            "while “update emulators” is on: turn that off if a game should keep this one.",
+            "quer3q/ampr-emu-ng release v0.1.0 (official release asset)",
+            "GPL-3.0",
+            {{"https://github.com/quer3q/ampr-emu-ng/releases/download/v0.1.0/libSceAmpr.sprx",
+              "69ee3b420c6798fa1b5fb5a9fed75479403bc8a64fe382db301477b1bf705956", 667408,
+              "runtime/ampr-emu-ng/libSceAmpr.sprx"}},
+            kAmprRuntimeGroup,
+            "ampr-emu-ng 0.1.0",
         },
         {
             "fpkg_keys",
@@ -66,6 +87,8 @@ const std::vector<Dependency>& dependencies() {
                 {ppt_key("metadata_modulus.bin"), "4a585ee47fea88d6b121d5e8afc9829438a27ee325cebec56a2ff537129a37c5",
                  384, "keys/metadata_modulus.bin"},
             },
+            "",
+            "",
         },
         {
             "ps4_keys",
@@ -78,6 +101,8 @@ const std::vector<Dependency>& dependencies() {
             "distributed by LibOrbisPkg (LGPL-3.0); not part of Alembic",
             {{"https://raw.githubusercontent.com/maxton/LibOrbisPkg/" + kLibOrbisPkgCommit + "/LibOrbisPkg/Util/Keys.cs",
               "48b44dd03e653a5c0991b0a2975477802ea2639c4e6ea3270b2ff20a1856f8a7", 38180, "keys/ps4/Keys.cs"}},
+            "",
+            "",
         },
     };
     return list;
@@ -123,6 +148,10 @@ JsonValue dependency_json(const Dependency& dep, const std::string& state_dir) {
     }
     v.set("files", std::move(files));
     v.set("bytes", total);
+    if (!dep.group.empty()) {
+        v.set("group", dep.group);
+        v.set("in_use", ampr_runtime_in_use(state_dir) == &dep);
+    }
     return v;
 }
 
@@ -143,6 +172,7 @@ Status install_dependency(const Dependency& dep, const std::string& state_dir) {
         ALEMBIC_TRY(out.file().write_at(0, contents[i]));
         ALEMBIC_TRY(out.commit());
     }
+    if (dep.group == kAmprRuntimeGroup) ALEMBIC_TRY(use_dependency(dep, state_dir));
     return {};
 }
 
@@ -152,6 +182,35 @@ Status remove_dependency(const Dependency& dep, const std::string& state_dir) {
         if (path_exists(path)) ALEMBIC_TRY(remove_file(path));
     }
     return {};
+}
+
+const Dependency* ampr_runtime_in_use(const std::string& state_dir) {
+    std::string chosen;
+    if (auto file = File::open(in_use_file(state_dir), File::Mode::read); file.ok()) {
+        auto size = file->size();
+        std::vector<std::uint8_t> data(size.ok() && *size <= 64 ? static_cast<std::size_t>(*size) : 0);
+        if (!data.empty() && file->read_at(0, data).ok()) chosen.assign(data.begin(), data.end());
+    }
+    const Dependency* first = nullptr;
+    for (const Dependency& d : dependencies()) {
+        if (d.group != kAmprRuntimeGroup || !is_regular_file(state_dir + "/" + d.files[0].path)) continue;
+        if (d.id == chosen) return &d;
+        if (!first) first = &d;
+    }
+    return first;
+}
+
+Status use_dependency(const Dependency& dep, const std::string& state_dir) {
+    if (dep.group != kAmprRuntimeGroup) return make_error(Errc::invalid_argument, dep.label + " is not an AMPR emulator");
+    ALEMBIC_ASSIGN(AtomicOutput out, AtomicOutput::create(in_use_file(state_dir), true));
+    ALEMBIC_TRY(out.file().write_at(0, Bytes(reinterpret_cast<const std::uint8_t*>(dep.id.data()), dep.id.size())));
+    return out.commit();
+}
+
+const Dependency* ampr_runtime_by_hash(const std::string& sha256) {
+    for (const Dependency& d : dependencies())
+        if (d.group == kAmprRuntimeGroup && d.files[0].sha256 == sha256) return &d;
+    return nullptr;
 }
 
 } // namespace alembic::engine

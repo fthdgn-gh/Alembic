@@ -2649,6 +2649,32 @@ What it took:
   to the fixed commit (owner agreed) and the release steps now name the
   file.
 
+### 2026-10-31: ampr-emu-ng as a second AMPR emulator
+
+- **quer3q/ampr-emu-ng** (GPL-3.0, created 2026-10-27, v0.1.0): a Rust
+  rewrite of drakmor's ampr_emu, one `libSceAmpr.sprx` like it. Reads the
+  same AMPRPAK4/AMPRDAT3 LZ4 packs Alembic writes, plus its own zstd packs
+  (`ampr_zstd.index` + `ampr_zstd-NNN.pak`, `docs/zstd-format.md` there,
+  written by quer3q/ps5-dump-forge's `ps5-dump-forge-zstd` crate, GPL-3.0).
+  Its README measures ~90% less game wait per read and ~75% less memory
+  than ampr_emu, and zstd packs 27% smaller than LZ4 on one game.
+- **Integrated as a component** (`ampr_runtime_ng` in deps.cpp): the
+  official release asset, SHA-256 `69ee3b42…af705956`, 667,408 bytes, kept
+  at `<state>/runtime/ampr-emu-ng/libSceAmpr.sprx`. Both emulators are in
+  the group `ampr_runtime`; `<state>/runtime/in-use` names the one
+  conversions and "Add the AMPR emulator" use (`EngineConfig::runtime_path`,
+  `--runtime` still wins). Downloading one makes it the one in use;
+  `POST /api/deps/ID/use` (Components' "Use this one") switches back;
+  removing the one in use falls back to the other. `/api/info`'s
+  `lz4_runtime.pinned` is true for either, `name` says which.
+- **ShadowMount+'s `update_emulators=1`** replaces a game's fakelib
+  `libSceAmpr.sprx` with the one in its emulators folder, if there is one
+  there: the component's text says to turn it off.
+- **Not yet:** tried on the console (owner, with a local build); writing
+  zstd packs (a port of the ps5-dump-forge writer, libzstd 1.5.7 to match
+  it, its random archive ID would need a seed for an oracle). Waiting on
+  how ng does on the console.
+
 ## Making a release
 
 1. **Update the README first** (owner): new features, limits, options;
