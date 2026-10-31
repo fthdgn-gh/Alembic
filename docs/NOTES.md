@@ -2770,10 +2770,27 @@ What it took:
   paired engine, a browser's file) now goes over that URL by itself;
   `install_via: "http"` forces it for a local one. Files -> Install by
   streaming (test), in the page and the app (pictures checked).
-- **Console test (owner):** Install by streaming a small Alembic package,
-  then open `http://<console>:5940/api/pkg-sources` and keep the JSON:
-  it shows how the installer reads. Also: does the install finish, and
-  is the package still needed afterwards?
+- **Console test (owner, 2026-10-31):** a 1.3 GB debug package (not
+  Alembic-made) installed over HTTP from `/data`; the title shows as
+  installed. (A first try ran an older engine the app had carried: it
+  ignored `install_via` and installed by path. The app bundled the payload
+  a minute before the payload was rebuilt; rebuild the app after the
+  payload.) What the installer asked for (`/api/pkg-sources`), against the
+  package's segments FIH 0x0, PFS 0x10000, SC (CNT) 0x4f5e0000, SI
+  0x523d0000:
+  1. 64 KiB probes of the FIH header and the SC start, repeated ~6 times;
+  2. the whole SI (2 MB at the end), then two 64 KiB pieces of the SC;
+  3. the rest of the SC in order (~48 MB: CNT entries, media, trophies);
+  4. then the PFS front to back in 18 MiB ranges, two in flight, ~188 MB/s.
+  Every byte once (plus the repeated probes); ~9 s in all; nothing read
+  after, so the installer copies the package.
+- **For packages built on the fly from images:** the header, SC and SI
+  (digests of the whole image, imagedigs, naps_meta_18, the CRCs) are read
+  before any PFS byte, so a first pass must compute them all; the PFS can
+  then be generated front to back as it is read (two 18 MiB ranges ahead).
+  Deterministic output (fixed seed, deterministic Kraken, XTS per block)
+  makes the second pass byte-exact. Next check: the same with an
+  Alembic-made package (does it install, same order?).
 
 ## Next session
 
