@@ -37,9 +37,17 @@ struct EncodedBlock {
     std::size_t first_chunk_size = 0; // two sub-chunks only
 };
 
+// The match finder's tables, reused from block to block: one per thread.
+// (Allocating them per block costs more than encoding on some systems.)
+struct EncoderScratch {
+    std::vector<int> head, prev;
+};
+
 // Encodes one block of 8 bytes to 256 KiB as ProsperoPkgTool's
 // KrakenEncoder.TryEncodeNewLz does; nullopt when it would not be smaller
-// (the caller stores the block instead).
+// (the caller stores the block instead). The same bytes with or without
+// `scratch`.
+std::optional<EncodedBlock> encode_block(Bytes input, EncoderScratch& scratch);
 std::optional<EncodedBlock> encode_block(Bytes input);
 
 } // namespace alembic::kraken

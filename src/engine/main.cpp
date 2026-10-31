@@ -466,6 +466,7 @@ private:
         // Packages for the console's installer, and how it read them.
         if (r.path.rfind("/pkg-source/", 0) == 0) return pkg_sources::serve(r);
         if (r.path == "/api/pkg-sources" && r.method == "GET") return json(200, pkg_sources::report());
+        if (r.path == "/api/bench" && r.method == "GET") return json(200, kraken_bench()); // a few seconds
         if (r.path == "/api/info" && r.method == "GET") return info();
         if (r.path == "/api/browse" && r.method == "GET") return browse(r);
         if (r.path == "/api/inspect" && r.method == "GET") return inspect(r);

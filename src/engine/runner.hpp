@@ -115,6 +115,11 @@ std::string backports_root_for(const std::string& image, const std::string& titl
 // Copy and move jobs.
 Result<JsonValue> run_transfer(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress);
 // Either, by spec.kind.
+// How fast this machine encodes Kraken (GET /api/bench): 16 MB of game-like
+// data with fresh tables per block on one thread, then with reused tables on
+// 1, 2, 4, ... threads up to the cores it reports. MB/s each, and the cores.
+JsonValue kraken_bench();
+
 Result<JsonValue> run_job(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress);
 
 // SHA-256 of ampr_emu 0.4.2.1's PackedStdio libSceAmpr.sprx (the official

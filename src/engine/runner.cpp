@@ -20,6 +20,7 @@
 
 #include "alembic/ampr_emu.hpp"
 #include "alembic/convert.hpp"
+#include "alembic/kraken.hpp"
 #include "alembic/ffpfsc.hpp"
 #include "alembic/lz4pack.hpp"
 #include "alembic/resume.hpp"
@@ -759,6 +760,56 @@ Result<JsonValue> run_install(const JobSpec& spec, const EngineConfig& config, c
     r.set("method", "handed to the system installer; it installs in the background (see Downloads)");
     if (uri != input) r.set("url", uri); // its requests: /api/pkg-sources
     return r;
+}
+
+JsonValue kraken_bench() {
+    // Game-like data: runs of text-ish tokens, short repeats and noise.
+    constexpr std::size_t kBlock = 0x40000, kTotal = 16u << 20;
+    std::vector<std::uint8_t> data(kTotal);
+    std::uint32_t x = 2463534242u;
+    auto next = [&] { x ^= x << 13; x ^= x >> 17; x ^= x << 5; return x; };
+    for (std::size_t i = 0; i < kTotal;) {
+        const std::uint32_t r = next();
+        const std::size_t run = 16 + r % 400;
+        if ((r >> 12) % 3 == 0) { // noise (already-compressed data)
+            for (std::size_t k = 0; k < run && i < kTotal; ++k) data[i++] = static_cast<std::uint8_t>(next());
+        } else if (i > 4096) { // a repeat from earlier
+            const std::size_t from = i - 1 - next() % 4000;
+            for (std::size_t k = 0; k < run && i < kTotal; ++k, ++i) data[i] = data[from + k];
+        } else {
+            for (std::size_t k = 0; k < run && i < kTotal; ++k) data[i++] = static_cast<std::uint8_t>('a' + next() % 20);
+        }
+    }
+    const std::size_t blocks = kTotal / kBlock;
+    auto run = [&](unsigned threads, bool fresh) {
+        const auto t0 = std::chrono::steady_clock::now();
+        std::vector<std::thread> pool;
+        std::atomic<std::size_t> next_block{0};
+        for (unsigned t = 0; t < threads; ++t)
+            pool.emplace_back([&] {
+                kraken::EncoderScratch scratch;
+                for (std::size_t b; (b = next_block++) < blocks;) {
+                    Bytes block(data.data() + b * kBlock, kBlock);
+                    if (fresh) (void)kraken::encode_block(block);
+                    else (void)kraken::encode_block(block, scratch);
+                }
+            });
+        for (std::thread& t : pool) t.join();
+        const double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        return s > 0 ? kTotal / 1e6 / s : 0.0;
+    };
+    const unsigned cores = std::max(1u, std::thread::hardware_concurrency());
+    JsonValue v = JsonValue::object();
+    v.set("cores", static_cast<std::int64_t>(cores));
+    v.set("fresh_tables_1_thread_mb_s", run(1, true));
+    JsonValue by = JsonValue::object();
+    for (unsigned t = 1;; t *= 2) {
+        const unsigned n = std::min(t, cores);
+        by.set(std::to_string(n), run(n, false));
+        if (n == cores) break;
+    }
+    v.set("mb_s_by_threads", std::move(by));
+    return v;
 }
 
 Result<JsonValue> run_job(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress) {

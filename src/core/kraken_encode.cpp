@@ -420,9 +420,17 @@ bool encode_chunk(Finder& finder, int chunk_start, int chunk_end, bool with_seed
 } // namespace
 
 std::optional<EncodedBlock> encode_block(Bytes input) {
+    EncoderScratch scratch;
+    return encode_block(input, scratch);
+}
+
+std::optional<EncodedBlock> encode_block(Bytes input, EncoderScratch& scratch) {
     if (input.size() < static_cast<std::size_t>(kSeed) || input.size() > kMaxBlockSize) return std::nullopt;
-    // Fresh tables per call (no thread_local: the PS5 payload has no TLS precedent here).
-    std::vector<int> head(std::size_t(1) << kHashBits, -1), prev(input.size());
+    // Every call starts the head table afresh; `prev` is only read where written.
+    std::vector<int>& head = scratch.head;
+    std::vector<int>& prev = scratch.prev;
+    head.assign(std::size_t(1) << kHashBits, -1);
+    if (prev.size() < input.size()) prev.resize(input.size());
     const int n = static_cast<int>(input.size());
     Finder finder{input.data(), n, head, prev};
 

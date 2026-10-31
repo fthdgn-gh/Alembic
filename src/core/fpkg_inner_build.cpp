@@ -301,12 +301,13 @@ std::vector<std::uint8_t> pfsv3_container(const std::vector<std::uint8_t>& paylo
     const std::size_t blocks = n == 0 ? 1 : div_round_up(n, block_size);
     // Each block's bytes in the data section: Kraken where it is smaller.
     std::vector<std::optional<kraken::EncodedBlock>> encoded(blocks);
+    kraken::EncoderScratch scratch;
     std::size_t data_size = 0;
     for (std::size_t i = 0; i < blocks; ++i) {
         const std::size_t start = i * static_cast<std::size_t>(block_size);
         const std::size_t size = n == 0 ? 0 : std::min<std::size_t>(block_size, n - start);
         if (kraken && size > 0) {
-            encoded[i] = kraken::encode_block(Bytes(payload.data() + start, size));
+            encoded[i] = kraken::encode_block(Bytes(payload.data() + start, size), scratch);
             if (encoded[i] && encoded[i]->payload.size() >= size) encoded[i].reset();
         }
         const std::size_t enc = encoded[i] ? encoded[i]->payload.size() : size;
@@ -556,6 +557,7 @@ Result<InnerImage> write_inner_image(const std::vector<InnerFile>& files, const 
     const std::size_t batch = kraken_mode ? std::max<std::size_t>(2 * workers, 1) : 1;
     std::vector<std::vector<std::uint8_t>> raw(batch, std::vector<std::uint8_t>(kChunk));
     std::vector<std::optional<kraken::EncodedBlock>> coded(batch);
+    std::vector<kraken::EncoderScratch> scratch(workers); // one per worker
     // The files' SHA3 (of their bytes on disk) runs beside the reading (the hasher copies each piece).
     crypto::BackgroundSha3 hasher(worker_count(options.threads) > 1, kChunk);
     for (std::size_t index = 0; index < afid_order.size(); ++index) {
@@ -645,8 +647,9 @@ Result<InnerImage> write_inner_image(const std::vector<InnerFile>& files, const 
                     const bool terminal = o + sizes[i] >= f->length;
                     o += sizes[i];
                     if (terminal) continue;
-                    auto job = [&, i](unsigned) {
-                        std::optional<kraken::EncodedBlock> e = kraken::encode_block(Bytes(raw[i].data(), sizes[i]));
+                    auto job = [&, i](unsigned worker) {
+                        std::optional<kraken::EncodedBlock> e =
+                            kraken::encode_block(Bytes(raw[i].data(), sizes[i]), scratch[worker % scratch.size()]);
                         std::lock_guard<std::mutex> lock(m);
                         coded[i] = std::move(e);
                         if (--left == 0) cv.notify_one();
