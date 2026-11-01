@@ -6,6 +6,7 @@
 
 #include "alembic/io.hpp"
 
+#include <cstdlib>
 #include <string_view>
 
 namespace alembic::engine {
