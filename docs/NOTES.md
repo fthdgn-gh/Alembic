@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (2026-10-31, release 0.4.0)
+## Where we are (2026-11-01, release 0.4.1)
 
 ### What works
 
@@ -38,6 +38,14 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   lock); Install... on images and folders (convert, install over HTTP,
   delete; tried on the console); SMB 3 encryption when required; FTPS and
   HTTPS WebDAV on mbedTLS with certificates pinned on first use.
+- **In 0.4.1 (2026-11-01):** Rename suggests names from a game's title, title
+  ID, version and format, made by formats the person edits in Settings →
+  Rename formats (`src/engine/name_formats.hpp`: fields, `[titleid]`,
+  modifiers, `<…>` optional parts, spaces and letters per format; kept in
+  `<state>/name_formats.json`; `/api/names...`). Names too long for
+  ShadowMount+ are flagged and get a shortened twin (title cut at a word);
+  a typed one asks first; hidden names stay hidden. The length warning
+  counts bytes; `shorten_name` no longer cuts inside a UTF-8 character.
   Console limits measured: payloads run on 5 of 16 logical CPUs (mask
   0xEA00) at priority 700.
 - **Console app** (`app/`, title `PPSA99594`, work for 0.3.0; see the
