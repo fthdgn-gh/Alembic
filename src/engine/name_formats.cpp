@@ -313,15 +313,68 @@ std::optional<std::string> render_name(const NameFormat& f, const NameValues& v)
     return s;
 }
 
+namespace {
+// A new name with the old one's leading "." and extension.
+struct NameParts {
+    std::string hidden, ext;
+};
+NameParts parts_of(const std::string& entry_name, bool folder) {
+    NameParts p;
+    p.hidden = entry_name.size() > 1 && entry_name[0] == '.' ? "." : "";
+    const std::string plain = entry_name.substr(p.hidden.size());
+    const std::size_t dot = plain.rfind('.');
+    if (!folder && dot != std::string::npos && dot > 0) p.ext = plain.substr(dot);
+    return p;
+}
+std::size_t char_count(const std::string& s) {
+    std::size_t n = 0;
+    for (char c : s) n += (static_cast<unsigned char>(c) & 0xC0) != 0x80;
+    return n;
+}
+// Without spaces, dots, dashes or commas at the end (left by a cut).
+std::string trim_cut(std::string s) {
+    while (!s.empty() && std::string_view(" .-,_").find(s.back()) != std::string_view::npos) s.pop_back();
+    return s;
+}
+} // namespace
+
 std::optional<std::string> suggested_name(const NameFormat& f, const NameValues& v, const std::string& entry_name,
                                           bool folder) {
     auto stem = render_name(f, v);
     if (!stem) return std::nullopt;
-    const std::string hidden = entry_name.size() > 1 && entry_name[0] == '.' ? "." : "";
-    const std::string plain = entry_name.substr(hidden.size());
-    const std::size_t dot = plain.rfind('.');
-    const std::string ext = !folder && dot != std::string::npos && dot > 0 ? plain.substr(dot) : "";
-    return hidden + *stem + ext;
+    const NameParts p = parts_of(entry_name, folder);
+    return p.hidden + *stem + p.ext;
+}
+
+std::optional<std::string> fitted_name(const NameFormat& f, const NameValues& v, const std::string& entry_name,
+                                       bool folder, std::size_t limit) {
+    const NameParts p = parts_of(entry_name, folder);
+    auto stem = render_name(f, v);
+    if (!stem || !limit || stem->size() <= limit) return std::nullopt;
+    const std::size_t room = limit;
+    // The title, shorter and shorter: whole words first, then any character.
+    NameValues cut = v;
+    const std::string title = safe_name(v.title);
+    // Which characters are spaces (where whole words end).
+    std::vector<bool> space;
+    for (std::size_t i = 0; i < title.size(); ++i)
+        if ((static_cast<unsigned char>(title[i]) & 0xC0) != 0x80) space.push_back(title[i] == ' ');
+    const std::size_t total = space.size();
+    for (bool words : {true, false}) {
+        for (std::size_t n = total; n-- > 1;) {
+            if (words && !space[n]) continue; // the cut is not before a space
+            cut.title = trim_cut(first_chars(title, n));
+            if (cut.title.empty()) break;
+            auto s = render_name(f, cut);
+            if (s && s->size() <= room) return p.hidden + *s + p.ext;
+        }
+    }
+    // No title to cut (or not enough): the end of the name.
+    std::size_t keep = room;
+    while (keep > 0 && (static_cast<unsigned char>((*stem)[keep]) & 0xC0) == 0x80) --keep;
+    std::string s = trim_cut(stem->substr(0, keep));
+    if (s.empty()) return std::nullopt;
+    return p.hidden + s + p.ext;
 }
 
 std::vector<NameFormat> default_name_formats() {

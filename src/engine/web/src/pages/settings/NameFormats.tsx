@@ -51,7 +51,8 @@ export function NameFormats() {
         {list.map((f, i) => (
           <div class="ftprow">
             <div class="nm">{ICONS.file()}</div>
-            <div style="min-width:0;flex:1"><div class="ellip mono">{f.pattern}</div><div class="muted ellip" style="font-size:.85rem">{f.sample || "–"}</div></div>
+            <div style="min-width:0;flex:1"><div class="ellip mono">{f.pattern}</div><div class="muted ellip" style="font-size:.85rem">{f.sample || "–"}</div>
+              {f.warning ? <div class="note" style="margin-top:.2rem">{tMsg(f.warning)}</div> : null}</div>
             <SmallBtn k={"nf:ed:" + i} text={t("Edit")} onClick={() => formatDialog(i)} />
             {i ? <SmallBtn k={"nf:up:" + i} text={t("Up")} onClick={() => { const l = list.slice(); l.splice(i - 1, 0, l.splice(i, 1)[0]); saveFormats(l, t("Format moved up")).then((m) => m && toast(m, "bad")); }} /> : null}
             <SmallBtn k={"nf:rm:" + i} cls="danger" text={t("Remove")} onClick={() => saveFormats(list.filter((_, k) => k !== i), t("Format removed")).then((m) => m && toast(m, "bad"))} />
@@ -80,13 +81,13 @@ function FormatForm(props: { index: number }) {
   const [pattern, setPattern] = useState(old ? old.pattern : EXAMPLE);
   const [spaces, setSpaces] = useState<Spaces>(old ? old.spaces : "keep");
   const [letters, setLetters] = useState<Letters>(old ? old.letters : "keep");
-  const [preview, setPreview] = useState<{ name?: string; error?: string }>({});
+  const [preview, setPreview] = useState<{ name?: string; warning?: string; error?: string }>({});
   const f = useForm();
   // What it makes of the sample game, asked again a moment after each change.
   useEffect(() => {
     let gone = false;
     const timer = setTimeout(() => {
-      api<{ name?: string; error?: string }>("POST", "/api/names/preview", { pattern, spaces, letters })
+      api<{ name?: string; warning?: string; error?: string }>("POST", "/api/names/preview", { pattern, spaces, letters })
         .then((p) => { if (!gone) setPreview(p); }, () => {});
     }, 250);
     return () => { gone = true; clearTimeout(timer); };
@@ -106,6 +107,7 @@ function FormatForm(props: { index: number }) {
         <div class={preview.error ? "msg err" : "muted mono"} style="display:block;margin:.3rem 0 .6rem;font-size:.9rem;word-break:break-word">
           {preview.error ? tMsg(preview.error) : preview.name ? t("Sample: {name}", { name: preview.name }) : " "}
         </div>
+        {!preview.error && preview.warning ? <div class="note" style="margin:-.3rem 0 .6rem">{tMsg(preview.warning)}</div> : null}
         <ChoiceRow dataKey="nf:spaces" label={t("Spaces")} options={spacesOptions()} value={spaces} onChange={setSpaces} />
         <ChoiceRow dataKey="nf:letters" label={t("Letters")} options={lettersOptions()} value={letters} onChange={setLetters} />
         <Facts rows={[

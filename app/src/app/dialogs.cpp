@@ -350,8 +350,10 @@ public:
             }
             const float ls = 1.05f * R, ss = 0.8f * R;
             const float tw = w - 2.0f * R;
+            // Long labels wrap, as on the page (a long file name, say).
+            const float label_h = std::max(ls * 1.45f, draw::paragraph_height(ui, Face::regular, it.label, tw, ls, ls * 1.45f));
             const float sub_h = it.sub.empty() ? 0.0f : draw::paragraph_height(ui, Face::regular, it.sub, tw, ss, ss * 1.45f);
-            const float h = 0.75f * R * 2.0f + ls * 1.45f + sub_h;
+            const float h = 0.75f * R * 2.0f + label_h + sub_h;
             y += 0.1f * R;
             const Rect r{x, y, w, h};
             const Id id = Id("choice") / static_cast<std::int64_t>(i);
@@ -361,10 +363,9 @@ public:
             if (ui.visible(r)) {
                 if (f) ui.list->rounded_rect(r, 0.6f * R, it.danger ? bad : accent);
                 const Color ink = f ? Color{1, 1, 1, 1} : it.danger ? bad : style::text;
-                draw::text_fit(ui, Face::regular, it.label, x + 1.0f * R, draw::baseline(y + 0.75f * R + ls * 0.725f, ls),
-                               ls, tw, ink);
+                draw::paragraph(ui, Face::regular, it.label, x + 1.0f * R, y + 0.75f * R, tw, ls, ls * 1.45f, ink);
                 if (!it.sub.empty())
-                    draw::paragraph(ui, Face::regular, it.sub, x + 1.0f * R, y + 0.75f * R + ls * 1.45f, tw, ss, ss * 1.45f,
+                    draw::paragraph(ui, Face::regular, it.sub, x + 1.0f * R, y + 0.75f * R + label_h, tw, ss, ss * 1.45f,
                                     f ? Color{1, 1, 1, 0.8f} : muted);
             }
             if (ui.item(id, r, kNoRing | (autof ? kAutofocus : 0u), 0.6f * R)) {

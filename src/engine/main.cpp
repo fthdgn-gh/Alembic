@@ -37,9 +37,11 @@
 //   GET  /api/names                   the formats Rename suggests names with (name_formats.hpp),
 //                                     each with the name it makes for a made-up game
 //   POST /api/names  {formats: [{pattern, spaces, letters}]} | {reset: true}   change them
-//   POST /api/names/preview  {pattern, spaces, letters}   {name} or {error}: what it makes of
-//                                     a made-up game
-//   GET  /api/names/suggest?path=P    {suggestions: [{name, pattern, warning}]} for a game
+//   POST /api/names/preview  {pattern, spaces, letters}   {name, warning} or {error}: what it
+//                                     makes of a made-up game (an .ffpfsc, the shortest limit)
+//   GET  /api/names/suggest?path=P    {suggestions: [{name, pattern, warning[, shortened]}]} for a
+//                                     game; a name too long for ShadowMount+ is followed by a shortened one
+//   POST /api/names/check  {path, name}   {warning}: "" or why ShadowMount+ could not mount it
 //   POST /api/launcher   {enabled}    add or remove the Media-tab shortcut (PS5)
 //   POST /api/cache/clear             delete the cached game info and icons
 //   POST /api/lang       {lang}       the language of the engine's notifications
@@ -1690,6 +1692,10 @@ private:
     static NameFormat format_from(const JsonValue& v) {
         return {v["pattern"].str(), v["spaces"].str("keep"), v["letters"].str("keep")};
     }
+    // A hidden name (".name") is judged as it will be when shown to ShadowMount+ again.
+    static std::string shown_name(const std::string& name) {
+        return name.size() > 1 && name[0] == '.' ? name.substr(1) : name;
+    }
     // A made-up game, to show what a format makes.
     static constexpr const char* kSampleName = "Sample Game.ffpfsc";
     static NameValues sample_values() {
@@ -1700,7 +1706,9 @@ private:
         JsonValue list = JsonValue::array();
         for (const NameFormat& f : name_formats_.list()) {
             JsonValue v = format_json(f);
-            v.set("sample", suggested_name(f, sample_values(), kSampleName, false).value_or(""));
+            const std::string sample = suggested_name(f, sample_values(), kSampleName, false).value_or("");
+            v.set("sample", sample);
+            v.set("warning", sample.empty() ? std::string() : mount_name_warning("/" + sample));
             list.push(std::move(v));
         }
         JsonValue v = JsonValue::object();
@@ -1725,11 +1733,24 @@ private:
                     auto s = suggested_name(f, values, name, folder);
                     if (!s || std::find(seen.begin(), seen.end(), *s) != seen.end()) continue;
                     seen.push_back(*s);
+                    const std::string at = path.substr(0, path.rfind('/') + 1);
+                    const std::string warning = folder ? std::string() : mount_name_warning(at + shown_name(*s));
                     JsonValue e = JsonValue::object();
                     e.set("name", *s);
                     e.set("pattern", f.pattern);
-                    e.set("warning", folder ? std::string() : mount_name_warning(path.substr(0, path.rfind('/') + 1) + *s));
+                    e.set("warning", warning);
                     list.push(std::move(e));
+                    // Too long for ShadowMount+: the same, shortened to fit.
+                    if (warning.empty()) continue;
+                    auto fit = fitted_name(f, values, name, folder, mount_name_limit(at + *s));
+                    if (!fit || std::find(seen.begin(), seen.end(), *fit) != seen.end()) continue;
+                    seen.push_back(*fit);
+                    JsonValue short_one = JsonValue::object();
+                    short_one.set("name", *fit);
+                    short_one.set("pattern", f.pattern);
+                    short_one.set("warning", "");
+                    short_one.set("shortened", true);
+                    list.push(std::move(short_one));
                 }
             }
             JsonValue v = JsonValue::object();
@@ -1746,7 +1767,19 @@ private:
                 v.set("error", s.error().message);
                 return json(200, v);
             }
-            v.set("name", suggested_name(f, sample_values(), kSampleName, false).value_or(""));
+            const std::string sample = suggested_name(f, sample_values(), kSampleName, false).value_or("");
+            v.set("name", sample);
+            v.set("warning", sample.empty() ? std::string() : mount_name_warning("/" + sample));
+            return json(200, v);
+        }
+        // A name typed for path: what ShadowMount+ would think of it.
+        if (r.path == "/api/names/check") {
+            std::string path = strip_slashes((*body)["path"].str()), name = (*body)["name"].str();
+            if (!input_allowed(path, config_.available_roots())) return error(403, "outside the allowed folders");
+            JsonValue v = JsonValue::object();
+            v.set("warning", alembic::is_directory(path)
+                                 ? std::string()
+                                 : mount_name_warning(path.substr(0, path.rfind('/') + 1) + shown_name(name)));
             return json(200, v);
         }
         if (r.path != "/api/names") return error(404, "not found");

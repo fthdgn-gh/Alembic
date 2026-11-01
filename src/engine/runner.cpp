@@ -86,8 +86,9 @@ std::string mount_name_warning(const std::string& output) {
     std::size_t dot = name.rfind('.');
     std::size_t length = dot == std::string::npos ? name.size() : dot;
     if (length <= limit) return "";
-    return "ShadowMount+ cannot mount this image: its name has " + std::to_string(length) +
-           " characters before the extension, at most " + std::to_string(limit) + " work";
+    return "ShadowMount+ cannot mount this image: its name takes " + std::to_string(length) +
+           " bytes before the extension, at most " + std::to_string(limit) +
+           " work (a letter outside A-Z takes 2 to 4)";
 }
 
 std::string shorten_name(const std::string& name, std::size_t limit) {
@@ -117,6 +118,8 @@ std::string shorten_name(const std::string& name, std::size_t limit) {
     // Keep the tag, cut the rest.
     std::string body = name.substr(0, name.size() - tag.size());
     std::size_t keep = limit > tag.size() ? limit - tag.size() : limit;
+    // Not inside a UTF-8 character.
+    while (keep > 0 && keep < body.size() && (static_cast<unsigned char>(body[keep]) & 0xC0) == 0x80) --keep;
     return body.substr(0, keep) + (limit > tag.size() ? tag : "");
 }
 

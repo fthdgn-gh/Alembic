@@ -186,6 +186,33 @@ TEST_CASE(engine_rename_formats) {
     for (const NameFormat& f : default_name_formats()) CHECK(check_name_format(f).ok());
     CHECK(safe_name(" a/b*c?\"d<e>f|g\x01h. ") == "abcdefg h");
 
+    // Shortened to fit ShadowMount+: the title is cut, the rest kept.
+    const NameFormat tagged{"{title} [{titleid}] [v{version}]"};
+    NameValues longer = v;
+    longer.title = "A Very Long Game Title That Goes On And On, Remastered";
+    auto fit = fitted_name(tagged, longer, "x.ffpfsc", false, 58);
+    CHECK(fit.has_value() && fit->size() - 7 <= 58);
+    CHECK(fit.value_or("").find(" [ABCD12345] [v01.004.000].ffpfsc") != std::string::npos);
+    CHECK(fit.value_or("").rfind("A Very Long Game Title", 0) == 0);
+    CHECK(fit.value_or("") == "A Very Long Game Title That Goes [ABCD12345] [v01.004.000].ffpfsc"); // whole words
+    CHECK(!fitted_name(tagged, v, "x.ffpfsc", false, 58)); // fits already
+    // Hidden names keep their dot, which does not count.
+    CHECK(fitted_name(NameFormat{"{title}"}, longer, ".x.exfat", false, 10).value_or("") == ".A Very.exfat");
+    CHECK(fitted_name(NameFormat{"{title}"}, longer, "x.exfat", false, 3).value_or("") == "A.exfat");
+    NameValues one_word = v;
+    one_word.title = "Supercalifragilistic Game";
+    CHECK(fitted_name(NameFormat{"{title}"}, one_word, "x.exfat", false, 5).value_or("") == "Super.exfat"); // no word fits
+    // UTF-8: never half a character.
+    NameValues kana = v;
+    kana.title = "\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86\xE3\x81\x88\xE3\x81\x8A"; // 5 characters, 15 bytes
+    CHECK(fitted_name(NameFormat{"{title}"}, kana, "x.exfat", false, 8).value_or("") ==
+          "\xE3\x81\x82\xE3\x81\x84.exfat");
+    // No title in the format: the end of the name goes.
+    CHECK(fitted_name(NameFormat{"{contentid} {titleid}"}, v, "x.exfat", false, 12).value_or("") == "UP0000-ABCD1.exfat");
+    CHECK(shorten_name("\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86", 4) == "\xE3\x81\x82");
+    CHECK(mount_name_warning("/d/" + std::string(59, 'a') + ".ffpfsc").find("takes 59 bytes") != std::string::npos);
+    CHECK(mount_name_warning("/d/" + std::string(58, 'a') + ".ffpfsc").empty());
+
     // Kept in the state folder; reset brings the defaults back.
     std::string tmp = test::make_temp_dir();
     {

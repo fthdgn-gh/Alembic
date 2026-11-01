@@ -117,12 +117,20 @@ async function renameEntry(e: Entry) {
   }
   if (names.length) {
     const items: ChoiceItem<string>[] = [{ label: e.name, sub: t("Current name"), value: e.name }];
-    const picked = await choose(t("Rename"), items.concat(names.map((s) => ({ label: s.name, sub: s.warning ? tMsg(s.warning) : s.pattern, value: s.name }))));
+    const picked = await choose(t("Rename"), items.concat(names.map((s) => ({ label: s.name, value: s.name,
+      sub: s.warning ? t("Too long for ShadowMount+") : s.shortened ? t("Shortened to fit ShadowMount+") : s.pattern }))));
     if (picked == null) return;
     start = picked;
   }
   const name = await ask({ title: t("Rename"), input: start, ok: t("Rename") });
   if (!name || name === true || name === e.name) return;
+  // An image whose new name ShadowMount+ could not mount: asked first.
+  if (e.kind !== "folder") {
+    let warning = "";
+    try { warning = (await api<{ warning: string }>("POST", "/api/names/check", { path: e.path, name })).warning; }
+    catch (err) { warning = ""; } // an engine before rename formats
+    if (warning && !await ask({ title: t("Too long for ShadowMount+"), body: <p>{tMsg(warning)}</p>, ok: t("Rename anyway") })) return;
+  }
   try { await api("POST", "/api/fs/rename", { path: e.path, name }); toast(t("Renamed to {name}", { name }), "ok"); browse(cwd.value!, false, dir(e.path) + "/" + name); }
   catch (err: any) { toast(tMsg(err.message), "bad"); }
 }

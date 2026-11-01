@@ -344,6 +344,9 @@ public:
         y += 0.3f * R;
         y += std::max(1.3f * R, draw::paragraph(ui, preview_error_.empty() ? Face::mono : Face::regular, shown, sheet.x(), y,
                                                 sheet.w(), 0.85f * R, 1.3f * R, preview_error_.empty() ? muted : bad));
+        if (preview_error_.empty() && !preview_warning_.empty())
+            y += draw::paragraph(ui, Face::regular, t_msg(preview_warning_), sheet.x(), y, sheet.w(), 0.85f * R, 1.3f * R,
+                                 style::warn);
         y += 0.4f * R;
         y += choice_row(ui, "nf:spaces", sheet.x(), y, sheet.w(), t("Spaces"), "", {t("Keep"), t("Remove"), "_", ".", "-"},
                         &spaces);
@@ -364,7 +367,7 @@ public:
     }
 
 private:
-    std::string preview_, preview_error_;
+    std::string preview_, preview_error_, preview_warning_;
     std::string pending_, asked_;  // the choices waiting, and the ones last asked about
     float wait_ = 0.0f;
     bool asking_ = false;
@@ -397,6 +400,7 @@ private:
             if (!r.ok()) return;
             preview_ = r.json["name"].str();
             preview_error_ = r.json["error"].str();
+            preview_warning_ = r.json["warning"].str();
         });
     }
     void save(App& app) {
@@ -748,8 +752,9 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
                                    save_name_formats(app, l, t("Format removed"));
                                }});
             const std::string sample = f["sample"].str();
-            yy += ftprow(ui, ix, yy, iw, draw::Icon::file, f["pattern"].str(), sample.empty() ? "\xE2\x80\x93" : sample, "",
-                         muted, buttons, i == 0);
+            const std::string warning = f["warning"].str();
+            yy += ftprow(ui, ix, yy, iw, draw::Icon::file, f["pattern"].str(), sample.empty() ? "\xE2\x80\x93" : sample,
+                         warning.empty() ? std::string() : t_msg(warning), style::warn, buttons, i == 0);
         }
         if (list.empty())
             yy += draw::paragraph(ui, Face::regular, t("No formats: Rename asks for a name straight away."), ix, yy, iw,

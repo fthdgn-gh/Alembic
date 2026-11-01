@@ -62,7 +62,7 @@ std::size_t mount_name_limit(const std::string& output);
 std::string mount_name_warning(const std::string& output);
 // `name` (without extension) cut to `limit`: the title ID, the -Axxxx-Vxxxx
 // version and a trailing -lz4 / -unpacked tag when the name has them, else
-// the first `limit` characters.
+// the first `limit` bytes (never half a UTF-8 character).
 std::string shorten_name(const std::string& name, std::size_t limit);
 
 // Absolute, no "." / ".." parts, and below one of `roots`.

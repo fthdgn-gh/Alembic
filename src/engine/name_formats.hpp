@@ -62,6 +62,12 @@ std::optional<std::string> render_name(const NameFormat& format, const NameValue
 std::optional<std::string> suggested_name(const NameFormat& format, const NameValues& values,
                                           const std::string& entry_name, bool folder);
 
+// Like suggested_name, but the name before the extension (not counting a
+// leading ".") takes at most `limit` bytes: the title is cut until it fits, else the
+// end of the name. Nothing when the name already fits or cannot be cut.
+std::optional<std::string> fitted_name(const NameFormat& format, const NameValues& values,
+                                       const std::string& entry_name, bool folder, std::size_t limit);
+
 // A title made safe for every file system the engine writes to.
 std::string safe_name(const std::string& text);
 

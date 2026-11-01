@@ -171,10 +171,20 @@ void App::rename_entry(const Entry& e) {
             JsonValue body = JsonValue::object();
             body.set("path", e.path);
             body.set("name", name);
-            post("/api/fs/rename", body, or_toast([this, e, name](const Reply&) {
-                toast(t("Renamed to {name}", {{"name", name}}), Toast::ok);
-                browse(cwd, dir(e.path) + "/" + name);
-            }));
+            auto rename = [this, e, name, body] {
+                post("/api/fs/rename", body, or_toast([this, e, name](const Reply&) {
+                    toast(t("Renamed to {name}", {{"name", name}}), Toast::ok);
+                    browse(cwd, dir(e.path) + "/" + name);
+                }));
+            };
+            if (e.kind == "folder") return rename();
+            // An image whose new name ShadowMount+ could not mount: asked first
+            // (an engine before rename formats answers 404: no question).
+            post("/api/names/check", body, [this, rename](const Reply& r) {
+                const std::string warning = r.ok() ? r.json["warning"].str() : std::string();
+                if (warning.empty()) return rename();
+                ask(*this, t("Too long for ShadowMount+"), text_body(t_msg(warning)), t("Rename anyway"), false, rename);
+            });
         });
     };
     if (!is_convertible(e)) return edit(e.name);
@@ -186,8 +196,10 @@ void App::rename_entry(const Entry& e) {
         items.push_back({e.name, t("Current name"), false, false, false, [edit, e] { edit(e.name); }});
         for (const auto& s : names) {
             const std::string name = s["name"].str(), warning = s["warning"].str();
-            items.push_back({name, warning.empty() ? s["pattern"].str() : t_msg(warning), false, false, false,
-                             [edit, name] { edit(name); }});
+            const std::string sub = !warning.empty()             ? t("Too long for ShadowMount+")
+                                    : s["shortened"].boolean() ? t("Shortened to fit ShadowMount+")
+                                                               : s["pattern"].str();
+            items.push_back({name, sub, false, false, false, [edit, name] { edit(name); }});
         }
         choose(*this, t("Rename"), std::move(items));
     });

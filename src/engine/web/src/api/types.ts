@@ -192,5 +192,5 @@ export interface Plan {
 // GET /api/names (name_formats.hpp): the formats Rename suggests names with.
 export type Spaces = "keep" | "none" | "_" | "." | "-";
 export type Letters = "keep" | "upper" | "lower";
-export interface NameFormat { pattern: string; spaces: Spaces; letters: Letters; sample?: string }
-export interface NameSuggestion { name: string; pattern: string; warning: string }
+export interface NameFormat { pattern: string; spaces: Spaces; letters: Letters; sample?: string; warning?: string }
+export interface NameSuggestion { name: string; pattern: string; warning: string; shortened?: boolean }
