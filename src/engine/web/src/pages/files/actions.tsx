@@ -10,6 +10,9 @@ import { isConvertible, isHiddenName } from "../../lib/kinds";
 import { base, bytes, dir } from "../../lib/format";
 import { t, tMsg } from "../../lib/i18n";
 import { ask, choose } from "../../components/Dialogs";
+import type { ChoiceItem } from "../../components/Dialogs";
+import { getMeta } from "../../api/meta";
+import { nameSuggestions } from "../../lib/names";
 import { toast } from "../../components/Toasts";
 import { openConvert } from "../../dialogs/ConvertDialog";
 import { openDest } from "../../dialogs/FolderPicker";
@@ -105,8 +108,19 @@ async function addAmpr(e: Entry) {
   } catch (err: any) { toast(tMsg(err.message), "bad"); }
 }
 
+// A game first offers names made from its title, title ID, version and
+// format; the one picked can still be edited.
 async function renameEntry(e: Entry) {
-  const name = await ask({ title: t("Rename"), input: e.name, ok: t("Rename") });
+  let start = e.name;
+  const m = isConvertible(e) ? await getMeta(e) : null;
+  const names = m ? nameSuggestions(e, m) : [];
+  if (names.length) {
+    const items: ChoiceItem<string>[] = [{ label: e.name, sub: t("Current name"), value: e.name }];
+    const picked = await choose(t("Rename"), items.concat(names.map((s) => ({ label: s.name, sub: s.format, value: s.name }))));
+    if (picked == null) return;
+    start = picked;
+  }
+  const name = await ask({ title: t("Rename"), input: start, ok: t("Rename") });
   if (!name || name === true || name === e.name) return;
   try { await api("POST", "/api/fs/rename", { path: e.path, name }); toast(t("Renamed to {name}", { name }), "ok"); browse(cwd.value!, false, dir(e.path) + "/" + name); }
   catch (err: any) { toast(tMsg(err.message), "bad"); }

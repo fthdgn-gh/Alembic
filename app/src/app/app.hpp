@@ -198,6 +198,7 @@ public:
     void open_dest(const Entry* e, const std::string& kind, const std::string& start,
                    std::function<void(const std::string& folder)> picked = nullptr);
     void toggle_hidden(const std::string& path, bool quiet = false);
+    void rename_entry(const Entry& e);
     void set_place(const std::string& path, bool add);
     void job_actions(const JsonValue& j);
     void clear_history();

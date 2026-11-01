@@ -27,6 +27,68 @@ std::string short_place(std::string label) {
     return place_label(label);
 }
 
+// A title made safe for every file system the engine writes to (lib/names.ts
+// safeName): no / \ * ? " < > | or control characters, ":" becomes " - ",
+// runs of spaces become one, no spaces or dots at either end.
+std::string safe_name(const std::string& s) {
+    std::string out;
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        bool space = c < 0x20 || c == 0x7f || c == ' ';
+        // U+00A0 and U+3000, spaces to the page's \s too.
+        if (c == 0xC2 && i + 1 < s.size() && static_cast<unsigned char>(s[i + 1]) == 0xA0) { space = true; i += 1; }
+        else if (c == 0xE3 && i + 2 < s.size() && static_cast<unsigned char>(s[i + 1]) == 0x80 &&
+                 static_cast<unsigned char>(s[i + 2]) == 0x80) { space = true; i += 2; }
+        if (space) {
+            if (!out.empty() && out.back() != ' ') out += ' ';
+        } else if (c == ':') {
+            while (!out.empty() && out.back() == ' ') out.pop_back();
+            out += " - ";
+        } else if (std::string_view("\\/*?\"<>|").find(static_cast<char>(c)) == std::string_view::npos) {
+            out += static_cast<char>(c);
+        }
+    }
+    std::size_t a = out.find_first_not_of(" ."), b = out.find_last_not_of(" .");
+    return a == std::string::npos ? "" : out.substr(a, b - a + 1);
+}
+
+// Names for a game from its title, title ID, version and format (lib/names.ts
+// nameSuggestions), each with what it is made of. A hidden name stays hidden;
+// a file keeps its extension.
+std::vector<std::pair<std::string, std::string>> rename_suggestions(const Entry& e, const Meta& m) {
+    std::vector<std::pair<std::string, std::string>> all;
+    const std::string title = safe_name(m.title), id = safe_name(m.title_id), ver = safe_name(m.version);
+    if (title.empty()) return all;
+    const std::string hidden = is_hidden_name(e.name) ? "." : "";
+    const std::string plain = e.name.substr(hidden.size());
+    const std::size_t dot = plain.rfind('.');
+    const std::string ext = e.kind != "folder" && dot != std::string::npos && dot > 0 ? plain.substr(dot) : "";
+    std::string kind;
+    if (e.kind == "fpkg") kind = "PKG";
+    else if (e.kind == "exfat") kind = "EXFAT";
+    else if (e.kind == "ffpfsc") kind = "FFPFSC";
+    else if (e.kind == "ffpkg") kind = "FFPKG";
+    else if (e.kind == "ffpfs") kind = "FFPFS";
+    else if (e.kind == "file") kind = "FILE";
+    auto add = [&](const std::string& name, const std::string& format) {
+        const std::string full = hidden + name + ext;
+        if (full == e.name) return;
+        for (const auto& s : all)
+            if (s.first == full) return;
+        all.emplace_back(full, format);
+    };
+    if (!id.empty()) {
+        add(title + " [" + id + "]", t("Title [title ID]"));
+        if (!ver.empty()) add(title + " [" + id + "] [v" + ver + "]", t("Title [title ID] [version]"));
+        if (!kind.empty()) add(title + " [" + id + "] [" + kind + "]", t("Title [title ID] [format]"));
+        add(id + " - " + title, t("Title ID - title"));
+        add(id, t("Title ID"));
+    } else {
+        add(title, t("Title"));
+    }
+    return all;
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------- Options
@@ -141,18 +203,7 @@ void App::open_actions(const Entry& e) {
             [this, e, peer_place] { open_dest(&e, "copy", peer_place); });
     add(t("Copy to\xE2\x80\xA6"), "", false, [this, e] { open_dest(&e, "copy", ""); });
     add(t("Move to\xE2\x80\xA6"), "", false, [this, e] { open_dest(&e, "move", ""); });
-    add(t("Rename\xE2\x80\xA6"), "", false, [this, e] {
-        ask_text(*this, t("Rename"), e.name, t("Rename"), [this, e](const std::string& name) {
-            if (name.empty() || name == e.name) return;
-            JsonValue body = JsonValue::object();
-            body.set("path", e.path);
-            body.set("name", name);
-            post("/api/fs/rename", body, or_toast([this, e, name](const Reply&) {
-                toast(t("Renamed to {name}", {{"name", name}}), Toast::ok);
-                browse(cwd, dir(e.path) + "/" + name);
-            }));
-        });
-    });
+    add(t("Rename\xE2\x80\xA6"), "", false, [this, e] { rename_entry(e); });
     add(t("Delete\xE2\x80\xA6"), "", true, [this, e] {
         std::string body = "!" + std::string(e.kind == "folder" ? t("Delete this folder and everything in it?")
                                                                 : t("Delete this file?")) +
@@ -171,6 +222,45 @@ void App::open_actions(const Entry& e) {
         });
     });
     choose(*this, e.name, std::move(items));
+}
+
+// A game first offers names made from its title, title ID, version and
+// format; the one picked can still be edited.
+void App::rename_entry(const Entry& e) {
+    auto edit = [this, e](const std::string& start) {
+        ask_text(*this, t("Rename"), start, t("Rename"), [this, e](const std::string& name) {
+            if (name.empty() || name == e.name) return;
+            JsonValue body = JsonValue::object();
+            body.set("path", e.path);
+            body.set("name", name);
+            post("/api/fs/rename", body, or_toast([this, e, name](const Reply&) {
+                toast(t("Renamed to {name}", {{"name", name}}), Toast::ok);
+                browse(cwd, dir(e.path) + "/" + name);
+            }));
+        });
+    };
+    auto offer = [this, e, edit](const Meta& m) {
+        auto names = rename_suggestions(e, m);
+        if (names.empty()) return edit(e.name);
+        std::vector<Choice> items;
+        items.push_back({e.name, t("Current name"), false, false, false, [edit, e] { edit(e.name); }});
+        for (const auto& s : names) {
+            const std::string name = s.first;
+            items.push_back({name, s.second, false, false, false, [edit, name] { edit(name); }});
+        }
+        choose(*this, t("Rename"), std::move(items));
+    };
+    if (!is_convertible(e)) return edit(e.name);
+    if (const Meta* m = meta(e.path, e.mtime, e.size)) return offer(*m);
+    // Not known yet: ask for it (the list shows it once it is in).
+    get(url("/api/meta", {{"path", e.path}}), [edit, offer, e](const Reply& r) {
+        if (!r.ok() || !r.json.is_object() || r.json["title"].str().empty()) return edit(e.name);
+        Meta m;
+        m.title = r.json["title"].str();
+        m.title_id = r.json["title_id"].str();
+        m.version = r.json["version"].str();
+        offer(m);
+    });
 }
 
 void App::set_place(const std::string& path, bool add) {
