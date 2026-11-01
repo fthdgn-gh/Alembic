@@ -159,6 +159,12 @@ Also on the page:
   ShadowMount+ to mount (58 bytes before `.ffpfsc`, 63 before `.exfat`,
   `.ffpkg` and `.ffpfs`) is flagged and followed by a shortened one, and a
   typed one is asked about. A hidden name (`.name`) stays hidden.
+- **Several files at once** (from 0.4.2): □ on a file → **Select…**, then ✕
+  ticks rows, □ opens the actions for the ticked ones and ○ ends selecting.
+  Convert (one job per game, a game already in the target format left
+  out), Install, Add the AMPR emulator, Hide from or Show to ShadowMount+,
+  Rename with a format (old → new shown first), Send to another engine,
+  Copy, Move and Delete; each action takes the files it applies to.
 - **Network servers** (Settings, from 0.3.3): games on a PC or NAS can be
   converted without copying them to the console first, over
   - **SMB** (Windows shared folders, most NAS boxes): SMB 2 and 3 with
