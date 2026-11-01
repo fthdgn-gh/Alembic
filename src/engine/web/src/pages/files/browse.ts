@@ -11,6 +11,7 @@ import { overlays } from "../../components/Overlay";
 import { toast } from "../../components/Toasts";
 import { focusEl, setZoneLast, visible, zoneOf } from "../../input/focus";
 import { pushNav } from "../../input/history";
+import { selecting, endSelecting } from "../../state/selection";
 
 export async function browse(path: string, push?: boolean, focusKey?: string | null) {
   let data: Listing;
@@ -23,6 +24,7 @@ export async function browse(path: string, push?: boolean, focusKey?: string | n
     return;
   }
   const from = cwd.value;
+  if (data.path !== from && selecting.value) endSelecting(); // a selection is one folder's
   if (push !== false && data.path !== from) pushNav({ view: "files", path: data.path, from });
   else if (history.state && !history.state.overlay) history.replaceState(Object.assign({}, history.state, { view: "files", path: data.path }), "");
   const same = data.path === from;

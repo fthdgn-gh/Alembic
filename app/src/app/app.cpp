@@ -592,6 +592,7 @@ void App::browse(const std::string& path, const std::string& focus_key) {
         std::string key = focus_key;
         if (key.empty() && !same && !from.empty() && dir(from) == p && from != "/") key = from;
         if (key.empty() && same) key = files_->focused_path;
+        if (p != from) stop_selecting();  // a selection is one folder's
         cwd = p;
         entries = std::move(list);
         listing_loaded = true;
@@ -866,7 +867,10 @@ void App::handle_global(Ui& ui) {
     if (!answered) return;
     if (tab == Tab::files) {
         if (ui.pressed(Action::west)) files_->square(*this);
-        if (ui.pressed(Action::back) && cwd != "/") {
+        if (ui.pressed(Action::back) && selecting) {  // ○ ends selecting, in the same folder
+            ui.play(hui::audio::Cue::back);
+            stop_selecting();
+        } else if (ui.pressed(Action::back) && cwd != "/") {
             ui.play(hui::audio::Cue::back);
             const JsonValue* r = root_of(cwd);
             const JsonValue* f = server_of(cwd);

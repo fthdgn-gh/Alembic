@@ -285,6 +285,13 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
         std::string summary;
         if (top) {
             summary = t("Pick a drive");
+        } else if (app.selecting) {
+            double size = 0;
+            const auto sel = app.selected_entries();
+            for (const auto& e : sel)
+                if (e.kind != "folder") size += std::max(0.0, e.size);
+            summary = t("{n} of {total} selected", {{"n", std::to_string(sel.size())}, {"total", std::to_string(app.entries.size())}}) +
+                      (size > 0 ? "  \xC2\xB7  " + bytes(size) : "");
         } else if (app.listing_loaded) {
             int files = 0, folders = 0;
             double total = 0;
@@ -349,8 +356,10 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
             focused_path = e.path;
             in_list_ = true;
         }
+        const bool sel = app.selecting && !top, ticked = sel && app.is_selected(e.path);
         if (ui.visible(r)) {
             const Meta* m = (!top && is_convertible(e)) ? app.meta(e.path, e.mtime, e.size) : nullptr;
+            if (ticked) l.rounded_rect(r, 0.7f * R, accent.with_alpha(0.08f));
             if (f) l.rounded_rect(r, 0.7f * R, accent.with_alpha(0.12f));
             const Rect icon{r.x + 0.75f * R, r.y + 0.55f * R, 3.4f * R, 3.4f * R};
             const float text_x = icon.x + icon.w + 1.0f * R;
@@ -424,8 +433,17 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
                 draw::text_fit(ui, Face::regular, plain, text_x, draw::baseline(s_cy, ss), ss, tw, muted);
             }
         }
+        // Selecting: a tick on the icon's corner (.row .tick), and ✕ ticks.
+        if (sel && ui.visible(r)) {
+            const float d = 1.35f * R, cx = r.x + 0.45f * R + d * 0.5f, cy = r.y + 0.4f * R + d * 0.5f;
+            l.circle(cx, cy, d * 0.5f, ticked ? accent : rgb(0x0b0e14));
+            if (!ticked) l.ring(cx, cy, d * 0.5f - 1.0f, 2.0f, muted);
+            if (ticked) draw::text(ui, Face::semibold, "\xE2\x9C\x93", cx, draw::baseline(cy, 0.85f * R), 0.85f * R, Color{1, 1, 1, 1}, Align::center);
+        }
         if (ui.item(id, r, 0, 0.7f * R)) {
-            if (top || (e.kind == "folder" && !e.game))
+            if (sel)
+                app.toggle_selected(e.path);
+            else if (top || (e.kind == "folder" && !e.game))
                 app.browse(e.path);
             else if (is_convertible(e))
                 app.open_convert(e);
@@ -450,6 +468,10 @@ std::vector<Hint> FilesPage::hints(App& app) {
     for (const auto& x : app.entries)
         if (x.path == focused_path) e = &x;
     std::vector<Hint> list;
+    // Selecting: ✕ ticks, □ acts on the ticked ones, ○ ends it.
+    if (app.selecting)
+        return {{Glyph::cross, e && app.is_selected(e->path) ? t("Untick") : t("Tick")}, {Glyph::square, t("Actions")},
+                {Glyph::circle, t("Done")}};
     list.push_back({Glyph::cross, e ? (e->kind == "folder" && !e->game ? t("Open")
                                        : is_convertible(*e)             ? t("Convert")
                                                                         : t("Options"))
@@ -460,6 +482,7 @@ std::vector<Hint> FilesPage::hints(App& app) {
 }
 
 void FilesPage::square(App& app) {
+    if (app.selecting) return app.open_bulk_actions();
     if (app.cwd == "/" || !in_list_) return;
     for (const auto& e : app.entries)
         if (e.path == focused_path) {

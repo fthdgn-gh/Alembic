@@ -41,6 +41,8 @@
 //                                     makes of a made-up game (an .ffpfsc, the shortest limit)
 //   GET  /api/names/suggest?path=P    {suggestions: [{name, pattern, warning[, shortened]}]} for a
 //                                     game; a name too long for ShadowMount+ is followed by a shortened one
+//   POST /api/names/apply  {paths, pattern, spaces, letters}   {results: [{path, name, warning,
+//                                     fitted}]}: one format for many games (name "": no value)
 //   POST /api/names/check  {path, name}   {warning}: "" or why ShadowMount+ could not mount it
 //   POST /api/launcher   {enabled}    add or remove the Media-tab shortcut (PS5)
 //   POST /api/cache/clear             delete the cached game info and icons
@@ -1770,6 +1772,41 @@ private:
             const std::string sample = suggested_name(f, sample_values(), kSampleName, false).value_or("");
             v.set("name", sample);
             v.set("warning", sample.empty() ? std::string() : mount_name_warning("/" + sample));
+            return json(200, v);
+        }
+        // One format for many games (Rename with a format, on a selection).
+        if (r.path == "/api/names/apply") {
+            const NameFormat f = format_from(*body);
+            if (Status s = check_name_format(f); !s.ok()) return error(400, s.error().message);
+            const std::vector<JsonValue> paths = (*body)["paths"].items();
+            if (paths.size() > 1000) return error(400, "at most 1000 files at a time");
+            JsonValue list = JsonValue::array();
+            for (const JsonValue& p : paths) {
+                const std::string path = strip_slashes(p.str());
+                if (!input_allowed(path, config_.available_roots())) return error(403, "outside the allowed folders");
+                JsonValue e = JsonValue::object();
+                e.set("path", path);
+                std::string name, warning, fitted;
+                if (auto m = meta_.meta(path); m.ok()) {
+                    const std::string old = base_name(path);
+                    const bool folder = alembic::is_directory(path);
+                    const NameValues values =
+                        name_values(m->title, m->title_id, m->content_id, m->version, m->platform, old, kind_of(old, folder));
+                    name = suggested_name(f, values, old, folder).value_or("");
+                    if (!name.empty() && !folder) {
+                        const std::string at = path.substr(0, path.rfind('/') + 1);
+                        warning = mount_name_warning(at + shown_name(name));
+                        if (!warning.empty())
+                            fitted = fitted_name(f, values, old, folder, mount_name_limit(at + name)).value_or("");
+                    }
+                }
+                e.set("name", name); // "" when the format has no value for it (or it is no game)
+                e.set("warning", warning);
+                e.set("fitted", fitted); // the name shortened to fit ShadowMount+, when it is too long
+                list.push(std::move(e));
+            }
+            JsonValue v = JsonValue::object();
+            v.set("results", std::move(list));
             return json(200, v);
         }
         // A name typed for path: what ShadowMount+ would think of it.

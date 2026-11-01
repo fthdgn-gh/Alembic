@@ -29,6 +29,11 @@
 .side .head { display: flex; align-items: center; margin-bottom: .6rem; }
 .side .head .ico { width: 3.6rem; height: 3.6rem; margin-right: .9rem; }
 .side .head b { display: block; font-size: 1.05rem; line-height: 1.3; }
+/* Several games in Convert (and Rename with a format): one line each. */
+.many { max-height: 22rem; overflow-y: auto; }
+.many .item { padding: .4rem 0; border-top: 1px solid var(--line); min-width: 0; }
+.many .item:first-child { border-top: 0; }
+.many .err { color: var(--bad); }
 .out { margin-top: .9rem; font-size: .88rem; }
 .warnbox { background: rgba(240,106,98,.08); border: 1px solid rgba(240,106,98,.3); border-radius: .7rem; padding: .7rem .9rem; font-size: .92rem; }
 .chips { margin-bottom: .6rem; }

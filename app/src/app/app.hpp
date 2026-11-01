@@ -175,6 +175,16 @@ public:
     bool focus_list = false;  // put the focus in the list then
     void browse(const std::string& path, const std::string& focus_key = "");
     void refresh_listing();
+    // Selecting several entries (state/selection.ts): ✕ ticks a row, □ opens
+    // the actions for the ticked ones (bulk.cpp), ○ ends it. One folder's.
+    bool selecting = false;
+    std::vector<std::string> selected;  // paths
+    bool is_selected(const std::string& path) const;
+    void toggle_selected(const std::string& path);
+    void start_selecting(const Entry& e);
+    void stop_selecting();
+    std::vector<Entry> selected_entries() const;  // in list order
+    void open_bulk_actions();
 
     // ---- sections, dialogs, toasts ----
     Tab tab = Tab::files;
@@ -195,8 +205,12 @@ public:
     // ---- actions shared by pages and dialogs ----
     void open_actions(const Entry& e);
     void open_convert(const Entry& e, bool install = false); // install: as "Install…" (FPKG, installed when done)
+    void open_convert(const std::vector<Entry>& list, bool install = false); // several games, a job each
     void open_dest(const Entry* e, const std::string& kind, const std::string& start,
                    std::function<void(const std::string& folder)> picked = nullptr);
+    // Copy or move several entries into one folder, each keeping its name; `done` once queued.
+    void open_dest_many(const std::vector<Entry>& list, const std::string& kind, const std::string& start,
+                        std::function<void()> done);
     void toggle_hidden(const std::string& path, bool quiet = false);
     void rename_entry(const Entry& e);
     void set_place(const std::string& path, bool add);

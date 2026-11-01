@@ -17,10 +17,15 @@ import { Rail } from "./Rail";
 import { FileList } from "./FileList";
 import { openActions } from "./actions";
 import { shares, shareFile, kindOfName } from "./shares";
+import { selecting, selectedEntries } from "../../state/selection";
 
 function Summary() {
   const data = listing.value;
   if (!data) return <div class="summary" id="summary" />;
+  if (selecting.value) {
+    const sel = selectedEntries.value, size = sel.reduce((n, e) => n + (e.kind === "folder" ? 0 : e.size || 0), 0);
+    return <div class="summary sel" id="summary">{t("{n} of {total} selected", { n: sel.length, total: data.entries.length }) + (size ? "  ·  " + bytes(size) : "")}</div>;
+  }
   const files = data.entries.filter((e) => e.kind !== "folder"), folders = data.entries.length - files.length;
   const total = files.reduce((n, e) => n + (e.size || 0), 0);
   const r: any = data.path === "/" ? null : rootOf(data.path);

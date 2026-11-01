@@ -5,6 +5,8 @@
 import { overlays, topOverlay } from "../components/Overlay";
 import { tab, focusEntry, cwd, pad, circleConfirms } from "../state/view";
 import { openActions } from "../pages/files/actions";
+import { openBulkActions } from "../pages/files/bulk";
+import { selecting } from "../state/selection";
 import { IS_PS5 } from "../lib/env";
 import { move, focusEl, focusFirst, zoneOf, type Dir } from "./focus";
 import { goBack, leaveAll, depth, cycleTab } from "./history";
@@ -52,6 +54,7 @@ export function press(action: string): void {
   // □ is the page's second action: the browser keeps △, Options, L3 and R3 for itself.
   if (action === "s") {
     if (top) { if (top.onSquare) top.onSquare(); return; }
+    if (tab.value === "files" && selecting.value) { openBulkActions(); return; }
     const z = zoneOf(document.activeElement);
     if (tab.value === "files" && focusEntry.value && cwd.value !== "/" && z === "list") openActions(focusEntry.value);
   }

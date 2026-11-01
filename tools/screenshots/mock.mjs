@@ -236,6 +236,15 @@ http.createServer((req, res) => {
       const bad = (json.pattern.match(/\{(\w+)/g) || []).map((x) => x.slice(1)).find((n) => !(n.toLowerCase().replace(/[_-]/g, "") in SAMPLE));
       return send(res, 200, bad ? { error: "unknown field " + bad + ": use title, titleid, contentid, version, format, platform or name" } : { name: render(json, SAMPLE) });
     }
+    if (p === "/api/names/apply") {
+      return send(res, 200, { results: (json.paths || []).map((sp) => {
+        const t = titleOf(sp), e = Object.values(DIRS).flat().find((x) => x.path === sp) || {};
+        if (!t) return { path: sp, name: "", warning: "", fitted: "" };
+        const ext = e.kind === "folder" ? "" : (/\.[^.]+$/.exec(sp) || [""])[0];
+        const g = { title: t, titleid: GAMES[t][0], contentid: "UP0000-" + GAMES[t][0] + "_00-0000000000000000", version: GAMES[t][1], format: { fpkg: "PKG", folder: "" }[e.kind] ?? (e.kind || "").toUpperCase(), platform: (GAMES[t][3] || "ps5").toUpperCase(), name: t, ext };
+        return { path: sp, name: render(json, g), warning: "", fitted: "" };
+      }) });
+    }
     if (p === "/api/names/suggest") {
       const sp = q("path"), t = titleOf(sp), e = Object.values(DIRS).flat().find((x) => x.path === sp) || {};
       if (!t) return send(res, 200, { suggestions: [] });

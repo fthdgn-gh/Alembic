@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <map>
+#include <memory>
 
 namespace alembic::app {
 
@@ -142,6 +143,9 @@ void App::open_actions(const Entry& e) {
     add(t("Copy to\xE2\x80\xA6"), "", false, [this, e] { open_dest(&e, "copy", ""); });
     add(t("Move to\xE2\x80\xA6"), "", false, [this, e] { open_dest(&e, "move", ""); });
     add(t("Rename\xE2\x80\xA6"), "", false, [this, e] { rename_entry(e); });
+    // A row of the list (not the folder you are in, its ⋯ button).
+    if (e.path != cwd)
+        add(t("Select\xE2\x80\xA6"), t("Tick several files to act on them together"), false, [this, e] { start_selecting(e); });
     add(t("Delete\xE2\x80\xA6"), "", true, [this, e] {
         std::string body = "!" + std::string(e.kind == "folder" ? t("Delete this folder and everything in it?")
                                                                 : t("Delete this file?")) +
@@ -303,6 +307,8 @@ class Picker : public Overlay {
 public:
     bool has_entry = false;
     Entry entry;
+    std::vector<Entry> many;  // copy or move several, each keeping its name
+    std::function<void()> many_done;
     std::string kind;  // copy, move, pick
     std::string start;
     std::function<void(const std::string&)> picked;
@@ -331,6 +337,43 @@ public:
     }
     bool fresh = false;
 
+    // One job each; a toast says how many were queued and what failed.
+    void queue_many(App& app, const std::string& folder) {
+        struct Count {
+            std::size_t left = 0, queued = 0;
+            std::vector<std::string> failed;
+        };
+        auto count = std::make_shared<Count>();
+        count->left = many.size();
+        const std::string k = kind;
+        auto done = many_done;
+        for (const auto& e : many) {
+            JsonValue body = JsonValue::object();
+            body.set("kind", kind);
+            body.set("input", e.path);
+            body.set("output", folder + "/" + e.name);
+            body.set("overwrite", over);
+            const std::string name = e.name;
+            app.post("/api/jobs", body, [&app, count, name, done](const Reply& r) {
+                if (r.ok())
+                    ++count->queued;
+                else
+                    count->failed.push_back(name + ": " + t_msg(r.error()));
+                if (--count->left) return;
+                if (count->queued) {
+                    app.toast(plural(static_cast<long long>(count->queued), "{n} job queued", "{n} jobs queued"), App::Toast::ok);
+                    app.refresh_jobs();
+                    if (done) done();
+                }
+                if (!count->failed.empty())
+                    app.toast(count->failed.size() > 1 ? t("{first} (and {n} more)", {{"first", count->failed[0]},
+                                                                                      {"n", std::to_string(count->failed.size() - 1)}})
+                                                       : count->failed[0],
+                              App::Toast::bad);
+            });
+        }
+    }
+
     std::string cur() const { return data.is_object() ? data["path"].str() : ""; }
 
     void go(App& app) {
@@ -341,6 +384,7 @@ public:
             if (picked) picked(c);
             return;
         }
+        if (!many.empty()) return queue_many(app, c);
         std::string n = name;
         while (!n.empty() && n.back() == ' ') n.pop_back();
         if (n.empty() || n.find('/') != std::string::npos) {
@@ -366,8 +410,11 @@ public:
             load(app, start);
         }
         const bool pick = kind == "pick";
+        const long long n_many = static_cast<long long>(many.size());
         const std::string title = pick ? t("Choose a folder")
-                                       : t(kind == "copy" ? "Copy {name}" : "Move {name}", {{"name", entry.name}});
+                                  : !many.empty() ? (kind == "copy" ? plural(n_many, "Copy {n} item", "Copy {n} items")
+                                                                    : plural(n_many, "Move {n} item", "Move {n} items"))
+                                                  : t(kind == "copy" ? "Copy {name}" : "Move {name}", {{"name", entry.name}});
         sheet.begin(ui, title, "", Sheet::Size::normal, true);
         const float x = sheet.x(), w = sheet.w();
         float y = sheet.content_top();
@@ -497,14 +544,18 @@ public:
             y += list_h;
         }
         if (!pick) {
-            y -= 0.4f * R;
-            field_row(ui, app, "pick:name", x, &y, w, t("Name"), &name, "");
+            if (many.empty()) {
+                y -= 0.4f * R;
+                field_row(ui, app, "pick:name", x, &y, w, t("Name"), &name, "");
+            }
             y += 0.5f * R;
             y += switch_row(ui, "pick:over", x, y, w, t("Replace if it already exists"), "", &over);
         } else {
             y += 0.6f * R;
         }
         // Where it goes and how much room there is.
+        double need = has_entry && entry.has_size() ? entry.size : 0.0;
+        for (const auto& e : many) need += std::max(0.0, e.size);
         std::string space;
         if (data.is_object()) {
             const JsonValue* r = c.empty() || c == "/" ? nullptr : app.root_of(c);
@@ -514,7 +565,7 @@ public:
             else if (r)
                 space = t("{size} free on {drive}", {{"size", bytes((*r)["free"].number())},
                                                      {"drive", app.drive_name((*r)["root"].str())}}) +
-                        (has_entry && entry.has_size() ? " \xC2\xB7 " + t("needs {size}", {{"size", bytes(entry.size)}}) : "") +
+                        (need > 0 ? " \xC2\xB7 " + t("needs {size}", {{"size", bytes(need)}}) : "") +
                         "  \xC2\xB7  " + app.shown_path(c);
             else
                 space = t("Pick a drive and folder.");
@@ -550,6 +601,17 @@ void App::open_dest(const Entry* e, const std::string& kind, const std::string& 
     open(std::move(p));
 }
 
+void App::open_dest_many(const std::vector<Entry>& list, const std::string& kind, const std::string& start,
+                         std::function<void()> done) {
+    if (list.empty()) return;
+    auto p = std::make_unique<Picker>();
+    p->many = list;
+    p->many_done = std::move(done);
+    p->kind = kind;
+    p->start = !start.empty() ? start : dir(list.front().path);
+    open(std::move(p));
+}
+
 // ---------------------------------------------------------------- Convert
 
 namespace {
@@ -570,7 +632,12 @@ const Format kFormats[] = {
 
 class Convert : public Overlay {
 public:
-    Entry entry;
+    Entry entry;                 // the first (or only) one
+    std::vector<Entry> entries;  // several games (a selection): a job each
+    std::map<std::string, JsonValue> inspects;    // by path
+    std::map<std::string, std::string> problems;  // by path: could not be read
+    std::map<std::string, JsonValue> plans;       // by path, for plan_key
+    std::map<std::string, std::string> plan_errs;
     std::string to = "ffpfsc";
     std::string dest;
     JsonValue inspect;
@@ -604,48 +671,95 @@ public:
     void start(App& app) {
         started = true;
         const int k = key;
-        app.api("GET", url("/api/inspect", {{"path", entry.path}}), JsonValue(),
-                [this, &app, k](const Reply& r) {
-                    if (!app.overlay_alive(k)) return;
-                    if (r.ok())
-                        inspect = r.json;
-                    else
-                        problem = t_msg(r.error());
-                },
-                1, 600000);
+        for (const auto& e : entries) {
+            const std::string path = e.path;
+            app.api("GET", url("/api/inspect", {{"path", path}}), JsonValue(),
+                    [this, &app, k, path](const Reply& r) {
+                        if (!app.overlay_alive(k)) return;
+                        if (r.ok())
+                            inspects[path] = r.json;
+                        else
+                            problems[path] = t_msg(r.error());
+                        if (path == entry.path) {
+                            if (r.ok()) inspect = r.json;
+                            else if (entries.size() == 1) problem = t_msg(r.error());
+                        }
+                    },
+                    1, 600000);
+        }
+    }
+
+    bool many() const { return entries.size() > 1; }
+    static std::string format_of(const Entry& e) { return e.game ? "folder" : e.kind; }
+    bool packed(const Entry& e) const {
+        auto it = inspects.find(e.path);
+        return it != inspects.end() && it->second["lz4_packed"].boolean();
+    }
+    bool packed_any() const { return std::any_of(entries.begin(), entries.end(), [this](const Entry& e) { return packed(e); }); }
+    bool packed_all() const { return std::all_of(entries.begin(), entries.end(), [this](const Entry& e) { return packed(e); }); }
+    bool any_shared() const { return std::any_of(entries.begin(), entries.end(), [](const Entry& e) { return e.shared; }); }
+    bool any_ps4(App& app) const {
+        for (const auto& e : entries)
+            if (const Meta* m = app.meta(e.path, e.mtime, e.size); m && m->platform == "ps4") return true;
+        return false;
+    }
+    // The format all of them share ("" when they differ): converting to it is no conversion.
+    std::string one_format() const {
+        for (const auto& e : entries)
+            if (format_of(e) != format_of(entries.front())) return "";
+        return format_of(entries.front());
     }
 
     // A PS5 package can go straight to the console's installer.
     bool installable(App& app, const std::string& target) const {
-        const Meta* m = app.meta(entry.path, entry.mtime, entry.size);
-        return target == "fpkg" && app.is_ps5() && !(m && m->platform == "ps4");
+        return target == "fpkg" && app.is_ps5() && !any_ps4(app);
     }
 
-    JsonValue spec(App& app, std::string* key_out) {
-        const bool packed = inspect["lz4_packed"].boolean();
-        const bool lz4_on = lz4 && !packed, unpack_on = unpack && packed;
-        const std::string same = entry.game ? "folder" : entry.kind;
+    // The games that get a job: several games leave out those already in the target format.
+    std::vector<Entry> work(App& app) {
+        const JsonValue s = spec(app, entry, nullptr);
+        std::vector<Entry> out;
+        for (const auto& e : entries)
+            if (format_of(e) != s["to"].str() || s["lz4"].boolean() || s["lz4_unpack"].boolean()) out.push_back(e);
+        return out;
+    }
+    // Every job's spec, and a key that changes with any of them.
+    std::vector<JsonValue> specs(App& app, std::string* key_out) {
+        std::vector<JsonValue> out;
+        std::string key_all;
+        for (const auto& e : work(app)) {
+            std::string k;
+            out.push_back(spec(app, e, &k));
+            key_all += k + "\n";
+        }
+        if (key_out) *key_out = key_all;
+        return out;
+    }
+
+    JsonValue spec(App& app, const Entry& e, std::string* key_out) {
+        const bool lz4_on = lz4 && !packed_any(), unpack_on = unpack && packed_all();
+        const std::string same = one_format();
         std::vector<std::string> offered;
         for (const auto& f : kFormats)
             if (f.value != same || lz4_on || unpack_on) offered.push_back(f.value);
         const std::string target = std::find(offered.begin(), offered.end(), to) != offered.end() ? to : offered.front();
         const bool install_on = install && installable(app, target);
-        const bool del_on = !entry.shared && del && !install_on;
-        const bool hide_hidden = entry.kind == "fpkg" || is_hidden_name(entry.name) || del_on || target == "fpkg" || entry.shared;
+        const bool del_on = !any_shared() && del && !install_on;
+        const bool hide_hidden = e.kind == "fpkg" || is_hidden_name(e.name) || del_on || target == "fpkg" || e.shared;
         static const int levels[] = {1, 6, 9};
         static const int lz4_levels[] = {1, 9, 12};
         std::vector<std::string> profiles = {"auto"};
         for (const auto& p : app.info["lz4_profiles"].items()) profiles.push_back(p["id"].str());
         profiles.push_back("scan");
         JsonValue s = JsonValue::object();
-        s.set("input", entry.path);
+        s.set("input", e.path);
         s.set("to", target);
         s.set("output_dir", dest);
-        std::string n = name;
+        std::string n = many() ? std::string() : name;
         while (!n.empty() && n.back() == ' ') n.pop_back();
         s.set("output_name", n);
         s.set("level", levels[std::clamp(level, 0, 2)]);
-        s.set("pkg_compression", pkg_comp == 1 ? "kraken" : "stored");
+        s.set("pkg_compression", pkg_comp == 1 && !any_ps4(app) ? "kraken" : "stored");
         s.set("install_after", install_on);
         s.set("keep_package", install_on && keep_pkg);
         s.set("lz4", lz4_on);
@@ -663,41 +777,82 @@ public:
 
     void go(App& app) {
         std::string key_now;
-        JsonValue s = spec(app, &key_now);
-        const bool ready = plan.is_object() && plan_key == key_now && plan_err.empty();
+        const std::vector<JsonValue> all = specs(app, &key_now);
+        const bool ready = plan_key == key_now && plan_err.empty() && !plans.empty();
         if (busy || !ready || !problem.empty()) return;
+        // The games the engine has a plan for (the others say why in the list).
+        std::vector<JsonValue> todo;
+        JsonValue needs = JsonValue::array();
+        std::vector<std::string> need_ids;
+        for (const auto& sp : all) {
+            auto it = plans.find(sp["input"].str());
+            if (it == plans.end()) continue;
+            todo.push_back(sp);
+            for (const auto& d : it->second["needs"].items())
+                if (std::find(need_ids.begin(), need_ids.end(), d["id"].str()) == need_ids.end()) {
+                    need_ids.push_back(d["id"].str());
+                    needs.push(d);
+                }
+        }
+        JsonValue need_plan = JsonValue::object();
+        need_plan.set("needs", needs);
         busy = true;
         const auto choices = on_choices(app);
-        const bool where_hidden = choices.size() < 2 || entry.shared;
+        const bool where_hidden = choices.size() < 2 || any_shared();
         const std::string on = where_hidden ? "" : choices[static_cast<std::size_t>(std::clamp(where, 0, static_cast<int>(choices.size()) - 1))].first;
         const std::string engine_name =
             on.empty() ? "" : choices[static_cast<std::size_t>(std::clamp(where, 0, static_cast<int>(choices.size()) - 1))].second;
         const int k = key;
-        auto submit = [this, &app, s, on, engine_name, k] {
+        const bool several = many();
+        auto submit = [this, &app, todo, on, engine_name, k, several] {
             if (!app.overlay_alive(k)) return;
+            struct Count {
+                std::size_t left = 0;
+                std::vector<std::string> outputs, failed;
+            };
+            auto count = std::make_shared<Count>();
+            count->left = todo.size();
             const std::string path = on.empty() ? "/api/jobs" : "/api/peers/" + url_encode(on) + "/jobs";
-            app.api("POST", path, s, [this, &app, s, on, engine_name, k](const Reply& r) {
-                if (!app.overlay_alive(k)) return;
-                busy = false;
-                if (!r.ok()) {
-                    msg = t_msg(r.error());
-                    msg_err = true;
-                    return;
-                }
-                app.prefs.set("dest", s["output_dir"].str());
-                app.prefs.set("convertOn", on);
-                app.save_prefs();
-                app.close(this);
-                const std::string out = base(r.json["spec"]["output"].str());
-                app.toast(engine_name.empty() ? t("Queued: {name}", {{"name", out}})
-                                              : t("Queued on {engine}: {name}", {{"engine", engine_name}, {"name", out}}),
-                          App::Toast::ok);
-                app.refresh_jobs(true);
-            }, 0, 60000);
+            const std::string dest_now = dest;
+            for (const auto& sp : todo) {
+                const std::string input = sp["input"].str();
+                app.api("POST", path, sp, [this, &app, on, engine_name, k, several, count, input, dest_now](const Reply& r) {
+                    if (r.ok())
+                        count->outputs.push_back(base(r.json["spec"]["output"].str()));
+                    else
+                        count->failed.push_back((several ? base(input) + ": " : std::string()) + t_msg(r.error()));
+                    if (--count->left) return;
+                    if (!app.overlay_alive(k)) return;
+                    busy = false;
+                    if (count->outputs.empty()) {
+                        msg = count->failed.empty() ? std::string() : count->failed[0];
+                        msg_err = true;
+                        return;
+                    }
+                    app.prefs.set("dest", dest_now);
+                    app.prefs.set("convertOn", on);
+                    app.save_prefs();
+                    app.close(this);
+                    const std::string out = count->outputs.size() == 1
+                                                ? count->outputs[0]
+                                                : plural(static_cast<long long>(count->outputs.size()), "{n} job", "{n} jobs");
+                    app.toast(engine_name.empty() ? t("Queued: {name}", {{"name", out}})
+                                                  : t("Queued on {engine}: {name}", {{"engine", engine_name}, {"name", out}}),
+                              App::Toast::ok);
+                    if (!count->failed.empty())
+                        app.toast(count->failed.size() > 1
+                                      ? t("{first} (and {n} more)", {{"first", count->failed[0]},
+                                                                      {"n", std::to_string(count->failed.size() - 1)}})
+                                      : count->failed[0],
+                                  App::Toast::bad);
+                    if (several) app.stop_selecting();
+                    app.refresh_jobs(true);
+                }, 0, 60000);
+            }
         };
         // Components are the converting engine's own: only this engine's are fetched from here.
         if (on.empty()) {
-            app.get_needs(plan, "This conversion needs {name}, which isn't downloaded yet.", [this, &app, submit, k](bool ok) {
+            app.get_needs(need_plan, "This conversion needs {name}, which isn't downloaded yet.", [this, &app, submit, k](bool ok) {
                 if (!app.overlay_alive(k)) return;
                 if (!ok) {
                     busy = false;
@@ -720,9 +875,9 @@ public:
             dest = v;
             if (!v.empty()) app.remember_folder(v);
         };
-        if (!entry.shared) {
+        if (!any_shared()) {
             Choice c;
-            c.label = t("Next to the source");
+            c.label = many() ? t("Next to each source") : t("Next to the source");
             c.selected = dest.empty();
             c.act = [set] { set(""); };
             items.push_back(c);
@@ -785,9 +940,10 @@ public:
 
     void build(Ui& ui, App& app) override {
         if (!started) start(app);
-        // The plan for the current choices, asked 150 ms after they change.
+        // The plans for the current choices, asked 150 ms after they change.
         std::string key_now;
-        JsonValue s = spec(app, &key_now);
+        const std::vector<JsonValue> all = specs(app, &key_now);
+        const JsonValue s = spec(app, entry, nullptr);  // the choices every job shares
         if (key_now != pending_key) {
             pending_key = key_now;
             pending_t = 0.0f;
@@ -800,27 +956,42 @@ public:
             waited = 0.0f;
             const int k = key;
             const std::string want = requested_key;
-            app.api("POST", "/api/plan", s, [this, &app, k, want](const Reply& r) {
-                if (!app.overlay_alive(k)) return;
-                if (want != requested_key) return;  // the choices changed meanwhile
+            auto got = std::make_shared<std::pair<std::map<std::string, JsonValue>, std::map<std::string, std::string>>>();
+            auto left = std::make_shared<std::size_t>(all.size());
+            auto finish = [this, want, got] {
                 waiting = false;
                 waited = 0.0f;
-                if (!r.ok()) {
-                    plan_err = t_msg(r.error());
-                    return;
-                }
-                plan = r.json;
+                plans = got->first;
+                plan_errs = got->second;
                 plan_key = want;
-                plan_err.clear();
+                auto it = plans.find(entry.path);
+                plan = it != plans.end() ? it->second : JsonValue();
+                plan_err = many() ? (plans.empty() ? t("None of these can be converted this way.") : std::string())
+                                  : (plan_errs.count(entry.path) ? plan_errs[entry.path] : std::string());
                 msg.clear();
-            }, Engine::kSlow, 600000);
+            };
+            if (all.empty()) finish();
+            for (const auto& sp : all) {
+                const std::string input = sp["input"].str();
+                app.api("POST", "/api/plan", sp, [this, &app, k, want, got, left, input, finish](const Reply& r) {
+                    if (!app.overlay_alive(k)) return;
+                    if (want != requested_key) return;  // the choices changed meanwhile
+                    if (r.ok())
+                        got->first[input] = r.json;
+                    else
+                        got->second[input] = t_msg(r.error());
+                    if (--*left == 0) finish();
+                }, Engine::kSlow, 600000);
+            }
         }
-        const bool plan_ready = plan.is_object() && plan_key == key_now && plan_err.empty();
-        const bool packed = inspect["lz4_packed"].boolean();
+        const bool plan_ready = plan_key == key_now && plan_err.empty() && !plans.empty();
+        const bool packed = many() ? packed_all() : inspect["lz4_packed"].boolean();
         const std::string target = s["to"].str();
         const bool lz4_on = s["lz4"].boolean(), unpack_on = s["lz4_unpack"].boolean();
         const bool del_on = s["delete_source"].boolean();
-        const bool hide_hidden = entry.kind == "fpkg" || is_hidden_name(entry.name) || del_on || target == "fpkg" || entry.shared;
+        bool hide_hidden = true;
+        for (const auto& e : entries)
+            hide_hidden = hide_hidden && (e.kind == "fpkg" || is_hidden_name(e.name) || del_on || target == "fpkg" || e.shared);
         const bool ampr_hidden = target == "fpkg" || lz4_on;
 
         sheet.begin(ui, t("Convert"), "", Sheet::Size::wide, true);
@@ -831,7 +1002,7 @@ public:
         // ---- left: format and options ----
         y += section(ui, t("Convert to"), x + 0.1f * R, y, 0.2f);
         {
-            const std::string same = entry.game ? "folder" : entry.kind;
+            const std::string same = one_format();
             std::vector<const Format*> offered;
             for (const auto& f : kFormats)
                 if (f.value != same || lz4_on || unpack_on) offered.push_back(&f);
@@ -868,8 +1039,7 @@ public:
             y += choice_row(ui, "cv:level", x, y, lw, t("Compression"), t("Level 9 matches PS5PKGTool byte for byte"),
                             {t("1 \xC2\xB7 fastest"), t("6 \xC2\xB7 balanced"), t("9 \xC2\xB7 smallest")}, &level);
         // PS4 packages are always written stored.
-        const Meta* game_meta = app.meta(entry.path, entry.mtime, entry.size);
-        if (target == "fpkg" && !(game_meta && game_meta->platform == "ps4"))
+        if (target == "fpkg" && !any_ps4(app))
             y += choice_row(ui, "cv:pkgcomp", x, y, lw, t("Compression"),
                             t("Executables stay uncompressed; matches ProsperoPkgTool byte for byte"),
                             {t("Stored \xC2\xB7 fastest"), t("Kraken \xC2\xB7 smaller")}, &pkg_comp);
@@ -885,7 +1055,7 @@ public:
                             t("Leaves the .pkg after installing, to install again or elsewhere"), &keep_pkg);
             ui.list->rounded_rect({x + 1.25f * R, top, 2.0f, y - top - 0.5f * R}, 0.0f, line);
         }
-        if (!packed) y += switch_row(ui, "cv:lz4", x, y, lw, t("Pack into LZ4 asset packs"), t("For ampr_emu games"), &lz4);
+        if (!packed_any()) y += switch_row(ui, "cv:lz4", x, y, lw, t("Pack into LZ4 asset packs"), t("For ampr_emu games"), &lz4);
         if (lz4_on) {
             const float ix = x + 1.25f * R + 0.9f * R + 2.0f, iw = lw - (ix - x);
             const float top = y;
@@ -910,19 +1080,19 @@ public:
         if (packed)
             y += switch_row(ui, "cv:unpack", x, y, lw, t("Unpack LZ4 asset packs"),
                             t("Turns the packs back into ordinary files; ampr_emu's runtime stays in fakelib"), &unpack);
-        if (target == "ffpfsc" && (lz4_on || (packed && !unpack_on)))
+        if (target == "ffpfsc" && (lz4_on || (packed_any() && !unpack_on)))
             y += draw::paragraph(ui, Face::regular,
-                                 (packed ? t("This game is already LZ4-packed.") + " " : std::string()) +
+                                 (packed && !many() ? t("This game is already LZ4-packed.") + " " : std::string()) +
                                      t("FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data."),
                                  x, y, lw, 0.88f * R, 0.88f * 1.45f * R, warn) + 0.5f * R;
         if (!ampr_hidden)
             y += switch_row(ui, "cv:ampr", x, y, lw, t("Add the AMPR emulator when the game needs it"),
                             t("Games that use the console's APR stop at start from an image or folder without it"), &ampr);
-        if (!entry.shared && !(install && installable(app, target)))
-            y += switch_row(ui, "cv:del", x, y, lw, t("Delete the source when done"),
-                            entry.kind == "fpkg" || entry.kind == "ffpkg"
-                                ? t("Frees {size} after a successful conversion", {{"size", bytes(entry.size)}})
-                                : t("Frees its space after a successful conversion"),
+        if (!any_shared() && !(install && installable(app, target)))
+            y += switch_row(ui, "cv:del", x, y, lw, many() ? t("Delete the sources when done") : t("Delete the source when done"),
+                            many()                                       ? t("Each one after its conversion succeeds")
+                            : entry.kind == "fpkg" || entry.kind == "ffpkg" ? t("Frees {size} after a successful conversion", {{"size", bytes(entry.size)}})
+                                                                         : t("Frees its space after a successful conversion"),
                             &del);
         if (del_on) {
             const float ix = x + 1.25f * R + 0.9f * R + 2.0f;
@@ -942,7 +1112,7 @@ public:
         }
         y += section(ui, t("Output"), x + 0.1f * R, y, 0.6f);
         {
-            std::string label = t("Next to the source");
+            std::string label = many() ? t("Next to each source") : t("Next to the source");
             if (!dest.empty()) {
                 label = app.shown_path(dest);
                 for (const auto& l : app.locations.items())
@@ -951,14 +1121,16 @@ public:
             bool pressed = false;
             y += link_row(ui, "cv:dest", x, y, lw, t("Save to"), "", label, &pressed);
             if (pressed) pick_dest(app);
-            y -= 1.1f * R + 0.72f * R * 1.45f + 0.45f * R;  // the field's label is the row above
-            field_row(ui, app, "cv:name", x, &y, lw, "", &name, plan.is_object() ? base(plan["output"].str()) : "");
-            y += 0.5f * R;
+            if (!many()) {
+                y -= 1.1f * R + 0.72f * R * 1.45f + 0.45f * R;  // the field's label is the row above
+                field_row(ui, app, "cv:name", x, &y, lw, "", &name, plan.is_object() ? base(plan["output"].str()) : "");
+                y += 0.5f * R;
+            }
         }
         y += switch_row(ui, "cv:over", x, y, lw, t("Replace the output if it exists"), "", &over);
         {
             const auto choices = on_choices(app);
-            if (choices.size() > 1 && !entry.shared) {
+            if (choices.size() > 1 && !any_shared()) {
                 std::vector<std::string> labels;
                 for (const auto& c : choices) labels.push_back(c.second);
                 y += choice_row(ui, "cv:on", x, y, lw, t("Convert on"),
@@ -967,6 +1139,9 @@ public:
             }
         }
         const float left_bottom = y;
+        if (many()) {
+            y = std::max(left_bottom, many_side(ui, app, x + lw + gap, rw, target, ampr_hidden));
+        } else
         // ---- right: the source and the output ----
         {
             const float sx = x + lw + gap, top = sheet.content_top();
@@ -1068,6 +1243,91 @@ public:
     }
     float side_h = 10.0f * R;
 
+    // Several games: what each one becomes, or why it is left out. Returns the panel's bottom.
+    float many_side(Ui& ui, App& app, float sx, float rw, const std::string& target, bool ampr_hidden) {
+        const float top = sheet.content_top();
+        const float px = sx + 1.1f * R, pw = rw - 2.2f * R;
+        ui.list->bordered_rect({sx, top, rw, side_h}, 0.9f * R, side, 1.0f, line);
+        float yy = top + 0.4f * R;
+        yy += section(ui, plural(static_cast<long long>(entries.size()), "{n} game", "{n} games"), px + 0.1f * R, yy, 0.4f);
+        std::string label = target;
+        for (const auto& f : kFormats)
+            if (target == f.value) label = f.label;
+        const std::vector<Entry> jobs = work(app);
+        double need = 0;
+        bool any_ampr = false;
+        auto row = [&](const Entry& e, bool left_out) {
+            const Meta* m = app.meta(e.path, e.mtime, e.size);
+            draw::hline(ui, px, yy, pw, line);
+            yy += 0.4f * R;
+            draw::text_fit(ui, Face::semibold, m && !m->title.empty() ? m->title : e.name, px,
+                           draw::baseline(yy + 0.5f * R, 0.95f * R), 0.95f * R, pw, left_out ? muted : style::text);
+            yy += 0.95f * R * 1.45f;
+            std::string line_text;
+            Color ink = muted;
+            Face face = Face::mono;
+            auto pl = plans.find(e.path);
+            auto pe = plan_errs.find(e.path);
+            auto ie = problems.find(e.path);
+            if (left_out) {
+                line_text = t("Already {format}: left out", {{"format", label}});
+                face = Face::regular;
+            } else if (pe != plan_errs.end() || ie != problems.end()) {
+                line_text = pe != plan_errs.end() ? pe->second : ie->second;
+                ink = bad;
+                face = Face::regular;
+            } else if (pl != plans.end()) {
+                line_text = "\xE2\x86\x92 " + base(pl->second["output"].str());
+            } else {
+                line_text = "\xE2\x80\xA6";
+            }
+            draw::text_fit(ui, face, line_text, px, draw::baseline(yy + 0.45f * R, 0.82f * R), 0.82f * R, pw, ink);
+            yy += 0.82f * R * 1.45f + 0.35f * R;
+            if (pl != plans.end() && !left_out) {
+                std::string warns;
+                for (const auto& wv : pl->second["warnings"].items()) warns += (warns.empty() ? "" : " ") + t_msg(wv.str());
+                if (!warns.empty())
+                    yy += draw::paragraph(ui, Face::regular, warns, px, yy, pw, 0.8f * R, 0.8f * 1.45f * R, warn) + 0.3f * R;
+                any_ampr = any_ampr || pl->second["ampr_needed"].boolean();
+            }
+            auto in = inspects.find(e.path);
+            if (!left_out && in != inspects.end()) need += in->second["bytes"].number();
+        };
+        for (const auto& e : jobs) row(e, false);
+        for (const auto& e : entries)
+            if (std::find_if(jobs.begin(), jobs.end(), [&](const Entry& j) { return j.path == e.path; }) == jobs.end()) row(e, true);
+        // Room where the outputs go.
+        std::string room;
+        if (!plans.empty()) {
+            const std::string out = plans.begin()->second["output"].str();
+            if (const JsonValue* r = app.root_of(out))
+                room = t("{size} free on {drive}", {{"size", bytes((*r)["free"].number())}, {"drive", app.drive_name((*r)["root"].str())}}) +
+                       (need > 0 ? " \xC2\xB7 " + t("the games are {size} unpacked", {{"size", bytes(need)}}) : "");
+            else if (const JsonValue* srv = app.server_of(out))
+                room = App::on_server_text(*srv);
+        }
+        if (!room.empty()) yy += 0.3f * R + draw::paragraph(ui, Face::regular, room, px, yy + 0.3f * R, pw, 0.88f * R, 0.88f * 1.45f * R, muted);
+        if (!ampr_hidden && any_ampr)
+            yy += 0.5f * R + draw::paragraph(ui, Face::regular,
+                                             ampr ? t("Games that use the console's APR and ship no emulator get ampr_emu in their fakelib.")
+                                                  : t("Some of these games use the console's APR and ship no emulator: without it, they will likely stop at start."),
+                                             px, yy + 0.5f * R, pw, 0.88f * R, 0.88f * 1.45f * R, warn);
+        std::string needs;
+        std::vector<std::string> ids;
+        for (const auto& [path, p] : plans)
+            for (const auto& d : p["needs"].items())
+                if (std::find(ids.begin(), ids.end(), d["id"].str()) == ids.end()) {
+                    ids.push_back(d["id"].str());
+                    needs += (needs.empty() ? "" : ", ") + t(d["label"].str()) + " (" + bytes(d["bytes"].number()) + ")";
+                }
+        if (!needs.empty())
+            yy += 0.5f * R + draw::paragraph(ui, Face::regular,
+                                             t("Needs {list}. You'll be asked to download it when you add this to the queue.", {{"list", needs}}),
+                                             px, yy + 0.5f * R, pw, 0.88f * R, 0.88f * 1.45f * R, warn);
+        side_h = yy + 1.0f * R - top;
+        return top + side_h;
+    }
+
     std::vector<Hint> hints(App&) override {
         return {{Glyph::dpad, t("Move, change")}, {Glyph::cross, t("Choose")}, {Glyph::circle, t("Cancel")},
                 {Glyph::square, t("Add to queue")}};
@@ -1077,10 +1337,16 @@ public:
 
 }  // namespace
 
-void App::open_convert(const Entry& e, bool install) {
+void App::open_convert(const Entry& e, bool install) { open_convert(std::vector<Entry>{e}, install); }
+
+void App::open_convert(const std::vector<Entry>& list, bool install) {
+    if (list.empty()) return;
+    const Entry& e = list.front();
     auto c = std::make_unique<Convert>();
     c->entry = e;
-    c->to = install ? "fpkg" : e.kind == "ffpfsc" ? "ffpkg" : "ffpfsc";
+    c->entries = list;
+    const bool all_ffpfsc = std::all_of(list.begin(), list.end(), [](const Entry& x) { return x.kind == "ffpfsc"; });
+    c->to = install ? "fpkg" : all_ffpfsc ? "ffpkg" : "ffpfsc";
     c->install = install;
     std::string d = prefs["dest"].str();
     // A shared file has no folder on the console: it goes to a place here.

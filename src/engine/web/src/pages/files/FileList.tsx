@@ -13,6 +13,7 @@ import { PlatformPill } from "../../components/PlatformPill";
 import { openConvert } from "../../dialogs/ConvertDialog";
 import { browse } from "./browse";
 import { openActions } from "./actions";
+import { selecting, isSelected, toggleSelected } from "../../state/selection";
 
 function openEntry(e: Entry) {
   if (cwd.value === "/" || (e.kind === "folder" && !e.game)) return browse(e.path);
@@ -30,9 +31,13 @@ function Row(props: { e: Entry; top: boolean }) {
   const plain = top ? (r ? t("{free} free of {total}", { free: bytes(r.free), total: bytes(r.total as number) }) : fs ? serverAddress(fs, true) : gone ? t("offline") : shownPath(e.path))
     : [e.kind === "folder" ? "" : bytes(e.size), date(e.mtime)].filter(Boolean).join("  ·  ");
   const title = !top && m && m.title ? m.title : null;
+  // Selecting: ✕ (a click) ticks the row instead of opening it.
+  const sel = selecting.value && !top, ticked = sel && isSelected(e);
   return (
-    <div ref={ref} class="row" tabIndex={0} data-key={e.path} onClick={() => openEntry(e)} onFocus={() => { focusEntry.value = e; }}
+    <div ref={ref} class={"row" + (ticked ? " sel" : "")} tabIndex={0} data-key={e.path} aria-checked={sel ? ticked : undefined}
+      onClick={() => (sel ? toggleSelected(e) : openEntry(e))} onFocus={() => { focusEntry.value = e; }}
       onContextMenu={top ? undefined : (ev) => { ev.preventDefault(); openActions(e); }}>
+      {sel ? <span class={"tick" + (ticked ? " on" : "")}>{ticked ? "✓" : ""}</span> : null}
       {top ? <div class="ico folder">{fs ? ICONS.server() : /usb|ext/.test(e.path) ? ICONS.usb() : ICONS.drive()}</div> : <EntryIco entry={e} meta={m} />}
       <div style="min-width:0">
         <div class="t ellip" title={title || e.name}>{gone ? gone.name + " · " + base(e.path) : top ? driveName(e.path) : title || e.name}</div>

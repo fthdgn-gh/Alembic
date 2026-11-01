@@ -7,7 +7,7 @@ import { locations } from "../state/engine";
 import { rootOf, serverOf, onServerText, driveName, shownPath, hereName } from "../state/paths";
 import { refreshJobs } from "../state/jobs";
 import { bytes, dir } from "../lib/format";
-import { t, tMsg, placeLabel } from "../lib/i18n";
+import { t, tMsg, plural, placeLabel } from "../lib/i18n";
 import { ICONS } from "../components/Icons";
 import { SwitchRow } from "../components/Rows";
 import { Sheet, openOverlay, closeOverlay } from "../components/Overlay";
@@ -39,8 +39,27 @@ export async function openDest(entry: Entry | null, kind: Kind, start?: string):
   return chosen.folder;
 }
 
-function Picker(props: { entry: Entry | null; kind: Kind; start: string; ctl: Control }) {
-  const { entry, kind } = props;
+// Copy or move several entries into one folder (a selection in Files), each
+// keeping its name: one job each. True when at least one was queued.
+export async function openDestMany(entries: Entry[], kind: "copy" | "move", start?: string): Promise<boolean> {
+  const ctl: Control = { go: () => {} };
+  const goLabel = kind === "copy" ? t("Copy here") : t("Move here");
+  const chosen = await openOverlay<Chosen>(() => <Picker entry={null} many={entries} kind={kind} start={start || dir(entries[0].path)} ctl={ctl} />,
+    { hints: [["x", t("Open folder")], ["o", t("Cancel"), goBack], ["s", goLabel, () => ctl.go()]], onSquare: () => ctl.go() });
+  if (!chosen) return false;
+  let queued = 0;
+  const failed: string[] = [];
+  for (const e of entries) {
+    try { await api("POST", "/api/jobs", { kind, input: e.path, output: chosen.folder + "/" + e.name, overwrite: chosen.overwrite }); queued++; }
+    catch (err: any) { failed.push(e.name + ": " + tMsg(err.message)); }
+  }
+  if (queued) { toast(plural(queued, "{n} job queued", "{n} jobs queued"), "ok"); refreshJobs(); }
+  if (failed.length) toast(failed.length > 1 ? t("{first} (and {n} more)", { first: failed[0], n: failed.length - 1 }) : failed[0], "bad");
+  return queued > 0;
+}
+
+function Picker(props: { entry: Entry | null; many?: Entry[]; kind: Kind; start: string; ctl: Control }) {
+  const { entry, kind, many } = props;
   const pick = kind === "pick";
   const [data, setData] = useState<Listing | null>(null);
   const [msg, setMsg] = useState<{ text: string; err: boolean }>({ text: "", err: false });
@@ -64,6 +83,7 @@ function Picker(props: { entry: Entry | null; kind: Kind; start: string; ctl: Co
   }, [data]);
 
   const go = () => { if (cur && cur !== "/") closeOverlay(pick ? { folder: cur, name: "", overwrite: false } : { folder: cur, name, overwrite: over }); };
+  const need = many ? many.reduce((n, e) => n + (e.size || 0), 0) : entry ? entry.size || 0 : 0;
   props.ctl.go = go;
 
   // Places by engine: this one's, then each paired engine's under its name.
@@ -78,9 +98,10 @@ function Picker(props: { entry: Entry | null; kind: Kind; start: string; ctl: Co
   const r: any = !cur || cur === "/" ? null : rootOf(cur);
   const srv = !r ? serverOf(cur) : null;
   const space = !data ? "" : srv ? onServerText(srv) + "  ·  " + cur
-    : r ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) + (entry && entry.size ? " · " + t("needs {size}", { size: bytes(entry.size) }) : "") + "  ·  " + shownPath(cur)
+    : r ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) + (need ? " · " + t("needs {size}", { size: bytes(need) }) : "") + "  ·  " + shownPath(cur)
     : t("Pick a drive and folder.");
-  const title = pick ? t("Choose a folder") : t(kind === "copy" ? "Copy {name}" : "Move {name}", { name: entry ? entry.name : "" });
+  const title = pick ? t("Choose a folder") : many ? (kind === "copy" ? plural(many.length, "Copy {n} item", "Copy {n} items") : plural(many.length, "Move {n} item", "Move {n} items"))
+    : t(kind === "copy" ? "Copy {name}" : "Move {name}", { name: entry ? entry.name : "" });
   return (
     <Sheet title={title} foot={<>
       <span class={"msg" + (msg.err ? " err" : "")}>{msg.text}</span>
@@ -109,8 +130,10 @@ function Picker(props: { entry: Entry | null; kind: Kind; start: string; ctl: Co
         </div>
         {pick ? null : (
           <div>
-            <div class="lbl">{t("Name")}</div>
-            <input class="input mono" value={name} spellcheck={false} autocapitalize="off" onInput={(e) => setName((e.target as HTMLInputElement).value)} />
+            {many ? null : <>
+              <div class="lbl">{t("Name")}</div>
+              <input class="input mono" value={name} spellcheck={false} autocapitalize="off" onInput={(e) => setName((e.target as HTMLInputElement).value)} />
+            </>}
             <div style="margin-top:.5rem"><SwitchRow label={t("Replace if it already exists")} on={over} onChange={setOver} /></div>
           </div>
         )}

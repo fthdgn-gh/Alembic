@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The Convert dialog: the target format and options on the left; what the
-// source is and where the output goes on the right.
+// source is and where the output goes on the right. Several games (a
+// selection in Files) share the choices and get a job each.
 import { useEffect, useState } from "preact/hooks";
-import type { Entry, Inspect, Plan, Job } from "../api/types";
+import type { Dep, Entry, Inspect, Plan, Job } from "../api/types";
 import { api } from "../api/client";
 import { cachedMeta } from "../api/meta";
 import { PlatformPill } from "../components/PlatformPill";
@@ -19,6 +20,7 @@ import { Sheet, openOverlay, closeOverlay } from "../components/Overlay";
 import { choose, type ChoiceItem } from "../components/Dialogs";
 import { toast } from "../components/Toasts";
 import { goBack, showTab } from "../input/history";
+import { stopSelecting } from "../state/selection";
 import { openDest } from "./FolderPicker";
 import { getNeeds } from "./getNeeds";
 
@@ -45,9 +47,10 @@ function destLabel(v: string) {
 interface Control { go: () => void }
 
 // `install`: opened as "Install…" (FPKG, installed when done).
-export function openConvert(entry: Entry, install?: boolean) {
+export function openConvert(entry: Entry | Entry[], install?: boolean) {
   const ctl: Control = { go: () => {} };
-  openOverlay<string>(() => <Convert entry={entry} ctl={ctl} install={!!install} />,
+  const entries = Array.isArray(entry) ? entry : [entry];
+  openOverlay<string>(() => <Convert entries={entries} ctl={ctl} install={!!install} />,
     { hints: [["dpad", t("Move, change")], ["x", t("Choose")], ["o", t("Cancel"), goBack], ["s", t("Add to queue"), () => ctl.go()]], onSquare: () => ctl.go() })
     .then((v) => { if (v === "deps") showTab("deps"); });
 }
@@ -68,16 +71,36 @@ function initialDest(entry: Entry): string {
   return d;
 }
 
-function Convert(props: { entry: Entry; ctl: Control; install: boolean }) {
-  const entry = props.entry;
+// A game's own format: converting to it is no conversion (unless LZ4 changes).
+const formatOf = (e: Entry) => (e.game ? "folder" : e.kind);
+
+// Asks for each path, two at a time; resolves with the answers (or errors) by path.
+function eachPath<T>(paths: string[], ask: (p: string) => Promise<T>): Promise<{ ok: Record<string, T>; err: Record<string, string> }> {
+  const ok: Record<string, T> = {}, err: Record<string, string> = {};
+  let next = 0;
+  const worker = (): Promise<void> => {
+    if (next >= paths.length) return Promise.resolve();
+    const p = paths[next++];
+    return ask(p).then((v) => { ok[p] = v; }, (e) => { err[p] = tMsg(e.message); }).then(worker);
+  };
+  return Promise.all([worker(), worker()]).then(() => ({ ok, err }));
+}
+
+function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
+  const entries = props.entries, entry = entries[0], many = entries.length > 1;
   const m = cachedMeta(entry);
+  const metas = entries.map(cachedMeta);
+  const anyPs4 = metas.some((x) => !!x && x.platform === "ps4");
+  const anyShared = entries.some((e) => !!e.shared);
   const rt = info.value ? info.value.lz4_runtime : null;
-  const [to, setTo] = useState(props.install ? "fpkg" : entry.kind === "ffpfsc" ? "ffpkg" : "ffpfsc");
+  const [to, setTo] = useState(props.install ? "fpkg" : entries.every((e) => e.kind === "ffpfsc") ? "ffpkg" : "ffpfsc");
   const [installWant, setInstall] = useState(props.install);
   const [keepPkg, setKeepPkg] = useState(false);
   const [dest, setDest] = useState(() => initialDest(entry));
-  const [inspect, setInspect] = useState<Inspect | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
+  // What each source is (format, size, LZ4 packs), and the ones that could not be read.
+  const [inspects, setInspects] = useState<{ ok: Record<string, Inspect>; err: Record<string, string> } | null>(null);
+  const inspect = inspects ? inspects.ok[entry.path] || null : null;
+  const problem = !inspects ? null : many ? (Object.keys(inspects.ok).length ? null : inspects.err[entry.path] || null) : inspects.err[entry.path] || null;
   const [level, setLevel] = useState(6);
   const [pkgComp, setPkgComp] = useState("stored");
   const [profile, setProfile] = useState("auto");
@@ -97,40 +120,49 @@ function Convert(props: { entry: Entry; ctl: Control; install: boolean }) {
   const [whereWant, setWhere] = useState(() => store.get<string>("convertOn") || "");
   // An engine that went offline (or was the last choice) falls back to this one.
   const where = onChoices.some((c) => c.value === whereWant) ? whereWant : "";
-  const whereHidden = !paired.length || !!entry.shared;
-  // The engine's plan and the choices it was made for: queueing uses it as is.
-  const [planned, setPlanned] = useState<{ key: string; plan: Plan } | null>(null);
-  const [planErr, setPlanErr] = useState<string | null>(null); // the engine refuses these choices
+  const whereHidden = !paired.length || anyShared;
+  // The engine's plans and the choices they were made for: queueing uses them as they are.
+  const [planned, setPlanned] = useState<{ key: string; plans: Record<string, Plan>; errs: Record<string, string> } | null>(null);
   const [waited, setWaited] = useState(0); // seconds without an answer to the latest plan request
   const [msg, setMsg] = useState<{ text: string; err: boolean }>({ text: "", err: false });
   const [busy, setBusy] = useState(false);
 
-  // An LZ4-packed game can't be packed again, only unpacked.
-  const packedSrc = !!(inspect && inspect.lz4_packed);
-  const lz4 = lz4Want && !packedSrc, unpack = unpackWant && packedSrc;
+  // An LZ4-packed game can't be packed again, only unpacked: several games
+  // can be packed when none is, unpacked when all are.
+  const packed = (e: Entry) => !!(inspects && inspects.ok[e.path] && inspects.ok[e.path].lz4_packed);
+  const packedAny = entries.some(packed), packedAll = entries.every(packed);
+  const lz4 = lz4Want && !packedAny, unpack = unpackWant && packedAll;
   // A PS5 package can go straight to the console's installer (then it is deleted).
-  const installable = to === "fpkg" && !!info.value && info.value.platform === "ps5" && !(m && m.platform === "ps4");
-  const del = !entry.shared && delWant && !(installable && installWant);
+  const installable = to === "fpkg" && !!info.value && info.value.platform === "ps5" && !anyPs4;
+  const del = !anyShared && delWant && !(installable && installWant);
   // The source's own format is no conversion, except when packing or unpacking
-  // LZ4 (an exFAT game into an LZ4-packed exFAT, say).
-  const sameFormat = entry.game ? "folder" : entry.kind;
-  const offered = FORMATS.filter((f) => f.value !== sameFormat || lz4 || unpack);
+  // LZ4 (an exFAT game into an LZ4-packed exFAT, say). Several games: a game
+  // already in the target format is left out.
+  const formats = entries.map(formatOf), oneFormat = formats.every((f) => f === formats[0]) ? formats[0] : null;
+  const offered = FORMATS.filter((f) => f.value !== oneFormat || lz4 || unpack);
   const target = offered.some((f) => f.value === to) ? to : offered[0].value;
-  const hideHidden = entry.kind === "fpkg" || isHiddenName(entry.name) || del || target === "fpkg" || !!entry.shared;
+  const work = entries.filter((e) => formatOf(e) !== target || lz4 || unpack);
+  const skipped = entries.filter((e) => work.indexOf(e) < 0);
+  const hideHiddenFor = (e: Entry) => e.kind === "fpkg" || isHiddenName(e.name) || del || target === "fpkg" || !!e.shared;
+  const hideHidden = entries.every(hideHiddenFor);
   const amprHidden = target === "fpkg" || lz4; // packing adds its runtime anyway
-  const spec = {
-    input: entry.path, to: target, output_dir: dest, output_name: name.trim(), level, pkg_compression: pkgComp,
+  const specFor = (e: Entry) => ({
+    input: e.path, to: target, output_dir: dest, output_name: many ? "" : name.trim(), level, pkg_compression: anyPs4 ? "stored" : pkgComp,
     install_after: installable && target === "fpkg" && installWant, keep_package: keepPkg, lz4, lz4_unpack: unpack,
     lz4_profile: profile, lz4_level: lz4Level, delete_source: del, verify, overwrite: over,
-    ampr_emu: ampr ? "auto" : "off", hide_source: !hideHidden && hideWant && !del,
-  };
-  const specKey = JSON.stringify(spec);
-  // Only a plan for the current choices counts; an older one still names the output while the new one loads.
-  const plan = planned ? planned.plan : null;
-  const planReady = !!planned && planned.key === specKey && !planErr;
+    ampr_emu: ampr ? "auto" : "off", hide_source: !hideHiddenFor(e) && hideWant && !del,
+  });
+  const specs = work.map(specFor);
+  const specKey = JSON.stringify(specs);
+  // Only plans for the current choices count; older ones still name the outputs while the new ones load.
+  const plans = planned ? planned.plans : {}, planErrs = planned ? planned.errs : {};
+  const plan = plans[entry.path] || null;
+  const planErr = !planned || planned.key !== specKey ? null
+    : many ? (Object.keys(planned.plans).length ? null : t("None of these can be converted this way.")) : planErrs[entry.path] || null;
+  const planReady = !!planned && planned.key === specKey && !planErr && work.length > 0;
 
   useEffect(() => {
-    api<Inspect>("GET", "/api/inspect?path=" + encodeURIComponent(entry.path)).then(setInspect, (e) => setProblem(tMsg(e.message)));
+    eachPath(entries.map((e) => e.path), (p) => api<Inspect>("GET", "/api/inspect?path=" + encodeURIComponent(p))).then(setInspects);
   }, []);
   // The engine's plan for these choices: the output's name, what it needs, warnings.
   // A slow engine (busy disk, a big package read for the first time) must not
@@ -141,32 +173,45 @@ function Convert(props: { entry: Entry; ctl: Control; install: boolean }) {
     setWaited(0);
     const timer = setTimeout(() => {
       ticker = setInterval(() => { if (live) setWaited(Math.floor((Date.now() - started) / 1000)); }, 1000) as unknown as number;
-      api<Plan>("POST", "/api/plan", spec).then((p) => {
+      const bySource: Record<string, unknown> = {};
+      for (const sp of specs) bySource[sp.input] = sp;
+      eachPath(Object.keys(bySource), (p) => api<Plan>("POST", "/api/plan", bySource[p])).then((r) => {
         if (!live) return; // the choices changed meanwhile: a newer request is on its way
-        setPlanned({ key, plan: p }); setPlanErr(null); setMsg({ text: "", err: false });
-      }, (e) => { if (live) setPlanErr(tMsg(e.message)); })
-        .then(() => { clearInterval(ticker); if (live) setWaited(0); });
+        setPlanned({ key, plans: r.ok, errs: r.err }); setMsg({ text: "", err: false });
+      }).then(() => { clearInterval(ticker); if (live) setWaited(0); });
     }, 150);
     return () => { live = false; clearTimeout(timer); clearInterval(ticker); };
   }, [specKey]);
 
   async function go() {
     if (busy || !planReady || problem) return;
-    const p = planned!.plan;
+    // The games the engine has a plan for (the others say why in the list).
+    const ready = specs.filter((sp) => !!planned!.plans[sp.input]);
     setBusy(true);
     try {
       const on = whereHidden ? "" : where, engine = paired.find((e) => e.id === on);
       // Components are the converting engine's own: only this engine's are fetched from here.
       if (!on) {
-        if (!await getNeeds(p, "This conversion needs {name}, which isn't downloaded yet.")) {
+        const needs: Dep[] = [];
+        for (const sp of ready) for (const d of planned!.plans[sp.input].needs || []) if (!needs.some((x) => x.id === d.id)) needs.push(d);
+        if (!await getNeeds({ output: "", needs }, "This conversion needs {name}, which isn't downloaded yet.")) {
           setMsg({ text: t("Not queued: a component is needed."), err: false }); return;
         }
       }
-      const job = on ? await api<Job>("POST", "/api/peers/" + encodeURIComponent(on) + "/jobs", spec) : await api<Job>("POST", "/api/jobs", spec);
-      store.set("dest", spec.output_dir);
+      const jobs: Job[] = [];
+      const failed: string[] = [];
+      for (const sp of ready) {
+        try { jobs.push(on ? await api<Job>("POST", "/api/peers/" + encodeURIComponent(on) + "/jobs", sp) : await api<Job>("POST", "/api/jobs", sp)); }
+        catch (e: any) { if (!many) throw e; failed.push(base(sp.input) + ": " + tMsg(e.message)); }
+      }
+      if (!jobs.length) { setMsg({ text: failed[0] || "", err: true }); return; }
+      store.set("dest", dest);
       store.set("convertOn", on);
       closeOverlay(true);
-      toast(engine ? t("Queued on {engine}: {name}", { engine: engine.name, name: base(job.spec.output) }) : t("Queued: {name}", { name: base(job.spec.output) }), "ok");
+      const what = jobs.length === 1 ? base(jobs[0].spec.output) : plural(jobs.length, "{n} job", "{n} jobs");
+      toast(engine ? t("Queued on {engine}: {name}", { engine: engine.name, name: what }) : t("Queued: {name}", { name: what }), "ok");
+      if (failed.length) toast(failed.length > 1 ? t("{first} (and {n} more)", { first: failed[0], n: failed.length - 1 }) : failed[0], "bad");
+      if (many) stopSelecting();
       refreshJobs(true);
     } catch (e: any) { setMsg({ text: tMsg(e.message), err: true }); }
     finally { setBusy(false); }
@@ -174,7 +219,7 @@ function Convert(props: { entry: Entry; ctl: Control; install: boolean }) {
   props.ctl.go = go;
 
   async function pickDest() {
-    const items: ChoiceItem<string>[] = entry.shared ? [] : [{ label: t("Next to the source"), value: "", selected: dest === "" }];
+    const items: ChoiceItem<string>[] = anyShared ? [] : [{ label: many ? t("Next to each source") : t("Next to the source"), value: "", selected: dest === "" }];
     // This engine's places and recent folders, then each paired engine's under its name.
     const here = hereName();
     const groups: { who: string; list: ChoiceItem<string>[] }[] = [{ who: here, list: [] }];
@@ -201,13 +246,17 @@ function Convert(props: { entry: Entry; ctl: Control; install: boolean }) {
       <a href="#" onClick={(ev) => { ev.preventDefault(); closeOverlay("deps"); }}>{t("Get it in Components")}</a></div>
     : rt && !rt.pinned ? <div class="note">{t("The runtime file is not the pinned ampr_emu 0.4.2.1 build.")}</div> : null;
   // LZ4 packs inside an FFPFSC work, but the console then undoes zlib and LZ4.
-  const lz4NoteShown = target === "ffpfsc" && (lz4 || (packedSrc && !unpack));
-  const r: any = plan ? rootOf(plan.output) : null, need = inspect ? inspect.bytes : 0;
-  const outSpace = !plan ? "" : r ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) + (need ? " · " + t("the game is {size} unpacked", { size: bytes(need) }) : "")
-    : serverOf(plan.output) ? onServerText(serverOf(plan.output)!) : "";
+  const lz4NoteShown = target === "ffpfsc" && (lz4 || (packedAny && !unpack));
+  const firstPlan = plan || plans[Object.keys(plans)[0]] || null;
+  const r: any = firstPlan ? rootOf(firstPlan.output) : null;
+  const need = work.reduce((n, e) => n + (inspects && inspects.ok[e.path] ? inspects.ok[e.path].bytes : 0), 0);
+  const outSpace = !firstPlan ? "" : r ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) })
+      + (need ? " · " + (many ? t("the games are {size} unpacked", { size: bytes(need) }) : t("the game is {size} unpacked", { size: bytes(need) })) : "")
+    : serverOf(firstPlan.output) ? onServerText(serverOf(firstPlan.output)!) : "";
   const warnings = plan && plan.warnings ? plan.warnings : [];
-  const amprShown = !!plan && !amprHidden && !!plan.ampr_needed;
-  const needs = plan && plan.needs ? plan.needs : [];
+  const amprShown = many ? !amprHidden && Object.keys(plans).some((k) => !!plans[k].ampr_needed) : !!plan && !amprHidden && !!plan.ampr_needed;
+  const needs: Dep[] = [];
+  for (const k of Object.keys(plans)) for (const d of plans[k].needs || []) if (!needs.some((x) => x.id === d.id)) needs.push(d);
 
   return (
     <Sheet title={t("Convert")} cls="wide" foot={<>
@@ -230,28 +279,29 @@ function Convert(props: { entry: Entry; ctl: Control; install: boolean }) {
             options={[{ value: 1, label: t("1 · fastest") }, { value: 6, label: t("6 · balanced") }, { value: 9, label: t("9 · smallest") }]} />
           {/* PS4 packages are always written stored. */}
           <ChoiceRow label={t("Compression")} hint={t("Executables stay uncompressed; matches ProsperoPkgTool byte for byte")}
-            hidden={target !== "fpkg" || !!(m && m.platform === "ps4")} value={pkgComp} onChange={setPkgComp}
+            hidden={target !== "fpkg" || anyPs4} value={pkgComp} onChange={setPkgComp}
             options={[{ value: "stored", label: t("Stored · fastest") }, { value: "kraken", label: t("Kraken · smaller") }]} />
           <SwitchRow label={t("Install when done")} hint={t("The package goes to the console's installer and is deleted once the installer has read it; it needs room until then")}
             on={installWant} onChange={setInstall} hidden={!installable || target !== "fpkg"} dataKey="cv:install" />
           <div class="indent" hidden={!installable || target !== "fpkg" || !installWant}>
             <SwitchRow label={t("Keep the package")} hint={t("Leaves the .pkg after installing, to install again or elsewhere")} on={keepPkg} onChange={setKeepPkg} dataKey="cv:keep" />
           </div>
-          <SwitchRow label={t("Pack into LZ4 asset packs")} hint={t("For ampr_emu games")} on={lz4} onChange={setLz4} hidden={packedSrc} />
+          <SwitchRow label={t("Pack into LZ4 asset packs")} hint={t("For ampr_emu games")} on={lz4} onChange={setLz4} hidden={packedAny} />
           <div class="indent" hidden={!lz4}>
             <ChoiceRow label={t("Profile")} hint={t("Automatic uses a console-tested profile when one matches")} options={profiles} value={profile} onChange={setProfile} />
             <ChoiceRow label={t("LZ4 level")} options={[{ value: 1, label: t("1 · fast") }, { value: 9, label: t("9 · default") }, { value: 12, label: t("12 · smallest") }]} value={lz4Level} onChange={setLz4Level} />
             {rtNote}
           </div>
           {/* Shown instead of the pack switch for a game that is already packed. */}
-          <SwitchRow label={t("Unpack LZ4 asset packs")} hint={t("Turns the packs back into ordinary files; ampr_emu's runtime stays in fakelib")} on={unpack} onChange={setUnpack} hidden={!packedSrc} />
+          <SwitchRow label={t("Unpack LZ4 asset packs")} hint={t("Turns the packs back into ordinary files; ampr_emu's runtime stays in fakelib")} on={unpack} onChange={setUnpack} hidden={!packedAll} />
           <div class="note" hidden={!lz4NoteShown}>
-            {(packedSrc ? t("This game is already LZ4-packed.") + " " : "") + t("FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data.")}
+            {(packedAny && !many ? t("This game is already LZ4-packed.") + " " : "") + t("FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data.")}
           </div>
           {/* ampr_emu for games that use the console's APR (not packages: installed, they have the real one). */}
           <SwitchRow label={t("Add the AMPR emulator when the game needs it")} hint={t("Games that use the console's APR stop at start from an image or folder without it")} on={ampr} onChange={setAmpr} hidden={amprHidden} />
-          <SwitchRow label={t("Delete the source when done")} hint={entry.kind === "fpkg" || entry.kind === "ffpkg" ? t("Frees {size} after a successful conversion", { size: bytes(entry.size) }) : t("Frees its space after a successful conversion")}
-            on={del} onChange={setDel} hidden={!!entry.shared || (installable && installWant && target === "fpkg")} />
+          <SwitchRow label={many ? t("Delete the sources when done") : t("Delete the source when done")}
+            hint={many ? t("Each one after its conversion succeeds") : entry.kind === "fpkg" || entry.kind === "ffpkg" ? t("Frees {size} after a successful conversion", { size: bytes(entry.size) }) : t("Frees its space after a successful conversion")}
+            on={del} onChange={setDel} hidden={anyShared || (installable && installWant && target === "fpkg")} />
           <div class="indent" hidden={!del}>
             <SwitchRow label={t("Check the output first")} hint={t("Compares every file before deleting; recommended")} on={verify} onChange={setVerify} />
           </div>
@@ -263,7 +313,7 @@ function Convert(props: { entry: Entry; ctl: Control; install: boolean }) {
             <div class="fl"><b>{t("Save to")}</b></div>
             <div class="val"><span class="ellip" style="max-width:16rem">{destLabel(dest)}</span><span class="arr">›</span></div>
           </button>
-          <div style="margin-bottom:.5rem">
+          <div style="margin-bottom:.5rem" hidden={many}>
             <input class="input mono" spellcheck={false} autocapitalize="off" placeholder={plan ? base(plan.output) : ""} value={name}
               onInput={(e) => setName((e.target as HTMLInputElement).value)}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }} />
@@ -272,7 +322,8 @@ function Convert(props: { entry: Entry; ctl: Control; install: boolean }) {
           <ChoiceRow label={t("Convert on")} hint={t("The engine that does the work; the source and the output can be on any paired engine")} options={onChoices} value={where}
             onChange={setWhere} hidden={whereHidden} />
         </div>
-        <div class="side">
+        {many ? <ManySide entries={entries} work={work} skipped={skipped} target={target} plans={plans} errs={planErrs}
+          inspects={inspects} outSpace={outSpace} amprShown={amprShown} ampr={ampr} needs={needs} /> : <div class="side">
           <div class="head">
             <EntryIco entry={entry} meta={m} />
             <div style="min-width:0"><b>{m && m.title ? m.title : entry.name}</b><div class="muted ellip"><PlatformPill meta={m} /><span class="mono">{m && m.title ? entry.name : ""}</span></div></div>
@@ -296,8 +347,45 @@ function Convert(props: { entry: Entry; ctl: Control; install: boolean }) {
             : t("This game uses the console's APR and ships no emulator: without it, it will likely stop at start.")}</div>
           <div class="note" hidden={!needs.length}>{needs.length ? t("Needs {list}. You'll be asked to download it when you add this to the queue.", { list: needs.map((d) => t(d.label) + " (" + bytes(d.bytes) + ")").join(", ") }) : ""}</div>
           <div class="note" hidden={!warnings.length}>{warnings.map(tMsg).join(" ")}</div>
-        </div>
+        </div>}
       </div>
     </Sheet>
+  );
+}
+
+// Several games: what each one becomes, or why it is left out.
+function ManySide(props: { entries: Entry[]; work: Entry[]; skipped: Entry[]; target: string; plans: Record<string, Plan>; errs: Record<string, string>;
+  inspects: { ok: Record<string, Inspect>; err: Record<string, string> } | null; outSpace: string; amprShown: boolean; ampr: boolean; needs: Dep[] }) {
+  const { work, skipped, plans, errs, inspects } = props;
+  const label = (FORMATS.find((f) => f.value === props.target) || { label: props.target }).label;
+  return (
+    <div class="side">
+      <div class="lbl">{plural(props.entries.length, "{n} game", "{n} games")}</div>
+      <div class="many">
+        {work.map((e) => {
+          const m = cachedMeta(e), p = plans[e.path], err = errs[e.path] || (inspects && inspects.err[e.path]);
+          return (
+            <div class="item">
+              <div class="ellip"><b>{m && m.title ? m.title : e.name}</b></div>
+              <div class={"ellip " + (err ? "err" : "mono muted")} style="font-size:.85rem">{err ? err : p ? "→ " + base(p.output) : "…"}</div>
+              {p && p.warnings && p.warnings.length ? <div class="note" style="margin-top:.15rem">{p.warnings.map(tMsg).join(" ")}</div> : null}
+            </div>
+          );
+        })}
+        {skipped.map((e) => {
+          const m = cachedMeta(e);
+          return (
+            <div class="item">
+              <div class="ellip muted"><b>{m && m.title ? m.title : e.name}</b></div>
+              <div class="muted" style="font-size:.85rem">{t("Already {format}: left out", { format: label })}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div class="muted" style="font-size:.88rem;margin-top:.4rem">{props.outSpace}</div>
+      <div class="note" hidden={!props.amprShown}>{props.ampr ? t("Games that use the console's APR and ship no emulator get ampr_emu in their fakelib.")
+        : t("Some of these games use the console's APR and ship no emulator: without it, they will likely stop at start.")}</div>
+      <div class="note" hidden={!props.needs.length}>{props.needs.length ? t("Needs {list}. You'll be asked to download it when you add this to the queue.", { list: props.needs.map((d) => t(d.label) + " (" + bytes(d.bytes) + ")").join(", ") }) : ""}</div>
+    </div>
   );
 }

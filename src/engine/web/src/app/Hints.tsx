@@ -8,13 +8,19 @@ import { topOverlay, type Hint } from "../components/Overlay";
 import { press } from "../input/controller";
 import { goBack, cycleTab, leaveAll } from "../input/history";
 import { openActions } from "../pages/files/actions";
+import { openBulkActions } from "../pages/files/bulk";
+import { selecting, isSelected } from "../state/selection";
 
 // Hints come from the screen on top: the open overlay, else the current tab.
 export function Hints() {
   const top = topOverlay();
   let list: Hint[];
   if (top) list = top.hints || [["x", t("Choose")], ["o", t("Back"), goBack]];
-  else if (tab.value === "files") {
+  else if (tab.value === "files" && selecting.value) {
+    // Selecting: ✕ ticks, □ acts on the ticked ones, ○ ends it.
+    const e = focusEntry.value;
+    list = [["x", e && isSelected(e) ? t("Untick") : t("Tick")], ["s", t("Actions"), openBulkActions], ["o", t("Done"), goBack]];
+  } else if (tab.value === "files") {
     const e = focusEntry.value, c = cwd.value;
     list = [["x", e ? (e.kind === "folder" ? t("Open") : isConvertible(e) ? t("Convert") : t("Options")) : t("Choose")]];
     if (c && c !== "/") list.push(["o", t("Back"), goBack]);

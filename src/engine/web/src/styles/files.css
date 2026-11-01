@@ -38,6 +38,10 @@
 .row .t { font-size: 1.05rem; font-weight: 500; }
 .row .s { font-size: .82rem; color: var(--muted); }
 .row .sz { font-size: .9rem; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+/* Selecting (state/selection.ts): a tick on the icon's corner. */
+.row.sel { background: rgba(111,147,255,.08); }
+.row .tick { position: absolute; left: .45rem; top: .4rem; width: 1.35rem; height: 1.35rem; border-radius: 50%; border: 2px solid var(--muted); background: var(--bg); color: #fff; font-size: .85rem; font-weight: 700; line-height: 1.1rem; text-align: center; z-index: 1; }
+.row .tick.on { background: var(--accent); border-color: var(--accent); }
 .row .more { background: none; border: 0; color: var(--dim); font-size: 1.35rem; padding: .35rem .75rem; border-radius: .5rem; line-height: 1; }
 .row:hover .more { color: var(--muted); }
 .row .more:hover { color: var(--text); background: var(--raise); }

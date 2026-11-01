@@ -16,6 +16,7 @@ import { openConvert } from "../../dialogs/ConvertDialog";
 import { openDest } from "../../dialogs/FolderPicker";
 import { getNeeds } from "../../dialogs/getNeeds";
 import { browse } from "./browse";
+import { startSelecting } from "../../state/selection";
 
 export async function openActions(e: Entry) {
   if (cwd.value === "/") return;
@@ -41,7 +42,10 @@ export async function openActions(e: Entry) {
   const peerPlace = locations.value.find((l) => !!l.peer) || peerDrives.value.map((d) => ({ path: d.root, label: d.engine }))[0];
   if (peerPlace && !e.shared) items.push({ label: t("Send to another engine…"), sub: t("A copy as it is, without converting"), value: () => openDest(e, "copy", peerPlace.path) });
   items.push({ label: t("Copy to…"), value: () => openDest(e, "copy") }, { label: t("Move to…"), value: () => openDest(e, "move") },
-    { label: t("Rename…"), value: () => renameEntry(e) }, { label: t("Delete…"), danger: true, value: () => deleteEntry(e) });
+    { label: t("Rename…"), value: () => renameEntry(e) });
+  // Not the folder you are in (its ⋯ button): a row of the list.
+  if (e.path !== cwd.value) items.push({ label: t("Select…"), sub: t("Tick several files to act on them together"), value: () => startSelecting(e) });
+  items.push({ label: t("Delete…"), danger: true, value: () => deleteEntry(e) });
   const fn = await choose(e.name, items);
   if (fn) fn();
 }

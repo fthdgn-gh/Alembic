@@ -5,11 +5,12 @@ import { overlays, popOverlay } from "../components/Overlay";
 import { toast } from "../components/Toasts";
 import { tab, cwd, circleConfirms, TABS, type Tab } from "../state/view";
 import { browse } from "../pages/files/browse";
+import { selecting, endSelecting } from "../state/selection";
 import { t } from "../lib/i18n";
 import { focusFirst } from "./focus";
 import { inputLog, lastNative, logInput } from "./controller";
 
-interface NavState { view?: string; path?: string | null; from?: string | null; overlay?: boolean; depth?: number }
+interface NavState { view?: string; path?: string | null; from?: string | null; overlay?: boolean; select?: boolean; depth?: number }
 export function depth(): number { return history.state && history.state.depth ? history.state.depth : 0; }
 export function pushNav(s: NavState) { s.depth = depth() + 1; history.pushState(s, ""); }
 export function goBack() {
@@ -54,9 +55,16 @@ window.addEventListener("popstate", (e) => {
   logInput("history back/forward (popstate)");
   if (inputLog.test && !inputLog.closing) { history.pushState({ overlay: true, depth: depth() + 1 }, ""); return; }
   inputLog.closing = false;
-  if (overlays.value.length) { popOverlay(); return; }
+  if (overlays.value.length) {
+    popOverlay();
+    // Closed onto a selection that ended meanwhile: step over it too.
+    if (!overlays.value.length && history.state && history.state.select && !selecting.value) history.back();
+    return;
+  }
   const s: NavState = e.state || { view: "files", path: "/" };
   if (s.overlay) { history.back(); return; } // a stale overlay entry
+  if (s.select && !selecting.value) { history.back(); return; } // a selection that has ended
+  if (selecting.value && !s.select) endSelecting(); // ○ while selecting ends it
   showTab((s.view || "files") as any, false);
   if ((s.view || "files") === "files" && s.path && s.path !== cwd.value) browse(s.path, false);
 });
