@@ -147,6 +147,18 @@ Also on the page:
   Enter, Esc, S, Q/E and Page Up/Down.
 - **Places:** add any folder to Places from its Options; they show in the
   rail, in Save to, and on paired engines.
+- **Rename** (from 0.4.1): renaming a game offers names made from its title,
+  title ID, version and format (`Title [ABCD12345].ffpfsc`, …) next to the
+  current one; the one picked can still be edited. The formats are yours to
+  change in **Settings → Rename formats**: fields `{title}` `{titleid}`
+  `{contentid}` `{version}` `{format}` `{platform}` `{name}` (or
+  `[titleid]`), modifiers such as `{title:upper}`, `{title:20}` or
+  `{version:short}`, `<…>` for a part left out when a value is missing, and
+  per format what to do with spaces (keep, remove, `_`, `.`, `-`) and
+  letters (as they are, UPPERCASE, lowercase). A name too long for
+  ShadowMount+ to mount (58 bytes before `.ffpfsc`, 63 before `.exfat`,
+  `.ffpkg` and `.ffpfs`) is flagged and followed by a shortened one, and a
+  typed one is asked about. A hidden name (`.name`) stays hidden.
 - **Network servers** (Settings, from 0.3.3): games on a PC or NAS can be
   converted without copying them to the console first, over
   - **SMB** (Windows shared folders, most NAS boxes): SMB 2 and 3 with
