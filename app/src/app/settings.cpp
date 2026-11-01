@@ -272,6 +272,152 @@ public:
     }
 };
 
+// ---- rename formats (pages/settings/NameFormats.tsx) ----
+
+struct NameFormatsState {
+    JsonValue list;       // [{pattern, spaces, letters, sample}]
+    bool loaded = false;  // false with an engine before rename formats: no section
+};
+NameFormatsState& name_formats() {
+    static NameFormatsState s;
+    return s;
+}
+void load_name_formats(App& app) {
+    app.get("/api/names", [](const Reply& r) {
+        NameFormatsState& s = name_formats();
+        s.loaded = r.ok() && r.json.has("formats");
+        if (s.loaded) s.list = r.json["formats"];
+    });
+}
+// Saves the whole list; the engine checks every format. done("") or done(the problem).
+void save_name_formats(App& app, const std::vector<JsonValue>& list, const std::string& ok,
+                       std::function<void(const std::string&)> done = nullptr) {
+    JsonValue formats = JsonValue::array();
+    for (const auto& f : list) {
+        JsonValue v = JsonValue::object();
+        v.set("pattern", f["pattern"].str());
+        v.set("spaces", f["spaces"].str("keep"));
+        v.set("letters", f["letters"].str("keep"));
+        formats.push(std::move(v));
+    }
+    JsonValue body = JsonValue::object();
+    body.set("formats", std::move(formats));
+    app.post("/api/names", body, [&app, ok, done](const Reply& r) {
+        if (r.ok()) {
+            name_formats().list = r.json["formats"];
+            app.toast(ok, App::Toast::ok);
+        }
+        if (done) done(r.ok() ? std::string() : t_msg(r.error()));
+        else if (!r.ok()) app.toast(t_msg(r.error()), App::Toast::bad);
+    });
+}
+
+constexpr const char* kSpaces[] = {"keep", "none", "_", ".", "-"};
+constexpr const char* kLetters[] = {"keep", "upper", "lower"};
+template <std::size_t N>
+int index_of(const char* const (&list)[N], const std::string& v) {
+    for (std::size_t i = 0; i < N; ++i)
+        if (v == list[i]) return static_cast<int>(i);
+    return 0;
+}
+
+// Adds a format (index -1) or changes one.
+class FormatForm : public Overlay {
+public:
+    std::vector<Hint> hints(App&) override { return {{Glyph::cross, t("Choose")}, {Glyph::circle, t("Cancel")}}; }
+    int index = -1;
+    std::string pattern = "{title} [{titleid}]";
+    int spaces = 0, letters = 0;
+    std::string msg;
+    bool err = false, busy = false;
+    Sheet sheet;
+
+    void build(Ui& ui, App& app) override {
+        const bool edit = index >= 0;
+        sheet.begin(ui, edit ? t("Edit format") : t("Add a format"), "", Sheet::Size::narrow, true);
+        float y = sheet.content_top() - 1.1f * R;
+        field_row(ui, app, "nf:pattern", sheet.x(), &y, sheet.w(), t("Format"), &pattern, "{title} [{titleid}]");
+        ask_preview(ui, app);
+        const std::string shown = !preview_error_.empty() ? t_msg(preview_error_)
+                                  : !preview_.empty()     ? t("Sample: {name}", {{"name", preview_}})
+                                                          : std::string();
+        y += 0.3f * R;
+        y += std::max(1.3f * R, draw::paragraph(ui, preview_error_.empty() ? Face::mono : Face::regular, shown, sheet.x(), y,
+                                                sheet.w(), 0.85f * R, 1.3f * R, preview_error_.empty() ? muted : bad));
+        y += 0.4f * R;
+        y += choice_row(ui, "nf:spaces", sheet.x(), y, sheet.w(), t("Spaces"), "", {t("Keep"), t("Remove"), "_", ".", "-"},
+                        &spaces);
+        y += choice_row(ui, "nf:letters", sheet.x(), y, sheet.w(), t("Letters"), "",
+                        {t("As they are"), t("UPPERCASE"), t("lowercase")}, &letters);
+        y += 0.4f * R;
+        y += facts(ui, sheet.x(), y, sheet.w(),
+                   {{t("Fields"), "{title} {titleid} {contentid} {version} {format} {platform} {name}", "mono"},
+                    {t("Also written"), "[titleid]", "mono"},
+                    {t("Modifiers"), "{title:upper} :lower :nospace :under :dash :dot :20 {version:short}", "mono"},
+                    {t("Left out when empty"), "<[v{version}]>", "mono"},
+                    {t("Braces as text"), "{{ }}", "mono"}});
+        sheet.end_body(ui, y);
+        if (sheet.button(ui, "nf:save", edit ? t("Save") : t("Add"), draw::Button::primary, busy)) save(app);
+        if (sheet.button(ui, "nf:cancel", t("Cancel"), draw::Button::normal)) app.close(this);
+        sheet.message(ui, msg, err);
+        sheet.end(ui);
+    }
+
+private:
+    std::string preview_, preview_error_;
+    std::string pending_, asked_;  // the choices waiting, and the ones last asked about
+    float wait_ = 0.0f;
+    bool asking_ = false;
+
+    JsonValue chosen() const {
+        JsonValue v = JsonValue::object();
+        std::string p = pattern;
+        while (!p.empty() && p.back() == ' ') p.pop_back();
+        while (!p.empty() && p.front() == ' ') p.erase(0, 1);
+        v.set("pattern", p);
+        v.set("spaces", kSpaces[spaces]);
+        v.set("letters", kLetters[letters]);
+        return v;
+    }
+    // What it makes of the sample game, asked again a moment after each change.
+    void ask_preview(Ui& ui, App& app) {
+        const JsonValue body = chosen();
+        const std::string now = body.dump();
+        if (now != pending_) {
+            pending_ = now;
+            wait_ = 0.0f;
+        }
+        if (pending_ == asked_ || asking_ || (wait_ += ui.dt) < 0.25f) return;
+        asking_ = true;
+        const int k = key;
+        app.post("/api/names/preview", body, [&app, k, now, this](const Reply& r) {
+            if (!app.overlay_alive(k)) return;
+            asking_ = false;
+            asked_ = now;
+            if (!r.ok()) return;
+            preview_ = r.json["name"].str();
+            preview_error_ = r.json["error"].str();
+        });
+    }
+    void save(App& app) {
+        std::vector<JsonValue> list = name_formats().list.items();
+        if (index >= 0 && index < static_cast<int>(list.size())) list[static_cast<std::size_t>(index)] = chosen();
+        else list.push_back(chosen());
+        busy = true;
+        err = false;
+        msg.clear();
+        const int k = key;
+        save_name_formats(app, list, index >= 0 ? t("Format saved") : t("Format added"),
+                          [&app, k, this](const std::string& problem) {
+                              if (!app.overlay_alive(k)) return;
+                              busy = false;
+                              if (problem.empty()) return app.close(this);
+                              msg = problem;
+                              err = true;
+                          });
+    }
+};
+
 class AddEngineForm : public Overlay {
 public:
     std::vector<Hint> hints(App&) override { return {{Glyph::cross, t("Choose")}, {Glyph::circle, t("Cancel")}}; }
@@ -400,6 +546,7 @@ void code_dialog(App& app, const JsonValue& e) {
 
 void SettingsPage::opened(App& app) {
     load_update(app);
+    load_name_formats(app);
     app.load_peers();
 }
 
@@ -564,6 +711,66 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
                                     "here and on paired engines."),
                                   x + 1.2f * R, yy, w - 2.4f * R, 1.0f * R, 1.45f * R, muted);
         y = card_end("places", top, yy);
+    }
+
+    // ---- Rename formats ----
+    if (name_formats().loaded) {
+        head(t("Rename formats"));
+        const float top = card_begin(ui, "names", x, y, w);
+        float yy = top;
+        const float ix = x + 1.2f * R, iw = w - 2.4f * R;
+        yy += draw::paragraph(ui, Face::regular,
+                              t("Rename offers a game these names, made from its title, title ID, version and format, in this "
+                                "order. Each shows what it makes of a sample game."),
+                              ix, yy, iw, 1.0f * R, 1.45f * R, muted) +
+              0.5f * R;
+        const std::vector<JsonValue> list = name_formats().list.items();
+        for (std::size_t i = 0; i < list.size(); ++i) {
+            const JsonValue f = list[i];
+            const int n = static_cast<int>(i);
+            std::vector<RowButton> buttons = {{"nf:ed:" + std::to_string(i), t("Edit"), draw::Button::normal, [&app, f, n] {
+                                                   auto form = std::make_unique<FormatForm>();
+                                                   form->index = n;
+                                                   form->pattern = f["pattern"].str();
+                                                   form->spaces = index_of(kSpaces, f["spaces"].str());
+                                                   form->letters = index_of(kLetters, f["letters"].str());
+                                                   app.open(std::move(form));
+                                               }}};
+            if (i)
+                buttons.push_back({"nf:up:" + std::to_string(i), t("Up"), draw::Button::normal, [&app, list, i] {
+                                       std::vector<JsonValue> l = list;
+                                       std::swap(l[i - 1], l[i]);
+                                       save_name_formats(app, l, t("Format moved up"));
+                                   }});
+            buttons.push_back({"nf:rm:" + std::to_string(i), t("Remove"), draw::Button::danger, [&app, list, i] {
+                                   std::vector<JsonValue> l = list;
+                                   l.erase(l.begin() + static_cast<std::ptrdiff_t>(i));
+                                   save_name_formats(app, l, t("Format removed"));
+                               }});
+            const std::string sample = f["sample"].str();
+            yy += ftprow(ui, ix, yy, iw, draw::Icon::file, f["pattern"].str(), sample.empty() ? "\xE2\x80\x93" : sample, "",
+                         muted, buttons, i == 0);
+        }
+        if (list.empty())
+            yy += draw::paragraph(ui, Face::regular, t("No formats: Rename asks for a name straight away."), ix, yy, iw,
+                                  1.0f * R, 1.45f * R, muted);
+        yy += btns(ui, ix, yy, iw,
+                   {{"nf:reset", t("Restore the defaults"), draw::Button::normal,
+                     [&app] {
+                         ask(app, t("Restore the default formats?"), text_body(t("Your own formats are removed.")),
+                             t("Restore"), false, [&app] {
+                                 JsonValue body = JsonValue::object();
+                                 body.set("reset", true);
+                                 app.post("/api/names", body, [&app](const Reply& r) {
+                                     if (!r.ok()) return app.toast(t_msg(r.error()), App::Toast::bad);
+                                     name_formats().list = r.json["formats"];
+                                     app.toast(t("Default formats restored"), App::Toast::ok);
+                                 });
+                             });
+                     }},
+                    {"nf:add", t("Add a format\xE2\x80\xA6"), draw::Button::normal,
+                     [&app] { app.open(std::make_unique<FormatForm>()); }}});
+        y = card_end("names", top, yy);
     }
 
     // ---- Other engines ----

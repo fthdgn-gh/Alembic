@@ -21,6 +21,7 @@ import { SCALES, applyScale, setLang } from "./prefs";
 import { Head, SmallBtn } from "./parts";
 import { Engines } from "./Engines";
 import { NetServers } from "./NetServers";
+import { NameFormats } from "./NameFormats";
 import { Updates } from "./Updates";
 import { openControllerTest } from "./ControllerTest";
 
@@ -46,6 +47,7 @@ export function SettingsPage(props: { hidden: boolean }) {
           <div class="fl"><b>{t("Controller test")}</b><small>{t("Shows what each button sends to this page")}</small></div><span class="arr">›</span>
         </button>
         <Places />
+        <NameFormats />
         <Engines />
         <NetServers />
         <Head text={t("Engine")} />

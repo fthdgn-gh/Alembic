@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // What can be done to a file or folder: its Options menu and each action.
-import type { Entry, Plan } from "../../api/types";
+import type { Entry, NameSuggestion, Plan } from "../../api/types";
 import { api } from "../../api/client";
 import { cwd, tab } from "../../state/view";
 import { info, locations, peerDrives, loadInfo } from "../../state/engine";
@@ -11,8 +11,6 @@ import { base, bytes, dir } from "../../lib/format";
 import { t, tMsg } from "../../lib/i18n";
 import { ask, choose } from "../../components/Dialogs";
 import type { ChoiceItem } from "../../components/Dialogs";
-import { getMeta } from "../../api/meta";
-import { nameSuggestions } from "../../lib/names";
 import { toast } from "../../components/Toasts";
 import { openConvert } from "../../dialogs/ConvertDialog";
 import { openDest } from "../../dialogs/FolderPicker";
@@ -108,15 +106,18 @@ async function addAmpr(e: Entry) {
   } catch (err: any) { toast(tMsg(err.message), "bad"); }
 }
 
-// A game first offers names made from its title, title ID, version and
-// format; the one picked can still be edited.
+// A game first offers names made by the formats in Settings > Rename
+// formats; the one picked can still be edited.
 async function renameEntry(e: Entry) {
   let start = e.name;
-  const m = isConvertible(e) ? await getMeta(e) : null;
-  const names = m ? nameSuggestions(e, m) : [];
+  let names: NameSuggestion[] = [];
+  if (isConvertible(e)) {
+    try { names = (await api<{ suggestions: NameSuggestion[] }>("GET", "/api/names/suggest?path=" + encodeURIComponent(e.path))).suggestions || []; }
+    catch (err) { names = []; } // an engine before rename formats
+  }
   if (names.length) {
     const items: ChoiceItem<string>[] = [{ label: e.name, sub: t("Current name"), value: e.name }];
-    const picked = await choose(t("Rename"), items.concat(names.map((s) => ({ label: s.name, sub: s.format, value: s.name }))));
+    const picked = await choose(t("Rename"), items.concat(names.map((s) => ({ label: s.name, sub: s.warning ? tMsg(s.warning) : s.pattern, value: s.name }))));
     if (picked == null) return;
     start = picked;
   }

@@ -2,6 +2,7 @@
 // The engine's JSON value, folder rules and output naming.
 #include "json_value.hpp"
 #include "l10n.hpp"
+#include "name_formats.hpp"
 #include "keys.hpp"
 #include "pairing.hpp"
 #include "peers.hpp"
@@ -144,6 +145,68 @@ TEST_CASE(engine_l10n_messages) {
     CHECK(l10n::message("something nobody translated") == "something nobody translated");
     l10n::set_language("xx");
     CHECK(l10n::language() == "en");
+}
+
+TEST_CASE(engine_rename_formats) {
+    const NameValues v = name_values("Echo: Arden\tDeluxe ", "ABCD12345", "UP0000-ABCD12345_00-X", "01.004.000", "ps5",
+                                     ".Old Name.exfat", "exfat");
+    CHECK(v.name == "Old Name" && v.format == "EXFAT" && v.platform == "PS5");
+    auto name = [&](const std::string& pattern, const std::string& spaces = "keep", const std::string& letters = "keep") {
+        return render_name(NameFormat{pattern, spaces, letters}, v).value_or("<none>");
+    };
+    CHECK(name("{title} [{titleid}]") == "Echo - Arden Deluxe [ABCD12345]");
+    CHECK(name("[titleid] {Title_ID}") == "ABCD12345 ABCD12345");      // both forms, any case
+    CHECK(name("{title} [USA]") == "Echo - Arden Deluxe [USA]");          // [word] that is no field stays
+    CHECK(name("{id} v{version:short} {kind} {platform}") == "ABCD12345 v1.4 EXFAT PS5");
+    CHECK(name("{title:upper:nospace:8}") == "ECHO-ARD");
+    CHECK(name("{title:under}") == "Echo_-_Arden_Deluxe");
+    CHECK(name("{name} {{x}}") == "Old Name {x}");
+    CHECK(name("{title} [{titleid}]", "none", "lower") == "echo-ardendeluxe[abcd12345]");
+    CHECK(name("{title} [{titleid}]", ".", "upper") == "ECHO.-.ARDEN.DELUXE.[ABCD12345]");
+    // A missing value: the format does not apply, unless it is in < >.
+    NameValues none = v;
+    none.version.clear();
+    CHECK(!render_name(NameFormat{"{title} v{version}"}, none));
+    CHECK(render_name(NameFormat{"{title}< [v{version}]>"}, none).value_or("") == "Echo - Arden Deluxe");
+    CHECK(render_name(NameFormat{"{title}< [v{version}]>"}, v).value_or("") == "Echo - Arden Deluxe [v01.004.000]");
+    // Names keep a leading dot and the extension; folders have none.
+    CHECK(suggested_name(NameFormat{"{titleid}"}, v, ".Old Name.exfat", false).value_or("") == ".ABCD12345.exfat");
+    CHECK(suggested_name(NameFormat{"{titleid}"}, v, "Game.v2", true).value_or("") == "ABCD12345");
+    // Problems.
+    CHECK(!check_name_format(NameFormat{""}).ok());
+    CHECK(!check_name_format(NameFormat{"{nope}"}).ok());
+    CHECK(!check_name_format(NameFormat{"{title:bold}"}).ok());
+    CHECK(!check_name_format(NameFormat{"{title"}).ok());
+    CHECK(!check_name_format(NameFormat{"title}"}).ok());
+    CHECK(!check_name_format(NameFormat{"<{title}"}).ok());
+    CHECK(!check_name_format(NameFormat{"{title}>"}).ok());
+    CHECK(!check_name_format(NameFormat{"[nope] text"}).ok()); // no field at all
+    CHECK(!check_name_format(NameFormat{"{title}", "x"}).ok());
+    CHECK(!check_name_format(NameFormat{"{title}", "keep", "title"}).ok());
+    for (const NameFormat& f : default_name_formats()) CHECK(check_name_format(f).ok());
+    CHECK(safe_name(" a/b*c?\"d<e>f|g\x01h. ") == "abcdefg h");
+
+    // Kept in the state folder; reset brings the defaults back.
+    std::string tmp = test::make_temp_dir();
+    {
+        NameFormats store(tmp);
+        CHECK(store.list() == default_name_formats());
+        CHECK(!store.set({NameFormat{"{nope}"}}).ok());
+        CHECK(store.list() == default_name_formats());
+        CHECK(store.set({NameFormat{"{titleid}", "_", "lower"}}).ok());
+    }
+    {
+        NameFormats store(tmp);
+        CHECK((store.list() == std::vector<NameFormat>{NameFormat{"{titleid}", "_", "lower"}}));
+        CHECK(store.set({}).ok());
+    }
+    {
+        NameFormats store(tmp);
+        CHECK(store.list().empty());
+        CHECK(store.reset().ok());
+        CHECK(store.list() == default_name_formats());
+    }
+    CHECK(NameFormats(tmp).list() == default_name_formats());
 }
 
 TEST_CASE(shadowmount_hidden_names_and_config) {

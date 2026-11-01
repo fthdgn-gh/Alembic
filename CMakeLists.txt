@@ -218,6 +218,7 @@ if(ALEMBIC_BUILD_ENGINE)
         src/engine/json_value.cpp
         src/engine/keys.cpp
         src/engine/l10n.cpp
+        src/engine/name_formats.cpp
         src/engine/net.cpp
         src/engine/netcrypto.cpp
         src/engine/netfs.cpp

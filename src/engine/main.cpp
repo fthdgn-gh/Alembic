@@ -34,6 +34,12 @@
 //   POST /api/fs/mkdir   {path}       new folder
 //   POST /api/fs/rename  {path, name} rename in place
 //   POST /api/fs/delete  {path}       delete a file or a folder with its contents
+//   GET  /api/names                   the formats Rename suggests names with (name_formats.hpp),
+//                                     each with the name it makes for a made-up game
+//   POST /api/names  {formats: [{pattern, spaces, letters}]} | {reset: true}   change them
+//   POST /api/names/preview  {pattern, spaces, letters}   {name} or {error}: what it makes of
+//                                     a made-up game
+//   GET  /api/names/suggest?path=P    {suggestions: [{name, pattern, warning}]} for a game
 //   POST /api/launcher   {enabled}    add or remove the Media-tab shortcut (PS5)
 //   POST /api/cache/clear             delete the cached game info and icons
 //   POST /api/lang       {lang}       the language of the engine's notifications
@@ -75,6 +81,7 @@
 #include "pairing.hpp"
 #include "peer_fs.hpp"
 #include "peers.hpp"
+#include "name_formats.hpp"
 #include "places.hpp"
 #include "platform.hpp"
 #include "netfs.hpp"
@@ -544,6 +551,7 @@ private:
         if (r.path == "/api/fs/space" && r.method == "GET") return fs_space();
         if (r.path == "/api/locations" && r.method == "GET") return locations();
         if (r.path == "/api/places") return places_action(r);
+        if (r.path == "/api/names" || r.path.rfind("/api/names/", 0) == 0) return names_action(r);
         if ((r.path == "/api/meta" || r.path == "/api/icon") && r.method == "GET") return game_meta(r);
         if (r.path == "/api/deps" && r.method == "GET") {
             JsonValue list = JsonValue::array();
@@ -1671,6 +1679,90 @@ private:
 
     // Places (places.hpp): add one or remove one (?remove=1); a folder on
     // another engine goes to that engine's Places, so it shows everywhere.
+    // Rename's suggested names (name_formats.hpp).
+    static JsonValue format_json(const NameFormat& f) {
+        JsonValue v = JsonValue::object();
+        v.set("pattern", f.pattern);
+        v.set("spaces", f.spaces);
+        v.set("letters", f.letters);
+        return v;
+    }
+    static NameFormat format_from(const JsonValue& v) {
+        return {v["pattern"].str(), v["spaces"].str("keep"), v["letters"].str("keep")};
+    }
+    // A made-up game, to show what a format makes.
+    static constexpr const char* kSampleName = "Sample Game.ffpfsc";
+    static NameValues sample_values() {
+        return name_values("Sample Game: Deluxe Edition", "ABCD12345", "UP0000-ABCD12345_00-SAMPLEGAME000000", "01.004.000",
+                           "ps5", kSampleName, "ffpfsc");
+    }
+    JsonValue formats_json() const {
+        JsonValue list = JsonValue::array();
+        for (const NameFormat& f : name_formats_.list()) {
+            JsonValue v = format_json(f);
+            v.set("sample", suggested_name(f, sample_values(), kSampleName, false).value_or(""));
+            list.push(std::move(v));
+        }
+        JsonValue v = JsonValue::object();
+        v.set("formats", std::move(list));
+        return v;
+    }
+    HttpResponse names_action(const HttpRequest& r) {
+        if (r.path == "/api/names" && r.method == "GET") return json(200, formats_json());
+        if (r.path == "/api/names/suggest" && r.method == "GET") {
+            auto it = r.query.find("path");
+            std::string path = it == r.query.end() ? "" : strip_slashes(it->second);
+            if (!input_allowed(path, config_.available_roots())) return error(403, "outside the allowed folders");
+            JsonValue list = JsonValue::array();
+            auto m = meta_.meta(path);
+            if (m.ok()) {
+                const std::string name = base_name(path);
+                const bool folder = alembic::is_directory(path);
+                const NameValues values = name_values(m->title, m->title_id, m->content_id, m->version, m->platform, name,
+                                                      kind_of(name, folder));
+                std::vector<std::string> seen{name};
+                for (const NameFormat& f : name_formats_.list()) {
+                    auto s = suggested_name(f, values, name, folder);
+                    if (!s || std::find(seen.begin(), seen.end(), *s) != seen.end()) continue;
+                    seen.push_back(*s);
+                    JsonValue e = JsonValue::object();
+                    e.set("name", *s);
+                    e.set("pattern", f.pattern);
+                    e.set("warning", folder ? std::string() : mount_name_warning(path.substr(0, path.rfind('/') + 1) + *s));
+                    list.push(std::move(e));
+                }
+            }
+            JsonValue v = JsonValue::object();
+            v.set("suggestions", std::move(list));
+            return json(200, v);
+        }
+        if (r.method != "POST") return error(404, "not found");
+        auto body = parse_json(r.body);
+        if (!body.ok()) return error(400, body.error().message);
+        if (r.path == "/api/names/preview") {
+            const NameFormat f = format_from(*body);
+            JsonValue v = JsonValue::object();
+            if (Status s = check_name_format(f); !s.ok()) {
+                v.set("error", s.error().message);
+                return json(200, v);
+            }
+            v.set("name", suggested_name(f, sample_values(), kSampleName, false).value_or(""));
+            return json(200, v);
+        }
+        if (r.path != "/api/names") return error(404, "not found");
+        Status s;
+        if ((*body)["reset"].boolean()) {
+            s = name_formats_.reset();
+        } else {
+            std::vector<NameFormat> list;
+            for (const JsonValue& item : (*body)["formats"].items()) list.push_back(format_from(item));
+            s = name_formats_.set(std::move(list));
+        }
+        if (!s.ok()) return error(400, s.error().message);
+        log_line("rename formats changed by " + r.peer);
+        return json(200, formats_json());
+    }
+
     HttpResponse places_action(const HttpRequest& r) {
         if (r.method == "GET") return locations();
         if (r.method != "POST") return error(404, "not found");
@@ -2065,6 +2157,7 @@ private:
     std::unique_ptr<pairing::Pairing> pairing_;
     OpenFiles files_;
     Places places_{config_.state_dir};
+    NameFormats name_formats_{config_.state_dir};
     std::mutex tasks_mutex_;
     std::map<std::string, std::shared_ptr<Task>> tasks_;
     std::mutex peer_jobs_mutex_;

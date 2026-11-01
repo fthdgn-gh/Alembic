@@ -149,6 +149,29 @@ function browse(p) {
   return { path: p, parent: path.posix.dirname(p), entries, ...(sp ? { free: sp.free, total: sp.total } : {}) };
 }
 
+const DEFAULT_NAMES = ["{title} [{titleid}]", "{title} [{titleid}] [v{version}]", "{title} [{titleid}] [{format}]", "{titleid} - {title}", "{titleid}"]
+  .map((pattern) => ({ pattern, spaces: "keep", letters: "keep" }));
+let NAMES = DEFAULT_NAMES.slice();
+const SAMPLE = { title: "Sample Game - Deluxe Edition", titleid: "ABCD12345", contentid: "UP0000-ABCD12345_00-SAMPLEGAME000000", version: "01.004.000", format: "FFPFSC", platform: "PS5", name: "Sample Game", ext: ".ffpfsc" };
+function render(f, g) {
+  let missing = false;
+  const field = (all, name, mods) => {
+    let v = g[name.toLowerCase().replace(/[_-]/g, "")];
+    if (v === undefined) return all;
+    if (!v) missing = true;
+    for (const m of (mods || "").split(":").filter(Boolean)) v = m === "upper" ? v.toUpperCase() : m === "lower" ? v.toLowerCase() : m === "nospace" ? v.replace(/ /g, "") : /^\d+$/.test(m) ? v.slice(0, +m).trim() : v;
+    return v;
+  };
+  const fill = (s) => s.replace(/\{(\w+)((?::\w+)*)\}|\[(\w+)((?::\w+)*)\]/g, (all, a, am, b, bm) => (a ? field(all, a, am) : (() => { const r = field(all, b, bm); return r; })()));
+  let out = f.pattern.replace(/<([^<>]*)>/g, (all, inner) => { const was = missing; missing = false; const r = fill(inner); const drop = missing; missing = was; return drop ? "" : r; });
+  out = fill(out).replace(/\s+/g, " ").trim();
+  if (missing) return "";
+  if (f.letters === "upper") out = out.toUpperCase(); else if (f.letters === "lower") out = out.toLowerCase();
+  if (f.spaces !== "keep") out = out.replace(/ /g, f.spaces === "none" ? "" : f.spaces);
+  return out + g.ext;
+}
+const namesJson = () => ({ formats: NAMES.map((f) => Object.assign({}, f, { sample: render(f, SAMPLE) })) });
+
 function send(res, code, body, type) {
   res.writeHead(code, { "Content-Type": type || "application/json" });
   res.end(typeof body === "string" || Buffer.isBuffer(body) ? body : JSON.stringify(body));
@@ -205,6 +228,21 @@ http.createServer((req, res) => {
       const ip = q("path"), t = titleOf(ip), kind = (Object.values(DIRS).flat().find((e) => e.path === ip) || {}).kind;
       const fmt = { exfat: "exFAT", ffpkg: "FFPKG (UFS2)", ffpfsc: "FFPFSC", ffpfs: "FFPFS (PFS)", fpkg: "FPKG", folder: "folder" }[kind] || "folder";
       return send(res, 200, { path: ip, format: fmt, title_id: t ? GAMES[t][0] : "", files: 3184, bytes: 61.9 * GB, lz4_packed: false, lz4_profile: "scan", engine: "" });
+    }
+    // Rename formats: a rough stand-in for name_formats.cpp (fields, :upper/:lower, < >, spaces and letters).
+    if (p === "/api/names" && req.method === "POST") { NAMES = json.reset ? DEFAULT_NAMES.slice() : json.formats; return send(res, 200, namesJson()); }
+    if (p === "/api/names") return send(res, 200, namesJson());
+    if (p === "/api/names/preview") {
+      const bad = (json.pattern.match(/\{(\w+)/g) || []).map((x) => x.slice(1)).find((n) => !(n.toLowerCase().replace(/[_-]/g, "") in SAMPLE));
+      return send(res, 200, bad ? { error: "unknown field " + bad + ": use title, titleid, contentid, version, format, platform or name" } : { name: render(json, SAMPLE) });
+    }
+    if (p === "/api/names/suggest") {
+      const sp = q("path"), t = titleOf(sp), e = Object.values(DIRS).flat().find((x) => x.path === sp) || {};
+      if (!t) return send(res, 200, { suggestions: [] });
+      const ext = e.kind === "folder" ? "" : (/\.[^.]+$/.exec(sp) || [""])[0];
+      const g = { title: t, titleid: GAMES[t][0], contentid: "UP0000-" + GAMES[t][0] + "_00-0000000000000000", version: GAMES[t][1], format: { fpkg: "PKG", folder: "" }[e.kind] ?? (e.kind || "").toUpperCase(), platform: (GAMES[t][3] || "ps5").toUpperCase(), name: t, ext };
+      const seen = new Set([path.posix.basename(sp)]);
+      return send(res, 200, { suggestions: NAMES.map((f) => ({ name: render(f, g), pattern: f.pattern, warning: "" })).filter((x) => x.name && !seen.has(x.name) && seen.add(x.name)) });
     }
     if (p === "/api/plan") {
       const ext = { ffpfsc: ".ffpfsc", exfat: ".exfat", ffpkg: ".ffpkg", ffpfs: ".ffpfs", fpkg: ".pkg", folder: "" }[json.to] || "";
