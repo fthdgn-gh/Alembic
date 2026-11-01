@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (2026-11-01, release 0.4.1)
+## Where we are (2026-11-01, release 0.4.2)
 
 ### What works
 
@@ -51,6 +51,13 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   indirectly, llvm-mingw does not) before anything was published, so the
   tag was moved to the fix (owner's OK). Build `build-win` before tagging
   when new engine files are added. Catalog PR darkxex/ps5-homebrew-catalog#1026.
+- **In 0.4.2 (2026-11-01):** selecting several entries in Files (□ >
+  Select…; ✕ ticks, □ acts, ○ ends; `state/selection.ts`, `bulk.tsx`, app
+  `bulk.cpp`): Convert (a plan and a job per game), Install, AMPR,
+  Hide/Show, Rename with a format (`POST /api/names/apply`), Send, Copy,
+  Move, Delete. The page keeps a history entry while selecting (○ is the
+  browser's Back); stale ones are stepped over. Not yet tried on the
+  console's browser.
   Console limits measured: payloads run on 5 of 16 logical CPUs (mask
   0xEA00) at priority 700.
 - **Console app** (`app/`, title `PPSA99594`, work for 0.3.0; see the
