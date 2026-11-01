@@ -122,8 +122,11 @@ async function renameEntry(e: Entry) {
     if (picked == null) return;
     start = picked;
   }
-  const name = await ask({ title: t("Rename"), input: start, ok: t("Rename") });
-  if (!name || name === true || name === e.name) return;
+  const typed = await ask({ title: t("Rename"), input: start, ok: t("Rename") });
+  if (!typed || typed === true) return;
+  // A hidden name stays hidden (Show to ShadowMount+ again shows it).
+  const name = isHiddenName(e.name) && !isHiddenName(typed) ? "." + typed : typed;
+  if (name === e.name) return;
   // An image whose new name ShadowMount+ could not mount: asked first.
   if (e.kind !== "folder") {
     let warning = "";

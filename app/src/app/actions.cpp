@@ -166,8 +166,11 @@ void App::open_actions(const Entry& e) {
 // formats (GET /api/names/suggest); the one picked can still be edited.
 void App::rename_entry(const Entry& e) {
     auto edit = [this, e](const std::string& start) {
-        ask_text(*this, t("Rename"), start, t("Rename"), [this, e](const std::string& name) {
-            if (name.empty() || name == e.name) return;
+        ask_text(*this, t("Rename"), start, t("Rename"), [this, e](const std::string& typed) {
+            if (typed.empty()) return;
+            // A hidden name stays hidden (Show to ShadowMount+ again shows it).
+            const std::string name = is_hidden_name(e.name) && !is_hidden_name(typed) ? "." + typed : typed;
+            if (name == e.name) return;
             JsonValue body = JsonValue::object();
             body.set("path", e.path);
             body.set("name", name);
