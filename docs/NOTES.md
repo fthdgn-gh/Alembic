@@ -46,6 +46,11 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   ShadowMount+ are flagged and get a shortened twin (title cut at a word);
   a typed one asks first; hidden names stay hidden. The length warning
   counts bytes; `shorten_name` no longer cuts inside a UTF-8 character.
+  Published 2026-11-01: the first v0.4.1 tag failed CI's Windows
+  cross-build (`std::atoi` without `<cstdlib>`; macOS and Linux get it
+  indirectly, llvm-mingw does not) before anything was published, so the
+  tag was moved to the fix (owner's OK). Build `build-win` before tagging
+  when new engine files are added. Catalog PR darkxex/ps5-homebrew-catalog#1026.
   Console limits measured: payloads run on 5 of 16 logical CPUs (mask
   0xEA00) at priority 700.
 - **Console app** (`app/`, title `PPSA99594`, work for 0.3.0; see the
