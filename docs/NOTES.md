@@ -57,7 +57,8 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   Hide/Show, Rename with a format (`POST /api/names/apply`), Send, Copy,
   Move, Delete. The page keeps a history entry while selecting (○ is the
   browser's Back); stale ones are stepped over. Not yet tried on the
-  console's browser.
+  console's browser. Published 2026-11-01 (every CI job green); catalog PR
+  darkxex/ps5-homebrew-catalog#1028 (#1026, for 0.4.1, merged).
   Console limits measured: payloads run on 5 of 16 logical CPUs (mask
   0xEA00) at priority 700.
 - **Console app** (`app/`, title `PPSA99594`, work for 0.3.0; see the
