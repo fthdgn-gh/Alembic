@@ -212,7 +212,8 @@ public:
     // Copy or move several entries into one folder, each keeping its name; `done` once queued.
     void open_dest_many(const std::vector<Entry>& list, const std::string& kind, const std::string& start,
                         std::function<void()> done);
-    void toggle_hidden(const std::string& path, bool quiet = false);
+    // `smp`: an image ShadowMount+ uses (it rescans and the toast says so).
+    void toggle_hidden(const std::string& path, bool quiet = false, bool smp = true);
     void rename_entry(const Entry& e);
     void set_place(const std::string& path, bool add);
     void job_actions(const JsonValue& j);

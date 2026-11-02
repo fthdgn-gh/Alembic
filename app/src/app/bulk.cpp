@@ -369,7 +369,8 @@ void App::open_bulk_actions() {
                      });
             });
     // ShadowMount+ skips names that start with ".": one rename each, one rescan.
-    auto hide_many = [this, done](const std::vector<Entry>& list, bool hide) {
+    // `smp`: images ShadowMount+ uses (it rescans and the toast says so).
+    auto hide_many = [this, done](const std::vector<Entry>& list, bool hide, bool smp = true) {
         each(*this, list,
              [this, hide](const Entry& e, Done d) {
                  JsonValue body = JsonValue::object();
@@ -377,9 +378,15 @@ void App::open_bulk_actions() {
                  body.set("name", hide ? "." + e.name : e.name.substr(1));
                  post("/api/fs/rename", body, d);
              },
-             [this, hide, done](std::size_t ok, const std::vector<std::string>& failed) {
+             [this, hide, smp, done](std::size_t ok, const std::vector<std::string>& failed) {
                  if (!failed.empty()) toast(failures_text(failed), Toast::bad);
                  if (!ok) return;
+                 if (!smp) {
+                     const long long k = static_cast<long long>(ok);
+                     toast(hide ? plural(k, "{n} hidden", "{n} hidden") : plural(k, "{n} unhidden", "{n} unhidden"), Toast::ok);
+                     done();
+                     return;
+                 }
                  post("/api/smp/scan", JsonValue::object(), [this, hide, ok, done](const Reply& r) {
                      const long long k = static_cast<long long>(ok);
                      toast((hide ? plural(k, "{n} hidden from ShadowMount+", "{n} hidden from ShadowMount+")
@@ -397,6 +404,18 @@ void App::open_bulk_actions() {
     if (!hidden.empty())
         add(t("Show to ShadowMount+ again"), some(hidden.size(), t("Renames them back without the leading dot")), false,
             [hide_many, hidden] { hide_many(hidden, false); });
+    // Any other file or folder (packages too): hidden by the leading dot alone.
+    std::vector<Entry> plain_shown, plain_hidden;
+    for (const auto& e : local) {
+        if (std::any_of(images.begin(), images.end(), [&](const Entry& i) { return i.path == e.path; })) continue;
+        (is_hidden_name(e.name) ? plain_hidden : plain_shown).push_back(e);
+    }
+    if (!plain_shown.empty())
+        add(t("Hide"), some(plain_shown.size(), t("Renames them to .name")), false,
+            [hide_many, plain_shown] { hide_many(plain_shown, true, false); });
+    if (!plain_hidden.empty())
+        add(t("Unhide"), some(plain_hidden.size(), t("Renames them back without the leading dot")), false,
+            [hide_many, plain_hidden] { hide_many(plain_hidden, false, false); });
     if (!games.empty())
         add(t("Rename with a format\xE2\x80\xA6"), some(games.size(), t("Names from each game's title, title ID, version and format")),
             false, [this, games] {

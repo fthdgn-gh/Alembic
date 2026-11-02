@@ -188,6 +188,12 @@ var I18N = {
   "no such job"
  ],
  "tr": {
+  "Hide": "Gizle",
+  "Unhide": "Göster",
+  "Renames it to .{name}": "Adını .{name} yapar",
+  "Renames them to .name": "Adlarını .ad yapar",
+  "{n} hidden": "{n} gizlendi",
+  "{n} unhidden": "{n} yeniden görünür",
   "Switch to LZ4 packs": "LZ4 paketlerine geç",
   "Switch to zstd packs": "zstd paketlerine geç",
   "Replaces the zstd packs; both AMPR emulators read LZ4 packs": "zstd paketlerinin yerini alır; LZ4 paketlerini iki AMPR öykünücüsü de okur",
@@ -1048,6 +1054,12 @@ var I18N = {
   "built a PS4 package from the file tree": "dosya ağacından PS4 paketi oluşturdu"
  },
  "es": {
+  "Hide": "Ocultar",
+  "Unhide": "Mostrar",
+  "Renames it to .{name}": "Lo renombra a .{name}",
+  "Renames them to .name": "Los renombra a .nombre",
+  "{n} hidden": "{n} ocultos",
+  "{n} unhidden": "{n} visibles de nuevo",
   "Switch to LZ4 packs": "Cambiar a paquetes LZ4",
   "Switch to zstd packs": "Cambiar a paquetes zstd",
   "Replaces the zstd packs; both AMPR emulators read LZ4 packs": "Reemplaza los paquetes zstd; los dos emuladores AMPR leen paquetes LZ4",
@@ -1908,6 +1920,12 @@ var I18N = {
   "built a PS4 package from the file tree": "creó un paquete de PS4 a partir del árbol de archivos"
  },
  "fr": {
+  "Hide": "Masquer",
+  "Unhide": "Afficher",
+  "Renames it to .{name}": "Le renomme en .{name}",
+  "Renames them to .name": "Les renomme en .nom",
+  "{n} hidden": "{n} masqués",
+  "{n} unhidden": "{n} de nouveau visibles",
   "Switch to LZ4 packs": "Passer aux paquets LZ4",
   "Switch to zstd packs": "Passer aux paquets zstd",
   "Replaces the zstd packs; both AMPR emulators read LZ4 packs": "Remplace les paquets zstd ; les deux émulateurs AMPR lisent les paquets LZ4",
@@ -2768,6 +2786,12 @@ var I18N = {
   "built a PS4 package from the file tree": "a créé un paquet PS4 à partir de l'arborescence"
  },
  "de": {
+  "Hide": "Ausblenden",
+  "Unhide": "Einblenden",
+  "Renames it to .{name}": "Benennt es in .{name} um",
+  "Renames them to .name": "Benennt sie in .Name um",
+  "{n} hidden": "{n} ausgeblendet",
+  "{n} unhidden": "{n} eingeblendet",
   "Switch to LZ4 packs": "Zu LZ4-Paketen wechseln",
   "Switch to zstd packs": "Zu zstd-Paketen wechseln",
   "Replaces the zstd packs; both AMPR emulators read LZ4 packs": "Ersetzt die zstd-Pakete; beide AMPR-Emulatoren lesen LZ4-Pakete",
@@ -3628,6 +3652,12 @@ var I18N = {
   "built a PS4 package from the file tree": "hat aus dem Dateibaum ein PS4-Paket erstellt"
  },
  "ja": {
+  "Hide": "隠す",
+  "Unhide": "表示する",
+  "Renames it to .{name}": ".{name} に名前を変更します",
+  "Renames them to .name": "名前の先頭に . を付けます",
+  "{n} hidden": "{n} 件を隠しました",
+  "{n} unhidden": "{n} 件を表示しました",
   "Switch to LZ4 packs": "LZ4 パックに切り替える",
   "Switch to zstd packs": "zstd パックに切り替える",
   "Replaces the zstd packs; both AMPR emulators read LZ4 packs": "zstd パックを置き換えます。LZ4 パックはどちらの AMPR エミュレーターでも読めます",

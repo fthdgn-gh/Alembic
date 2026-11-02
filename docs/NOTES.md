@@ -3195,6 +3195,13 @@ release: see "components follow their latest releases" below.)
   with and without; the 2.4 GB sample at level 19 gave the same image):
   29.4 s -> 20.4 s on the Mac there, where only 0.3 GiB is packed; about
   half the time where packing dominates, as on the console.
+- **Hide / Unhide for any file or folder** (owner: a hidden package in a
+  PC folder could not be shown again, since packages get no ShadowMount+
+  option): the ⋯ menu and the selection menu offer "Hide" (rename to
+  .name) / "Unhide" for everything that is not an image ShadowMount+
+  uses (packages, plain files, folders); no rescan for those. "Hide from
+  ShadowMount+" / "Show to ShadowMount+ again" stay for the images. Page
+  and app; tried both ways on a PC engine.
 - **Not yet**: on a console.
 
 ## Next session

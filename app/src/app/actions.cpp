@@ -204,6 +204,12 @@ void App::open_actions(const Entry& e) {
             add(t("Hide from ShadowMount+"),
                 t("Renames it to .{name}, so ShadowMount+ uses another copy of this game", {{"name", e.name}}), false,
                 [this, e] { toggle_hidden(e.path); });
+    } else if (is_hidden_name(e.name)) {
+        // Any other file or folder (a package, say): hidden by its leading dot alone.
+        add(t("Unhide"), t("Renames it back to {name}", {{"name", e.name.substr(1)}}), false,
+            [this, e] { toggle_hidden(e.path, false, false); });
+    } else {
+        add(t("Hide"), t("Renames it to .{name}", {{"name", e.name}}), false, [this, e] { toggle_hidden(e.path, false, false); });
     }
     // Places (this engine's or a paired one's): shared with every paired engine.
     if (e.kind == "folder") {
@@ -307,13 +313,18 @@ void App::set_place(const std::string& path, bool add) {
 
 // ShadowMount+ skips names that start with "." and keeps one source per game
 // while that source exists: hiding the old one makes it switch.
-void App::toggle_hidden(const std::string& path, bool quiet) {
+void App::toggle_hidden(const std::string& path, bool quiet, bool smp) {
     const std::string n = base(path);
     const std::string name = is_hidden_name(n) ? n.substr(1) : "." + n;
     JsonValue body = JsonValue::object();
     body.set("path", path);
     body.set("name", name);
-    post("/api/fs/rename", body, or_toast([this, path, name, quiet](const Reply&) {
+    post("/api/fs/rename", body, or_toast([this, path, name, quiet, smp](const Reply&) {
+        if (!smp) {
+            if (!quiet) toast(t("Renamed to {name}", {{"name", name}}), Toast::ok);
+            if (tab == Tab::files && cwd == dir(path)) browse(cwd, dir(path) + "/" + name);
+            return;
+        }
         post("/api/smp/scan", JsonValue::object(), [this, path, name, quiet](const Reply& r) {
             const bool scanned = r.ok();
             if (!quiet) {

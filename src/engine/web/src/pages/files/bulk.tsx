@@ -39,6 +39,11 @@ export async function openBulkActions() {
   const visible = images.filter((e) => !isHiddenName(e.name)), hidden = images.filter((e) => isHiddenName(e.name));
   if (visible.length) items.push({ label: t("Hide from ShadowMount+"), sub: some(visible.length, t("Renames them to .name, so ShadowMount+ uses other copies of these games")), value: () => hideMany(visible, true) });
   if (hidden.length) items.push({ label: t("Show to ShadowMount+ again"), sub: some(hidden.length, t("Renames them back without the leading dot")), value: () => hideMany(hidden, false) });
+  // Any other file or folder (packages too): hidden by the leading dot alone.
+  const plain = all.filter((e) => !e.shared && images.indexOf(e) < 0);
+  const plainShown = plain.filter((e) => !isHiddenName(e.name)), plainHidden = plain.filter((e) => isHiddenName(e.name));
+  if (plainShown.length) items.push({ label: t("Hide"), sub: some(plainShown.length, t("Renames them to .name")), value: () => hideMany(plainShown, true, false) });
+  if (plainHidden.length) items.push({ label: t("Unhide"), sub: some(plainHidden.length, t("Renames them back without the leading dot")), value: () => hideMany(plainHidden, false, false) });
   if (games.length) items.push({ label: t("Rename with a format…"), sub: some(games.length, t("Names from each game's title, title ID, version and format")), value: () => renameMany(games) });
   const local = all.filter((e) => !e.shared);
   const peerPlace = locations.value.find((l) => !!l.peer) || peerDrives.value.map((d) => ({ path: d.root, label: d.engine }))[0];
@@ -111,16 +116,21 @@ async function amprMany(list: Entry[]) {
 }
 
 // ShadowMount+ skips names that start with ".": one rename each, one rescan.
-async function hideMany(list: Entry[], hide: boolean) {
+// `smp`: images ShadowMount+ uses (it rescans and the toast says so).
+async function hideMany(list: Entry[], hide: boolean, smp = true) {
   const failed: string[] = [];
   let changed = 0;
   for (const e of list) {
     const name = hide ? "." + e.name : e.name.slice(1);
     try { await api("POST", "/api/fs/rename", { path: e.path, name }); changed++; } catch (err: any) { failed.push(e.name + ": " + tMsg(err.message)); }
   }
+  if (changed && !smp) {
+    toast(hide ? plural(changed, "{n} hidden", "{n} hidden") : plural(changed, "{n} unhidden", "{n} unhidden"), "ok");
+    done();
+  }
   let scanned = true;
-  if (changed) { try { await api("POST", "/api/smp/scan"); } catch (err) { scanned = false; } }
-  if (changed) {
+  if (changed && smp) { try { await api("POST", "/api/smp/scan"); } catch (err) { scanned = false; } }
+  if (changed && smp) {
     toast((hide ? plural(changed, "{n} hidden from ShadowMount+", "{n} hidden from ShadowMount+") : plural(changed, "{n} visible to ShadowMount+ again", "{n} visible to ShadowMount+ again"))
       + (scanned ? " · " + t("it is rescanning") : ""), "ok");
     done();

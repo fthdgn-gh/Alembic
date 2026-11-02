@@ -32,6 +32,10 @@ export async function openActions(e: Entry) {
   if (conv && e.kind !== "fpkg") items.push(isHiddenName(e.name)
     ? { label: t("Show to ShadowMount+ again"), sub: t("Renames it back to {name}", { name: e.name.slice(1) }), value: () => toggleHidden(e.path) }
     : { label: t("Hide from ShadowMount+"), sub: t("Renames it to .{name}, so ShadowMount+ uses another copy of this game", { name: e.name }), value: () => toggleHidden(e.path) });
+  // Any other file or folder (a package, say): hidden by its leading dot alone.
+  else items.push(isHiddenName(e.name)
+    ? { label: t("Unhide"), sub: t("Renames it back to {name}", { name: e.name.slice(1) }), value: () => toggleHidden(e.path, false, false) }
+    : { label: t("Hide"), sub: t("Renames it to .{name}", { name: e.name }), value: () => toggleHidden(e.path, false, false) });
   // Places (this engine's or a paired one's): shared with every paired engine.
   if (e.kind === "folder" && cwd.value !== "/") {
     const isPlace = locations.value.some((l) => l.custom && l.path === e.path);
@@ -75,10 +79,16 @@ async function installPkg(e: Entry) {
 // ShadowMount+ skips names that start with "." and keeps one source per
 // game while that source exists: hiding the old one makes it switch.
 
-export async function toggleHidden(path: string, quiet?: boolean) {
+// `smp`: an image ShadowMount+ uses (it rescans and the toast says so).
+export async function toggleHidden(path: string, quiet?: boolean, smp = true) {
   const n = base(path), name = isHiddenName(n) ? n.slice(1) : "." + n;
   try {
     await api("POST", "/api/fs/rename", { path, name });
+    if (!smp) {
+      if (!quiet) toast(t("Renamed to {name}", { name }), "ok");
+      if (tab.value === "files" && cwd.value === dir(path)) browse(cwd.value, false, dir(path) + "/" + name);
+      return true;
+    }
     let scanned = true;
     try { await api("POST", "/api/smp/scan"); } catch (e) { scanned = false; }
     if (!quiet) toast(isHiddenName(name) ? (scanned ? t("Hidden from ShadowMount+; it is rescanning") : t("Hidden from ShadowMount+"))
