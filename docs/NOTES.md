@@ -3183,6 +3183,17 @@ release: see "components follow their latest releases" below.)
   files, not its packs. Tried on a PC engine both ways (app: LZ4 -> zstd;
   API: zstd -> LZ4), `zstd-verify` / `lz4-verify` and `same` pass;
   pictures of both dialogs.
+- **zstd pass 2 no longer compresses again** (owner, after a level-19
+  job on the console ran at ~7.7 MB/s per pass): `PackOptions::spill_path`
+  keeps pass 1's frames in a scratch file (about the packs' size; deleted
+  with the packed tree, and a stale one is replaced), and pass 2 copies
+  them, reading no source data for zstd chunks. The engine puts it next to
+  the output (`<output>.alembic-partial.zstd-frames`, or
+  `<state>/zstd-frames.tmp` when the output is not a local path), the CLI
+  at `<output>.zstd-frames.tmp`. Output unchanged (a test compares bytes
+  with and without; the 2.4 GB sample at level 19 gave the same image):
+  29.4 s -> 20.4 s on the Mac there, where only 0.3 GiB is packed; about
+  half the time where packing dominates, as on the console.
 - **Not yet**: on a console.
 
 ## Next session

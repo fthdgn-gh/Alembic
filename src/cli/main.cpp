@@ -493,6 +493,10 @@ int cmd_convert(const Args& args) {
             pack.timestamp = static_cast<std::int64_t>(*value);
         }
         pack.workers = options.ffpfsc.compression.threads;
+        // Pass 1's frames wait next to the output, so pass 2 copies them.
+        std::string out = args.positional[1];
+        while (out.size() > 1 && out.back() == '/') out.pop_back();
+        pack.spill_path = out + ".zstd-frames.tmp";
         options.zstd = std::move(pack);
     }
     std::optional<convert::Format> to;

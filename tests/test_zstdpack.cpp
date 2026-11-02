@@ -542,6 +542,38 @@ TEST_CASE(zstd_pack_is_deterministic_and_takes_its_archive_id) {
     CHECK(v->size() == volume.size() && std::equal(v->begin() + 64, v->end(), volume.begin() + 64));
 }
 
+TEST_CASE(zstd_pack_spill_file_gives_the_same_bytes) {
+    // Pass 2 copying pass 1's frames from the scratch file, over several
+    // volumes: every byte as when it compresses again, and the file goes
+    // with the packed tree.
+    auto dir = test::make_temp_dir();
+    auto folder = tree::open_folder(make_game(dir));
+    REQUIRE_OK(folder);
+    PackOptions o = options_for();
+    o.volume_limit = 64 + kChunk + 1000;
+    auto plain = pack(**folder, o);
+    REQUIRE_OK(plain);
+    const std::string spill = dir + "/frames.tmp";
+    o.spill_path = spill;
+    {
+        auto spilled = pack(**folder, o);
+        REQUIRE_OK(spilled);
+        CHECK(is_regular_file(spill));
+        const Index& ix = (*plain)->index();
+        CHECK((*spilled)->index() == ix);
+        std::vector<std::string> names = {kIndexName};
+        for (std::size_t v = 0; v < ix.volume_sizes.size(); ++v) names.push_back(volume_name(static_cast<std::uint32_t>(v)));
+        for (const std::string& name : names) {
+            auto a = read(**plain, name);
+            auto b = read(**spilled, name);
+            REQUIRE_OK(a);
+            REQUIRE_OK(b);
+            CHECK(*a == *b);
+        }
+    }
+    CHECK(!path_exists(spill));
+}
+
 TEST_CASE(zstd_pack_needs_a_runtime_and_a_level) {
     auto dir = test::make_temp_dir();
     std::string root = make_game(dir);

@@ -155,10 +155,22 @@ struct Item {
     bool store_only = false;
 };
 
+// Pass 1's frames on disk (PackOptions::spill_path), deleted with the tree.
+struct Spill {
+    File file;
+    std::string path;
+    std::uint64_t size = 0;
+    ~Spill() {
+        (void)file.close();
+        if (!path.empty()) (void)remove_file(path);
+    }
+};
+
 class PackedTreeImpl;
 
-// Pass 2: one volume, made while it is read. zstd chunks are compressed again
-// on the pool (a read-ahead window) and checked against pass 1.
+// Pass 2: one volume, made while it is read. zstd chunks are copied from the
+// spill file, or compressed again on the pool (a read-ahead window); either
+// way checked against pass 1.
 class VolumeFile final : public RandomAccess {
 public:
     VolumeFile(const PackedTreeImpl& tree, std::size_t volume) : tree_(tree), volume_(volume) {}
@@ -215,6 +227,8 @@ public:
     std::unique_ptr<Pool> pool_;
     std::unique_ptr<Encoders> encoders_;
     int level_ = kDefaultLevel;
+    std::unique_ptr<Spill> spill_;
+    std::vector<std::uint64_t> spill_offset_; // per chunk: its frame in spill_ (zstd chunks)
 
 private:
     Status make_deployed_tree(const PackOptions& options, std::int64_t now);
@@ -380,6 +394,7 @@ Status PackedTreeImpl::pass_one(const ProgressFn& progress, std::uint64_t volume
     struct Result1 {
         bool zstd;
         std::uint32_t frame_size, raw_crc, frame_crc;
+        std::uint64_t spill_at;
     };
     std::vector<Result1> results;
     for (std::size_t i = 0; i < items_.size(); ++i) {
@@ -395,6 +410,7 @@ Status PackedTreeImpl::pass_one(const ProgressFn& progress, std::uint64_t volume
             for (std::uint64_t k = 0; k < count; ++k) {
                 while (next_read < count && pending.size() < window) {
                     auto b = std::make_shared<Block>();
+                    b->keep_frame = spill_ != nullptr;
                     b->raw.resize(static_cast<std::size_t>(chunk_raw_size(item.size, next_read)));
                     ALEMBIC_TRY(file->read_at(next_read * kChunkSize, b->raw));
                     compressor.submit(b);
@@ -405,7 +421,12 @@ Status PackedTreeImpl::pass_one(const ProgressFn& progress, std::uint64_t volume
                 pending.pop_front();
                 compressor.wait(*b);
                 if (b->error) return *b->error;
-                results.push_back({b->zstd, b->frame_size, b->raw_crc, b->frame_crc});
+                results.push_back({b->zstd, b->frame_size, b->raw_crc, b->frame_crc, spill_ ? spill_->size : 0});
+                if (spill_ && b->zstd) {
+                    if (Status s = spill_->file.write_at(spill_->size, b->frame); !s.ok())
+                        return make_error(s.error().code, "writing the zstd scratch file " + spill_->path + ": " + s.error().message);
+                    spill_->size += b->frame.size();
+                }
                 done += b->raw.size();
                 if (progress && !progress({"zstd pass 1", done, total})) return make_error(Errc::cancelled, "cancelled");
             }
@@ -437,6 +458,7 @@ Status PackedTreeImpl::pass_one(const ProgressFn& progress, std::uint64_t volume
             index_.chunks.push_back(c);
             chunk_item_.push_back(static_cast<std::uint32_t>(i));
             chunk_crc_.push_back(zstd ? r.frame_crc : r.raw_crc);
+            if (spill_) spill_offset_.push_back(r.spill_at);
             ++stats_.chunks;
             ++(zstd ? stats_.chunks_zstd : stats_.chunks_raw);
             stats_.stored_bytes += size;
@@ -509,6 +531,14 @@ Status PackedTreeImpl::build(const tree::Source& source, const PackOptions& opti
     pool_ = std::make_unique<Pool>(worker_count(options.workers));
     encoders_ = std::make_unique<Encoders>(pool_->size());
 
+    if (!options.spill_path.empty()) {
+        spill_ = std::make_unique<Spill>();
+        (void)remove_file(options.spill_path); // a stale one from a run that stopped
+        auto f = File::open(options.spill_path, File::Mode::create_new);
+        if (!f.ok()) return make_error(f.error().code, "the zstd scratch file " + options.spill_path + ": " + f.error().message);
+        spill_->file = std::move(*f);
+        spill_->path = options.spill_path;
+    }
     ALEMBIC_TRY(make_deployed_tree(options, now));
     ALEMBIC_TRY(choose(options));
     ALEMBIC_TRY(pass_one(progress, options.volume_limit));
@@ -525,6 +555,17 @@ Result<std::shared_ptr<Block>> VolumeFile::start(std::uint64_t chunk) const {
     const Chunk& c = tree_.index_.chunks[chunk];
     std::uint32_t item_index = tree_.chunk_item_[chunk];
     const Item& item = tree_.items_[item_index];
+    // Pass 1 kept the frame: copy it.
+    if (tree_.spill_ && c.codec == Codec::zstd) {
+        auto block = std::make_shared<Block>();
+        block->frame.resize(c.stored_size);
+        ALEMBIC_TRY(tree_.spill_->file.read_at(tree_.spill_offset_[chunk], block->frame));
+        block->zstd = true;
+        block->frame_size = c.stored_size;
+        block->frame_crc = crc(block->frame);
+        block->done = true;
+        return block;
+    }
     if (open_item_ != item_index) {
         open_file_.reset();
         ALEMBIC_ASSIGN(open_file_, tree_.source_->open(*item.input_node));

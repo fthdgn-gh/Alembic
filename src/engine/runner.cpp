@@ -479,6 +479,13 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
         zstdpack::PackOptions pack;
         pack.level = spec.zstd_level;
         pack.workers = config.threads;
+        // Pass 1's frames wait next to the output (about the packs' size), so
+        // pass 2 copies them instead of compressing again; the state folder
+        // when the output is not a local path (a network server, say).
+        const std::string out = strip_slashes(output);
+        const std::string out_dir = out.substr(0, out.rfind('/'));
+        pack.spill_path = !out_dir.empty() && is_directory(out_dir) ? partial_name(output) + ".zstd-frames"
+                                                                    : config.state_dir + "/zstd-frames.tmp";
         // ampr-emu-ng's runtime; without it the game must already ship one
         // (missing_dependencies asks for the component otherwise).
         if (is_regular_file(config.zstd_runtime_path())) {

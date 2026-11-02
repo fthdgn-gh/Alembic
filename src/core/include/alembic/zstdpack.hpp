@@ -182,6 +182,12 @@ struct PackOptions {
     // Which files to pack instead of default_selected (paths relative to the
     // root). Paths always_loose would keep loose stay loose anyway.
     std::optional<std::vector<std::string>> packed_set;
+    // A scratch file for the zstd frames pass 1 makes: pass 2 then copies
+    // them instead of compressing every chunk again (and reads no source
+    // data for them). It holds about the packs' size and is deleted with the
+    // packed tree. "" compresses twice and needs no room. Never changes the
+    // output.
+    std::string spill_path;
     // Tests only: a smaller volume limit, to see volumes roll over.
     std::uint64_t volume_limit = kVolumeLimit;
 };
