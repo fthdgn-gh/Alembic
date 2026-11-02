@@ -290,6 +290,8 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     const tree::Source* tree_ptr = input.tree.get();
     std::unique_ptr<lz4pack::PackedTree> packed;
     std::unique_ptr<tree::Source> unpacked;
+    std::unique_ptr<zstdpack::PackedTree> zstd_packed;
+    std::unique_ptr<tree::Source> zstd_unpacked, lz4_for_zstd;
     // Packing with checkpoints: pass 1 saves its own (format kLz4Format);
     // afterwards the output writer's carry the LZ4 keys too, so a run can
     // replay pass 1 from its side file and continue the output.
@@ -303,13 +305,51 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     };
     if (options.lz4 && options.lz4_unpack)
         return make_error(Errc::invalid_argument, "choose either LZ4 packing or unpacking");
+    if (options.zstd && (options.lz4 || options.lz4_unpack))
+        return make_error(Errc::invalid_argument, "choose either zstd or LZ4 packs");
+    if (options.zstd && options.zstd_unpack)
+        return make_error(Errc::invalid_argument, "choose either zstd packing or unpacking");
+    if (options.zstd && to == Format::fpkg)
+        return make_error(Errc::unsupported, "zstd packs go into a folder or an image, not a package");
     // A PS4 game: FPKG output is a PS4 package; LZ4 packs and the AMPR
     // emulator are for PS5 games.
     auto game_root = ffpfsc::resolve_game_root(input.tree->root());
     const bool ps4 = game_root.ok() && ffpfsc::is_ps4_game(*input.tree, **game_root);
     if (ps4 && options.lz4)
         return make_error(Errc::unsupported, "LZ4 asset packs are for PS5 games; this is a PS4 game");
-    if (options.lz4_unpack) {
+    if (ps4 && options.zstd)
+        return make_error(Errc::unsupported, "zstd asset packs are for PS5 games; this is a PS4 game");
+    // zstd packs are decoded to be unpacked or packed again (zstd or LZ4).
+    if ((options.zstd_unpack || options.zstd || options.lz4) && zstdpack::is_packed(tree_ptr->root())) {
+        ALEMBIC_ASSIGN(zstd_unpacked, zstdpack::unpack(*tree_ptr));
+        tree_ptr = zstd_unpacked.get();
+    } else if (options.zstd_unpack) {
+        return make_error(Errc::invalid_argument, "the input has no zstd packs (no ampr_zstd.index)");
+    }
+    if (options.zstd) {
+        zstdpack::PackOptions pack = *options.zstd;
+        // An LZ4-packed input keeps its pack set (ps5-dump-forge's rule): the
+        // game reads those files through the runtime.
+        if (lz4pack::is_packed(tree_ptr->root())) {
+            const tree::Node* node = tree::find(tree_ptr->root(), lz4pack::kIndexName);
+            if (!node || node->is_directory) return make_error(Errc::invalid_data, "cannot read the LZ4 pack index");
+            ALEMBIC_ASSIGN(std::shared_ptr<const RandomAccess> file, tree_ptr->open(*node));
+            std::vector<std::uint8_t> data(static_cast<std::size_t>(node->size));
+            ALEMBIC_TRY(file->read_at(0, data));
+            ALEMBIC_ASSIGN(lz4pack::Manifest m, lz4pack::parse_manifest(data));
+            if (!pack.packed_set) {
+                std::vector<std::string> set;
+                for (std::size_t i = 0; i < m.files.size(); ++i)
+                    if (m.files[i].flags & lz4pack::kFilePacked) set.push_back(m.file_path(i).substr(6));
+                pack.packed_set = std::move(set);
+            }
+            ALEMBIC_ASSIGN(lz4_for_zstd, lz4pack::unpack(*tree_ptr));
+            tree_ptr = lz4_for_zstd.get();
+        }
+        ALEMBIC_ASSIGN(zstd_packed, zstdpack::pack(*tree_ptr, pack, progress));
+        report.zstd = zstd_packed->stats();
+        tree_ptr = zstd_packed.get();
+    } else if (options.lz4_unpack) {
         if (!lz4pack::is_packed(tree_ptr->root()))
             return make_error(Errc::invalid_argument, "the input has no LZ4 packs (no ampr_assets.index)");
         ALEMBIC_ASSIGN(unpacked, lz4pack::unpack(*tree_ptr));
@@ -375,7 +415,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     // The AMPR emulator: not for packages (installed, they have the console's
     // APR) nor when packing (the packer adds its runtime).
     std::unique_ptr<tree::Source> with_emulator;
-    if (to != Format::fpkg && !packed && !ps4) {
+    if (to != Format::fpkg && !packed && !zstd_packed && !ps4) {
         if (progress && !progress({"Checking eboot.bin", 0, 0})) return make_error(Errc::cancelled, "cancelled");
         // A stage without a byte count: its bytes are not the conversion's.
         ProgressFn stage_only = [&](const ProgressEvent& e) { return !progress || progress({e.stage, 0, 0}); };
@@ -397,11 +437,17 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     // A transformed tree no longer matches the input image byte for byte.
     bool transformed = tree_ptr != input.tree.get();
     bool rebuild = options.rebuild || transformed;
-    std::string prefix_text = std::string(packed ? "LZ4-packed and " : unpacked ? "LZ4-unpacked and " : "") +
+    const char* pack_text = packed          ? "LZ4-packed and "
+                            : zstd_packed   ? "zstd-packed and "
+                            : unpacked      ? "LZ4-unpacked and "
+                            : zstd_unpacked ? "zstd-unpacked and "
+                                            : "";
+    std::string prefix_text = std::string(pack_text) +
                               (with_emulator ? "added the AMPR emulator and " : "");
     const char* prefix = prefix_text.c_str();
     resume::Session* session = packed ? (options.resume ? &packed_session : nullptr) : options.resume;
     if (remote_out) session = nullptr; // an upload starts over when stopped
+    if (zstd_packed) session = nullptr; // zstd pass 1 keeps no checkpoints yet
     report.resumable = session != nullptr;
 
     switch (to) {
@@ -561,7 +607,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
 
 namespace {
 
-// A game's files for comparing: opened, LZ4 packs unpacked, sorted by path,
+// A game's files for comparing: opened, LZ4 or zstd packs unpacked, sorted by path,
 // without ampr_emu.index (conversions may write their own) and, for a PS4
 // game, without sce_sys/param.json (its images get one; packages have none).
 struct GameFiles {
@@ -576,6 +622,9 @@ Status open_game_files(const std::string& path, const std::string& passcode, Gam
     g.tree = g.input.tree.get();
     if (lz4pack::is_packed(g.tree->root())) {
         ALEMBIC_ASSIGN(g.unpacked, lz4pack::unpack(*g.tree));
+        g.tree = g.unpacked.get();
+    } else if (zstdpack::is_packed(g.tree->root())) {
+        ALEMBIC_ASSIGN(g.unpacked, zstdpack::unpack(*g.tree));
         g.tree = g.unpacked.get();
     }
     const bool ps4 = ffpfsc::is_ps4_game(*g.tree, g.tree->root());

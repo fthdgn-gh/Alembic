@@ -127,9 +127,11 @@ Status add_virtual_ampr_index(Node& root, ampr::Scheme scheme, bool rebuild) {
     });
     if (!has_marker) return {};
     // An LZ4-packed tree must keep the index it was packed against: every
-    // pack record is tied to a file ID of that index.
+    // pack record is tied to a file ID of that index. A zstd-packed one keeps
+    // the index that still lists its packed files.
     bool packed = std::any_of(root.children.begin(), root.children.end(), [](const Node& n) {
-        return !n.is_directory && unicode::ascii_iequals(n.name, "ampr_assets.index");
+        return !n.is_directory &&
+               (unicode::ascii_iequals(n.name, "ampr_assets.index") || unicode::ascii_iequals(n.name, "ampr_zstd.index"));
     });
     if (packed) return {};
     // The game's own index is kept unless a rebuild is asked for.

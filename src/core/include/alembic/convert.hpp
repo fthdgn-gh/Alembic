@@ -13,6 +13,7 @@
 #include "alembic/resume.hpp"
 #include "alembic/tree.hpp"
 #include "alembic/ufs2.hpp"
+#include "alembic/zstdpack.hpp"
 
 #include <functional>
 #include <memory>
@@ -93,6 +94,11 @@ struct Options {
     // Pack the tree into LZ4 asset packs on the way (folder, exFAT and FFPFSC
     // outputs; images are rebuilt).
     std::optional<lz4pack::PackOptions> lz4;
+    // Or into zstd packs (ampr-emu-ng's; zstdpack.hpp), on the way to any
+    // output but FPKG. An LZ4-packed input is unpacked first and its LZ4 pack
+    // set becomes the zstd one (as ps5-dump-forge does); a zstd-packed input
+    // is unpacked and packed again. Not resumable yet.
+    std::optional<zstdpack::PackOptions> zstd;
     // FPKG output: keys_folder is required; `overwrite` comes from above.
     fpkg::build::PackageOptions fpkg;
     // FPKG output of a PS4 game (sce_sys/param.sfo, no param.json): a PS4
@@ -103,6 +109,8 @@ struct Options {
     resume::Session* resume = nullptr;
     // Serve LZ4-packed files as ordinary files again (drops the packs).
     bool lz4_unpack = false;
+    // Serve zstd-packed files as ordinary files again (drops the packs).
+    bool zstd_unpack = false;
     // ampr_emu's libSceAmpr.sprx (ampr_emu.hpp), added to the game's fakelib
     // folder when eboot.bin imports libSceAmpr and the game ships none. Every
     // output but FPKG (an installed package has the console's own APR); LZ4
@@ -119,6 +127,7 @@ struct Report {
     std::optional<lz4pack::PackStats> lz4; // set when packing
     std::string lz4_config_toml;            // the pack configuration, as ampr_pack.py TOML
     std::vector<std::string> lz4_forced_loose;
+    std::optional<zstdpack::PackStats> zstd; // set when packing into zstd packs
     std::vector<std::string> warnings;
     bool resumable = false; // the session was used
     bool ampr_needed = false;       // the game imports libSceAmpr and ships no emulator
@@ -130,7 +139,7 @@ struct Report {
 Result<Report> run(const std::string& input, const std::string& output, Format to, const Options& options = {},
                    const ProgressFn& progress = {});
 
-// Compares the files of two inputs byte for byte. LZ4-packed inputs are
+// Compares the files of two inputs byte for byte. LZ4- and zstd-packed inputs are
 // unpacked first; ampr_emu.index is ignored (outputs rebuild it).
 struct Comparison {
     std::uint64_t files = 0; // compared (present in both)
@@ -145,7 +154,7 @@ Result<Comparison> compare(const std::string& a, const std::string& b, const std
 
 // The same check by digests: each side can be worked out where its files are
 // (another engine) and only the lists compared. Every file of the game at
-// `path` (any format, LZ4 packs unpacked, ampr_emu.index left out, as
+// `path` (any format, LZ4 and zstd packs unpacked, ampr_emu.index left out, as
 // compare() does) with its size and SHA-256, sorted by path.
 struct FileDigest {
     std::string path;
