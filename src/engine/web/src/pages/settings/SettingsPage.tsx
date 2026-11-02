@@ -61,7 +61,7 @@ export function SettingsPage(props: { hidden: boolean }) {
             i.roots && i.roots.length ? [t("Shared folders"), i.roots.join("\n"), "mono"] : null,
             [t("State folder"), i.state_dir, "mono"],
             i.cpu_instructions ? [t("CPU instructions"), i.cpu_instructions === "none" ? "–" : i.cpu_instructions] : null,
-            [t("LZ4 runtime"), i.lz4_runtime && i.lz4_runtime.present ? (i.lz4_runtime.pinned ? i.lz4_runtime.name || "ampr_emu 0.4.2.1" : t("present, not the pinned build")) : t("not downloaded")],
+            [t("LZ4 runtime"), i.lz4_runtime && i.lz4_runtime.present ? (i.lz4_runtime.pinned ? i.lz4_runtime.name || "ampr_emu 0.4.2.1" : t("present, not a build Alembic knows")) : t("not downloaded")],
           ].filter(Boolean) as [string, string, string?][])} />
           <div class="btns">
             {i && i.can_restart ? <SmallBtn k="s:restart" text={t("Restart the engine")} onClick={restartEngine} /> : null}

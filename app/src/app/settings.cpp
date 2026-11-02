@@ -975,7 +975,7 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
                 rows.push_back({t("CPU instructions"), i["cpu_instructions"].str() == "none" ? "\xE2\x80\x93" : i["cpu_instructions"].str(), ""});
             const JsonValue& rt = i["lz4_runtime"];
             rows.push_back({t("LZ4 runtime"), rt["present"].boolean() ? (rt["pinned"].boolean() ? (rt["name"].str().empty() ? "ampr_emu 0.4.2.1" : rt["name"].str())
-                                                                                              : t("present, not the pinned build"))
+                                                                                              : t("present, not a build Alembic knows"))
                                                                      : t("not downloaded"), ""});
         }
         yy += facts(ui, ix, yy, iw, rows);
