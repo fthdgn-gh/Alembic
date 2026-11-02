@@ -155,6 +155,12 @@ Result<std::string> resolve_output(const JobSpec& spec) {
             std::size_t dot = name.rfind('.');
             if (dot != std::string::npos && dot > 0) name = name.substr(0, dot);
         }
+        // Switching packs or unpacking: the old pack tag goes (game-lz4 -> game-zstd).
+        if (spec.lz4 || spec.zstd || spec.lz4_unpack || spec.zstd_unpack)
+            for (const char* tag : {"-lz4", "-zstd"}) {
+                const std::size_t n = std::char_traits<char>::length(tag);
+                if (name.size() > n && name.compare(name.size() - n, n, tag) == 0) name.resize(name.size() - n);
+            }
         if (spec.lz4) name += "-lz4";
         if (spec.zstd) name += "-zstd";
         if (spec.lz4_unpack || spec.zstd_unpack) name += "-unpacked";
@@ -489,7 +495,14 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
         lz4pack::ProfileRequest request;
         request.profile = spec.lz4_profile.empty() ? "auto" : spec.lz4_profile;
         request.level = spec.lz4_level;
-        ALEMBIC_ASSIGN(lz4pack::ProfileChoice choice, lz4pack::choose_profile(*input.tree, request));
+        // A zstd-packed game is switched to LZ4 packs: the profile is chosen
+        // from its files, not from its packs.
+        std::unique_ptr<tree::Source> zstd_unpacked;
+        if (zstdpack::is_packed(input.tree->root())) {
+            ALEMBIC_ASSIGN(zstd_unpacked, zstdpack::unpack(*input.tree));
+        }
+        ALEMBIC_ASSIGN(lz4pack::ProfileChoice choice,
+                       lz4pack::choose_profile(zstd_unpacked ? *zstd_unpacked : *input.tree, request));
         lz4pack::PackOptions pack;
         pack.config = std::move(choice.config);
         pack.config.workers = config.threads;

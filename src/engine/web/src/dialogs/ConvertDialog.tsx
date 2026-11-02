@@ -139,9 +139,12 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   const zpackedAny = entries.some(zpacked), zpackedAll = entries.every(zpacked);
   const packOffered = !packedAny && !zpackedAny;
   // zstd packs are for PS5 games in a folder or an image.
-  const zstdOffered = packOffered && !anyPs4 && to !== "fpkg";
-  const zstd = zstdWant && zstdOffered, zunpack = zunpackWant && zpackedAll;
-  const lz4 = lz4Want && packOffered && !zstd, unpack = unpackWant && packedAll;
+  // A packed game can switch to the other kind of packs in the same conversion.
+  const zstdOffered = (packOffered || packedAll) && !anyPs4 && to !== "fpkg";
+  const lz4Offered = packOffered || zpackedAll;
+  const zstd = zstdWant && zstdOffered && !(unpackWant && packedAll);
+  const lz4 = lz4Want && lz4Offered && !zstd && !(zunpackWant && zpackedAll);
+  const unpack = unpackWant && packedAll && !zstd, zunpack = zunpackWant && zpackedAll && !lz4;
   // A PS5 package can go straight to the console's installer (then it is deleted).
   const installable = to === "fpkg" && !!info.value && info.value.platform === "ps5" && !anyPs4;
   const del = !anyShared && delWant && !(installable && installWant);
@@ -257,7 +260,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
       <a href="#" onClick={(ev) => { ev.preventDefault(); closeOverlay("deps"); }}>{t("Get it in Components")}</a></div>
     : rt && !rt.pinned ? <div class="note">{t("The runtime file is not the pinned ampr_emu 0.4.2.1 build.")}</div> : null;
   // LZ4 packs inside an FFPFSC work, but the console then undoes zlib and LZ4.
-  const lz4NoteShown = target === "ffpfsc" && (lz4 || (packedAny && !unpack));
+  const lz4NoteShown = target === "ffpfsc" && (lz4 || (packedAny && !unpack && !zstd));
   const firstPlan = plan || plans[Object.keys(plans)[0]] || null;
   const r: any = firstPlan ? rootOf(firstPlan.output) : null;
   const need = work.reduce((n, e) => n + (inspects && inspects.ok[e.path] ? inspects.ok[e.path].bytes : 0), 0);
@@ -297,21 +300,25 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
           <div class="indent" hidden={!installable || target !== "fpkg" || !installWant}>
             <SwitchRow label={t("Keep the package")} hint={t("Leaves the .pkg after installing, to install again or elsewhere")} on={keepPkg} onChange={setKeepPkg} dataKey="cv:keep" />
           </div>
-          <SwitchRow label={t("Pack into LZ4 asset packs")} hint={t("For ampr_emu games")} on={lz4} onChange={setLz4} hidden={!packOffered || zstd} />
+          <SwitchRow label={zpackedAll ? t("Switch to LZ4 packs") : t("Pack into LZ4 asset packs")}
+            hint={zpackedAll ? t("Replaces the zstd packs; both AMPR emulators read LZ4 packs") : t("For ampr_emu games")}
+            on={lz4} onChange={(on) => { setLz4(on); if (on && zpackedAll && oneFormat) setTo(oneFormat); }} hidden={!lz4Offered || zstd || zunpack} dataKey="cv:lz4" />
           <div class="indent" hidden={!lz4}>
             <ChoiceRow label={t("Profile")} hint={t("Automatic uses a console-tested profile when one matches")} options={profiles} value={profile} onChange={setProfile} />
             <ChoiceRow label={t("LZ4 level")} options={[{ value: 1, label: t("1 · fast") }, { value: 9, label: t("9 · default") }, { value: 12, label: t("12 · smallest") }]} value={lz4Level} onChange={setLz4Level} />
             {rtNote}
           </div>
-          <SwitchRow label={t("Pack into zstd packs")} hint={t("Smaller than LZ4 and faster to make; read only by ampr-emu-ng, which goes into the game")}
-            on={zstd} onChange={setZstd} hidden={!zstdOffered || lz4} dataKey="cv:zstd" />
+          <SwitchRow label={packedAll ? t("Switch to zstd packs") : t("Pack into zstd packs")}
+            hint={packedAll ? t("Replaces the LZ4 packs with smaller zstd ones; read only by ampr-emu-ng, which goes into the game")
+              : t("Smaller than LZ4 and faster to make; read only by ampr-emu-ng, which goes into the game")}
+            on={zstd} onChange={(on) => { setZstd(on); if (on && packedAll && oneFormat) setTo(oneFormat); }} hidden={!zstdOffered || lz4 || unpack} dataKey="cv:zstd" />
           <div class="indent" hidden={!zstd}>
             <ChoiceRow label={t("zstd level")} options={[{ value: 1, label: t("1 · fastest") }, { value: 5, label: t("5 · default") }, { value: 19, label: t("19 · smallest") }]} value={zstdLevel} onChange={setZstdLevel} />
             <div class="note">{t("Turn off ShadowMount+'s “update emulators”: it would swap ampr-emu-ng for another emulator that can't read these packs.")}</div>
           </div>
           {/* Shown instead of the pack switch for a game that is already packed. */}
-          <SwitchRow label={t("Unpack LZ4 asset packs")} hint={t("Turns the packs back into ordinary files; ampr_emu's runtime stays in fakelib")} on={unpack} onChange={setUnpack} hidden={!packedAll} />
-          <SwitchRow label={t("Unpack zstd packs")} hint={t("Turns the packs back into ordinary files; ampr-emu-ng stays in fakelib")} on={zunpack} onChange={setZunpack} hidden={!zpackedAll} />
+          <SwitchRow label={t("Unpack LZ4 asset packs")} hint={t("Turns the packs back into ordinary files; ampr_emu's runtime stays in fakelib")} on={unpack} onChange={setUnpack} hidden={!packedAll || zstd} />
+          <SwitchRow label={t("Unpack zstd packs")} hint={t("Turns the packs back into ordinary files; ampr-emu-ng stays in fakelib")} on={zunpack} onChange={setZunpack} hidden={!zpackedAll || lz4} />
           <div class="note" hidden={!lz4NoteShown}>
             {(packedAny && !many ? t("This game is already LZ4-packed.") + " " : "") + t("FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data.")}
           </div>

@@ -3172,6 +3172,17 @@ release: see "components follow their latest releases" below.)
   and the page and app fall back to "replace with the one in use". Tried
   on a PC engine: an LZ4-packed folder switched from ampr-emu-ng to
   ampr_emu and back, from the page and the app; pictures of both.
+- **Switching packs in Convert** (owner: an exFAT conversion "that just
+  replaces the compression type", in Convert itself): an LZ4-packed game
+  gets "Switch to zstd packs" and a zstd-packed one "Switch to LZ4 packs"
+  (each hides its Unpack switch while on). Turning one on keeps the
+  game's image type (exFAT stays exFAT; another can still be picked). The
+  old packs are decoded straight into the new ones (no unpacked copy; a
+  new image is still written). Output names drop the old tag (game-lz4 ->
+  game-zstd). The engine picks LZ4 settings from a zstd-packed game's
+  files, not its packs. Tried on a PC engine both ways (app: LZ4 -> zstd;
+  API: zstd -> LZ4), `zstd-verify` / `lz4-verify` and `same` pass;
+  pictures of both dialogs.
 - **Not yet**: on a console.
 
 ## Next session

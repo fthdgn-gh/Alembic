@@ -188,6 +188,10 @@ var I18N = {
   "no such job"
  ],
  "tr": {
+  "Switch to LZ4 packs": "LZ4 paketlerine geç",
+  "Switch to zstd packs": "zstd paketlerine geç",
+  "Replaces the zstd packs; both AMPR emulators read LZ4 packs": "zstd paketlerinin yerini alır; LZ4 paketlerini iki AMPR öykünücüsü de okur",
+  "Replaces the LZ4 packs with smaller zstd ones; read only by ampr-emu-ng, which goes into the game": "LZ4 paketlerini daha küçük zstd paketleriyle değiştirir; yalnızca oyuna eklenen ampr-emu-ng okur",
   "Both emulators read this game's LZ4 packs.": "İki öykünücü de bu oyunun LZ4 paketlerini okur.",
   "Switch the AMPR emulator?": "AMPR öykünücüsü değiştirilsin mi?",
   "Switch to which AMPR emulator?": "Hangi AMPR öykünücüsüne geçilsin?",
@@ -1044,6 +1048,10 @@ var I18N = {
   "built a PS4 package from the file tree": "dosya ağacından PS4 paketi oluşturdu"
  },
  "es": {
+  "Switch to LZ4 packs": "Cambiar a paquetes LZ4",
+  "Switch to zstd packs": "Cambiar a paquetes zstd",
+  "Replaces the zstd packs; both AMPR emulators read LZ4 packs": "Reemplaza los paquetes zstd; los dos emuladores AMPR leen paquetes LZ4",
+  "Replaces the LZ4 packs with smaller zstd ones; read only by ampr-emu-ng, which goes into the game": "Reemplaza los paquetes LZ4 por paquetes zstd más pequeños; solo los lee ampr-emu-ng, que se añade al juego",
   "Both emulators read this game's LZ4 packs.": "Los dos emuladores leen los paquetes LZ4 de este juego.",
   "Switch the AMPR emulator?": "¿Cambiar el emulador AMPR?",
   "Switch to which AMPR emulator?": "¿A qué emulador AMPR cambiar?",
@@ -1900,6 +1908,10 @@ var I18N = {
   "built a PS4 package from the file tree": "creó un paquete de PS4 a partir del árbol de archivos"
  },
  "fr": {
+  "Switch to LZ4 packs": "Passer aux paquets LZ4",
+  "Switch to zstd packs": "Passer aux paquets zstd",
+  "Replaces the zstd packs; both AMPR emulators read LZ4 packs": "Remplace les paquets zstd ; les deux émulateurs AMPR lisent les paquets LZ4",
+  "Replaces the LZ4 packs with smaller zstd ones; read only by ampr-emu-ng, which goes into the game": "Remplace les paquets LZ4 par des paquets zstd plus petits ; lus seulement par ampr-emu-ng, ajouté au jeu",
   "Both emulators read this game's LZ4 packs.": "Les deux émulateurs lisent les paquets LZ4 de ce jeu.",
   "Switch the AMPR emulator?": "Changer d'émulateur AMPR ?",
   "Switch to which AMPR emulator?": "Passer à quel émulateur AMPR ?",
@@ -2756,6 +2768,10 @@ var I18N = {
   "built a PS4 package from the file tree": "a créé un paquet PS4 à partir de l'arborescence"
  },
  "de": {
+  "Switch to LZ4 packs": "Zu LZ4-Paketen wechseln",
+  "Switch to zstd packs": "Zu zstd-Paketen wechseln",
+  "Replaces the zstd packs; both AMPR emulators read LZ4 packs": "Ersetzt die zstd-Pakete; beide AMPR-Emulatoren lesen LZ4-Pakete",
+  "Replaces the LZ4 packs with smaller zstd ones; read only by ampr-emu-ng, which goes into the game": "Ersetzt die LZ4-Pakete durch kleinere zstd-Pakete; nur ampr-emu-ng liest sie, das ins Spiel kommt",
   "Both emulators read this game's LZ4 packs.": "Beide Emulatoren lesen die LZ4-Pakete dieses Spiels.",
   "Switch the AMPR emulator?": "AMPR-Emulator wechseln?",
   "Switch to which AMPR emulator?": "Zu welchem AMPR-Emulator wechseln?",
@@ -3612,6 +3628,10 @@ var I18N = {
   "built a PS4 package from the file tree": "hat aus dem Dateibaum ein PS4-Paket erstellt"
  },
  "ja": {
+  "Switch to LZ4 packs": "LZ4 パックに切り替える",
+  "Switch to zstd packs": "zstd パックに切り替える",
+  "Replaces the zstd packs; both AMPR emulators read LZ4 packs": "zstd パックを置き換えます。LZ4 パックはどちらの AMPR エミュレーターでも読めます",
+  "Replaces the LZ4 packs with smaller zstd ones; read only by ampr-emu-ng, which goes into the game": "LZ4 パックを、より小さい zstd パックに置き換えます。読めるのはゲームに入る ampr-emu-ng だけです",
   "Both emulators read this game's LZ4 packs.": "このゲームの LZ4 パックはどちらのエミュレーターでも読めます。",
   "Switch the AMPR emulator?": "AMPR エミュレーターを切り替えますか？",
   "Switch to which AMPR emulator?": "どの AMPR エミュレーターに切り替えますか？",

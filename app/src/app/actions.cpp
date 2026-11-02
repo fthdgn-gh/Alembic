@@ -790,7 +790,9 @@ public:
     bool zpacked_all() const { return std::all_of(entries.begin(), entries.end(), [this](const Entry& e) { return zpacked(e); }); }
     bool pack_offered() const { return !packed_any() && !zpacked_any(); }
     // zstd packs are for PS5 games in a folder or an image.
-    bool zstd_offered(App& app) const { return pack_offered() && !any_ps4(app) && to != "fpkg"; }
+    // A packed game can switch to the other kind of packs in the same conversion.
+    bool zstd_offered(App& app) const { return (pack_offered() || packed_all()) && !any_ps4(app) && to != "fpkg"; }
+    bool lz4_offered() const { return pack_offered() || zpacked_all(); }
     bool packed_all() const { return std::all_of(entries.begin(), entries.end(), [this](const Entry& e) { return packed(e); }); }
     bool any_shared() const { return std::any_of(entries.begin(), entries.end(), [](const Entry& e) { return e.shared; }); }
     bool any_ps4(App& app) const {
@@ -834,8 +836,9 @@ public:
     }
 
     JsonValue spec(App& app, const Entry& e, std::string* key_out) {
-        const bool zstd_on = zstd && zstd_offered(app), zunpack_on = zunpack && zpacked_all();
-        const bool lz4_on = lz4 && pack_offered() && !zstd_on, unpack_on = unpack && packed_all();
+        const bool zstd_on = zstd && zstd_offered(app) && !(unpack && packed_all());
+        const bool lz4_on = lz4 && lz4_offered() && !zstd_on && !(zunpack && zpacked_all());
+        const bool unpack_on = unpack && packed_all() && !zstd_on, zunpack_on = zunpack && zpacked_all() && !lz4_on;
         const std::string same = one_format();
         std::vector<std::string> offered;
         for (const auto& f : kFormats)
@@ -1161,8 +1164,14 @@ public:
                             t("Leaves the .pkg after installing, to install again or elsewhere"), &keep_pkg);
             ui.list->rounded_rect({x + 1.25f * R, top, 2.0f, y - top - 0.5f * R}, 0.0f, line);
         }
-        if (pack_offered() && !zstd_on)
-            y += switch_row(ui, "cv:lz4", x, y, lw, t("Pack into LZ4 asset packs"), t("For ampr_emu games"), &lz4);
+        // Switching a packed game's packs keeps its image type (exFAT stays exFAT).
+        if (lz4_offered() && !zstd_on && !zunpack_on) {
+            bool changed = false;
+            y += switch_row(ui, "cv:lz4", x, y, lw, zpacked_all() ? t("Switch to LZ4 packs") : t("Pack into LZ4 asset packs"),
+                            zpacked_all() ? t("Replaces the zstd packs; both AMPR emulators read LZ4 packs") : t("For ampr_emu games"),
+                            &lz4, &changed);
+            if (changed && lz4 && zpacked_all() && !one_format().empty()) to = one_format();
+        }
         if (lz4_on) {
             const float ix = x + 1.25f * R + 0.9f * R + 2.0f, iw = lw - (ix - x);
             const float top = y;
@@ -1184,9 +1193,14 @@ public:
                                      0.88f * R, 0.88f * 1.45f * R, warn) + 0.5f * R;
             ui.list->rounded_rect({x + 1.25f * R, top, 2.0f, y - top - 0.5f * R}, 0.0f, line);
         }
-        if (zstd_offered(app) && !lz4_on)
-            y += switch_row(ui, "cv:zstd", x, y, lw, t("Pack into zstd packs"),
-                            t("Smaller than LZ4 and faster to make; read only by ampr-emu-ng, which goes into the game"), &zstd);
+        if (zstd_offered(app) && !lz4_on && !unpack_on) {
+            bool changed = false;
+            y += switch_row(ui, "cv:zstd", x, y, lw, packed_all() ? t("Switch to zstd packs") : t("Pack into zstd packs"),
+                            packed_all() ? t("Replaces the LZ4 packs with smaller zstd ones; read only by ampr-emu-ng, which goes into the game")
+                                         : t("Smaller than LZ4 and faster to make; read only by ampr-emu-ng, which goes into the game"),
+                            &zstd, &changed);
+            if (changed && zstd && packed_all() && !one_format().empty()) to = one_format();
+        }
         if (zstd_on) {
             const float ix = x + 1.25f * R + 0.9f * R + 2.0f, iw = lw - (ix - x);
             const float top = y;
@@ -1198,13 +1212,13 @@ public:
                                  ix, y, iw, 0.88f * R, 0.88f * 1.45f * R, warn) + 0.5f * R;
             ui.list->rounded_rect({x + 1.25f * R, top, 2.0f, y - top - 0.5f * R}, 0.0f, line);
         }
-        if (zpacked_one)
+        if (zpacked_one && !lz4_on)
             y += switch_row(ui, "cv:zunpack", x, y, lw, t("Unpack zstd packs"),
                             t("Turns the packs back into ordinary files; ampr-emu-ng stays in fakelib"), &zunpack);
-        if (packed)
+        if (packed && !zstd_on)
             y += switch_row(ui, "cv:unpack", x, y, lw, t("Unpack LZ4 asset packs"),
                             t("Turns the packs back into ordinary files; ampr_emu's runtime stays in fakelib"), &unpack);
-        if (target == "ffpfsc" && (lz4_on || (packed_any() && !unpack_on)))
+        if (target == "ffpfsc" && (lz4_on || (packed_any() && !unpack_on && !zstd_on)))
             y += draw::paragraph(ui, Face::regular,
                                  (packed && !many() ? t("This game is already LZ4-packed.") + " " : std::string()) +
                                      t("FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data."),
