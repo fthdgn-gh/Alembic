@@ -2154,6 +2154,26 @@ private:
                     v.set("emulator_current", !in_place.empty() && in_place == ours);
                     v.set("runtime_name", chosen ? chosen->name() : std::string());
                     v.set("zstd_packs", a->zstd_packs);
+                    v.set("lz4_packs", a->lz4_packs);
+                    // Every AMPR emulator, to switch the game to another (0.4.3).
+                    JsonValue emulators = JsonValue::array();
+                    for (const Dependency& d : dependencies()) {
+                        if (d.group != kAmprRuntimeGroup) continue;
+                        const std::string path = config_.state_dir + "/" + d.files[0].path;
+                        const std::string sha = is_regular_file(path) ? file_sha256(path) : "";
+                        const auto known = ampr_runtime_by_hash(sha, config_.state_dir);
+                        JsonValue ej = JsonValue::object();
+                        ej.set("id", d.id);
+                        ej.set("label", d.label);
+                        ej.set("name", known ? known->name() : d.name);
+                        ej.set("downloaded", !sha.empty());
+                        ej.set("in_use", ampr_runtime_in_use(config_.state_dir) == &d);
+                        ej.set("in_game", !sha.empty() && sha == in_place);
+                        // zstd packs are read only by ampr-emu-ng.
+                        ej.set("reads_packs", !a->zstd_packs || d.id == "ampr_runtime_ng");
+                        emulators.push(std::move(ej));
+                    }
+                    v.set("emulators", std::move(emulators));
                 }
                 v.set("needs", std::move(needs));
                 if (missing && queue) v.set("error", std::string("this needs the AMPR emulator; get it in Components first"));

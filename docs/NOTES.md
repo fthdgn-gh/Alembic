@@ -3161,6 +3161,17 @@ release: see "components follow their latest releases" below.)
   `ampr_zstd.index` at the game's root; meta cache entries without it are
   read again), and the page and app show an outlined LZ4 / ZSTD tag after
   the format pill.
+- **Switching a game's emulator** (owner: "an option for the LZ4 packed
+  games to switch between them"): `ampr_emu` jobs take `emulator`
+  (`ampr_runtime` or `ampr_runtime_ng`; "" is the one in use), and their
+  plan lists `emulators` (name, downloaded, in_use, in_game, reads_packs)
+  plus `lz4_packs`. "Add the AMPR emulator" on a game that has one offers
+  the others (a list when there are two; ampr_emu is not offered for a
+  zstd-packed game, and a job asking for it is refused); one not
+  downloaded yet is fetched first. Engines before this list no emulators
+  and the page and app fall back to "replace with the one in use". Tried
+  on a PC engine: an LZ4-packed folder switched from ampr-emu-ng to
+  ampr_emu and back, from the page and the app; pictures of both.
 - **Not yet**: on a console.
 
 ## Next session

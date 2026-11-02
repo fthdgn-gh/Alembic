@@ -188,6 +188,12 @@ var I18N = {
   "no such job"
  ],
  "tr": {
+  "Both emulators read this game's LZ4 packs.": "İki öykünücü de bu oyunun LZ4 paketlerini okur.",
+  "Switch the AMPR emulator?": "AMPR öykünücüsü değiştirilsin mi?",
+  "Switch to which AMPR emulator?": "Hangi AMPR öykünücüsüne geçilsin?",
+  "This game has zstd packs and already has ampr-emu-ng, the only emulator that reads them": "Bu oyunda zstd paketleri var ve onları okuyan tek öykünücü olan ampr-emu-ng zaten yüklü",
+  "This game has {old}. Replace it with {new}?": "Bu oyunda {old} var. {new} ile değiştirilsin mi?",
+  "not downloaded yet": "henüz indirilmedi",
   "19 · smallest": "19 · en küçük",
   "5 · default": "5 · varsayılan",
   "Pack into zstd packs": "zstd paketlerine paketle",
@@ -1038,6 +1044,12 @@ var I18N = {
   "built a PS4 package from the file tree": "dosya ağacından PS4 paketi oluşturdu"
  },
  "es": {
+  "Both emulators read this game's LZ4 packs.": "Los dos emuladores leen los paquetes LZ4 de este juego.",
+  "Switch the AMPR emulator?": "¿Cambiar el emulador AMPR?",
+  "Switch to which AMPR emulator?": "¿A qué emulador AMPR cambiar?",
+  "This game has zstd packs and already has ampr-emu-ng, the only emulator that reads them": "Este juego tiene paquetes zstd y ya tiene ampr-emu-ng, el único emulador que los lee",
+  "This game has {old}. Replace it with {new}?": "Este juego tiene {old}. ¿Reemplazarlo por {new}?",
+  "not downloaded yet": "aún no descargado",
   "19 · smallest": "19 · el más pequeño",
   "5 · default": "5 · predeterminado",
   "Pack into zstd packs": "Empaquetar en paquetes zstd",
@@ -1888,6 +1900,12 @@ var I18N = {
   "built a PS4 package from the file tree": "creó un paquete de PS4 a partir del árbol de archivos"
  },
  "fr": {
+  "Both emulators read this game's LZ4 packs.": "Les deux émulateurs lisent les paquets LZ4 de ce jeu.",
+  "Switch the AMPR emulator?": "Changer d'émulateur AMPR ?",
+  "Switch to which AMPR emulator?": "Passer à quel émulateur AMPR ?",
+  "This game has zstd packs and already has ampr-emu-ng, the only emulator that reads them": "Ce jeu a des paquets zstd et a déjà ampr-emu-ng, le seul émulateur qui les lit",
+  "This game has {old}. Replace it with {new}?": "Ce jeu a {old}. Le remplacer par {new} ?",
+  "not downloaded yet": "pas encore téléchargé",
   "19 · smallest": "19 · le plus petit",
   "5 · default": "5 · par défaut",
   "Pack into zstd packs": "Empaqueter en paquets zstd",
@@ -2738,6 +2756,12 @@ var I18N = {
   "built a PS4 package from the file tree": "a créé un paquet PS4 à partir de l'arborescence"
  },
  "de": {
+  "Both emulators read this game's LZ4 packs.": "Beide Emulatoren lesen die LZ4-Pakete dieses Spiels.",
+  "Switch the AMPR emulator?": "AMPR-Emulator wechseln?",
+  "Switch to which AMPR emulator?": "Zu welchem AMPR-Emulator wechseln?",
+  "This game has zstd packs and already has ampr-emu-ng, the only emulator that reads them": "Dieses Spiel hat zstd-Pakete und schon ampr-emu-ng, den einzigen Emulator, der sie liest",
+  "This game has {old}. Replace it with {new}?": "Dieses Spiel hat {old}. Durch {new} ersetzen?",
+  "not downloaded yet": "noch nicht geladen",
   "19 · smallest": "19 · am kleinsten",
   "5 · default": "5 · Standard",
   "Pack into zstd packs": "In zstd-Pakete packen",
@@ -3588,6 +3612,12 @@ var I18N = {
   "built a PS4 package from the file tree": "hat aus dem Dateibaum ein PS4-Paket erstellt"
  },
  "ja": {
+  "Both emulators read this game's LZ4 packs.": "このゲームの LZ4 パックはどちらのエミュレーターでも読めます。",
+  "Switch the AMPR emulator?": "AMPR エミュレーターを切り替えますか？",
+  "Switch to which AMPR emulator?": "どの AMPR エミュレーターに切り替えますか？",
+  "This game has zstd packs and already has ampr-emu-ng, the only emulator that reads them": "このゲームには zstd パックがあり、それを読める唯一のエミュレーター ampr-emu-ng がすでに入っています",
+  "This game has {old}. Replace it with {new}?": "このゲームには {old} が入っています。{new} に置き換えますか？",
+  "not downloaded yet": "未ダウンロード",
   "19 · smallest": "19 · 最小",
   "5 · default": "5 · 標準",
   "Pack into zstd packs": "zstd パックにまとめる",

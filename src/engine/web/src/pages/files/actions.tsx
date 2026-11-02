@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // What can be done to a file or folder: its Options menu and each action.
-import type { Entry, NameSuggestion, Plan } from "../../api/types";
+import type { Entry, NameSuggestion, Plan, PlanEmulator } from "../../api/types";
 import { api } from "../../api/client";
 import { cwd, tab } from "../../state/view";
 import { info, locations, peerDrives, loadInfo } from "../../state/engine";
@@ -96,6 +96,7 @@ async function addAmpr(e: Entry) {
   catch (err: any) { toast(tMsg(err.message), "bad"); return; }
   const present = plan.emulator_present === undefined ? !!plan.ships_emulator : plan.emulator_present;
   if (present) {
+    if (plan.emulators) return switchAmpr(e, plan);
     if (plan.emulator_current || !plan.runtime_name) { toast(t("This game already has the AMPR emulator"), "ok"); return; }
     return replaceAmpr(e, plan);
   }
@@ -114,7 +115,40 @@ async function addAmpr(e: Entry) {
   } catch (err: any) { toast(tMsg(err.message), "bad"); }
 }
 
-// The game has another libSceAmpr.sprx than the one in use in Components.
+// The game has an emulator: switch it to another (LZ4 packs work with
+// either; zstd packs only with ampr-emu-ng).
+async function switchAmpr(e: Entry, plan: Plan) {
+  const isFolder = e.kind === "folder";
+  const others = plan.emulators!.filter((x) => !x.in_game && x.reads_packs);
+  if (!others.length) {
+    toast(plan.zstd_packs ? t("This game has zstd packs and already has ampr-emu-ng, the only emulator that reads them") : t("This game already has the AMPR emulator"), "ok");
+    return;
+  }
+  let pick: PlanEmulator = others[0];
+  if (others.length > 1) {
+    const picked = await choose(t("Switch to which AMPR emulator?"), others.map((x) => ({ label: x.name, value: x,
+      sub: x.in_use ? t("in use") : x.downloaded ? "" : t("not downloaded yet") })));
+    if (picked == null) return;
+    pick = picked;
+  }
+  const body = <div>
+    <div class="mono">{shownPath(e.path)}</div>
+    <p>{t("This game has {old}. Replace it with {new}?", { old: plan.emulator_name || t("another libSceAmpr.sprx"), new: pick.name })}</p>
+    {plan.lz4_packs ? <p class="muted">{t("Both emulators read this game's LZ4 packs.")}</p> : null}
+    <p class="muted">{isFolder ? t("It is overwritten in the game folder's fakelib.")
+      : t("The image is not changed: ShadowMount+ gets a backport folder for this title with the new emulator, which it lays over the game when it starts.")}</p>
+  </div>;
+  if (!await ask({ title: t("Switch the AMPR emulator?"), body, ok: t("Replace") })) return;
+  const spec = { kind: "ampr_emu", input: e.path, ampr_emu: "replace", emulator: pick.id };
+  try {
+    if (!pick.downloaded && !await getNeeds(await api<Plan>("POST", "/api/plan", spec), "This needs {name}, which isn't downloaded yet.")) return;
+    await api("POST", "/api/jobs", spec);
+    toast(t("Queued: {name}", { name: e.name }), "ok"); refreshJobs();
+  } catch (err: any) { toast(tMsg(err.message), "bad"); }
+}
+
+// The game has another libSceAmpr.sprx than the one in use in Components
+// (engines before 0.4.3, which list no emulators).
 async function replaceAmpr(e: Entry, plan: Plan) {
   const isFolder = e.kind === "folder";
   if (plan.zstd_packs && plan.runtime_name!.indexOf("ampr-emu-ng") !== 0) {

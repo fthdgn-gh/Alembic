@@ -177,6 +177,12 @@ std::string EngineConfig::zstd_runtime_path() const {
     return state_dir + "/" + find_dependency("ampr_runtime_ng")->files[0].path;
 }
 
+std::string EngineConfig::emulator_path(const std::string& emulator_id) const {
+    const Dependency* dep = emulator_id.empty() ? nullptr : find_dependency(emulator_id);
+    if (!dep || dep->group != kAmprRuntimeGroup || !runtime_override.empty()) return runtime_path();
+    return state_dir + "/" + dep->files[0].path;
+}
+
 std::string EngineConfig::runtime_path() const {
     if (!runtime_override.empty()) return runtime_override;
     const Dependency* dep = ampr_runtime_in_use(state_dir);
@@ -734,6 +740,8 @@ std::optional<AmprState> ampr_state(const std::string& path, const std::string& 
             a.title_id = ffpfsc::read_title_id(*input->tree, input->tree->root()).value_or("");
             const tree::Node* zstd = tree::find_child_icase(input->tree->root(), "ampr_zstd.index");
             a.zstd_packs = zstd && !zstd->is_directory;
+            const tree::Node* lz4 = tree::find_child_icase(input->tree->root(), "ampr_assets.index");
+            a.lz4_packs = lz4 && !lz4->is_directory;
             state = a;
         }
     }
@@ -759,7 +767,10 @@ std::vector<std::string> missing_dependencies(const JobSpec& spec, const EngineC
     const std::string passcode = spec.passcode.empty() ? std::string(32, '0') : spec.passcode;
     const std::string input = strip_slashes(spec.input);
     const bool have_runtime = is_regular_file(config.runtime_path());
-    if (spec.kind == "ampr_emu" && !have_runtime) out.push_back("ampr_runtime");
+    if (spec.kind == "ampr_emu") {
+        const std::string id = spec.emulator.empty() ? "ampr_runtime" : spec.emulator;
+        if (!is_regular_file(config.emulator_path(spec.emulator))) out.push_back(id);
+    }
     if (spec.kind == "convert") {
         auto to = target_format(spec);
         // zstd packs are read only by ampr-emu-ng.
@@ -805,16 +816,17 @@ std::string backports_root_for(const std::string& image, const std::string& titl
 Result<JsonValue> run_ampr_emu(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress) {
     std::string input = strip_slashes(spec.input);
     if (!path_allowed(input, config.available_roots())) return make_error(Errc::invalid_argument, "outside the allowed folders");
-    if (!is_regular_file(config.runtime_path()))
+    const std::string emulator_file = config.emulator_path(spec.emulator);
+    if (!is_regular_file(emulator_file))
         return make_error(Errc::invalid_argument, "the AMPR emulator is not downloaded; get it in Components first");
-    ALEMBIC_ASSIGN(File emulator, File::open(config.runtime_path(), File::Mode::read));
+    ALEMBIC_ASSIGN(File emulator, File::open(emulator_file, File::Mode::read));
     const bool replace = spec.ampr_emu == "replace";
     if (progress) progress({"Checking eboot.bin", 0, 0});
     if (replace) {
         const std::string passcode = spec.passcode.empty() ? std::string(32, '0') : spec.passcode;
         auto state = ampr_state(input, passcode);
         const auto in_use = ampr_runtime_by_hash(sha256_of(emulator), config.state_dir);
-        if (state && state->zstd_packs && (!in_use || in_use->dep->id != "ampr_runtime_ng"))
+        if (state && state->zstd_packs && spec.emulator != "ampr_runtime_ng" && (!in_use || in_use->dep->id != "ampr_runtime_ng"))
             return make_error(Errc::invalid_argument,
                               "this game has zstd packs, which only ampr-emu-ng reads; choose it in Components first");
     }

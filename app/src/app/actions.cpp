@@ -28,6 +28,58 @@ std::string short_place(std::string label) {
     return place_label(label);
 }
 
+// The game has an emulator: switch it to another (LZ4 packs work with
+// either; zstd packs only with ampr-emu-ng). switchAmpr in actions.tsx.
+void switch_ampr(App& app, const Entry& e, const JsonValue& plan) {
+    std::vector<JsonValue> others;
+    for (const auto& x : plan["emulators"].items())
+        if (!x["in_game"].boolean() && x["reads_packs"].boolean()) others.push_back(x);
+    if (others.empty()) {
+        app.toast(plan["zstd_packs"].boolean()
+                      ? t("This game has zstd packs and already has ampr-emu-ng, the only emulator that reads them")
+                      : t("This game already has the AMPR emulator"),
+                  App::Toast::ok);
+        return;
+    }
+    auto confirm = [&app, e, plan](const JsonValue& pick) {
+        const std::string old = plan["emulator_name"].str().empty() ? t("another libSceAmpr.sprx") : plan["emulator_name"].str();
+        std::string body = "@" + app.shown_path(e.path) + "\n\n";
+        body += t("This game has {old}. Replace it with {new}?", {{"old", old}, {"new", pick["name"].str()}});
+        body += "\n\n~";
+        if (plan["lz4_packs"].boolean()) body += t("Both emulators read this game's LZ4 packs.") + " ";
+        body += e.kind == "folder"
+                    ? t("It is overwritten in the game folder's fakelib.")
+                    : t("The image is not changed: ShadowMount+ gets a backport folder for this title with the new emulator, which it lays over the game when it starts.");
+        ask(app, t("Switch the AMPR emulator?"), text_body(body), t("Replace"), false, [&app, e, pick] {
+            JsonValue job = JsonValue::object();
+            job.set("kind", "ampr_emu");
+            job.set("input", e.path);
+            job.set("ampr_emu", "replace");
+            job.set("emulator", pick["id"].str());
+            auto queue = [&app, e, job](bool ok) {
+                if (!ok) return;
+                app.post("/api/jobs", job, app.or_toast([&app, e](const Reply&) {
+                    app.toast(t("Queued: {name}", {{"name", e.name}}), App::Toast::ok);
+                    app.refresh_jobs();
+                }));
+            };
+            if (pick["downloaded"].boolean()) return queue(true);
+            // Not downloaded yet: the plan for it names the component to get.
+            app.api("POST", "/api/plan", job, app.or_toast([&app, queue](const Reply& r) {
+                        app.get_needs(r.json, "This needs {name}, which isn't downloaded yet.", queue);
+                    }),
+                    1, 120000);
+        });
+    };
+    if (others.size() == 1) return confirm(others.front());
+    std::vector<Choice> items;
+    for (const auto& x : others)
+        items.push_back({x["name"].str(),
+                         x["in_use"].boolean() ? t("in use") : x["downloaded"].boolean() ? std::string() : t("not downloaded yet"),
+                         false, false, false, [confirm, x] { confirm(x); }});
+    choose(app, t("Switch to which AMPR emulator?"), std::move(items));
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------- Options
@@ -89,6 +141,7 @@ void App::open_actions(const Entry& e) {
                     const bool present = plan.has("emulator_present") ? plan["emulator_present"].boolean()
                                                                        : plan["ships_emulator"].boolean();
                     const bool folder = e.kind == "folder";
+                    if (present && plan.has("emulators")) return switch_ampr(*this, e, plan);
                     if (present && (plan["emulator_current"].boolean() || plan["runtime_name"].str().empty())) {
                         toast(t("This game already has the AMPR emulator"), Toast::ok);
                         return;

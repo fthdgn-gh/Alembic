@@ -52,6 +52,8 @@ struct EngineConfig {
     // ampr-emu-ng's libSceAmpr.sprx (the ampr_runtime_ng component), which
     // zstd packs need whichever emulator is in use.
     std::string zstd_runtime_path() const;
+    // An "ampr_emu" job's emulator: the chosen component's file, else runtime_path().
+    std::string emulator_path(const std::string& emulator_id) const;
 };
 
 // The output a job writes: spec.output, or next to the input with the
@@ -114,6 +116,7 @@ struct AmprState {
     std::string ships_sha256;      // of that libSceAmpr.sprx (ships)
     std::string title_id;
     bool zstd_packs = false;       // ampr_zstd.index at the root: only ampr-emu-ng reads those
+    bool lz4_packs = false;        // ampr_assets.index at the root: both emulators read those
     bool needed() const { return imports && !ships; }
 };
 std::optional<AmprState> ampr_state(const std::string& path, const std::string& passcode);

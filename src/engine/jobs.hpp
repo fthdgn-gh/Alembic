@@ -62,6 +62,9 @@ struct JobSpec {
     // For "ampr_emu" jobs: "replace" puts it in place of another
     // libSceAmpr.sprx the game already has (otherwise that one stays).
     std::string ampr_emu = "auto";
+    // For "ampr_emu" jobs: which AMPR emulator (a component id,
+    // "ampr_runtime" or "ampr_runtime_ng"); "" for the one in use.
+    std::string emulator;
     // After a successful conversion: compare the output with the input file
     // by file, then delete the input (only if they match).
     bool delete_source = false;

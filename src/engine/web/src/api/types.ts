@@ -192,6 +192,16 @@ export interface Dep {
   check_error?: string;
 }
 
+export interface PlanEmulator {
+  id: string;
+  label: string;
+  name: string;         // "ampr-emu-ng 0.2.0"
+  downloaded: boolean;
+  in_use: boolean;      // in Components
+  in_game: boolean;     // the game already runs with this build
+  reads_packs: boolean; // false for ampr_emu on a zstd-packed game
+}
+
 export interface DepsStatus { auto_update: boolean; checking: boolean }
 
 export interface Plan {
@@ -207,6 +217,8 @@ export interface Plan {
   emulator_current?: boolean; // it is the one in use in Components
   runtime_name?: string;     // the one in use in Components
   zstd_packs?: boolean;
+  lz4_packs?: boolean;
+  emulators?: PlanEmulator[]; // every AMPR emulator, to switch the game to another (0.4.3)
 }
 
 // GET /api/names (name_formats.hpp): the formats Rename suggests names with.
