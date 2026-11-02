@@ -180,7 +180,15 @@ export interface Dep {
   bytes: number;
   group?: string; // "ampr_runtime": one of the group is in use
   in_use?: boolean;
+  // A followed release (the AMPR emulators; engines from 0.4.3)
+  follows?: string;     // "owner/name" on GitHub
+  version?: string;     // downloaded ("" when not)
+  latest?: string;      // from the last check ("" before one)
+  update?: boolean;     // a newer build than the one downloaded
+  check_error?: string;
 }
+
+export interface DepsStatus { auto_update: boolean; checking: boolean }
 
 export interface Plan {
   output: string;

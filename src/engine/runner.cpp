@@ -769,8 +769,8 @@ Result<JsonValue> run_ampr_emu(const JobSpec& spec, const EngineConfig& config, 
     if (replace) {
         const std::string passcode = spec.passcode.empty() ? std::string(32, '0') : spec.passcode;
         auto state = ampr_state(input, passcode);
-        const Dependency* in_use = ampr_runtime_by_hash(sha256_of(emulator));
-        if (state && state->zstd_packs && (!in_use || in_use->id != "ampr_runtime_ng"))
+        const auto in_use = ampr_runtime_by_hash(sha256_of(emulator), config.state_dir);
+        if (state && state->zstd_packs && (!in_use || in_use->dep->id != "ampr_runtime_ng"))
             return make_error(Errc::invalid_argument,
                               "this game has zstd packs, which only ampr-emu-ng reads; choose it in Components first");
     }

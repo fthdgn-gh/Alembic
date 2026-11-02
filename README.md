@@ -192,25 +192,35 @@ Also on the page:
   file from that PC for the console to convert.
 - **ShadowMount+:** new images can be picked up without a restart, and
   sources can be hidden from it once converted.
-- **Components:** third-party files Alembic needs but doesn't ship (ampr_emu's
-  runtime, ProsperoPkgTool's FPKG key files, LibOrbisPkg's licence and PS4 package keys)
-  are downloaded on request from
+- **Components:** third-party files Alembic needs but doesn't ship (the AMPR
+  emulators ampr_emu and ampr-emu-ng, ProsperoPkgTool's FPKG key files,
+  LibOrbisPkg's licence and PS4 package keys) are downloaded on request from
   their official source and kept only if their SHA-256 matches.
-  **Offline:** download them on a PC from the links below (the pinned
-  versions the engine fetches itself) and copy them to the console under
+  The two AMPR emulators follow their projects' latest releases: the engine
+  checks GitHub at start (or on **Check for updates**) and, with **Update
+  automatically** on (the default), downloads a newer build, checked against
+  the SHA-256 GitHub and the release's `SHA256SUMS` give for it. One emulator
+  is **in use**: the one conversions and "Add the AMPR emulator" put in a
+  game. A game keeps the build it got; "Add the AMPR emulator" on it offers
+  to replace it with the one in use. ampr-emu-ng also reads its own zstd packs.
+  **Offline:** download them on a PC from the links below (for the
+  emulators, the builds Alembic was last tested with; any later release of
+  the same project works too) and copy them to the console under
   these exact names; the engine picks them up without a restart:
 
   | Component | Download | Put it at | SHA-256 |
   |---|---|---|---|
   | AMPR emulator (ampr_emu 0.4.2.1) | [libSceAmpr.sprx](https://github.com/drakmor/ampr_emu/releases/download/0.4.2.1/libSceAmpr.sprx) | `/data/alembic/runtime/libSceAmpr.sprx` | `69e6c4d5e4f5fb83c9e01815db5861c4c75734acbf4595cafa50d4c218116d1a` |
+  | AMPR emulator (ampr-emu-ng 0.2.0) | [libSceAmpr.sprx](https://github.com/quer3q/ampr-emu-ng/releases/download/v0.2.0/libSceAmpr.sprx) | `/data/alembic/runtime/ampr-emu-ng/libSceAmpr.sprx` | `7acb2173d9691b5dfb94ea4007660920b7250111c5fd7a86c6eb91b763ad3d76` |
   | FPKG key files | [passcode.bin](https://raw.githubusercontent.com/pearlxcore/ProsperoPkgTool/f2c91cd7a5d8440b7b9ae5e0b1154334093bf613/ProsperoPkgTool/Keys/passcode.bin) | `/data/alembic/keys/passcode.bin` | `81e8283d582f522d8da34565ecd6ab39a38b3d3c0cacef078df97d2b285ec24e` |
   | | [mount_image.bin](https://raw.githubusercontent.com/pearlxcore/ProsperoPkgTool/f2c91cd7a5d8440b7b9ae5e0b1154334093bf613/ProsperoPkgTool/Keys/mount_image.bin) | `/data/alembic/keys/mount_image.bin` | `4510462812321cea26b4c0155e363955b16e31b89252b92510accad02eca5cd0` |
   | | [metadata_modulus.bin](https://raw.githubusercontent.com/pearlxcore/ProsperoPkgTool/f2c91cd7a5d8440b7b9ae5e0b1154334093bf613/ProsperoPkgTool/Keys/metadata_modulus.bin) | `/data/alembic/keys/metadata_modulus.bin` | `4a585ee47fea88d6b121d5e8afc9829438a27ee325cebec56a2ff537129a37c5` |
   | Licence and PS4 package keys | [Keys.cs](https://raw.githubusercontent.com/maxton/LibOrbisPkg/643477263b2644e0803e0f58b8726ea4e3f3b7d4/LibOrbisPkg/Util/Keys.cs) | `/data/alembic/keys/ps4/Keys.cs` | `48b44dd03e653a5c0991b0a2975477802ea2639c4e6ea3270b2ff20a1856f8a7` |
 
   Key files must be the pinned ones (same SHA-256), or package output
-  refuses them. Another build of `libSceAmpr.sprx` still works but shows
-  as "modified" in Components.
+  refuses them: they are constants, so they don't follow anything. An
+  emulator build copied by hand still works but shows as "changed" in
+  Components until the engine downloads one itself.
 - **Engine** (Settings): **Restart the engine** starts the same version again
   through the ELF loader; the app also offers **Start the engine** once it
   has stopped.
@@ -379,8 +389,9 @@ tools/ps4-oracle/compare.sh    # PS4 packages vs LibOrbisPkg's pkg_build, pkg_ex
   published key files; PS4 package output uses LibOrbisPkg's `Keys.cs` (it
   also holds the debug licence key, used only to generate a licence for a
   game that has none, PS5 or PS4). The engine downloads both on request.
-- No third-party binaries: ampr_emu's `libSceAmpr.sprx` is downloaded from its
-  official release, pinned by SHA-256.
+- No third-party binaries: the AMPR emulators' `libSceAmpr.sprx` is
+  downloaded from each project's official GitHub release, checked by the
+  SHA-256 published with it.
 
 ## Credits
 
@@ -399,6 +410,8 @@ Alembic stands on the work of the PS5 homebrew scene. Thank you to:
   index, LZ4 asset packs and the runtime that reads them) and
   [ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus) (the loader
   Alembic's images are made for, and its HTTPS download code).
+- **quer3q** for [ampr-emu-ng](https://github.com/quer3q/ampr-emu-ng) (the
+  second AMPR emulator, and its zstd packs).
 - **PSBrew** for [MkPFS](https://github.com/PSBrew/MkPFS) (the PFS writer).
 - **maxton** for [LibOrbisPkg](https://github.com/maxton/LibOrbisPkg) (PS4
   packages: the writer Alembic follows, its keys, and the tool it is checked

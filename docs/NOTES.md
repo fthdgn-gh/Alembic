@@ -29,7 +29,8 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   a queue of conversions, copies, moves and installs with checkpoints
   (pause, resume, survives a restart); a web page on port 5940 made for
   the controller, opened from a Media-tab shortcut; a Components page that
-  downloads third-party files pinned by SHA-256. Inputs can be files shared
+  downloads third-party files checked by SHA-256 (the AMPR emulators
+  follow their projects' latest releases, the key files are pinned). Inputs can be files shared
   from a PC browser tab or network servers (SMB, NFS, WebDAV, FTP); outputs
   can go to them (formats written front to back only).
 - **In 0.4.0 (2026-10-31):** Kraken FPKG output (byte-identical to
@@ -2651,6 +2652,10 @@ What it took:
 
 ### 2026-10-31: ampr-emu-ng as a second AMPR emulator
 
+(Dropped the same day at the owner's request, unpushed; brought back on
+2026-11-02 by cherry-picking both commits, now following ng's latest
+release: see "components follow their latest releases" below.)
+
 - **quer3q/ampr-emu-ng** (GPL-3.0, created 2026-10-27, v0.1.0): a Rust
   rewrite of drakmor's ampr_emu, one `libSceAmpr.sprx` like it. Reads the
   same AMPRPAK4/AMPRDAT3 LZ4 packs Alembic writes, plus its own zstd packs
@@ -2993,6 +2998,50 @@ What it took:
   the files are `alembic-app-v<version>.*`. ProsperoStore:
   darkxex/ps5-homebrew-catalog#993 (opened by Claude, owner's request;
   payload SHA-256 `a64e40ea…`, the release's `.elf`).
+
+### 2026-11-02: components follow their latest releases; ampr-emu-ng back
+
+- **ampr-emu-ng** (quer3q) is back as a second AMPR emulator: the two
+  2026-10-31 commits cherry-picked onto 0.4.2 (conflicts: engine flags in
+  main.cpp, i18n lists, the CLI's `fpkg-build` help, Rename in actions.tsx).
+  ng 0.2.0 (2026-11-02): libc exports, case-insensitive module loads, USB
+  read retries, index misses fall back to the filesystem, APR waits on
+  unmapped addresses fail instead of crashing (a save corruption). The
+  bulk "Add the AMPR emulator" still skips games that ship another
+  emulator (no bulk Replace yet).
+- **Owner (2026-11-02): don't pin the components; follow their updates.**
+  The emulators (`Dependency::feed`: `drakmor/ampr_emu`, `quer3q/ampr-emu-ng`,
+  asset `libSceAmpr.sprx`) download GitHub's latest release. A download is
+  kept only when its size matches and its SHA-256 matches the asset's
+  `digest` GitHub's API gives (every asset uploaded since mid-2025 has one)
+  and the release's `SHA256SUMS` when it has one; with neither it must be
+  the fallback build. The fallback build (`files[0]`, the one last tested:
+  ampr_emu 0.4.2.1, ng 0.2.0) is what a download gets when the API can't be
+  reached. Trust is GitHub over TLS, as for the engine's own update (our
+  TLS pins on first use, it checks no CA).
+- **Key files stay pinned**: they are constants the writers check
+  (fpkg_keys.cpp, fpkg_ps4.hpp), and byte-identical output depends on
+  them; a change upstream would be a fault, not an update.
+- **`<state>/components.json`**: `auto_update` (default on), `installed`
+  (id → version, sha256, size, url) and `known` (every build downloaded
+  here, so a game's emulator keeps its name, "ampr-emu-ng 0.1.0", after an
+  update: `ampr_runtime_by_hash` now returns a `KnownBuild`). An emulator
+  present with no record counts as its fallback build (an ampr_emu 0.4.2.1
+  from an earlier engine stays "installed").
+- **Checks**: at engine start with the engine's own update check
+  (`--no-update-check` stops both), and `POST /api/deps/check`; with
+  `auto_update` on, a newer build of a downloaded emulator is fetched (the
+  emulator in use stays the same). `GET /api/deps` is still a plain list
+  (older apps), each emulator now with `follows`, `version`, `latest`,
+  `checked`, `check_error`, `update`; `GET /api/deps/status` gives
+  `{auto_update, checking}` and `POST /api/deps/auto_update {on}` sets it.
+  Games keep the build they got; "Add the AMPR emulator" offers Replace.
+- **Page and app**: Components gets "Update automatically", "Check for
+  updates", a Version row ("0.1.0 · 0.2.0 is out" / "· the latest") and
+  "Update to X". Tried against a PC engine (download, a faked older record
+  updated by hand and automatically, the switch off); pictures of both.
+- **Not yet**: on the console. Writing zstd packs: being ported (separate
+  branch).
 
 ## Next session
 

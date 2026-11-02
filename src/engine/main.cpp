@@ -27,6 +27,9 @@
 //   POST /api/jobs/clear              remove every finished job
 //   GET  /api/deps                    third-party files Alembic can download, and their state
 //   POST /api/deps/ID/install | /remove | /use (an AMPR emulator: the one conversions add)
+//   GET  /api/deps/status             {auto_update, checking}
+//   POST /api/deps/check              asks GitHub for newer emulator builds (and applies them when auto_update)
+//   POST /api/deps/auto_update        {on}
 //   GET  /api/meta?path=P             title, title ID, version of a package, image or game folder
 //   GET  /api/icon?path=P             its sce_sys/icon0.png
 //   GET  /api/locations               suggested destinations (mounted drives only)
@@ -315,7 +318,18 @@ public:
         u.app_quiet = [this] { return app_quiet(); };
         updater_ = std::make_unique<update::Updater>(std::move(u));
         if (config_.check_updates) updater_->check();
+        if (config_.check_updates) check_components(true);
         return {};
+    }
+
+    // Newer builds of the followed components (the AMPR emulators), in the
+    // background; downloaded when "update automatically" is on and `apply`.
+    void check_components(bool apply) {
+        if (dependency_check_running()) return;
+        std::thread([this, state = config_.state_dir, apply] {
+            std::lock_guard<std::mutex> lock(deps_mutex_);
+            check_dependency_updates(state, apply, [](const std::string& m) { log_line(m); });
+        }).detach();
     }
 
     // Where the page opens: on this computer, and from other devices (empty
@@ -562,6 +576,20 @@ private:
             for (const Dependency& d : dependencies()) list.push(dependency_json(d, config_.state_dir));
             return json(200, list);
         }
+        if (r.path == "/api/deps/status" && r.method == "GET") return json(200, dependencies_status_json(config_.state_dir));
+        if (r.path == "/api/deps/check" && r.method == "POST") {
+            check_components(true);
+            return json(200, dependencies_status_json(config_.state_dir));
+        }
+        if (r.path == "/api/deps/auto_update" && r.method == "POST") {
+            auto body = parse_json(r.body);
+            if (!body.ok()) return error(400, body.error().message);
+            const bool on = (*body)["on"].boolean(true);
+            if (Status s = set_auto_update_dependencies(config_.state_dir, on); !s.ok()) return error(500, s.error().message);
+            log_line(std::string("components update automatically: ") + (on ? "on" : "off") + " (" + r.peer + ")");
+            if (on) check_components(true);
+            return json(200, dependencies_status_json(config_.state_dir));
+        }
         if (r.path.rfind("/api/deps/", 0) == 0 && r.method == "POST") return dep_action(r);
         if (r.path.rfind("/api/fs/", 0) == 0 && r.method == "POST") return fs_action(r);
         if (r.path.rfind("/api/jobs/", 0) == 0) return job_action(r);
@@ -660,9 +688,9 @@ private:
         runtime.set("present", present);
         std::string digest = present ? file_sha256(runtime_path) : "";
         runtime.set("sha256", digest);
-        const Dependency* known = present ? ampr_runtime_by_hash(digest) : nullptr;
-        runtime.set("pinned", known != nullptr);
-        runtime.set("name", known ? known->short_name : std::string());
+        const auto known = present ? ampr_runtime_by_hash(digest, config_.state_dir) : std::nullopt;
+        runtime.set("pinned", known.has_value()); // a build Alembic knows (name below)
+        runtime.set("name", known ? known->name() : std::string());
         v.set("lz4_runtime", std::move(runtime));
         JsonValue profiles = JsonValue::array();
         for (const lz4pack::BundledProfile& p : lz4pack::bundled_profiles()) {
@@ -2111,12 +2139,12 @@ private:
                     const std::string in_place = emulator_in_place(spec->input, *a, config_);
                     const std::string runtime_path = config_.runtime_path();
                     const std::string ours = is_regular_file(runtime_path) ? file_sha256(runtime_path) : "";
-                    const Dependency* known = in_place.empty() ? nullptr : ampr_runtime_by_hash(in_place);
-                    const Dependency* chosen = ours.empty() ? nullptr : ampr_runtime_by_hash(ours);
+                    const auto known = ampr_runtime_by_hash(in_place, config_.state_dir);
+                    const auto chosen = ampr_runtime_by_hash(ours, config_.state_dir);
                     v.set("emulator_present", !in_place.empty());
-                    v.set("emulator_name", known ? known->short_name : std::string());
+                    v.set("emulator_name", known ? known->name() : std::string());
                     v.set("emulator_current", !in_place.empty() && in_place == ours);
-                    v.set("runtime_name", chosen ? chosen->short_name : std::string());
+                    v.set("runtime_name", chosen ? chosen->name() : std::string());
                     v.set("zstd_packs", a->zstd_packs);
                 }
                 v.set("needs", std::move(needs));

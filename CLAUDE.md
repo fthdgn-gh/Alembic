@@ -127,10 +127,13 @@ environment in `.refs/mkpfs-venv`).
   server; the page and app ask), never checked against CAs.
 - **License:** GPL-3.0-or-later, compatible with every source we port from.
 - **Third-party files at run time:** the engine's Components page downloads
-  them on request from a fixed URL, pinned by SHA-256 (`src/engine/deps.cpp`):
-  ampr_emu's `libSceAmpr.sprx`, ProsperoPkgTool's FPKG key moduli (needed
-  for PKG output) and LibOrbisPkg's `Util/Keys.cs` (PS4 package output).
-  Never commit them.
+  them on request (`src/engine/deps.cpp`). The AMPR emulators (ampr_emu's
+  and quer3q/ampr-emu-ng's `libSceAmpr.sprx`) follow their projects' latest
+  GitHub release (owner, 2026-11-02), checked by GitHub's asset SHA-256 and
+  the release's SHA256SUMS, updated at engine start when "Update
+  automatically" is on; one of them is "in use". ProsperoPkgTool's FPKG key
+  moduli (PKG output) and LibOrbisPkg's `Util/Keys.cs` (PS4 package output)
+  stay pinned to a commit and SHA-256: they are constants. Never commit them.
 - **PS4 packages** (owner, 2026-10-26): read like PS5 ones; written as
   LibOrbisPkg's `pkg_makegp4` + `pkg_build` would. Keys from LibOrbisPkg's
   `Keys.cs` (downloaded, above), including the debug RIF key: a game's own
@@ -161,5 +164,5 @@ reserved, so **never copy or port their code**. Facts learned from their docs
 and list every source in THIRD_PARTY_NOTICES.md.
 
 **No bundled binaries.** Third-party binaries the console needs (for example
-ampr_emu's `libSceAmpr.sprx`) are fetched by a downloader in the app from the
-official release, pinned by SHA-256, never committed to this repo.
+ampr_emu's `libSceAmpr.sprx`) are fetched by a downloader in the engine from the
+official release, checked by its published SHA-256, never committed to this repo.

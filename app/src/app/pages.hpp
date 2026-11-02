@@ -36,7 +36,9 @@ public:
 
 private:
     JsonValue deps_;
-    std::string busy_;  // "<id>:install" while one runs
+    JsonValue status_;     // /api/deps/status: {auto_update, checking}; null before engine 0.4.3
+    std::string busy_;     // "<id>:install" while one runs
+    float poll_at_ = 0.0f; // while the engine asks GitHub: when to look again
 };
 
 class SettingsPage {

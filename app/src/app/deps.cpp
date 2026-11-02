@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Components (pages/deps/DepsPage.tsx): third-party files the engine
-// downloads on request, pinned by SHA-256.
+// downloads on request, checked by SHA-256. The AMPR emulators follow their
+// projects' latest releases.
 #include "app/dialogs.hpp"
 #include "app/pages.hpp"
 
@@ -21,6 +22,7 @@ void DepsPage::load(App& app) {
         deps_ = r.json;
         loaded = true;
     });
+    app.get("/api/deps/status", [this](const Reply& r) { status_ = r.ok() ? r.json : JsonValue(); });
 }
 
 void DepsPage::build(Ui& ui, App& app, const Rect& area) {
@@ -33,11 +35,49 @@ void DepsPage::build(Ui& ui, App& app, const Rect& area) {
     ui.begin_zone("deps", false, false);
     const float offset = ui.begin_scroll("deps", area);
     float y = area.y - offset + 0.3f * R;
+    const bool follows = status_.is_object();
     y += draw::paragraph(ui, Face::regular,
-                         t("Files from other projects that Alembic doesn't ship. Each one is downloaded from the source "
-                           "shown and kept only if its SHA-256 matches."),
+                         follows ? t("Files from other projects that Alembic doesn't ship. Each one is downloaded from the source "
+                                     "shown and kept only if its SHA-256 matches. The AMPR emulators follow their projects' latest releases.")
+                                 : t("Files from other projects that Alembic doesn't ship. Each one is downloaded from the source "
+                                     "shown and kept only if its SHA-256 matches."),
                          x + 0.2f * R, y, w - 0.4f * R, 1.0f * R, 1.45f * R, muted);
     y += 1.0f * R;
+    if (follows) {
+        // While the engine asks GitHub, look again every two seconds.
+        const bool checking = status_["checking"].boolean();
+        if (checking && ui.time > poll_at_) {
+            poll_at_ = ui.time + 2.0f;
+            load(app);
+            app.load_info();
+        }
+        bool on = status_["auto_update"].boolean(true), changed = false;
+        y += switch_row(ui, "deps:auto", x, y, w, t("Update automatically"),
+                        t("When a newer AMPR emulator is out, the engine downloads it at start. Games keep the one they got "
+                          "until you add it again."),
+                        &on, &changed);
+        if (changed) {
+            JsonValue body = JsonValue::object();
+            body.set("on", on);
+            app.post("/api/deps/auto_update", body, [this, &app](const Reply& r) {
+                if (r.ok()) status_ = r.json;
+                else app.toast(t_msg(r.error()), App::Toast::bad);
+            });
+        }
+        y += 0.5f * R;
+        const float bh = 0.7f * R + 0.9f * R * 1.45f + 2.0f;
+        const std::string label = t("Check for updates");
+        const float bw = draw::button_width(ui, label, true);
+        if (draw::button(ui, "deps:check", {x + w - bw, y, bw, bh}, label, draw::Button::normal, true, checking || !busy_.empty()))
+            app.post("/api/deps/check", JsonValue::object(), [this, &app](const Reply& r) {
+                if (r.ok()) status_ = r.json;
+                else app.toast(t_msg(r.error()), App::Toast::bad);
+            });
+        if (checking)
+            draw::text(ui, Face::regular, t("Checking\xE2\x80\xA6"), x + w - bw - 0.5f * R, draw::baseline(y + bh * 0.5f, 1.0f * R),
+                       1.0f * R, muted, Align::right);
+        y += bh + 1.0f * R;
+    }
     for (const auto& d : deps_.items()) {
         const std::string id = d["id"].str(), state = d["state"].str();
         std::string pill_state = "queued", pill = state;
@@ -57,9 +97,17 @@ void DepsPage::build(Ui& ui, App& app, const Rect& area) {
         const float iw = w - 2.0f * pad_x;
         std::string files;
         for (const auto& f : d["files"].items()) files += (files.empty() ? "" : "\n") + f["path"].str();
-        const std::vector<Fact> rows = {{t("Source"), d["source"].str(), ""},
-                                        {t("License"), d["license"].str(), ""},
-                                        {t("Files"), files, "mono"}};
+        std::vector<Fact> rows = {{t("Source"), d["source"].str(), ""}};
+        const std::string version = d["version"].str(), latest = d["latest"].str(), check_error = d["check_error"].str();
+        if (d.has("follows") && (!version.empty() || !latest.empty() || !check_error.empty())) {
+            std::string v = version.empty() ? t("not downloaded") : version;
+            if (d["update"].boolean()) v += " \xC2\xB7 " + t("{version} is out", {{"version", latest}});
+            else if (!version.empty() && version == latest) v += " \xC2\xB7 " + t("the latest");
+            if (!check_error.empty()) v += "\n" + t("Couldn't check for updates: {error}", {{"error", t_msg(check_error)}});
+            rows.push_back({t("Version"), v, ""});
+        }
+        rows.push_back({t("License"), d["license"].str(), ""});
+        rows.push_back({t("Files"), files, "mono"});
         // Measure: head, purpose, facts, buttons.
         const float purpose_h = draw::paragraph_height(ui, Face::regular, t(d["purpose"].str()), iw, 1.0f * R, 1.45f * R);
         DrawList scratch;
@@ -92,7 +140,9 @@ void DepsPage::build(Ui& ui, App& app, const Rect& area) {
             busy_ = did + ":" + action;
             app.post("/api/deps/" + did + "/" + action, JsonValue::object(), [this, &app, d, action](const Reply& r) {
                 const std::string name = t(d["label"].str());
-                if (r.ok())
+                if (r.ok() && action == "install" && !r.json["version"].str().empty())
+                    app.toast(t("{name} {version} installed", {{"name", name}, {"version", r.json["version"].str()}}), App::Toast::ok);
+                else if (r.ok())
                     app.toast(t(action == "install" ? "{name} installed"
                                 : action == "use"   ? "{name} is now in use"
                                                     : "{name} removed",
@@ -125,6 +175,13 @@ void DepsPage::build(Ui& ui, App& app, const Rect& area) {
             const float bw = draw::button_width(ui, label, true);
             if (draw::button(ui, Id("dep:use") / id, {right - bw, by, bw, bh}, label, draw::Button::normal, true, busy))
                 run("use");
+            right -= bw + 0.5f * R;
+        }
+        if (d["update"].boolean() && state == "installed") {
+            const std::string label = t("Update to {version}", {{"version", latest}});
+            const float bw = draw::button_width(ui, label, true);
+            if (draw::button(ui, Id("dep:update") / id, {right - bw, by, bw, bh}, label, draw::Button::primary, true, busy))
+                run("install");
             right -= bw + 0.5f * R;
         }
         if (starts_with(busy_, id + ":") && busy_ != id + ":use") {
