@@ -88,12 +88,12 @@ public:
 
         // The emulator cannot save an index it builds itself into a read-only
         // image, so one comes with it, as the image writers would make it.
-        // An LZ4-packed game keeps the index its packs refer to.
+        // An LZ4- or zstd-packed game keeps the index its packs came with.
         auto root_file = [&](const char* n) {
             const tree::Node* f = tree::find_child_icase(root_, n);
             return f && !f->is_directory;
         };
-        if (!root_file("ampr_emu.index") && !root_file("ampr_assets.index")) {
+        if (!root_file("ampr_emu.index") && !root_file("ampr_assets.index") && !root_file("ampr_zstd.index")) {
             ALEMBIC_ASSIGN(index_, exfat::build_ampr_index(*this, root_, ampr::Scheme::ampr_emu));
             if (!index_.empty()) {
                 tree::Node node;

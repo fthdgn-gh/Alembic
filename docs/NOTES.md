@@ -20,10 +20,13 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   PS5PKGTool (AMPR index with `--ampr-scheme ps5pkgtool`, PFSC at
   `--level 9`); FFPFS to MkPFS; FPKG (stored and Kraken) to
   ProsperoPkgTool `img_create --seed S --no_right_sprx [--compression
-  kraken]`; LZ4 packs to `ampr_pack.py`.
+  kraken]`; LZ4 packs to `ampr_pack.py`. zstd packs (2026-11-02): every
+  frame matches libzstd 1.5.7 driven as ps5-dump-forge drives it; the
+  byte comparison with ps5-dump-forge itself (`tools/zstd-oracle`) has not
+  been run yet.
 - **CLI** (`build/alembic`, run with no arguments for the list): `convert`
-  (any row to any column, `--lz4`, `--ampr-emu`), `ampr-emu`, `fpkg-build`,
-  `ls`, `cat`, `same`, `lz4-info|verify`, `ffpfsc-info|extract|verify`,
+  (any row to any column, `--lz4`, `--zstd`, `--ampr-emu`), `ampr-emu`,
+  `fpkg-build`, `ls`, `cat`, `same`, `lz4-info|verify`, `zstd-info|verify`, `ffpfsc-info|extract|verify`,
   `fpkg-info|dump`, `exfat`, `ampr-index`, `pfsc-encode|decode|info`.
 - **PS5 engine** (`alembic.elf`, built by `tools/ps5/build.sh` and in CI):
   a queue of conversions, copies, moves and installs with checkpoints
@@ -91,6 +94,8 @@ tools/pkg-oracle/compare.sh         # FPKG reading/writing vs ProsperoPkgTool/Li
 tools/pkg-oracle/check_samples.sh   # owner's real files in .refs/samples/ (~4 min; skips files over
                                     # ALEMBIC_SAMPLES_MAX_GB GiB, default 20; cleans up after each step)
 tools/lz4-oracle/compare.sh         # LZ4 packs vs ampr_pack.py (needs .refs/venv, Homebrew lz4)
+tools/zstd-oracle/compare.sh        # zstd packs vs ps5-dump-forge (builds it with cargo; NOT RUN YET;
+                                    # --no-cargo: Alembic + check_pack.py only, needs Homebrew zstd)
 tools/pkg-oracle/write_samples.sh   # fpkg-build vs img_create on every real PS5 package (stored, Kraken)
 tools/netfs/samba_check.sh          # the SMB client against Samba: encryption required/not, 3.0-3.1.1
 tools/netfs/tls_check.sh            # FTPS and HTTPS WebDAV against local servers (TLS 1.2/1.3, RSA/ECDSA)
@@ -137,6 +142,10 @@ app/preview.sh [dir] [script]       # PNGs of the app drawn on this computer (Me
   (2.7 GB stored), so Sony's encoder still does better. No fake-signing,
   DDS generation or keystone generation. Not yet installed on a console,
   stored or Kraken.
+- zstd packs: not tried on a console; not resumable (no pass-1
+  checkpoints: a stopped zstd conversion starts over); the CLI only (the
+  engine, page and app do not offer them yet); the byte comparison with
+  ps5-dump-forge not run.
 - LZ4 packs: hit and miss on the console (owner, 2026-10-22: "works when it
   works", left as it is). Pass 1 keeps ~200 bytes per chunk in RAM (456 MB
   for 2.2M chunks).
@@ -2690,6 +2699,90 @@ release: see "components follow their latest releases" below.)
   zstd packs (a port of the ps5-dump-forge writer, libzstd 1.5.7 to match
   it, its random archive ID would need a seed for an oracle). Waiting on
   how ng does on the console.
+
+### 2026-11-02: zstd asset packs (ampr-emu-ng's format), written and read
+
+- **Format** (quer3q/ampr-emu-ng `docs/zstd-format.md`): `ampr_zstd.index`
+  (AMPRZPK1: 128-byte header with two CRC-32s, 32-byte file records sorted
+  by (FNV-1a 64 of the path, path bytes), one u64 per 256 KiB chunk:
+  offset, volume, stored size - 1, codec raw/zstd; volume sizes; paths)
+  and `ampr_zstd-NNN.pak` volumes (AMPRZDT1: 64-byte header with the
+  archive ID, chunks back to back from 64, at most 4 GiB - 64 KiB each).
+  One chunk is one zstd frame (content size and checksum on, no
+  dictionary, window 2^18) or raw when the frame is not smaller; a file
+  whose chunks save under 1% (`stored * 100 > size * 99`) is all raw.
+- **Port** of quer3q/ps5-dump-forge v0.5.1 (`df90a5c`, GPL-3.0):
+  `ps5-dump-forge-zstd` (`lib.rs`, `index.rs`, `volume.rs`: encoder and
+  validating decoder; `writer.rs`: frames, store-only rule, order, volume
+  roll-over) and which files are packed (`ps5-dump-forge-lz4/src/rules.rs`
+  `always_loose`/`keep_loose`/`select`, `ps5-dump-forge-core/src/
+  zstd_pack.rs`): not empty, not at the root, not an executable or under
+  `sce_sys/`, `sce_module/`, `fakelib*/`, not a config/media/container
+  suffix or a protected folder; an LZ4-packed input keeps its LZ4 pack set.
+  Note: ampr-emu-ng's doc says "everything else is packed"; ps5-dump-forge
+  (what we match) is far more conservative (keep-loose list, root files).
+  `PackOptions::packed_set` takes any other set.
+- **Bytes as ps5-dump-forge makes them:** its Rust `zstd` 0.13.3 is
+  `zstd-sys` 2.1.2 = libzstd 1.5.7, vendored here from the official
+  release (`third_party/zstd`, SHA-256 checked, BSD, no asm, single
+  thread; neither changes output). Each worker keeps a context with
+  `ZSTD_c_compressionLevel`, `windowLog` 18, `checksumFlag`,
+  `contentSizeFlag`; per chunk: reset (session only), pledge the size,
+  `ZSTD_compressStream2` with `ZSTD_e_continue` until the input is in,
+  then `ZSTD_e_end`, into an output of the chunk's own size (full = raw).
+  The call sequence matters: a whole chunk then ends in an empty last
+  block (`ZSTD_compress2` would make other bytes). Its archive ID comes
+  from getrandom: Alembic takes `--zstd-archive-id HEX32`
+  (`PackOptions::archive_id`, like FPKG's `--seed`), random otherwise.
+- **Code:** `alembic/zstdpack.hpp`, `src/core/zstdpack_{format,build,
+  read}.cpp`. A tree -> tree step like the LZ4 packer, no temporary copy:
+  pass 1 compresses every chunk on all cores (reads on one thread) and
+  keeps codec, size and CRC per chunk (~12 bytes); the volumes are made
+  while the output writer reads them (compressed again, checked against
+  pass 1). ps5-dump-forge writes from its first pass while the frames fit
+  32 MiB and reads twice otherwise; same bytes either way. The runtime
+  (`--zstd-runtime`, ampr-emu-ng's `libSceAmpr.sprx`, never committed)
+  replaces `fakelib/libSceAmpr.sprx`; without it the game's own must be
+  there (refused otherwise). A fresh `ampr_emu.index` lists every file,
+  loose and packed (ps5-dump-forge writes one too); the exFAT, PFS and
+  AMPR-emulator code now keep the index of a tree with `ampr_zstd.index`.
+  Reader: `verify` (index, volume headers against it, every chunk decoded
+  with ampr-emu-ng's frame checks plus the checksum), `unpack`;
+  `convert`, `same` and digests unpack zstd inputs; `--zstd` on an
+  LZ4-packed input unpacks it and keeps its set, on a zstd-packed one
+  repacks; `--lz4` on a zstd-packed input unpacks first.
+- **CLI:** `convert <in> <out> --zstd [--zstd-runtime F] [--zstd-level 1-22,
+  default 5] [--zstd-archive-id HEX32] [--zstd-timestamp UNIX]`, any output
+  but `.pkg`, not with `--lz4`; `--zstd-unpack`; `zstd-info`,
+  `zstd-verify`. Core API for the engine: `convert::Options::zstd`
+  (`zstdpack::PackOptions`: level, archive_id, runtime_module, timestamp,
+  workers, packed_set), `zstd_unpack`, `Report::zstd` (`PackStats`);
+  progress stage "zstd pass 1".
+- **Tests:** 13 unit tests (`tests/test_zstdpack.cpp`): FNV-1a, chunk word,
+  volume header and index fields read back at the documented offsets with
+  zlib CRCs, damage refused, frames looked at with libzstd, the selection
+  table, round trips (256 KiB, 256 KiB + 1, empty, noise store-only, the
+  1% edge files of ps5-dump-forge's own tests), volumes rolled over with a
+  small test limit, determinism over thread counts, images and back, LZ4
+  -> zstd keeping the set. `tools/zstd-oracle/check_pack.py` reads a
+  packed folder by the spec alone and makes every frame again with
+  Homebrew's libzstd 1.5.7 through ctypes in ps5-dump-forge's call
+  sequence: identical at levels 1, 3, 5, 19 on the synthetic game (also
+  `--big`). **`tools/zstd-oracle/compare.sh` (ps5-dump-forge built with
+  cargo from a scratch copy, its archive ID fixed by a patch, packs and
+  loose files compared, each reading the other's packs) is written but
+  has not been run**: building it runs third-party build scripts, owner's
+  call. `compare.sh --no-cargo` passes. LZ4 oracle and the PS5PKGTool/MkPFS
+  oracle unchanged; Windows and PS5 builds compile.
+- **Measured** (14-core Mac, `--rebuild` to exFAT, level 5): a 2.4 GB exFAT
+  sample: 0.32 GiB packed into 0.15 GiB (LZ4 scan profile: 0.24 GiB),
+  1.8 s; the 13 GB FFPFSC: 26.2 GiB packed into 11.1 GiB in 3 volumes,
+  32.7 s, image 13.2 GB (LZ4 scan: 17.5 GiB, 76.6 s, image 20.1 GB);
+  `zstd-verify` and `same` pass. Level 19 on the small one: 14x slower for
+  0.2% less.
+- **Left:** run the ps5-dump-forge comparison; the engine, page and app
+  (`--zstd` next to LZ4); pass-1 checkpoints for resuming; a console test
+  with ampr-emu-ng (ShadowMount+'s `update_emulators` off).
 
 ## Making a release
 

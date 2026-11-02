@@ -59,6 +59,18 @@ add_library(alembic_lz4 STATIC third_party/lz4/lz4.c third_party/lz4/lz4hc.c thi
 target_include_directories(alembic_lz4 PUBLIC third_party/lz4)
 target_compile_options(alembic_lz4 PRIVATE -O3)
 
+# Zstandard 1.5.7 (BSD-3-Clause), the libzstd ps5-dump-forge writes zstd packs
+# with (third_party/zstd/UPSTREAM.md). Single-threaded and without assembly:
+# neither changes the bytes it makes.
+file(GLOB ALEMBIC_ZSTD_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zstd/common/*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zstd/compress/*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zstd/decompress/*.c)
+add_library(alembic_zstd STATIC ${ALEMBIC_ZSTD_SOURCES})
+target_include_directories(alembic_zstd PUBLIC third_party/zstd)
+target_compile_definitions(alembic_zstd PRIVATE XXH_NAMESPACE=ZSTD_ ZSTD_DISABLE_ASM ZSTD_LEGACY_SUPPORT=0)
+target_compile_options(alembic_zstd PRIVATE -O3)
+
 # The console-tested LZ4 pack profiles in profiles/lz4/, built into the binary.
 set(ALEMBIC_PROFILE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/profiles/lz4)
 file(GLOB ALEMBIC_PROFILE_FILES CONFIGURE_DEPENDS ${ALEMBIC_PROFILE_DIR}/*.toml)
@@ -118,13 +130,16 @@ add_library(alembic_core STATIC
     src/core/fpkg_cnt_build.cpp
     src/core/fpkg_package_build.cpp
     src/core/unicode.cpp
+    src/core/zstdpack_build.cpp
+    src/core/zstdpack_format.cpp
+    src/core/zstdpack_read.cpp
 )
 target_include_directories(alembic_core
     PUBLIC src/core/include
     PRIVATE src/core
 )
 target_compile_options(alembic_core PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
-target_link_libraries(alembic_core PUBLIC ZLIB::ZLIB Threads::Threads PRIVATE alembic_lz4)
+target_link_libraries(alembic_core PUBLIC ZLIB::ZLIB Threads::Threads PRIVATE alembic_lz4 alembic_zstd)
 if(WIN32)
     target_link_libraries(alembic_core PUBLIC shell32)
 endif()
@@ -288,6 +303,7 @@ if(ALEMBIC_BUILD_TESTS)
         tests/test_sha256.cpp
         tests/test_toml.cpp
         tests/test_unicode.cpp
+        tests/test_zstdpack.cpp
     )
     target_compile_options(alembic_tests PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
     # Tests that need reference files from .refs/ skip themselves when absent.
@@ -298,5 +314,7 @@ if(ALEMBIC_BUILD_TESTS)
     else()
         target_link_libraries(alembic_tests PRIVATE alembic_core)
     endif()
+    # The zstd pack tests look at frames with libzstd and CRCs with zlib directly.
+    target_link_libraries(alembic_tests PRIVATE alembic_zstd ZLIB::ZLIB)
     add_test(NAME alembic_tests COMMAND alembic_tests)
 endif()

@@ -16,6 +16,8 @@ Ported files say where they come from in their header comment.
 | [PSBrew/MkPFS](https://github.com/PSBrew/MkPFS) | GPL-3.0 | the PFS (.ffpfs) writer `src/core/pfs_image.cpp`, ported from `mkpfs/pfs.py` (`build_pfs` unsigned/uncompressed path, `scan_source_tree`, `make_fpt_and_collision_blob`, `_pack_pfs_header_block`, `build_inode_block_sig_s64`, `Inode.to_bytes`, `Dirent.to_bytes`); the reader follows the same layout |
 | [maxton/LibOrbisPkg](https://github.com/maxton/LibOrbisPkg) at `6434772` | LGPL-3.0 (note below) | PS4 package writing (`src/core/fpkg_ps4_*.cpp`), ported from `PKG/PkgBuilder.cs`, `PKG/PkgWriter.cs`, `PKG/Pkg.cs`, `PKG/Entry.cs`, `PFS/PFSBuilder.cs`, `PFS/PfsStructs.cs`, `PFS/FlatPathTable.cs`, `PFS/PFSCWriter.cs`, `Rif/*.cs`, `PlayGo/ChunkDat.cs`, `PlayGo/Manifest.cs`, `Util/Crypto.cs` (keystone, key wraps), `GP4/Gp4Creator.cs` (what a rebuilt project keeps); the `param.sfo` writer (`src/core/sfo.cpp`, from `SFO/ParamSfo.cs`). PS4 package reading follows the same formats |
 | [drakmor/ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus) at `1.7beta8` | GPL-3.0 | reading an executable's process parameters (`ffpfsc::executable_process_param_version`, from `src/sm_pkg.c` `read_executable_sdk`; Alembic also accepts the fake-signed SELF magic) and the title-ID rule for PS4/PS5 (from `src/sm_api_service.c` `game_platform_name`) |
+| [quer3q/ps5-dump-forge](https://github.com/quer3q/ps5-dump-forge) at v0.5.1 (`df90a5c`) | GPL-3.0 | zstd asset packs (`src/core/zstdpack_*.cpp`): the AMPRZPK1/AMPRZDT1 encoder and validating decoder from `crates/ps5-dump-forge-zstd/src/{lib,index,volume}.rs`; the pack writer (chunk frames, store-only rule, file order, volume roll-over) from `writer.rs`; which files are packed from `crates/ps5-dump-forge-lz4/src/rules.rs` (`always_loose`, `keep_loose`, `select`) and `crates/ps5-dump-forge-core/src/zstd_pack.rs` |
+| [quer3q/ampr-emu-ng](https://github.com/quer3q/ampr-emu-ng) | GPL-3.0 | the zstd pack layout as `docs/zstd-format.md` describes it, and the checks its runtime makes on a chunk's frame (`crates/ampr-codec/src/zstd.rs`, `decode_zstd`), in `zstdpack::Decoder` |
 | [SadykovIV/PS4pkg_to_ffpfsc](https://github.com/SadykovIV/PS4pkg_to_ffpfsc) at `e9713b5` | GPL-3.0 | the `sce_sys/param.json` a PS4 game's images get (`sfo::ps4_param_json` in `src/core/sfo.cpp`), ported from `tools/ps4ffpsc/ps4ffpsc/sfo.py` (`build_param_json`, `choose_title`, the TITLE_NN locale order) |
 | [TweetNaCl](https://tweetnacl.cr.yp.to) (Bernstein, Janssen, Lange, Schwabe et al.) | public domain | X25519 for pairing engines (`src/engine/keys.cpp`): the field arithmetic and ladder of `crypto_scalarmult` |
 | .NET runtime (`string.ToLowerInvariant`) | MIT | the lower-case mapping in `src/core/data/lowercase_table.inc`, generated from .NET 10 |
@@ -26,6 +28,7 @@ Ported files say where they come from in their header comment.
 | --- | --- | --- |
 | [zlib](https://zlib.net) 1.3.1 (release tarball, SHA-256 `9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23`) | zlib (`third_party/zlib/LICENSE`) | `third_party/zlib/`: the library sources needed for deflate/inflate, unchanged; built for the PS5 (the payload SDK has no zlib), or on a PC with `-DALEMBIC_BUNDLED_ZLIB=ON` |
 | [lz4/lz4](https://github.com/lz4/lz4) v1.10.0 (tag commit `ebb370ca`) | BSD-2-Clause (notice below) | `third_party/lz4/`: `lz4.c`, `lz4.h`, `lz4hc.c`, `lz4hc.h`, `xxhash.c`, `xxhash.h`, unchanged |
+| [facebook/zstd](https://github.com/facebook/zstd) v1.5.7 (release tarball, SHA-256 `eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3`) | BSD-3-Clause OR GPL-2.0-only; used under BSD-3-Clause (notice below) | `third_party/zstd/`: `lib/`'s `zstd.h`, `zstd_errors.h`, `common/`, `compress/`, `decompress/`, unchanged (without the x86-64 assembly decoder); zstd asset packs (see `third_party/zstd/UPSTREAM.md`) |
 | [Mbed-TLS/mbedtls](https://github.com/Mbed-TLS/mbedtls) 3.6.7 LTS (release tarball, SHA-256 `a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6`) | Apache-2.0 OR GPL-2.0-or-later; used under Apache-2.0 (`third_party/mbedtls/LICENSE`) | `third_party/mbedtls/`: `include/` and `library/`, unchanged, configured by Alembic's `alembic_config.h`; TLS for FTPS and HTTPS WebDAV (`src/engine/tls.cpp`) on every platform |
 
 ## Bundled into the engine's web page
@@ -93,6 +96,8 @@ or in Alembic's binaries.
 | pearlxcore/PS5PKGTool, pearlxcore/ProsperoPkgTool, drakmor/ampr_emu | as above | `tools/oracle/compare.sh` compares Alembic's output with theirs |
 | [zlib](https://zlib.net) | zlib | linked for PFSC compression and CRC-32 |
 | drakmor/ampr_emu `tools/ampr_pack.py` | GPL-3.0 | `tools/lz4-oracle/compare.sh` packs and verifies with it |
+| quer3q/ps5-dump-forge `ps5-dump-forge` CLI | GPL-3.0 | `tools/zstd-oracle/compare.sh` builds it (with the archive ID fixed by a small patch to a scratch copy) and compares its zstd packs with Alembic's |
+| [zstd](https://github.com/facebook/zstd) 1.5.7 (Homebrew's libzstd) | BSD-3-Clause | `tools/zstd-oracle/check_pack.py` decodes and re-encodes zstd pack chunks with it, through ctypes |
 | maxton/LibOrbisPkg `PkgTool` | LGPL-3.0 | `tools/ps4-oracle/compare.sh` builds, extracts and validates PS4 packages with it |
 | [Samba](https://www.samba.org) (Homebrew) | GPL-3.0 | `tools/netfs/samba_check.sh` tests the SMB client against it |
 | [pyftpdlib](https://github.com/giampaolo/pyftpdlib), [pyOpenSSL](https://github.com/pyca/pyopenssl), [WsgiDAV](https://github.com/mar10/wsgidav), [cheroot](https://github.com/cherrypy/cheroot) | MIT / Apache-2.0 / MIT / BSD-3-Clause | `tools/netfs/tls_check.sh` runs FTPS and HTTPS WebDAV test servers with them |
@@ -149,6 +154,43 @@ are permitted provided that the following conditions are met:
 * Redistributions in binary form must reproduce the above copyright notice, this
   list of conditions and the following disclaimer in the documentation and/or
   other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+## Zstandard license
+
+`third_party/zstd/LICENSE` (zstd is dual-licensed; Alembic takes it under this BSD license):
+
+```
+BSD License
+
+For Zstandard software
+
+Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+ * Neither the name Facebook, nor Meta, nor the names of its contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED

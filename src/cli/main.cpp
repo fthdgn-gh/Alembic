@@ -9,6 +9,7 @@
 #include "alembic/fpkg.hpp"
 #include "alembic/fpkg_inner.hpp"
 #include "alembic/lz4pack.hpp"
+#include "alembic/zstdpack.hpp"
 #include "alembic/unicode.hpp"
 #include "alembic/io.hpp"
 #include "alembic/pfsc.hpp"
@@ -63,6 +64,17 @@ void usage() {
         "        --lz4-config-out DIR  also write the pack configuration (pack.toml) and the\n"
         "                              forced-loose list (excludes.txt) for ampr_pack.py\n"
         "        --lz4-unpack          turn LZ4-packed files back into ordinary files\n"
+        "        --zstd                pack game files into zstd asset packs on the way\n"
+        "                              (ampr_zstd.index + ampr_zstd-NNN.pak, 256 KiB chunks; any\n"
+        "                              output but .pkg; read on the console by ampr-emu-ng's\n"
+        "                              runtime; not with --lz4). Files chosen as ps5-dump-forge\n"
+        "                              does; an LZ4-packed input keeps its LZ4 pack set\n"
+        "        --zstd-runtime FILE   that runtime (ampr-emu-ng's libSceAmpr.sprx), placed in\n"
+        "                              fakelib/\n"
+        "        --zstd-level N        1 (fastest) to 22 (smallest), default 5\n"
+        "        --zstd-archive-id HEX32  the archive ID (default random), for reproducible packs\n"
+        "        --zstd-timestamp UNIX time stamp of the files the packer adds (default now)\n"
+        "        --zstd-unpack         turn zstd-packed files back into ordinary files\n"
         "        --ampr-emu FILE       ampr_emu's libSceAmpr.sprx: added to fakelib/ when eboot.bin\n"
         "                              uses the console's APR and the game ships none (a game\n"
         "                              run from an image or folder needs it; not for .pkg)\n"
@@ -91,10 +103,14 @@ void usage() {
         "  lz4-info <input>\n"
         "        summarise the LZ4 pack set of a folder or image\n"
         "  same <a> <b> [--passcode P]\n"
-        "        compare the files of two inputs byte for byte (LZ4-packed inputs are\n"
+        "        compare the files of two inputs byte for byte (LZ4- and zstd-packed inputs are\n"
         "        unpacked first; ampr_emu.index is ignored)\n"
         "  lz4-verify <input>\n"
         "        decode every LZ4 pack chunk and check it against the CRC sidecar\n"
+        "  zstd-info <input>\n"
+        "        summarise the zstd packs of a folder or image\n"
+        "  zstd-verify <input>\n"
+        "        check the zstd pack index and volume headers and decode every chunk\n"
         "  exfat <dump-dir> <out.exfat> [--cluster-size N] [--no-ampr] [--ampr-index keep|rebuild] [--ampr-scheme S]\n"
         "        build an exFAT image from a dump folder (clusters: 64 KiB by default;\n"
         "        --cluster-size ps5pkgtool picks 32 or 64 KiB like PS5PKGTool)\n"
@@ -384,6 +400,7 @@ int cmd_convert(const Args& args) {
     if (auto passcode = args.get("--passcode")) options.passcode = *passcode;
     options.overwrite = args.get("--overwrite").has_value();
     options.lz4_unpack = args.get("--lz4-unpack").has_value();
+    options.zstd_unpack = args.get("--zstd-unpack").has_value();
     if (auto path = args.get("--ampr-emu")) {
         auto file = File::open(*path, File::Mode::read);
         if (!file.ok()) return fail(file.error());
@@ -443,6 +460,41 @@ int cmd_convert(const Args& args) {
         }
         options.lz4 = std::move(pack);
     }
+    const bool any_zstd = args.get("--zstd-runtime") || args.get("--zstd-level") || args.get("--zstd-archive-id") ||
+                          args.get("--zstd-timestamp");
+    if (any_zstd && !args.get("--zstd"))
+        return std::fputs("error: the --zstd-... options go with --zstd\n", stderr), 2;
+    if (args.get("--zstd")) {
+        if (args.get("--lz4")) return std::fputs("error: --zstd and --lz4 exclude each other\n", stderr), 2;
+        zstdpack::PackOptions pack;
+        if (auto text = args.get("--zstd-level")) {
+            auto value = parse_number(text->c_str());
+            if (!value || *value < 1 || *value > 22) return std::fputs("error: --zstd-level must be 1-22\n", stderr), 2;
+            pack.level = static_cast<int>(*value);
+        }
+        if (auto hex = args.get("--zstd-archive-id")) {
+            if (hex->size() != 32) return std::fputs("error: --zstd-archive-id takes 32 hex digits\n", stderr), 2;
+            zstdpack::ArchiveId id{};
+            for (int i = 0; i < 16; ++i) {
+                auto v = parse_number(("0x" + hex->substr(i * 2, 2)).c_str());
+                if (!v) return std::fputs("error: bad --zstd-archive-id\n", stderr), 2;
+                id[i] = static_cast<std::uint8_t>(*v);
+            }
+            pack.archive_id = id;
+        }
+        if (auto runtime = args.get("--zstd-runtime")) {
+            auto file = File::open(*runtime, File::Mode::read);
+            if (!file.ok()) return fail(file.error());
+            pack.runtime_module = std::make_shared<File>(std::move(*file));
+        }
+        if (auto text = args.get("--zstd-timestamp")) {
+            auto value = parse_number(text->c_str());
+            if (!value || *value > INT64_MAX) return std::fputs("error: bad --zstd-timestamp\n", stderr), 2;
+            pack.timestamp = static_cast<std::int64_t>(*value);
+        }
+        pack.workers = options.ffpfsc.compression.threads;
+        options.zstd = std::move(pack);
+    }
     std::optional<convert::Format> to;
     if (auto text = args.get("--to")) {
         to = convert::parse_format(*text);
@@ -489,6 +541,20 @@ int cmd_convert(const Args& args) {
                 if (!status.ok()) return fail(status.error());
             }
         }
+    }
+    if (report->zstd) {
+        const zstdpack::PackStats& st = *report->zstd;
+        bool small = st.logical_bytes + st.loose_bytes < (1ull << 30);
+        auto unit = [&](std::uint64_t v) { return static_cast<double>(v) / (small ? 1024.0 * 1024.0 : 1024.0 * 1024.0 * 1024.0); };
+        const char* u = small ? "MiB" : "GiB";
+        std::printf("zstd packs: %llu of %llu files packed (%llu stored raw), %u volumes\n",
+                    static_cast<unsigned long long>(st.files_packed), static_cast<unsigned long long>(st.files_total),
+                    static_cast<unsigned long long>(st.files_store_only), st.volumes);
+        std::printf("            %.2f %s packed -> %.2f %s in volumes (%llu zstd, %llu raw chunks)\n", unit(st.logical_bytes), u,
+                    unit(st.volume_bytes), u, static_cast<unsigned long long>(st.chunks_zstd),
+                    static_cast<unsigned long long>(st.chunks_raw));
+        std::printf("            %.2f %s stays loose\n", unit(st.loose_bytes), u);
+        for (const std::string& w : st.warnings) std::printf("  %s\n", w.c_str());
     }
     return 0;
 }
@@ -603,6 +669,51 @@ int cmd_lz4_verify(const Args& args) {
     std::printf("chunks:          %llu unique, %llu stored bytes -> %llu bytes\n",
                 static_cast<unsigned long long>(result->physical_chunks),
                 static_cast<unsigned long long>(result->stored_bytes), static_cast<unsigned long long>(result->raw_bytes));
+    return 0;
+}
+
+int cmd_zstd_verify(const Args& args) {
+    if (args.positional.size() != 1) return usage(), 2;
+    auto input = convert::open(args.positional[0], args.get("--passcode").value_or(std::string(32, '0')));
+    if (!input.ok()) return fail(input.error());
+    ProgressPrinter printer;
+    auto result = zstdpack::verify(*input->tree, printer.callback());
+    printer.done();
+    if (!result.ok()) return fail(result.error());
+    std::printf("files:           %llu packed files verified\n", static_cast<unsigned long long>(result->files));
+    std::printf("volumes:         %u (headers match the index)\n", result->volumes);
+    std::printf("chunks:          %llu (%llu zstd), %llu stored bytes -> %llu bytes\n",
+                static_cast<unsigned long long>(result->chunks), static_cast<unsigned long long>(result->chunks_zstd),
+                static_cast<unsigned long long>(result->stored_bytes), static_cast<unsigned long long>(result->raw_bytes));
+    return 0;
+}
+
+int cmd_zstd_info(const Args& args) {
+    if (args.positional.size() != 1) return usage(), 2;
+    auto input = convert::open(args.positional[0], args.get("--passcode").value_or(std::string(32, '0')));
+    if (!input.ok()) return fail(input.error());
+    const tree::Node* node = tree::find(input->tree->root(), zstdpack::kIndexName);
+    if (!node) return std::fputs("error: no ampr_zstd.index in this input\n", stderr), 1;
+    auto file = input->tree->open(*node);
+    if (!file.ok()) return fail(file.error());
+    std::vector<std::uint8_t> data(static_cast<std::size_t>(node->size));
+    Status status = (*file)->read_at(0, data);
+    if (!status.ok()) return fail(status.error());
+    auto ix = zstdpack::parse_index(data);
+    if (!ix.ok()) return fail(ix.error());
+    std::uint64_t logical = 0, stored = 0, zstd = 0, store_only = 0;
+    for (const auto& f : ix->files) logical += f.size, store_only += f.store_only;
+    for (const auto& c : ix->chunks) stored += c.stored_size, zstd += c.codec == zstdpack::Codec::zstd;
+    std::printf("archive id:      ");
+    for (std::uint8_t b : ix->archive_id) std::printf("%02x", b);
+    std::printf("\nzstd level:      %u\n", ix->level);
+    std::printf("files:           %zu packed (%llu stored raw), %llu bytes\n", ix->files.size(),
+                static_cast<unsigned long long>(store_only), static_cast<unsigned long long>(logical));
+    std::printf("chunks:          %zu (%llu zstd), %llu stored bytes\n", ix->chunks.size(), static_cast<unsigned long long>(zstd),
+                static_cast<unsigned long long>(stored));
+    for (std::size_t i = 0; i < ix->volume_sizes.size(); ++i)
+        std::printf("  %-24s %14llu bytes\n", zstdpack::volume_name(static_cast<std::uint32_t>(i)).c_str(),
+                    static_cast<unsigned long long>(ix->volume_sizes[i]));
     return 0;
 }
 
@@ -930,10 +1041,12 @@ int main(int argc, char** argv) {
     if (command == "convert")
         return cmd_convert(
             parse(argc, argv, {"--no-ampr", "--case-sensitive", "--overwrite", "--rebuild", "--lz4", "--lz4-unpack",
-                                    "--ampr-emu-always"}));
+                                    "--zstd", "--zstd-unpack", "--ampr-emu-always"}));
     if (command == "ampr-emu") return cmd_ampr_emu(parse(argc, argv, {"--replace"}));
     if (command == "lz4-verify") return cmd_lz4_verify(parse(argc, argv, {}));
     if (command == "lz4-info") return cmd_lz4_info(parse(argc, argv, {}));
+    if (command == "zstd-verify") return cmd_zstd_verify(parse(argc, argv, {}));
+    if (command == "zstd-info") return cmd_zstd_info(parse(argc, argv, {}));
     if (command == "same") return cmd_same(parse(argc, argv, {}));
     if (command == "ls") return cmd_ls(parse(argc, argv, {}));
     if (command == "fpkg-build") return cmd_fpkg_build(parse(argc, argv, {"--overwrite"}));

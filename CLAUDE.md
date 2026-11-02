@@ -17,6 +17,7 @@ tools/pkg-oracle/check_samples.sh             # real files in .refs/samples/ (ow
 tools/pkg-oracle/write_samples.sh             # FPKG writing vs img_create on those files (stored, Kraken)
 tools/netfs/samba_check.sh                    # SMB client vs Homebrew Samba (encryption on and off)
 tools/lz4-oracle/compare.sh                   # LZ4 packs vs ampr_emu's ampr_pack.py (needs .refs/venv)
+tools/zstd-oracle/compare.sh                  # zstd packs vs ps5-dump-forge (builds it with cargo; not run yet)
 tools/ps4-oracle/compare.sh                   # PS4 packages vs LibOrbisPkg (builds its PkgTool for .NET 10)
 cmake -S . -B build-win -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake \
       -DLLVM_MINGW=$PWD/.refs/llvm-mingw-20261006-ucrt-macos-universal && cmake --build build-win   # Windows .exe
@@ -83,6 +84,11 @@ environment in `.refs/mkpfs-venv`).
   drakmor's `ampr_pack.py`, byte-identical to it (build ID included). The
   runtime `libSceAmpr.sprx` is never committed: the CLI takes it with
   `--lz4-runtime` (official ampr_emu release, SHA-256 pinned in NOTES.md).
+  Their sibling, **zstd packs** (`ampr_zstd.index` + `ampr_zstd-NNN.pak`,
+  read by quer3q/ampr-emu-ng's runtime): `--zstd`, ported from
+  quer3q/ps5-dump-forge with the same libzstd 1.5.7 (`third_party/zstd`)
+  and parameters so its bytes match given the same archive ID
+  (`--zstd-archive-id`); runtime from `--zstd-runtime`, never committed.
 - **AMPR emulator:** games whose eboot.bin imports libSceAmpr need
   ampr_emu's `libSceAmpr.sprx` in fakelib/ to start from an image or folder.
   Conversions add it (engine: on by default; CLI: `--ampr-emu FILE`) with an
