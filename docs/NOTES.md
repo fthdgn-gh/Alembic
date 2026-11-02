@@ -3223,9 +3223,11 @@ release: see "components follow their latest releases" below.)
   on the console: a zstd-packed game starting through ShadowMount+ with
   "update emulators" off; switching a game's emulator; switching packs in
   Convert; Hide / Unhide; an emulator auto-update (needs a new upstream
-  release). Idea raised: build on the PC's own disk, then move, so a
-  network drop does not spoil a conversion. Before a release: README
-  screenshots for the new options, version bump.
+  release). Idea raised and dropped (owner, 2026-11-03): build on the PC's
+  own disk, then move; writing straight to the console while converting
+  stays. Plan: rerun the 160 GB PC-engine conversion to the console (we
+  watch it), owner tests it on the console, and if it starts, release.
+  Before a release: README screenshots for the new options, version bump.
 - **Console app (0.3.0):** ✓ first console run (owner, 2026-10-25): the
   app starts, reaches the engines, ran a PC-engine conversion to the
   console, stopped the engine and (reopened) started it through the ELF
