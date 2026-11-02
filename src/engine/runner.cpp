@@ -484,8 +484,10 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
         // when the output is not a local path (a network server, say).
         const std::string out = strip_slashes(output);
         const std::string out_dir = out.substr(0, out.rfind('/'));
-        pack.spill_path = !out_dir.empty() && is_directory(out_dir) ? partial_name(output) + ".zstd-frames"
-                                                                    : config.state_dir + "/zstd-frames.tmp";
+        // Not on another engine or a server: the scratch file would cross the network twice.
+        const bool here = !is_mounted(out) && !netfs::Servers::handles(out) && !convert::is_output_provided(out);
+        pack.spill_path = here && !out_dir.empty() && is_directory(out_dir) ? partial_name(output) + ".zstd-frames"
+                                                                            : config.state_dir + "/zstd-frames.tmp";
         // ampr-emu-ng's runtime; without it the game must already ship one
         // (missing_dependencies asks for the component otherwise).
         if (is_regular_file(config.zstd_runtime_path())) {

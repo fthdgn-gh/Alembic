@@ -3189,7 +3189,8 @@ release: see "components follow their latest releases" below.)
   with the packed tree, and a stale one is replaced), and pass 2 copies
   them, reading no source data for zstd chunks. The engine puts it next to
   the output (`<output>.alembic-partial.zstd-frames`, or
-  `<state>/zstd-frames.tmp` when the output is not a local path), the CLI
+  `<state>/zstd-frames.tmp` when the output is on another engine, a
+  server or a browser: it would cross the network twice), the CLI
   at `<output>.zstd-frames.tmp`. Output unchanged (a test compares bytes
   with and without; the 2.4 GB sample at level 19 gave the same image):
   29.4 s -> 20.4 s on the Mac there, where only 0.3 GiB is packed; about
