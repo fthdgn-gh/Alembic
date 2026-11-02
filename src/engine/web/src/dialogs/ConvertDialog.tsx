@@ -107,6 +107,9 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   const [lz4Level, setLz4Level] = useState(9);
   const [lz4Want, setLz4] = useState(false);
   const [unpackWant, setUnpack] = useState(false);
+  const [zstdWant, setZstd] = useState(false);
+  const [zstdLevel, setZstdLevel] = useState(5);
+  const [zunpackWant, setZunpack] = useState(false);
   const [ampr, setAmpr] = useState(true);
   const [verify, setVerify] = useState(true);
   const [delWant, setDel] = useState(false);
@@ -131,7 +134,14 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   // can be packed when none is, unpacked when all are.
   const packed = (e: Entry) => !!(inspects && inspects.ok[e.path] && inspects.ok[e.path].lz4_packed);
   const packedAny = entries.some(packed), packedAll = entries.every(packed);
-  const lz4 = lz4Want && !packedAny, unpack = unpackWant && packedAll;
+  // zstd packs (ampr-emu-ng's) the same way; a game has one kind or none.
+  const zpacked = (e: Entry) => !!(inspects && inspects.ok[e.path] && inspects.ok[e.path].zstd_packed);
+  const zpackedAny = entries.some(zpacked), zpackedAll = entries.every(zpacked);
+  const packOffered = !packedAny && !zpackedAny;
+  // zstd packs are for PS5 games in a folder or an image.
+  const zstdOffered = packOffered && !anyPs4 && to !== "fpkg";
+  const zstd = zstdWant && zstdOffered, zunpack = zunpackWant && zpackedAll;
+  const lz4 = lz4Want && packOffered && !zstd, unpack = unpackWant && packedAll;
   // A PS5 package can go straight to the console's installer (then it is deleted).
   const installable = to === "fpkg" && !!info.value && info.value.platform === "ps5" && !anyPs4;
   const del = !anyShared && delWant && !(installable && installWant);
@@ -139,17 +149,18 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   // LZ4 (an exFAT game into an LZ4-packed exFAT, say). Several games: a game
   // already in the target format is left out.
   const formats = entries.map(formatOf), oneFormat = formats.every((f) => f === formats[0]) ? formats[0] : null;
-  const offered = FORMATS.filter((f) => f.value !== oneFormat || lz4 || unpack);
+  const offered = FORMATS.filter((f) => f.value !== oneFormat || lz4 || unpack || zstd || zunpack);
   const target = offered.some((f) => f.value === to) ? to : offered[0].value;
-  const work = entries.filter((e) => formatOf(e) !== target || lz4 || unpack);
+  const work = entries.filter((e) => formatOf(e) !== target || lz4 || unpack || zstd || zunpack);
   const skipped = entries.filter((e) => work.indexOf(e) < 0);
   const hideHiddenFor = (e: Entry) => e.kind === "fpkg" || isHiddenName(e.name) || del || target === "fpkg" || !!e.shared;
   const hideHidden = entries.every(hideHiddenFor);
-  const amprHidden = target === "fpkg" || lz4; // packing adds its runtime anyway
+  const amprHidden = target === "fpkg" || lz4 || zstd; // packing adds its runtime anyway
   const specFor = (e: Entry) => ({
     input: e.path, to: target, output_dir: dest, output_name: many ? "" : name.trim(), level, pkg_compression: anyPs4 ? "stored" : pkgComp,
     install_after: installable && target === "fpkg" && installWant, keep_package: keepPkg, lz4, lz4_unpack: unpack,
-    lz4_profile: profile, lz4_level: lz4Level, delete_source: del, verify, overwrite: over,
+    lz4_profile: profile, lz4_level: lz4Level, delete_source: del,
+    ...(zstd || zunpack ? { zstd, zstd_level: zstdLevel, zstd_unpack: zunpack } : {}), verify, overwrite: over,
     ampr_emu: ampr ? "auto" : "off", hide_source: !hideHiddenFor(e) && hideWant && !del,
   });
   const specs = work.map(specFor);
@@ -286,14 +297,21 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
           <div class="indent" hidden={!installable || target !== "fpkg" || !installWant}>
             <SwitchRow label={t("Keep the package")} hint={t("Leaves the .pkg after installing, to install again or elsewhere")} on={keepPkg} onChange={setKeepPkg} dataKey="cv:keep" />
           </div>
-          <SwitchRow label={t("Pack into LZ4 asset packs")} hint={t("For ampr_emu games")} on={lz4} onChange={setLz4} hidden={packedAny} />
+          <SwitchRow label={t("Pack into LZ4 asset packs")} hint={t("For ampr_emu games")} on={lz4} onChange={setLz4} hidden={!packOffered || zstd} />
           <div class="indent" hidden={!lz4}>
             <ChoiceRow label={t("Profile")} hint={t("Automatic uses a console-tested profile when one matches")} options={profiles} value={profile} onChange={setProfile} />
             <ChoiceRow label={t("LZ4 level")} options={[{ value: 1, label: t("1 · fast") }, { value: 9, label: t("9 · default") }, { value: 12, label: t("12 · smallest") }]} value={lz4Level} onChange={setLz4Level} />
             {rtNote}
           </div>
+          <SwitchRow label={t("Pack into zstd packs")} hint={t("Smaller than LZ4 and faster to make; read only by ampr-emu-ng, which goes into the game")}
+            on={zstd} onChange={setZstd} hidden={!zstdOffered || lz4} dataKey="cv:zstd" />
+          <div class="indent" hidden={!zstd}>
+            <ChoiceRow label={t("zstd level")} options={[{ value: 1, label: t("1 · fastest") }, { value: 5, label: t("5 · default") }, { value: 19, label: t("19 · smallest") }]} value={zstdLevel} onChange={setZstdLevel} />
+            <div class="note">{t("Turn off ShadowMount+'s “update emulators”: it would swap ampr-emu-ng for another emulator that can't read these packs.")}</div>
+          </div>
           {/* Shown instead of the pack switch for a game that is already packed. */}
           <SwitchRow label={t("Unpack LZ4 asset packs")} hint={t("Turns the packs back into ordinary files; ampr_emu's runtime stays in fakelib")} on={unpack} onChange={setUnpack} hidden={!packedAll} />
+          <SwitchRow label={t("Unpack zstd packs")} hint={t("Turns the packs back into ordinary files; ampr-emu-ng stays in fakelib")} on={zunpack} onChange={setZunpack} hidden={!zpackedAll} />
           <div class="note" hidden={!lz4NoteShown}>
             {(packedAny && !many ? t("This game is already LZ4-packed.") + " " : "") + t("FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data.")}
           </div>
@@ -332,7 +350,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
             {problem ? [<div>{t("Problem")}</div>, <div class="err">{problem}</div>]
               : !inspect ? [<div>{t("Reading")}</div>, <div class="muted">…</div>]
               : [
-                <div>{t("Format")}</div>, <div>{inspect.format + (inspect.lz4_packed ? " · " + t("LZ4-packed") : "")}</div>,
+                <div>{t("Format")}</div>, <div>{inspect.format + (inspect.lz4_packed ? " · " + t("LZ4-packed") : inspect.zstd_packed ? " · " + t("zstd-packed") : "")}</div>,
                 <div>{t("Title ID")}</div>, <div>{inspect.title_id || "—"}</div>,
                 <div>{t("Contents")}</div>, <div>{plural(inspect.files, "{n} file", "{n} files") + " · " + bytes(inspect.bytes)}</div>,
                 <div>{t("LZ4 profile")}</div>, <div>{inspect.lz4_profile === "scan" ? t("no tested profile") : inspect.lz4_profile}</div>,

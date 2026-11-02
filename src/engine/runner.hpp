@@ -49,6 +49,9 @@ struct EngineConfig {
     // conversions add: runtime_override, else the one in use in Components
     // (ampr_runtime_in_use), else where ampr_emu's would be (not there).
     std::string runtime_path() const;
+    // ampr-emu-ng's libSceAmpr.sprx (the ampr_runtime_ng component), which
+    // zstd packs need whichever emulator is in use.
+    std::string zstd_runtime_path() const;
 };
 
 // The output a job writes: spec.output, or next to the input with the

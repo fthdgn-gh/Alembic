@@ -112,7 +112,7 @@ export interface Listing { path: string; parent: string | null; entries: Entry[]
 
 export interface Meta { title: string; title_id: string; content_id: string; version: string; icon: boolean; platform?: string }
 
-export interface Inspect { path: string; format: string; title_id?: string; files: number; bytes: number; lz4_packed: boolean; lz4_profile: string; engine: string }
+export interface Inspect { path: string; format: string; title_id?: string; files: number; bytes: number; lz4_packed: boolean; lz4_profile: string; engine: string; zstd_packed?: boolean }
 
 export interface Spec {
   kind: string;
@@ -128,6 +128,9 @@ export interface Spec {
   lz4_profile: string;
   lz4_level: number;
   lz4_unpack: boolean;
+  zstd?: boolean;       // zstd packs (ampr-emu-ng), engines from 0.4.3
+  zstd_level?: number;
+  zstd_unpack?: boolean;
   delete_source: boolean;
   verify: boolean;
   overwrite: boolean;
@@ -145,6 +148,7 @@ export interface JobResult {
   ampr_emulator?: string;
   warnings?: string[];
   lz4?: { files_packed: number; files_total: number; packed_bytes: number; volume_bytes: number; profile?: { notes?: string[] } };
+  zstd?: { level: number; files_packed: number; files_total: number; packed_bytes: number; volume_bytes: number; warnings?: string[] };
 }
 
 export type JobState = "queued" | "running" | "paused" | "done" | "failed" | "cancelled" | "interrupted";

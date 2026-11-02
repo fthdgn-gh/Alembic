@@ -24,6 +24,7 @@
 #include "alembic/kraken.hpp"
 #include "alembic/ffpfsc.hpp"
 #include "alembic/lz4pack.hpp"
+#include "alembic/zstdpack.hpp"
 #include "alembic/resume.hpp"
 #include "alembic/sha256.hpp"
 
@@ -110,7 +111,7 @@ std::string shorten_name(const std::string& name, std::size_t limit) {
             if (ok) version = name.substr(i, 12);
         }
     }
-    for (const char* t : {"-lz4", "-unpacked"}) {
+    for (const char* t : {"-lz4", "-zstd", "-unpacked"}) {
         std::size_t n = std::char_traits<char>::length(t);
         if (name.size() >= n && name.compare(name.size() - n, n, t) == 0) tag = t;
     }
@@ -155,7 +156,8 @@ Result<std::string> resolve_output(const JobSpec& spec) {
             if (dot != std::string::npos && dot > 0) name = name.substr(0, dot);
         }
         if (spec.lz4) name += "-lz4";
-        if (spec.lz4_unpack) name += "-unpacked";
+        if (spec.zstd) name += "-zstd";
+        if (spec.lz4_unpack || spec.zstd_unpack) name += "-unpacked";
         // Default names stay mountable by ShadowMount+.
         if (std::size_t limit = mount_name_limit(extension_for(to))) name = shorten_name(name, limit);
         out = (dir == "/" ? "" : dir) + "/" + name + extension_for(to);
@@ -169,6 +171,10 @@ std::vector<std::string> EngineConfig::available_roots() const {
     for (const std::string& r : roots)
         if (platform::root_available(strip_slashes(r))) out.push_back(strip_slashes(r));
     return out;
+}
+
+std::string EngineConfig::zstd_runtime_path() const {
+    return state_dir + "/" + find_dependency("ampr_runtime_ng")->files[0].path;
 }
 
 std::string EngineConfig::runtime_path() const {
@@ -236,6 +242,11 @@ std::string fingerprint(const JobSpec& spec, const std::string& output, const En
     v.set("rebuild", spec.rebuild);
     v.set("cluster_size", spec.cluster_size);
     v.set("lz4_unpack", spec.lz4_unpack);
+    if (spec.zstd || spec.zstd_unpack) { // older checkpoints had neither
+        v.set("zstd", spec.zstd);
+        v.set("zstd_level", spec.zstd_level);
+        v.set("zstd_unpack", spec.zstd_unpack);
+    }
     v.set("passcode", spec.passcode);
     v.set("ampr_emu", spec.ampr_emu);
     if (spec.lz4) {
@@ -433,6 +444,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     options.ffpfsc.compression.level = spec.level;
     options.ffpfsc.compression.threads = config.threads;
     options.lz4_unpack = spec.lz4_unpack;
+    options.zstd_unpack = spec.zstd_unpack;
     options.fpkg.keys_folder = config.state_dir + "/keys"; // the fpkg_keys component
     if (spec.pkg_compression == "kraken") options.fpkg.compression = fpkg::build::Compression::kraken;
     options.fpkg_ps4.keys_file = config.state_dir + "/keys/ps4/Keys.cs"; // the ps4_keys component
@@ -445,10 +457,23 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
 
     // The AMPR emulator, from the runtime component (missing_dependencies
     // asks for it when the game needs it).
-    if (!spec.lz4 && spec.ampr_emu != "off" && to != convert::Format::fpkg && is_regular_file(config.runtime_path())) {
+    if (!spec.lz4 && !spec.zstd && spec.ampr_emu != "off" && to != convert::Format::fpkg && is_regular_file(config.runtime_path())) {
         ALEMBIC_ASSIGN(File file, File::open(config.runtime_path(), File::Mode::read));
         options.ampr_emulator = std::make_shared<File>(std::move(file));
         options.ampr_emulator_always = spec.ampr_emu == "always";
+    }
+
+    if (spec.zstd) {
+        zstdpack::PackOptions pack;
+        pack.level = spec.zstd_level;
+        pack.workers = config.threads;
+        // ampr-emu-ng's runtime; without it the game must already ship one
+        // (missing_dependencies asks for the component otherwise).
+        if (is_regular_file(config.zstd_runtime_path())) {
+            ALEMBIC_ASSIGN(File file, File::open(config.zstd_runtime_path(), File::Mode::read));
+            pack.runtime_module = std::make_shared<File>(std::move(file));
+        }
+        options.zstd = std::move(pack);
     }
 
     JsonValue profile_json;
@@ -581,6 +606,22 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
         l.set("warnings", std::move(warnings));
         r.set("lz4", std::move(l));
     }
+    if (report.zstd) {
+        const zstdpack::PackStats& st = *report.zstd;
+        JsonValue z = JsonValue::object();
+        z.set("level", spec.zstd_level);
+        z.set("files_total", st.files_total);
+        z.set("files_packed", st.files_packed);
+        z.set("files_store_only", st.files_store_only);
+        z.set("packed_bytes", st.logical_bytes);
+        z.set("volume_bytes", st.volume_bytes);
+        z.set("loose_bytes", st.loose_bytes);
+        z.set("volumes", st.volumes);
+        JsonValue warnings = JsonValue::array();
+        for (const std::string& w : st.warnings) warnings.push(w);
+        z.set("warnings", std::move(warnings));
+        r.set("zstd", std::move(z));
+    }
 
     if (spec.install_after) {
         if (to != convert::Format::fpkg) return make_error(Errc::invalid_argument, "only a package can be installed");
@@ -592,7 +633,8 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
             // Packing adds the runtime when the game had none.
             std::vector<std::string> extra;
             for (const std::string& p : cmp.only_in_b)
-                if (!(spec.lz4 && p == lz4pack::kRuntimeRelativePath) && p != report.ampr_emulator_path)
+                if (!(spec.lz4 && p == lz4pack::kRuntimeRelativePath) && !(spec.zstd && p == zstdpack::kRuntimeRelativePath) &&
+                    p != report.ampr_emulator_path)
                     extra.push_back(p);
             // A package build writes its own sce_sys/playgo-chunk.dat (as ProsperoPkgTool does).
             if (to == convert::Format::fpkg)
@@ -720,11 +762,13 @@ std::vector<std::string> missing_dependencies(const JobSpec& spec, const EngineC
     if (spec.kind == "ampr_emu" && !have_runtime) out.push_back("ampr_runtime");
     if (spec.kind == "convert") {
         auto to = target_format(spec);
-        if (!have_runtime) {
+        // zstd packs are read only by ampr-emu-ng.
+        if (spec.zstd && !is_regular_file(config.zstd_runtime_path())) out.push_back("ampr_runtime_ng");
+        if (!have_runtime && !spec.zstd) {
             if (spec.lz4 && spec.lz4_runtime.empty()) {
                 auto a = ampr_state(input, passcode);
                 if (!a || !a->ships_in_fakelib) out.push_back("ampr_runtime");
-            } else if (!spec.lz4 && spec.ampr_emu != "off" && to.ok() && *to != convert::Format::fpkg) {
+            } else if (!spec.lz4 && !spec.zstd && spec.ampr_emu != "off" && to.ok() && *to != convert::Format::fpkg) {
                 auto a = ampr_state(input, passcode);
                 if (a && (spec.ampr_emu == "always" ? !a->ships : a->needed())) out.push_back("ampr_runtime");
             }

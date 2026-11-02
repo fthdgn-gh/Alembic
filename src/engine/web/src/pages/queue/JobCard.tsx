@@ -52,6 +52,7 @@ export function JobCard(props: { j: Job }) {
     tags.push(s.to);
     if (s.to === "ffpfsc") tags.push(t("level {n}", { n: s.level }));
     if (s.lz4) tags.push("LZ4 · " + s.lz4_profile);
+    if (s.zstd) tags.push("zstd · " + t("level {n}", { n: s.zstd_level || 5 }));
     if (s.delete_source) tags.push(s.verify ? t("check, then delete source") : t("delete source"));
   }
   const notes = r.lz4 && r.lz4.profile && r.lz4.profile.notes ? r.lz4.profile.notes : [];
@@ -78,6 +79,7 @@ export function JobCard(props: { j: Job }) {
         ? <div class="note">{t("Reads {name} from a computer: keep Alembic open there, or pick the file again with From this computer…", { name: base(s.input) })}</div> : null}
       {r.smp_source ? <div class="note">{t("ShadowMount+ still uses {path} for this game. Hide it (⋯ on this job) to switch to the new one.", { path: shownPath(r.smp_source) })}</div> : null}
       {r.lz4 ? <div class="line">{t("LZ4: {a} of {b} files packed", { a: r.lz4.files_packed, b: r.lz4.files_total }) + " · " + bytes(r.lz4.packed_bytes) + " → " + bytes(r.lz4.volume_bytes)}</div> : null}
+      {r.zstd ? <div class="line">{t("zstd: {a} of {b} files packed", { a: r.zstd.files_packed, b: r.zstd.files_total }) + " · " + bytes(r.zstd.packed_bytes) + " → " + bytes(r.zstd.volume_bytes)}</div> : null}
       {r.source_kept ? <div class="note">{t("Source kept: {why}", { why: t(r.source_kept) })}</div> : null}
       {notes.length ? <div class="note">{notes.map(tMsg).join(" ")}</div> : null}
       {r.warnings && r.warnings.length ? <div class="note">{r.warnings.map(tMsg).join(" ")}</div> : null}

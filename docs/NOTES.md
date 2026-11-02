@@ -141,9 +141,7 @@ app/preview.sh [dir] [script]       # PNGs of the app drawn on this computer (Me
   DDS generation or keystone generation. Not yet installed on a console,
   stored or Kraken.
 - zstd packs: not tried on a console; not resumable (no pass-1
-  checkpoints: a stopped zstd conversion starts over); the CLI only (the
-  engine, page and app do not offer them yet); the byte comparison with
-  ps5-dump-forge not run.
+  checkpoints: a stopped zstd conversion starts over).
 - LZ4 packs: hit and miss on the console (owner, 2026-10-22: "works when it
   works", left as it is). Pass 1 keeps ~200 bytes per chunk in RAM (456 MB
   for 2.2M chunks).
@@ -3132,8 +3130,32 @@ release: see "components follow their latest releases" below.)
   updates", a Version row ("0.1.0 · 0.2.0 is out" / "· the latest") and
   "Update to X". Tried against a PC engine (download, a faked older record
   updated by hand and automatically, the switch off); pictures of both.
-- **Not yet**: on the console. Writing zstd packs: being ported (separate
-  branch).
+- **Not yet**: on the console.
+
+### 2026-11-02: zstd packs in the engine, page and app
+
+- Merged the `zstd-packs` branch (core, CLI, tests, oracle; see the entry
+  above). The owner ran `tools/zstd-oracle/compare.sh` (it builds
+  ps5-dump-forge with cargo; the agent's sandbox refuses that): every check
+  byte-identical.
+- **Engine**: `JobSpec` `zstd`, `zstd_level` (1-22, default 5),
+  `zstd_unpack`; zstd excludes LZ4 and unpacking. The runtime put in
+  fakelib/ is always ampr-emu-ng's (`EngineConfig::zstd_runtime_path`,
+  the `ampr_runtime_ng` component, whichever emulator is "in use");
+  missing, the plan asks for it in `needs`. Outputs get `-zstd`
+  (`-unpacked` for unpacking); the result has `zstd` (files, bytes,
+  volumes, warnings); the checkpoint fingerprint carries the settings
+  (only when set, so older checkpoints still match). `/api/inspect` says
+  `zstd_packed`. A job for a paired engine of 0.4.2 or older is refused
+  (it would ignore `zstd` and convert without packs).
+- **Page and app**: Convert offers "Pack into zstd packs" (PS5 games, not
+  for FPKG; hides the LZ4 switch while on, and LZ4 hides it), a level
+  (1 / 5 / 19) and a note to turn off ShadowMount+'s "update emulators";
+  "Unpack zstd packs" for a zstd-packed game; "zstd-packed" in its facts;
+  job cards tag "zstd · level N" and show what was packed. Tried against
+  a PC engine (conversion verified with `zstd-verify`, ng 0.2.0's
+  `libSceAmpr.sprx` in fakelib); pictures of the page and app dialogs.
+- **Not yet**: on a console.
 
 ## Next session
 

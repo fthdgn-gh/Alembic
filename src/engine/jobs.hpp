@@ -52,6 +52,10 @@ struct JobSpec {
     int lz4_level = 9;
     std::string lz4_runtime; // empty: the engine's runtime file
     bool lz4_unpack = false;
+    // zstd packs (ampr-emu-ng's), with ampr-emu-ng's libSceAmpr.sprx in fakelib/.
+    bool zstd = false;
+    int zstd_level = 5;
+    bool zstd_unpack = false;
     // ampr_emu's libSceAmpr.sprx (the engine's runtime file): "auto" adds it
     // when eboot.bin uses the console's APR and the game ships none,
     // "always" whenever the game ships none, "off" never. Not for FPKG output.

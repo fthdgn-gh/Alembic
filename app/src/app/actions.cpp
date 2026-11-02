@@ -678,6 +678,8 @@ public:
     bool keep_pkg = false; // ...or keep it
     int profile = 0;
     int lz4_level = 1;  // index: 1 / 9 / 12
+    int zstd_level = 1; // index: 1 / 5 / 19
+    bool zstd = false, zunpack = false;
     bool lz4 = false, unpack = false, ampr = true, verify = true, del = false, hide = false, over = false;
     std::string name;
     int where = 0;  // index into on-choices
@@ -726,6 +728,16 @@ public:
         return it != inspects.end() && it->second["lz4_packed"].boolean();
     }
     bool packed_any() const { return std::any_of(entries.begin(), entries.end(), [this](const Entry& e) { return packed(e); }); }
+    // zstd packs (ampr-emu-ng's) the same way; a game has one kind or none.
+    bool zpacked(const Entry& e) const {
+        auto it = inspects.find(e.path);
+        return it != inspects.end() && it->second["zstd_packed"].boolean();
+    }
+    bool zpacked_any() const { return std::any_of(entries.begin(), entries.end(), [this](const Entry& e) { return zpacked(e); }); }
+    bool zpacked_all() const { return std::all_of(entries.begin(), entries.end(), [this](const Entry& e) { return zpacked(e); }); }
+    bool pack_offered() const { return !packed_any() && !zpacked_any(); }
+    // zstd packs are for PS5 games in a folder or an image.
+    bool zstd_offered(App& app) const { return pack_offered() && !any_ps4(app) && to != "fpkg"; }
     bool packed_all() const { return std::all_of(entries.begin(), entries.end(), [this](const Entry& e) { return packed(e); }); }
     bool any_shared() const { return std::any_of(entries.begin(), entries.end(), [](const Entry& e) { return e.shared; }); }
     bool any_ps4(App& app) const {
@@ -750,7 +762,9 @@ public:
         const JsonValue s = spec(app, entry, nullptr);
         std::vector<Entry> out;
         for (const auto& e : entries)
-            if (format_of(e) != s["to"].str() || s["lz4"].boolean() || s["lz4_unpack"].boolean()) out.push_back(e);
+            if (format_of(e) != s["to"].str() || s["lz4"].boolean() || s["lz4_unpack"].boolean() || s["zstd"].boolean() ||
+                s["zstd_unpack"].boolean())
+                out.push_back(e);
         return out;
     }
     // Every job's spec, and a key that changes with any of them.
@@ -767,11 +781,12 @@ public:
     }
 
     JsonValue spec(App& app, const Entry& e, std::string* key_out) {
-        const bool lz4_on = lz4 && !packed_any(), unpack_on = unpack && packed_all();
+        const bool zstd_on = zstd && zstd_offered(app), zunpack_on = zunpack && zpacked_all();
+        const bool lz4_on = lz4 && pack_offered() && !zstd_on, unpack_on = unpack && packed_all();
         const std::string same = one_format();
         std::vector<std::string> offered;
         for (const auto& f : kFormats)
-            if (f.value != same || lz4_on || unpack_on) offered.push_back(f.value);
+            if (f.value != same || lz4_on || unpack_on || zstd_on || zunpack_on) offered.push_back(f.value);
         const std::string target = std::find(offered.begin(), offered.end(), to) != offered.end() ? to : offered.front();
         const bool install_on = install && installable(app, target);
         const bool del_on = !any_shared() && del && !install_on;
@@ -796,6 +811,12 @@ public:
         s.set("lz4_unpack", unpack_on);
         s.set("lz4_profile", profiles[static_cast<std::size_t>(std::clamp(profile, 0, static_cast<int>(profiles.size()) - 1))]);
         s.set("lz4_level", lz4_levels[std::clamp(lz4_level, 0, 2)]);
+        if (zstd_on || zunpack_on) {
+            static const int zstd_levels[] = {1, 5, 19};
+            s.set("zstd", zstd_on);
+            s.set("zstd_level", zstd_levels[std::clamp(zstd_level, 0, 2)]);
+            s.set("zstd_unpack", zunpack_on);
+        }
         s.set("delete_source", del_on);
         s.set("verify", verify);
         s.set("overwrite", over);
@@ -1018,11 +1039,13 @@ public:
         const bool packed = many() ? packed_all() : inspect["lz4_packed"].boolean();
         const std::string target = s["to"].str();
         const bool lz4_on = s["lz4"].boolean(), unpack_on = s["lz4_unpack"].boolean();
+        const bool zstd_on = s["zstd"].boolean(), zunpack_on = s["zstd_unpack"].boolean();
+        const bool zpacked_one = many() ? zpacked_all() : inspect["zstd_packed"].boolean();
         const bool del_on = s["delete_source"].boolean();
         bool hide_hidden = true;
         for (const auto& e : entries)
             hide_hidden = hide_hidden && (e.kind == "fpkg" || is_hidden_name(e.name) || del_on || target == "fpkg" || e.shared);
-        const bool ampr_hidden = target == "fpkg" || lz4_on;
+        const bool ampr_hidden = target == "fpkg" || lz4_on || zstd_on;
 
         sheet.begin(ui, t("Convert"), "", Sheet::Size::wide, true);
         const float x = sheet.x(), w = sheet.w();
@@ -1035,7 +1058,7 @@ public:
             const std::string same = one_format();
             std::vector<const Format*> offered;
             for (const auto& f : kFormats)
-                if (f.value != same || lz4_on || unpack_on) offered.push_back(&f);
+                if (f.value != same || lz4_on || unpack_on || zstd_on || zunpack_on) offered.push_back(&f);
             const float tile_w = (lw - 1.0f * R) / 3.0f;
             for (std::size_t row = 0; row * 3 < offered.size(); ++row) {
                 float th = 0.0f;
@@ -1085,7 +1108,8 @@ public:
                             t("Leaves the .pkg after installing, to install again or elsewhere"), &keep_pkg);
             ui.list->rounded_rect({x + 1.25f * R, top, 2.0f, y - top - 0.5f * R}, 0.0f, line);
         }
-        if (!packed_any()) y += switch_row(ui, "cv:lz4", x, y, lw, t("Pack into LZ4 asset packs"), t("For ampr_emu games"), &lz4);
+        if (pack_offered() && !zstd_on)
+            y += switch_row(ui, "cv:lz4", x, y, lw, t("Pack into LZ4 asset packs"), t("For ampr_emu games"), &lz4);
         if (lz4_on) {
             const float ix = x + 1.25f * R + 0.9f * R + 2.0f, iw = lw - (ix - x);
             const float top = y;
@@ -1107,6 +1131,23 @@ public:
                                      0.88f * R, 0.88f * 1.45f * R, warn) + 0.5f * R;
             ui.list->rounded_rect({x + 1.25f * R, top, 2.0f, y - top - 0.5f * R}, 0.0f, line);
         }
+        if (zstd_offered(app) && !lz4_on)
+            y += switch_row(ui, "cv:zstd", x, y, lw, t("Pack into zstd packs"),
+                            t("Smaller than LZ4 and faster to make; read only by ampr-emu-ng, which goes into the game"), &zstd);
+        if (zstd_on) {
+            const float ix = x + 1.25f * R + 0.9f * R + 2.0f, iw = lw - (ix - x);
+            const float top = y;
+            y += choice_row(ui, "cv:zstdlevel", ix, y, iw, t("zstd level"), "",
+                            {t("1 \xC2\xB7 fastest"), t("5 \xC2\xB7 default"), t("19 \xC2\xB7 smallest")}, &zstd_level);
+            y += draw::paragraph(ui, Face::regular,
+                                 t("Turn off ShadowMount+'s \xE2\x80\x9Cupdate emulators\xE2\x80\x9D: it would swap ampr-emu-ng for "
+                                   "another emulator that can't read these packs."),
+                                 ix, y, iw, 0.88f * R, 0.88f * 1.45f * R, warn) + 0.5f * R;
+            ui.list->rounded_rect({x + 1.25f * R, top, 2.0f, y - top - 0.5f * R}, 0.0f, line);
+        }
+        if (zpacked_one)
+            y += switch_row(ui, "cv:zunpack", x, y, lw, t("Unpack zstd packs"),
+                            t("Turns the packs back into ordinary files; ampr-emu-ng stays in fakelib"), &zunpack);
         if (packed)
             y += switch_row(ui, "cv:unpack", x, y, lw, t("Unpack LZ4 asset packs"),
                             t("Turns the packs back into ordinary files; ampr_emu's runtime stays in fakelib"), &unpack);
@@ -1206,7 +1247,9 @@ public:
             else if (!inspect.is_object())
                 rows.push_back({t("Reading"), "\xE2\x80\xA6", ""});
             else {
-                rows.push_back({t("Format"), inspect["format"].str() + (packed ? " \xC2\xB7 " + t("LZ4-packed") : ""), ""});
+                rows.push_back({t("Format"), inspect["format"].str() + (packed ? " \xC2\xB7 " + t("LZ4-packed")
+                                                                        : zpacked_one ? " \xC2\xB7 " + t("zstd-packed")
+                                                                                      : ""), ""});
                 rows.push_back({t("Title ID"), inspect["title_id"].str().empty() ? "\xE2\x80\x94" : inspect["title_id"].str(), ""});
                 rows.push_back({t("Contents"), plural(inspect["files"].integer(), "{n} file", "{n} files") + " \xC2\xB7 " +
                                                    bytes(inspect["bytes"].number()), ""});

@@ -28,9 +28,9 @@ ENGINE = [
     "Paused; starts over when resumed", "Building exFAT", "Building the inner image", "Checking the package", "Checking the package (on the other engine)",
     "Writing the package", "Hashing the package", "Choosing LZ4 profile", "Comparing", "Compressing PFSC", "Compressing", "Packing dump", "Copying image", "Copying",
     "Decoding PFSC", "Deleting the source", "Extracting", "Handing it to the system installer", "Installing (the console reads the package)", "LZ4 pass 1",
-    "LZ4 planning", "Measuring", "Checking eboot.bin", "Writing the emulator", "Verifying LZ4 packs", "Verifying", "Writing PFS image", "Writing UFS2 image",
+    "LZ4 planning", "zstd pass 1", "Measuring", "Checking eboot.bin", "Writing the emulator", "Verifying LZ4 packs", "Verifying", "Writing PFS image", "Writing UFS2 image",
     # how a conversion was done
-    "LZ4-packed and {rest}", "LZ4-unpacked and {rest}", "added the AMPR emulator and {rest}",
+    "LZ4-packed and {rest}", "LZ4-unpacked and {rest}", "zstd-packed and {rest}", "zstd-unpacked and {rest}", "added the AMPR emulator and {rest}",
     "added the AMPR emulator to the game folder", "added the AMPR emulator as a ShadowMount+ backport",
     "replaced the AMPR emulator in the game folder", "replaced the AMPR emulator through a ShadowMount+ backport",
     "nothing to do: the emulator is already in place",

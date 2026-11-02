@@ -79,6 +79,9 @@ JsonValue JobSpec::to_json() const {
     j.set("lz4_level", lz4_level);
     j.set("lz4_runtime", lz4_runtime);
     j.set("lz4_unpack", lz4_unpack);
+    j.set("zstd", zstd);
+    j.set("zstd_level", zstd_level);
+    j.set("zstd_unpack", zstd_unpack);
     j.set("ampr_emu", ampr_emu);
     j.set("delete_source", delete_source);
     j.set("verify", verify);
@@ -121,6 +124,9 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
     s.lz4_level = static_cast<int>(j["lz4_level"].integer(9));
     s.lz4_runtime = j["lz4_runtime"].str();
     s.lz4_unpack = j["lz4_unpack"].boolean();
+    s.zstd = j["zstd"].boolean();
+    s.zstd_level = static_cast<int>(j["zstd_level"].integer(5));
+    s.zstd_unpack = j["zstd_unpack"].boolean();
     s.ampr_emu = j["ampr_emu"].str("auto");
     if (s.ampr_emu == "replace" && s.kind != "ampr_emu")
         return make_error(Errc::invalid_argument, "ampr_emu replace is only for ampr_emu jobs");
@@ -141,6 +147,9 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
     if (cluster < 0 || cluster > 0x2000000) return make_error(Errc::invalid_argument, "bad cluster_size");
     s.cluster_size = static_cast<std::uint32_t>(cluster);
     if (s.lz4 && s.lz4_unpack) return make_error(Errc::invalid_argument, "lz4 and lz4_unpack exclude each other");
+    if (s.zstd_level < 1 || s.zstd_level > 22) return make_error(Errc::invalid_argument, "zstd_level must be 1-22");
+    if (s.zstd && (s.lz4 || s.lz4_unpack || s.zstd_unpack))
+        return make_error(Errc::invalid_argument, "zstd packs exclude LZ4 packs and unpacking");
     return s;
 }
 

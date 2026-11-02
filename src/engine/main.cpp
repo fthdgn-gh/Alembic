@@ -104,6 +104,7 @@
 #include "alembic/ffpfsc.hpp"
 #include "alembic/io.hpp"
 #include "alembic/lz4pack.hpp"
+#include "alembic/zstdpack.hpp"
 #include "alembic/sha256.hpp"
 
 #include <algorithm>
@@ -1553,6 +1554,7 @@ private:
         v.set("files", totals.files);
         v.set("bytes", totals.bytes);
         v.set("lz4_packed", lz4pack::is_packed(input->tree->root()));
+        v.set("zstd_packed", zstdpack::is_packed(input->tree->root()));
         lz4pack::ProfileMatch m = lz4pack::match_bundled_profile(
             input->tree->root(), ffpfsc::read_title_id(*input->tree, input->tree->root()).value_or(""));
         v.set("lz4_profile", m.profile ? JsonValue(m.profile->id) : JsonValue("scan"));
@@ -2097,6 +2099,11 @@ private:
             if (auto p = discovery_->find(id); p && update::compare_versions(p->who.version, "0.3.3") <= 0)
                 return error(409, "Alembic " + p->who.version + " on " + p->who.name +
                                       " cannot make compressed packages: update it, or convert on this engine");
+        // Engines up to 0.4.2 ignore zstd and would convert without packs.
+        if (spec["zstd"].boolean() || spec["zstd_unpack"].boolean())
+            if (auto p = discovery_->find(id); p && update::compare_versions(p->who.version, "0.4.2") <= 0)
+                return error(409, "Alembic " + p->who.version + " on " + p->who.name +
+                                      " cannot make zstd packs: update it, or convert on this engine");
         auto reply = peer_fs::request(*discovery_, *pairing_, id, "POST", "/api/peer/jobs", {}, spec.dump(), 60000, 1u << 20);
         if (!reply.ok()) return error(502, reply.error().message);
         auto v = parse_json(*reply);
@@ -2203,7 +2210,7 @@ private:
             JsonValue v = spec->to_json();
             v.set("needs", std::move(needs));
             // Whether the AMPR emulator goes in (the page says so).
-            if (*target != "fpkg" && !spec->lz4)
+            if (*target != "fpkg" && !spec->lz4 && !spec->zstd)
                 if (auto a = ampr_state(spec->input, spec->passcode.empty() ? std::string(32, '0') : spec->passcode)) {
                     v.set("ampr_needed", a->needed());
                     v.set("ships_emulator", a->ships);

@@ -85,6 +85,14 @@ and the app mark each game with a **PS5** (white) or **PS4** (black) pill.
   PackedStdio runtime (`--lz4`), byte-identical to its `ampr_pack.py`, with
   game profiles from
   [PS5-LZ4-Compression](https://github.com/theghostonline/PS5-LZ4-Compression).
+- **zstd packs** for quer3q's [ampr-emu-ng](https://github.com/quer3q/ampr-emu-ng)
+  (`--zstd`, or "Pack into zstd packs" when converting), byte-identical to
+  [ps5-dump-forge](https://github.com/quer3q/ps5-dump-forge)'s: smaller than
+  LZ4 and faster to make (a 26 GiB set of game files became 11.1 GiB in
+  33 s on a Mac, against 17.5 GiB in 77 s for LZ4). The game gets
+  ampr-emu-ng's `libSceAmpr.sprx` (from Components); turn off ShadowMount+'s
+  "update emulators" so it isn't swapped for one that can't read them. Not
+  yet tried on a console.
 - **AMPR emulator:** games that use the console's APR file reader need
   ampr_emu's `libSceAmpr.sprx` to start from an image or folder. Alembic
   adds it when converting, or to a game you already have.
@@ -292,6 +300,7 @@ alembic convert game.pkg game.ffpfsc              # format from the extension (P
 alembic convert ps4game.exfat game.pkg --ps4-keys Keys.cs   # a PS4 game back to a PS4 fake PKG
 alembic convert game.exfat game/ --to folder      # unpack to a folder
 alembic convert game/ game.exfat --lz4 --lz4-runtime libSceAmpr.sprx
+alembic convert game/ game.exfat --zstd --zstd-runtime libSceAmpr.sprx   # ampr-emu-ng's
 alembic ls game.ffpkg                             # list the files of any input
 alembic same game.pkg game.ffpfsc                 # compare two inputs file by file
 alembic game-info game.exfat                      # title ID, SDK and PS4 or PS5
@@ -379,6 +388,7 @@ tools/oracle/compare.sh        # exFAT, FFPKG, FFPFS, FFPFSC vs PS5PKGTool and M
 tools/pkg-oracle/compare.sh    # FPKG reading and writing vs ProsperoPkgTool / LibProsperoPKG
 tools/pkg-oracle/write_samples.sh  # FPKG writing vs ProsperoPkgTool on your own packages
 tools/lz4-oracle/compare.sh    # LZ4 packs vs ampr_emu's ampr_pack.py
+tools/zstd-oracle/compare.sh   # zstd packs vs ps5-dump-forge (builds it with cargo)
 tools/ps4-oracle/compare.sh    # PS4 packages vs LibOrbisPkg's pkg_build, pkg_extract and pkg_validate
 ```
 
@@ -411,7 +421,9 @@ Alembic stands on the work of the PS5 homebrew scene. Thank you to:
   [ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus) (the loader
   Alembic's images are made for, and its HTTPS download code).
 - **quer3q** for [ampr-emu-ng](https://github.com/quer3q/ampr-emu-ng) (the
-  second AMPR emulator, and its zstd packs).
+  second AMPR emulator, and its zstd packs) and
+  [ps5-dump-forge](https://github.com/quer3q/ps5-dump-forge) (the zstd pack
+  writer Alembic follows, and checks against).
 - **PSBrew** for [MkPFS](https://github.com/PSBrew/MkPFS) (the PFS writer).
 - **maxton** for [LibOrbisPkg](https://github.com/maxton/LibOrbisPkg) (PS4
   packages: the writer Alembic follows, its keys, and the tool it is checked
@@ -431,7 +443,8 @@ Alembic stands on the work of the PS5 homebrew scene. Thank you to:
 - Microsoft's [open specifications](https://learn.microsoft.com/openspecs/)
   (SMB2/3, NTLM, SPNEGO, DCE/RPC and the share list) and the IETF RFCs for
   NFSv3, ONC RPC and WebDAV, which the network clients are written from.
-- [zlib](https://zlib.net) and [LZ4](https://github.com/lz4/lz4), bundled
+- [zlib](https://zlib.net), [LZ4](https://github.com/lz4/lz4) and
+  [Zstandard](https://github.com/facebook/zstd), bundled
   with the engine, and [Preact](https://github.com/preactjs/preact) with its
   [signals](https://github.com/preactjs/signals), bundled into its page.
 

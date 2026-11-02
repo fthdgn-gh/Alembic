@@ -114,6 +114,8 @@ float card(Ui& ui, App& app, const JsonValue& j, float x, float y, float w) {
         tags.push_back(s["to"].str());
         if (s["to"].str() == "ffpfsc") tags.push_back(t("level {n}", {{"n", std::to_string(s["level"].integer())}}));
         if (s["lz4"].boolean()) tags.push_back("LZ4 \xC2\xB7 " + s["lz4_profile"].str());
+        if (s["zstd"].boolean())
+            tags.push_back("zstd \xC2\xB7 " + t("level {n}", {{"n", std::to_string(s["zstd_level"].integer(5))}}));
         if (s["delete_source"].boolean())
             tags.push_back(s["verify"].boolean() ? t("check, then delete source") : t("delete source"));
     }
@@ -136,6 +138,12 @@ float card(Ui& ui, App& app, const JsonValue& j, float x, float y, float w) {
                                                             {"b", std::to_string(r["lz4"]["files_total"].integer())}}) +
                              " \xC2\xB7 " + bytes(r["lz4"]["packed_bytes"].number()) + " \xE2\x86\x92 " +
                              bytes(r["lz4"]["volume_bytes"].number()),
+                         muted});
+    if (r["zstd"].is_object())
+        lines.push_back({t("zstd: {a} of {b} files packed", {{"a", std::to_string(r["zstd"]["files_packed"].integer())},
+                                                             {"b", std::to_string(r["zstd"]["files_total"].integer())}}) +
+                             " \xC2\xB7 " + bytes(r["zstd"]["packed_bytes"].number()) + " \xE2\x86\x92 " +
+                             bytes(r["zstd"]["volume_bytes"].number()),
                          muted});
     if (!r["source_kept"].str().empty())
         lines.push_back({t("Source kept: {why}", {{"why", t(r["source_kept"].str())}}), warn});
