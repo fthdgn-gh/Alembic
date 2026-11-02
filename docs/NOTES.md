@@ -20,10 +20,8 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   PS5PKGTool (AMPR index with `--ampr-scheme ps5pkgtool`, PFSC at
   `--level 9`); FFPFS to MkPFS; FPKG (stored and Kraken) to
   ProsperoPkgTool `img_create --seed S --no_right_sprx [--compression
-  kraken]`; LZ4 packs to `ampr_pack.py`. zstd packs (2026-11-02): every
-  frame matches libzstd 1.5.7 driven as ps5-dump-forge drives it; the
-  byte comparison with ps5-dump-forge itself (`tools/zstd-oracle`) has not
-  been run yet.
+  kraken]`; LZ4 packs to `ampr_pack.py`. zstd packs to ps5-dump-forge
+  (`tools/zstd-oracle`, same archive ID; 2026-11-02).
 - **CLI** (`build/alembic`, run with no arguments for the list): `convert`
   (any row to any column, `--lz4`, `--zstd`, `--ampr-emu`), `ampr-emu`,
   `fpkg-build`, `ls`, `cat`, `same`, `lz4-info|verify`, `zstd-info|verify`, `ffpfsc-info|extract|verify`,
@@ -94,7 +92,7 @@ tools/pkg-oracle/compare.sh         # FPKG reading/writing vs ProsperoPkgTool/Li
 tools/pkg-oracle/check_samples.sh   # owner's real files in .refs/samples/ (~4 min; skips files over
                                     # ALEMBIC_SAMPLES_MAX_GB GiB, default 20; cleans up after each step)
 tools/lz4-oracle/compare.sh         # LZ4 packs vs ampr_pack.py (needs .refs/venv, Homebrew lz4)
-tools/zstd-oracle/compare.sh        # zstd packs vs ps5-dump-forge (builds it with cargo; NOT RUN YET;
+tools/zstd-oracle/compare.sh        # zstd packs vs ps5-dump-forge (builds it with cargo; passes;
                                     # --no-cargo: Alembic + check_pack.py only, needs Homebrew zstd)
 tools/pkg-oracle/write_samples.sh   # fpkg-build vs img_create on every real PS5 package (stored, Kraken)
 tools/netfs/samba_check.sh          # the SMB client against Samba: encryption required/not, 3.0-3.1.1
@@ -2770,9 +2768,10 @@ release: see "components follow their latest releases" below.)
   sequence: identical at levels 1, 3, 5, 19 on the synthetic game (also
   `--big`). **`tools/zstd-oracle/compare.sh` (ps5-dump-forge built with
   cargo from a scratch copy, its archive ID fixed by a patch, packs and
-  loose files compared, each reading the other's packs) is written but
-  has not been run**: building it runs third-party build scripts, owner's
-  call. `compare.sh --no-cargo` passes. LZ4 oracle and the PS5PKGTool/MkPFS
+  loose files compared, each reading the other's packs) passes** (run
+  by the owner, 2026-11-02): `ampr_zstd.index` and the volume byte-identical
+  at levels 1, 3, 5 and 19, the same loose files, each tool reads the
+  other's packs, and the exFAT, FFPKG and FFPFSC outputs carry the same packs. `compare.sh --no-cargo` passes. LZ4 oracle and the PS5PKGTool/MkPFS
   oracle unchanged; Windows and PS5 builds compile.
 - **Measured** (14-core Mac, `--rebuild` to exFAT, level 5): a 2.4 GB exFAT
   sample: 0.32 GiB packed into 0.15 GiB (LZ4 scan profile: 0.24 GiB),

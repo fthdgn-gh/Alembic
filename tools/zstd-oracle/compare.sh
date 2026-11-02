@@ -4,8 +4,8 @@
 # source with cargo).
 #   tools/zstd-oracle/compare.sh [path/to/ps5-dump-forge] [--big] [--no-cargo]
 #
-# NOT RUN YET (2026-11-02): building ps5-dump-forge runs its build scripts
-# and downloads crates; the owner decides when that happens.
+# Building ps5-dump-forge runs its build scripts and downloads crates: the
+# owner runs it (first passed 2026-11-02).
 #
 # ps5-dump-forge draws each pack's archive ID from getrandom. A scratch copy
 # of the checkout gets a small patch (writer.rs: the ID from
