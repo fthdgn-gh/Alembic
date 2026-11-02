@@ -3214,6 +3214,18 @@ release: see "components follow their latest releases" below.)
 - LZ4 packs stay as they are.
 
 **Open:**
+- **Where we left off (2026-11-03, after the zstd / ampr-emu-ng work; not
+  released, still 0.4.2):** console-tested so far: a level-5 zstd
+  exFAT -> exFAT of a 28 GB game on the console (12 min, 28.2 GB of files
+  into 11.9 GB of packs); a PC engine packing a 160 GB game for the
+  console (pass 1 ~180 MB/s on the Mac; the image went to the console at
+  ~37 MB/s over the network, cancelled by the owner partway). Still to try
+  on the console: a zstd-packed game starting through ShadowMount+ with
+  "update emulators" off; switching a game's emulator; switching packs in
+  Convert; Hide / Unhide; an emulator auto-update (needs a new upstream
+  release). Idea raised: build on the PC's own disk, then move, so a
+  network drop does not spoil a conversion. Before a release: README
+  screenshots for the new options, version bump.
 - **Console app (0.3.0):** ✓ first console run (owner, 2026-10-25): the
   app starts, reaches the engines, ran a PC-engine conversion to the
   console, stopped the engine and (reopened) started it through the ELF
