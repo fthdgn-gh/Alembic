@@ -403,6 +403,9 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
                 if (pw) pw += 0.45f * R;
                 pw += draw::fmt_pill(ui, e.game ? "folder" : e.kind, e.game ? t("FOLDER") : kind_label(e.kind), text_x + pw,
                                      s_cy);
+                // Asset packs inside: which AMPR emulator the game needs.
+                if (m->packs == "lz4" || m->packs == "zstd")
+                    pw += 0.45f * R + draw::fmt_pill(ui, "packs", m->packs == "zstd" ? "ZSTD" : "LZ4", text_x + pw + 0.45f * R, s_cy);
                 std::vector<std::string> bits;
                 if (!m->title.empty()) bits.push_back(e.name);
                 if (!m->version.empty()) bits.push_back("v" + version_text(m->version));

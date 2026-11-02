@@ -514,6 +514,7 @@ void App::pump_meta() {
                     slot.meta.content_id = r.json["content_id"].str();
                     slot.meta.version = r.json["version"].str();
                     slot.meta.platform = r.json["platform"].str();
+                    slot.meta.packs = r.json["packs"].str();
                     slot.meta.icon = r.json["icon"].boolean();
                 }
                 pump_meta();

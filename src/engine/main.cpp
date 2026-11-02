@@ -1618,6 +1618,7 @@ private:
         v.set("version", m->version);
         v.set("icon", m->has_icon);
         v.set("platform", m->platform); // "ps4", "ps5" or "" (0.3.2)
+        v.set("packs", m->packs);       // "lz4", "zstd" or "" (0.4.3)
         return json(200, v);
     }
 

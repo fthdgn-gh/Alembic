@@ -3155,6 +3155,12 @@ release: see "components follow their latest releases" below.)
   job cards tag "zstd · level N" and show what was packed. Tried against
   a PC engine (conversion verified with `zstd-verify`, ng 0.2.0's
   `libSceAmpr.sprx` in fakelib); pictures of the page and app dialogs.
+- **Files list tag** (owner: "zstd is a compression type, not a new image
+  format"; right: packs live inside any folder or image): `/api/meta`
+  gives `packs` ("lz4", "zstd" or "", from `ampr_assets.index` /
+  `ampr_zstd.index` at the game's root; meta cache entries without it are
+  read again), and the page and app show an outlined LZ4 / ZSTD tag after
+  the format pill.
 - **Not yet**: on a console.
 
 ## Next session

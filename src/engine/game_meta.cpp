@@ -95,6 +95,7 @@ JsonValue to_json(const GameMeta& m) {
     v.set("version", m.version);
     v.set("icon", m.has_icon);
     v.set("platform", m.platform);
+    v.set("packs", m.packs);
     return v;
 }
 
@@ -106,6 +107,7 @@ GameMeta from_json(const JsonValue& v) {
     m.version = v["version"].str();
     m.has_icon = v["icon"].boolean();
     m.platform = v["platform"].str();
+    m.packs = v["packs"].str();
     return m;
 }
 
@@ -180,8 +182,9 @@ Status GameMetaCache::load(const std::string& path, const std::string& key) {
     std::string json_path = dir_ + "/" + key + ".json";
     if (auto data = read_file(json_path); data.ok()) {
         auto v = parse_json(std::string(data->begin(), data->end()));
-        // Entries from before 0.3.2 lack the platform: read the game again.
-        if (v.ok() && v->has("platform")) {
+        // Entries from before 0.3.2 lack the platform, and before 0.4.3 the
+        // packs: read the game again.
+        if (v.ok() && v->has("platform") && v->has("packs")) {
             (void)touch_file(json_path); // used now (once per run: it stays in memory)
             std::lock_guard<std::mutex> lock(g_memory_mutex);
             g_memory[key] = from_json(*v);
@@ -209,6 +212,7 @@ Status GameMetaCache::load(const std::string& path, const std::string& key) {
             meta = parse_sfo(data);
             meta.platform = "ps4";
         }
+        meta.packs = zstdpack::is_packed(root) ? "zstd" : lz4pack::is_packed(root) ? "lz4" : "";
         if (const tree::Node* i = sce_sys_file(root, "icon0.png")) {
             auto data = read_node(*input.tree, *i, kMaxIcon);
             if (data.ok() && data->size() > 8) {

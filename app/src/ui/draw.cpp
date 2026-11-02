@@ -250,7 +250,12 @@ float fmt_pill(Ui& ui, std::string_view kind, std::string_view label, float x, f
     const float w = measure(ui, Face::semibold, label, size) + size * 0.06f * static_cast<float>(label.size()) +
                     0.9f * R;
     const float h = size + 0.44f * R;
-    ui.list->rounded_rect({x, cy - h * 0.5f, w, h}, h * 0.5f, fill);
+    if (kind == "packs") // asset packs (LZ4, ZSTD): outlined, as the page's .fmt.packs
+        ui.list->bordered_rect({x, cy - h * 0.5f, w, h}, h * 0.5f, rgb(0x000000, 0.0f), std::max(1.0f, 0.06f * R),
+                               rgb(0xc5ccdd, 0.45f));
+    else
+        ui.list->rounded_rect({x, cy - h * 0.5f, w, h}, h * 0.5f, fill);
+    if (kind == "packs") ink = rgb(0xc5ccdd);
     text(ui, Face::semibold, label, x + 0.45f * R, baseline(cy, size), size, ink, Align::left, size * 0.06f);
     return w;
 }

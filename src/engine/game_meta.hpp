@@ -20,6 +20,7 @@ struct GameMeta {
     std::string version;    // contentVersion
     std::string platform;   // "ps5" (param.json), "ps4" (param.sfo) or "" (neither)
     bool has_icon = false;
+    std::string packs;      // asset packs: "lz4" (ampr_assets.index), "zstd" (ampr_zstd.index) or ""
 };
 
 class GameMetaCache {

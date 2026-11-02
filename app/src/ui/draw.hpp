@@ -45,6 +45,7 @@ void ico(Ui& ui, const Rect& box, std::string_view kind, std::string_view label,
 // The colour pair of a format (.fmt / .ico classes): background and text.
 void kind_colors(std::string_view kind, Color* fill, Color* ink);
 // "EXFAT" pill; returns its width.
+// kind "packs": the outlined LZ4 / ZSTD tag for a game's asset packs.
 float fmt_pill(Ui& ui, std::string_view kind, std::string_view label, float x, float cy);
 // "PS5" (white, black text) or "PS4" (black, white text, outlined) pill
 // starting at x; returns its width (0 for any other platform).

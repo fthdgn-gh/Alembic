@@ -45,6 +45,8 @@ function Row(props: { e: Entry; top: boolean }) {
           {m ? [
             <PlatformPill meta={m} />,
             <span class={"fmt " + (e.game ? "folder" : e.kind)}>{e.game ? t("FOLDER") : KIND_LABEL[e.kind] || ""}</span>,
+            // Asset packs inside: which AMPR emulator the game needs.
+            m.packs === "lz4" || m.packs === "zstd" ? <span class="fmt packs" title={m.packs === "zstd" ? t("zstd-packed") : t("LZ4-packed")}>{m.packs.toUpperCase()}</span> : null,
             [m.title ? e.name : "", m.version ? "v" + m.version.replace(/^0+(?=\d)/, "") : "", m.title_id].filter(Boolean).join("  ·  "),
           ] : plain}
         </div>
