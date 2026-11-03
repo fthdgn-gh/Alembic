@@ -102,12 +102,13 @@ const std::vector<std::pair<std::string, std::string>>& languages() {
 }
 
 bool load_i18n(std::string_view script) {
-    const std::size_t eq = script.find('=');
-    if (eq == std::string_view::npos) return false;
-    std::string_view json = script.substr(eq + 1);
-    while (!json.empty() && (json.back() == ';' || json.back() == '\n' || json.back() == ' ' || json.back() == '\r'))
-        json.remove_suffix(1);
-    auto parsed = engine::parse_json(json);
+    // The table is the object on the line that starts "var I18N =" (the
+    // file's opening comment mentions those words too).
+    const std::size_t line = script.find("\nvar I18N =");
+    const std::size_t start = line == std::string_view::npos ? line : script.find('{', line);
+    const std::size_t end = script.rfind('}');
+    if (start == std::string_view::npos || end == std::string_view::npos || end < start) return false;
+    auto parsed = engine::parse_json(script.substr(start, end - start + 1));
     if (!parsed || !parsed->is_object()) return false;
     Tables& T = tables();
     T.langs.clear();

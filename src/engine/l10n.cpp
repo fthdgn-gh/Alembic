@@ -71,7 +71,8 @@ std::string message_locked(const std::string& text, int depth) {
 
 void load(const char* data, std::size_t size) {
     std::string text(data, size);
-    std::size_t start = text.find("var I18N =");
+    // The line that starts "var I18N =" (the opening comment mentions it too).
+    std::size_t start = text.find("\nvar I18N =");
     start = start == std::string::npos ? std::string::npos : text.find('{', start);
     std::size_t end = text.rfind('}');
     if (start == std::string::npos || end == std::string::npos || end < start) return;

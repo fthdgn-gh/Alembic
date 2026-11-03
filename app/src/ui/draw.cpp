@@ -112,9 +112,44 @@ float paragraph_height(Ui& ui, Face face, std::string_view s, float width, float
 }
 
 float caps(Ui& ui, std::string_view s, float x, float baseline, float size, Color color) {
+    // Upper case as the page's CSS makes it, accented letters included
+    // ("Aplicación" is "APLICACIÓN", "ß" is "SS").
     std::string upper;
     upper.reserve(s.size());
-    for (char c : s) upper += (c >= 'a' && c <= 'z') ? static_cast<char>(c - 32) : c;
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        const auto c = static_cast<unsigned char>(s[i]);
+        if (c >= 'a' && c <= 'z') {
+            upper += static_cast<char>(c - 32);
+            continue;
+        }
+        if ((c == 0xC3 || c == 0xC4 || c == 0xC5) && i + 1 < s.size()) {
+            const unsigned cp = ((c & 0x1Fu) << 6) | (static_cast<unsigned char>(s[i + 1]) & 0x3Fu);
+            unsigned up = cp;
+            if (cp == 0xDF) {  // ß
+                upper += "SS";
+                ++i;
+                continue;
+            }
+            if (cp >= 0xE0 && cp <= 0xFE && cp != 0xF7) up = cp - 0x20;  // à…þ
+            else if (cp == 0xFF) up = 0x178;                              // ÿ
+            else if (cp == 0x131) up = 'I';                               // ı
+            else if (cp >= 0x100 && cp <= 0x17E && cp != 0x138 && cp != 0x149) {
+                // Latin Extended-A pairs: even upper, odd lower, but 0x139…0x148
+                // and 0x179…0x17E are the other way round.
+                const bool shifted = (cp >= 0x139 && cp <= 0x148) || (cp >= 0x179 && cp <= 0x17E);
+                if ((cp % 2 == 1) != shifted) up = cp - 1;
+            }
+            if (up < 0x80) {
+                upper += static_cast<char>(up);
+            } else {
+                upper += static_cast<char>(0xC0 | (up >> 6));
+                upper += static_cast<char>(0x80 | (up & 0x3F));
+            }
+            ++i;
+            continue;
+        }
+        upper += static_cast<char>(c);
+    }
     return text(ui, Face::semibold, upper, x, baseline, size, color, Align::left, size * 0.14f);
 }
 
