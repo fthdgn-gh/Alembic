@@ -93,7 +93,8 @@ for r in repeated: print(r)
 for lang, table in tables.items():
     missing = [k for k in keys if k not in table]
     unused = [k for k in table if k not in keys]
-    wrong = [k for k in keys if k in table and ph(k) != ph(table[k])]
+    # A plural's extra forms (Russian: "few|many", "one|few|many") each keep the placeholders.
+    wrong = [k for k in keys if k in table and any(ph(k) != ph(part) for part in table[k].split("|"))]
     for k in missing: print(f"{lang}: missing {k!r}")
     for k in unused: print(f"{lang}: unused {k!r}")
     for k in wrong: print(f"{lang}: placeholders differ in {k!r}: {table[k]!r}")

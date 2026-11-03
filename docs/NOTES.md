@@ -1200,6 +1200,7 @@ is about the USB drive's own format (shown on connect), not about the image.
 ### 2026-10-19: languages and the confirm button
 
 - The page speaks English, Spanish, French, German, Japanese and Turkish
+  (Russian from 2026-11-03)
   (`src/engine/web/i18n.js`, served at /i18n.js). Texts are keyed by their
   English wording through `t("...", {vars})`; anything missing falls back to
   English. The language follows the browser, and Settings → Language
@@ -3263,6 +3264,18 @@ release: see "components follow their latest releases" below.)
   the "English for now" hint is gone. Preview pictures in Japanese (Files,
   Components, Settings, a Japanese folder name) and English unchanged.
   **Not yet**: on a console.
+- **Russian** (owner): `i18n.ru.json` (the model's translation, four
+  agents over a shared glossary: движок, задача, образ, пакет, архив for a
+  pack, связанные движки, Места; reviewed and a few fixed by hand). Russian
+  plurals have three forms: the translation of a plural text holds the
+  extra ones split by "|" ("{n} файла|{n} файлов" for the plural text,
+  "one|few|many" for a text used for every count), and `plural()` on the
+  page and in the app picks one (`pluralForm` in `lib/i18n.ts`; tested for
+  0–1001). `i18n_keys.py` checks placeholders in each part. Numbers use a
+  no-break space in the app; headings upper-case Cyrillic; the console's
+  language 8 is "ru". **Language order** (owner): English, Türkçe, then
+  Deutsch, Español, Français, Русский, 日本語 (page, app, README). Page
+  and app pictures in Russian against a PC engine.
 
 ## Next session
 

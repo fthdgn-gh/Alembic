@@ -312,6 +312,7 @@ std::string system_language() {
     case 2: return "fr";
     case 3: case 20: return "es"; // Spain, Latin America
     case 4: return "de";
+    case 8: return "ru";
     case 19: return "tr";
     default: return "en";
     }

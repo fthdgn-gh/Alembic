@@ -30,7 +30,7 @@ export function loadTranslations(code: string): Promise<void> {
   });
 }
 
-export const LANGS: [string, string][] = [["en", "English"], ["es", "Español"], ["fr", "Français"], ["de", "Deutsch"], ["ja", "日本語"], ["tr", "Türkçe"]];
+export const LANGS: [string, string][] = [["en", "English"], ["tr", "Türkçe"], ["de", "Deutsch"], ["es", "Español"], ["fr", "Français"], ["ru", "Русский"], ["ja", "日本語"]];
 
 function saved(): string | null {
   try { return JSON.parse(localStorage.getItem("alembic.lang") as string); } catch (e) { return null; }
@@ -60,8 +60,26 @@ export function t(text: string, vars?: Vars): string {
   return out;
 }
 
+// Which form a count takes: Russian has three (1, 21 / 2–4, 22 / 5–20, 11–14),
+// the other languages two.
+export function pluralForm(code: string, n: number): "one" | "few" | "many" {
+  if (code === "ru") {
+    const d = n % 10, h = n % 100;
+    if (d === 1 && h !== 11) return "one";
+    return d >= 2 && d <= 4 && (h < 12 || h > 14) ? "few" : "many";
+  }
+  return n === 1 ? "one" : "many";
+}
+
+// A count in words. Where a language has more forms than English, the
+// translation holds them separated by "|": the plural text's as "few|many",
+// a text used for every count as "one|few|many".
 export function plural(n: number, one: string, many: string): string {
-  return t(n === 1 ? one : many, { n: n.toLocaleString(lang.value) });
+  const form = pluralForm(lang.value, n);
+  const parts = t(form === "one" ? one : many).split("|");
+  const text = parts.length === 3 ? parts[form === "one" ? 0 : form === "few" ? 1 : 2]
+    : parts.length === 2 ? parts[form === "few" ? 0 : 1] : parts[0];
+  return text.replace(/\{n\}/g, n.toLocaleString(lang.value));
 }
 
 // The engine's place names: "Internal storage", "USB 0 · homebrew", ...

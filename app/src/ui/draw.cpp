@@ -112,14 +112,23 @@ float paragraph_height(Ui& ui, Face face, std::string_view s, float width, float
 }
 
 float caps(Ui& ui, std::string_view s, float x, float baseline, float size, Color color) {
-    // Upper case as the page's CSS makes it, accented letters included
-    // ("Aplicación" is "APLICACIÓN", "ß" is "SS").
+    // Upper case as the page's CSS makes it, accented and Cyrillic letters
+    // included ("Aplicación" is "APLICACIÓN", "ß" is "SS", "Места" is "МЕСТА").
     std::string upper;
     upper.reserve(s.size());
     for (std::size_t i = 0; i < s.size(); ++i) {
         const auto c = static_cast<unsigned char>(s[i]);
         if (c >= 'a' && c <= 'z') {
             upper += static_cast<char>(c - 32);
+            continue;
+        }
+        // Cyrillic: а…я to А…Я, ѐ…џ to Ѐ…Џ.
+        if ((c == 0xD0 || c == 0xD1) && i + 1 < s.size()) {
+            const unsigned cp = ((c & 0x1Fu) << 6) | (static_cast<unsigned char>(s[i + 1]) & 0x3Fu);
+            const unsigned up = cp >= 0x430 && cp <= 0x44F ? cp - 0x20 : cp >= 0x450 && cp <= 0x45F ? cp - 0x50 : cp;
+            upper += static_cast<char>(0xC0 | (up >> 6));
+            upper += static_cast<char>(0x80 | (up & 0x3F));
+            ++i;
             continue;
         }
         if ((c == 0xC3 || c == 0xC4 || c == 0xC5) && i + 1 < s.size()) {

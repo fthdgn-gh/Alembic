@@ -261,7 +261,7 @@ Also on the page:
   offline instead of disappearing.
 - **Busy drives:** the app keeps the queue up to date while game titles
   and icons load from a drive that a running job keeps busy.
-- Languages: English, Español, Français, Deutsch, 日本語, Türkçe.
+- Languages: English, Türkçe, Deutsch, Español, Français, Русский, 日本語.
 
 State (queue, settings, downloaded components) is kept in `/data/alembic`.
 

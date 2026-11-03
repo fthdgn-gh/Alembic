@@ -95,8 +95,8 @@ bool match(const std::string& pattern, std::string_view text, std::vector<std::p
 
 const std::vector<std::pair<std::string, std::string>>& languages() {
     static const std::vector<std::pair<std::string, std::string>> list = {
-        {"en", "English"}, {"es", "Español"}, {"fr", "Français"}, {"de", "Deutsch"},
-        {"ja", "日本語"}, {"tr", "Türkçe"}};
+        {"en", "English"}, {"tr", "Türkçe"}, {"de", "Deutsch"}, {"es", "Español"},
+        {"fr", "Français"}, {"ru", "Русский"}, {"ja", "日本語"}};
     return list;
 }
 
@@ -139,7 +139,7 @@ std::string t(std::string_view text, Vars vars) { return fill(t(text), vars); }
 std::string number(long long n) {
     std::string digits = std::to_string(n < 0 ? -n : n);
     const std::string& lang = language();
-    const char* sep = lang == "en" || lang == "ja" ? "," : lang == "fr" ? "\xC2\xA0" : ".";
+    const char* sep = lang == "en" || lang == "ja" ? "," : lang == "fr" || lang == "ru" ? "\xC2\xA0" : ".";
     std::string out;
     const int len = static_cast<int>(digits.size());
     for (int i = 0; i < len; ++i) {
@@ -149,8 +149,28 @@ std::string number(long long n) {
     return n < 0 ? "-" + out : out;
 }
 
+// As the page's plural(): Russian has three forms (1, 21 / 2–4, 22 / 5–20,
+// 11–14), the others two; the extra forms are in the translation, split by
+// "|" ("few|many" for the plural text, "one|few|many" for a text used for
+// every count).
 std::string plural(long long n, std::string_view one, std::string_view many) {
-    return t(n == 1 ? one : many, {{"n", number(n)}});
+    enum { kOne, kFew, kMany } form = n == 1 ? kOne : kMany;
+    if (language() == "ru") {
+        const long long a = n < 0 ? -n : n, d = a % 10, h = a % 100;
+        form = d == 1 && h != 11 ? kOne : d >= 2 && d <= 4 && (h < 12 || h > 14) ? kFew : kMany;
+    }
+    const std::string text = t(form == kOne ? one : many);
+    std::vector<std::string> parts;
+    for (std::size_t at = 0;;) {
+        const std::size_t bar = text.find('|', at);
+        parts.push_back(text.substr(at, bar == std::string::npos ? std::string::npos : bar - at));
+        if (bar == std::string::npos) break;
+        at = bar + 1;
+    }
+    const std::size_t pick = parts.size() == 3 ? (form == kOne ? 0 : form == kFew ? 1 : 2)
+                             : parts.size() == 2 ? (form == kFew ? 0 : 1)
+                                                 : 0;
+    return fill(parts[pick], {{"n", number(n)}});
 }
 
 namespace {
