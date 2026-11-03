@@ -22,7 +22,6 @@ Tables& tables() {
 
 const std::map<std::string, std::string, std::less<>>* table() {
     Tables& T = tables();
-    if (!language_drawable(T.current)) return nullptr;
     auto it = T.langs.find(T.current);
     return it == T.langs.end() ? nullptr : &it->second;
 }
@@ -97,8 +96,7 @@ bool match(const std::string& pattern, std::string_view text, std::vector<std::p
 const std::vector<std::pair<std::string, std::string>>& languages() {
     static const std::vector<std::pair<std::string, std::string>> list = {
         {"en", "English"}, {"es", "Español"}, {"fr", "Français"}, {"de", "Deutsch"},
-        // The fonts have no Japanese yet: its name in Latin letters.
-        {"ja", "Japanese"}, {"tr", "Türkçe"}};
+        {"ja", "日本語"}, {"tr", "Türkçe"}};
     return list;
 }
 
@@ -126,7 +124,6 @@ bool has_language(const std::string& code) { return code == "en" || tables().lan
 
 void set_language(const std::string& code) { tables().current = code.empty() ? "en" : code; }
 const std::string& language() { return tables().current; }
-bool language_drawable(const std::string& code) { return code != "ja"; }
 
 std::string t(std::string_view text) {
     const auto* d = table();

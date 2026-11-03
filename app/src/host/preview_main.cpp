@@ -77,12 +77,17 @@ int main(int argc, char** argv) {
         return 1;
     }
     hui::gfx::Renderer renderer;
-    hui::gfx::Font regular, semibold, mono;
-    hui::ui::Fonts fonts;
+    hui::gfx::Font regular, semibold, mono, japanese, japanese_semibold;
+    hui::ui::Fonts fonts, japanese_ref;
     if (!renderer.init() || !load_font(renderer, fonts_dir + "/inter-regular.huifont", &regular, &fonts.regular) ||
         !load_font(renderer, fonts_dir + "/inter-semibold.huifont", &semibold, &fonts.semibold) ||
-        !load_font(renderer, fonts_dir + "/dejavu-sans-mono.huifont", &mono, &fonts.mono))
+        !load_font(renderer, fonts_dir + "/dejavu-sans-mono.huifont", &mono, &fonts.mono) ||
+        !load_font(renderer, fonts_dir + "/ibm-plex-sans-jp-regular.huifont", &japanese, &japanese_ref.regular) ||
+        !load_font(renderer, fonts_dir + "/ibm-plex-sans-jp-semibold.huifont", &japanese_semibold, &japanese_ref.semibold))
         return 1;
+    regular.add_fallback(&japanese, japanese_ref.regular.texture);
+    mono.add_fallback(&japanese, japanese_ref.regular.texture);
+    semibold.add_fallback(&japanese_semibold, japanese_ref.semibold.texture);
     fonts.display = fonts.semibold;
     fonts.pixel = fonts.regular;
     fonts.hand = fonts.regular;

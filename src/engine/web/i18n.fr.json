@@ -838,7 +838,6 @@
  "Starting the engine…": "Démarrage du moteur…",
  "The app and the page stop working until the engine is loaded again.": "L'application et la page ne fonctionnent plus jusqu'à ce que le moteur soit rechargé.",
  "The app sent its engine to the ELF loader on port 9021.": "L'application a envoyé son moteur au chargeur ELF sur le port 9021.",
- "The app shows English for this language for now": "Pour l'instant, l'application affiche cette langue en anglais",
  "The engine did not answer after it was started.": "Le moteur n'a pas répondu après son démarrage.",
  "The engine keeps running and finishes its jobs; the page and the app can be opened again": "Le moteur continue de tourner et termine ses tâches ; la page et l'application peuvent être rouvertes",
  "Try again": "Réessayer",

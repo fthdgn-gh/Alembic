@@ -240,55 +240,129 @@ float Font::layout(std::string_view text, float x, float y, float size, Align al
     return width;
 }
 
+namespace
+{
+
+// Alembic: what may not start a line (closing punctuation, small kana, the
+// prolonged sound mark) and what may not end one (opening brackets).
+bool no_line_start(std::uint32_t c)
+{
+    switch (c)
+    {
+    case 0x3001: case 0x3002: case 0xFF0C: case 0xFF0E: case 0x30FB: case 0xFF1A: case 0xFF1B:
+    case 0xFF01: case 0xFF1F: case 0x300D: case 0x300F: case 0xFF09: case 0x3011: case 0x3015:
+    case 0x3009: case 0x300B: case 0x30FC: case 0x301C: case 0x2026: case 0x22EF: case 0x3005:
+    case 0x309D: case 0x309E: case 0x30FD: case 0x30FE:
+        return true;
+    default:
+        break;
+    }
+    // Small hiragana and katakana.
+    switch (c)
+    {
+    case 0x3041: case 0x3043: case 0x3045: case 0x3047: case 0x3049: case 0x3063: case 0x3083:
+    case 0x3085: case 0x3087: case 0x308E: case 0x3095: case 0x3096: case 0x30A1: case 0x30A3:
+    case 0x30A5: case 0x30A7: case 0x30A9: case 0x30C3: case 0x30E3: case 0x30E5: case 0x30E7:
+    case 0x30EE: case 0x30F5: case 0x30F6:
+        return true;
+    default:
+        return c >= 0x31F0 && c <= 0x31FF;
+    }
+}
+
+// Characters of scripts that write no spaces between words: a line may
+// break before or after any of them.
+bool is_wide(std::uint32_t c)
+{
+    return (c >= 0x2E80 && c <= 0x9FFF) || (c >= 0xAC00 && c <= 0xD7AF) || (c >= 0xF900 && c <= 0xFAFF) ||
+           (c >= 0xFE30 && c <= 0xFE4F) || (c >= 0xFF00 && c <= 0xFFEF) || (c >= 0x20000 && c <= 0x3FFFF);
+}
+
+bool no_line_end(std::uint32_t c)
+{
+    return c == 0x300C || c == 0x300E || c == 0xFF08 || c == 0x3010 || c == 0x3014 || c == 0x3008 ||
+           c == 0x300A;
+}
+
+} // namespace
+
+// Alembic: breaks between words, and also between any two characters of a
+// script that writes no spaces (Chinese, Japanese), keeping the Japanese
+// line-breaking rules: closing marks stay with what comes before them and
+// opening brackets with what follows.
 std::vector<std::string> Font::wrap(std::string_view text, float size, float max_width) const
 {
+    struct Piece
+    {
+        std::string text;
+        bool space_before = false;
+    };
     std::vector<std::string> lines;
-    std::string line;
     std::size_t index = 0;
     while (index <= text.size())
     {
         const std::size_t newline = text.find('\n', index);
         const std::string_view paragraph = text.substr(
             index, newline == std::string_view::npos ? std::string_view::npos : newline - index);
-        std::size_t word_start = 0;
-        line.clear();
-        while (word_start <= paragraph.size())
+
+        // The pieces a line may break between: words, and single wide characters.
+        std::vector<Piece> pieces;
+        bool space = false, in_word = false, glue_next = false;
+        for (std::size_t at = 0; at < paragraph.size();)
         {
-            std::size_t word_end = paragraph.find(' ', word_start);
-            if (word_end == std::string_view::npos)
-                word_end = paragraph.size();
-            const std::string_view word = paragraph.substr(word_start, word_end - word_start);
-            std::string candidate =
-                line.empty() ? std::string(word) : line + " " + std::string(word);
+            const std::size_t from = at;
+            const std::uint32_t c = next_codepoint(paragraph, &at);
+            const std::string_view bytes = paragraph.substr(from, at - from);
+            if (c == ' ')
+            {
+                space = true;
+                in_word = false;
+                continue;
+            }
+            const bool wide = is_wide(c);
+            const bool join = !pieces.empty() && !space &&
+                              (glue_next || no_line_start(c) || (in_word && !wide));
+            if (join)
+                pieces.back().text += bytes;
+            else
+                pieces.push_back({std::string(bytes), space && !pieces.empty()});
+            glue_next = no_line_end(c);
+            in_word = !wide;
+            space = false;
+        }
+
+        std::string line;
+        for (const Piece &piece : pieces)
+        {
+            std::string candidate = line.empty() ? piece.text
+                                                 : line + (piece.space_before ? " " : "") + piece.text;
             if (measure(candidate, size) <= max_width)
             {
                 line = std::move(candidate);
+                continue;
             }
-            else
+            if (!line.empty())
+                lines.push_back(line);
+            // The piece starts a line of its own. One wider than the line
+            // gives up as many code points as fit, line after line.
+            const std::string_view word = piece.text;
+            std::size_t start = 0;
+            while (measure(word.substr(start), size) > max_width)
             {
-                if (!line.empty())
-                    lines.push_back(line);
-                // The word starts a line of its own. One wider than the line
-                // gives up as many code points as fit, line after line.
-                std::size_t start = 0;
-                while (measure(word.substr(start), size) > max_width)
+                std::size_t end = start;
+                next_codepoint(word, &end);
+                for (std::size_t next = end; next < word.size(); end = next)
                 {
-                    std::size_t end = start;
-                    next_codepoint(word, &end);
-                    for (std::size_t next = end; next < word.size(); end = next)
-                    {
-                        next_codepoint(word, &next);
-                        if (measure(word.substr(start, next - start), size) > max_width)
-                            break;
-                    }
-                    if (end >= word.size())
+                    next_codepoint(word, &next);
+                    if (measure(word.substr(start, next - start), size) > max_width)
                         break;
-                    lines.emplace_back(word.substr(start, end - start));
-                    start = end;
                 }
-                line.assign(word.substr(start));
+                if (end >= word.size())
+                    break;
+                lines.emplace_back(word.substr(start, end - start));
+                start = end;
             }
-            word_start = word_end + 1;
+            line.assign(word.substr(start));
         }
         lines.push_back(line);
         if (newline == std::string_view::npos)

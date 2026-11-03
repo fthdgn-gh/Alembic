@@ -674,8 +674,7 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
             if (langs[k].first == language()) index = static_cast<int>(k);
         }
         bool changed = false;
-        const std::string hint = language_drawable(language()) ? "" : t("The app shows English for this language for now");
-        y += choice_row(ui, "s:lang", x, y, w, t("Language"), hint, labels, &index, &changed);
+        y += choice_row(ui, "s:lang", x, y, w, t("Language"), "", labels, &index, &changed);
         if (changed) {
             const std::string code = langs[static_cast<std::size_t>(index)].first;
             app.use_language(code);

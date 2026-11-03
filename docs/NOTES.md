@@ -3244,6 +3244,25 @@ release: see "components follow their latest releases" below.)
   in `lib/i18n.ts`. Checked against a PC engine: the page in a headless
   browser (Spanish, switched to Turkish and English, fetching only those),
   the app in Spanish, Turkish and German (switched in Settings).
+- **Japanese in the app** (owner): IBM Plex Sans JP (OFL, google/fonts at
+  `2fe1e8c`, Regular and SemiBold to match Inter; SHA-256s pinned in
+  `app/tools/fonts.sh`, downloaded at build time like the SDKs) is baked
+  into `ibm-plex-sans-jp-{regular,semibold}.huifont` (48 px, spread 6,
+  4096-wide atlas, ~11 MB each) and set as the kit's fallback face: Inter
+  Regular and DejaVu Mono fall back to Regular, Inter SemiBold to
+  SemiBold (5 of the batch's 6 font slots). Glyphs:
+  `app/tools/japanese_glyphs.py` (Japanese punctuation, kana, full- and
+  half-width forms, the 2,965 JIS level 1 kanji, and whatever
+  `i18n.ja.json` uses), 3,339 of them in the font; the kit's baker got a
+  `file:` glyph set for it. Noto Sans JP was tried first: its static fonts
+  are CFF (cubic curves), which stb_truetype's distance fields drop (kana
+  came out in pieces); its TrueType variable font's default is Thin.
+  `Font::wrap` in the kit now breaks between Japanese characters (it only
+  broke at spaces, so a long run moved whole to the next line) and keeps
+  the kinsoku rules. "Japanese" in the language list is 日本語 again, and
+  the "English for now" hint is gone. Preview pictures in Japanese (Files,
+  Components, Settings, a Japanese folder name) and English unchanged.
+  **Not yet**: on a console.
 
 ## Next session
 
@@ -3293,8 +3312,8 @@ release: see "components follow their latest releases" below.)
   Console tests still to do: the app from the `.ffpkg`, Restart the engine,
   an app without its engine downloading it, and (after the next release)
   the app's image being replaced by an update. Then: game icons in the
-  preview's stand-in engine (PNG), the console's fonts for Japanese, local
-  time for dates.
+  preview's stand-in engine (PNG), ✓ Japanese in the app (2026-11-03, IBM
+  Plex Sans JP, see the log), local time for dates.
 0. ✓ Updating itself, tried on the console through Payload Manager
    (2026-10-24).
 1. Owner's console test: install an Alembic-made FPKG.

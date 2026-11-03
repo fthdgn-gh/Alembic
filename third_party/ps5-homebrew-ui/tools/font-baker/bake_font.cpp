@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // usage: bake_font <font.ttf> <out.huifont> [pixel_size=56] [sdf_range=8] [atlas=1024]
-//                  [glyphs=basic|european]
+//                  [glyphs=basic|european|file:<list.txt>]
 // Bakes printable ASCII plus a few UI symbols into a single-channel signed
 // distance field atlas with metrics and kerning (see src/gfx/font_format.hpp).
 
@@ -18,6 +18,7 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <string>
 #include <vector>
 
 namespace
@@ -80,6 +81,36 @@ std::vector<int> codepoints(bool european)
     return result;
 }
 
+// Alembic: every code point in a UTF-8 text file (a fallback face for
+// another script, say), in the order first met, each once. Bytes that are
+// not UTF-8 and control characters are skipped.
+std::vector<int> codepoints_in(const char *path)
+{
+    std::ifstream input(path, std::ios::binary);
+    const std::string text((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    std::vector<int> result;
+    std::vector<bool> seen(0x110000, false);
+    for (std::size_t i = 0; i < text.size();)
+    {
+        const auto b = static_cast<unsigned char>(text[i]);
+        const int n = b < 0x80 ? 1 : (b >> 5) == 0x6 ? 2 : (b >> 4) == 0xE ? 3 : (b >> 3) == 0x1E ? 4 : 0;
+        if (n == 0 || i + n > text.size())
+        {
+            ++i;
+            continue;
+        }
+        int c = n == 1 ? b : b & (0x7F >> n);
+        for (int k = 1; k < n; ++k)
+            c = (c << 6) | (static_cast<unsigned char>(text[i + k]) & 0x3F);
+        i += n;
+        if (c < 32 || c == 127 || c >= 0x110000 || seen[c])
+            continue;
+        seen[c] = true;
+        result.push_back(c);
+    }
+    return result;
+}
+
 template <typename T> void put(std::vector<unsigned char> &out, const T &value)
 {
     const auto *bytes = reinterpret_cast<const unsigned char *>(&value);
@@ -92,13 +123,14 @@ int main(int argc, char **argv)
 {
     if (argc < 3)
     {
-        std::fprintf(stderr, "usage: %s font.ttf out.huifont [pixel_size] [sdf_range] [atlas] [basic|european]\n", argv[0]);
+        std::fprintf(stderr, "usage: %s font.ttf out.huifont [pixel_size] [sdf_range] [atlas] [basic|european|file:list.txt]\n", argv[0]);
         return 2;
     }
     const float pixel_size = argc > 3 ? std::strtof(argv[3], nullptr) : 56.0f;
     const int range = argc > 4 ? std::atoi(argv[4]) : 8;
     const int atlas_size = argc > 5 ? std::atoi(argv[5]) : 1024;
     const bool european = argc > 6 && std::strcmp(argv[6], "european") == 0;
+    const bool from_file = argc > 6 && std::strncmp(argv[6], "file:", 5) == 0;
 
     std::ifstream input(argv[1], std::ios::binary);
     std::vector<unsigned char> ttf((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
@@ -111,7 +143,7 @@ int main(int argc, char **argv)
     const float scale = stbtt_ScaleForMappingEmToPixels(&font, pixel_size);
 
     std::vector<Baked> glyphs;
-    for (int codepoint : codepoints(european))
+    for (int codepoint : from_file ? codepoints_in(argv[6] + 5) : codepoints(european))
     {
         if (codepoint != ' ' && stbtt_FindGlyphIndex(&font, codepoint) == 0)
         {

@@ -838,7 +838,6 @@
  "Starting the engine…": "エンジンを起動しています…",
  "The app and the page stop working until the engine is loaded again.": "エンジンを再度読み込むまで、アプリとページは使えなくなります。",
  "The app sent its engine to the ELF loader on port 9021.": "アプリはポート 9021 の ELF ローダーにエンジンを送りました。",
- "The app shows English for this language for now": "この言語は、今のところアプリでは英語で表示されます",
  "The engine did not answer after it was started.": "起動後、エンジンが応答しませんでした。",
  "The engine keeps running and finishes its jobs; the page and the app can be opened again": "エンジンは動き続けてジョブを完了します。ページとアプリはまた開けます",
  "Try again": "再試行",

@@ -156,8 +156,8 @@ bool App::any_paired() const {
 
 void App::use_language(const std::string& code) {
     lang_wanted_ = code;
-    // English needs no table, and Japanese shows English until the fonts have it.
-    if (has_language(code) || !language_drawable(code)) {
+    // English needs no table.
+    if (has_language(code)) {
         set_language(code);
         return;
     }

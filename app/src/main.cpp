@@ -145,13 +145,22 @@ int main() {
         sys::park();
     }
     gfx::Renderer renderer;
-    gfx::Font regular, semibold, mono;
-    ui::Fonts fonts;
+    gfx::Font regular, semibold, mono, japanese, japanese_semibold;
+    ui::Fonts fonts, japanese_ref;
     if (!renderer.init() || !load_font(renderer, "inter-regular.huifont", &regular, &fonts.regular) ||
         !load_font(renderer, "inter-semibold.huifont", &semibold, &fonts.semibold) ||
         !load_font(renderer, "dejavu-sans-mono.huifont", &mono, &fonts.mono)) {
         sys::log("[ALEMBIC] fatal: renderer init failed");
         sys::park();
+    }
+    // Japanese (IBM Plex Sans JP, in Inter's two weights) wherever the faces have no glyph.
+    if (load_font(renderer, "ibm-plex-sans-jp-regular.huifont", &japanese, &japanese_ref.regular) &&
+        load_font(renderer, "ibm-plex-sans-jp-semibold.huifont", &japanese_semibold, &japanese_ref.semibold)) {
+        regular.add_fallback(&japanese, japanese_ref.regular.texture);
+        mono.add_fallback(&japanese, japanese_ref.regular.texture);
+        semibold.add_fallback(&japanese_semibold, japanese_ref.semibold.texture);
+    } else {
+        sys::log("[ALEMBIC] no Japanese font");
     }
     // Faces the kit's components may ask for.
     fonts.display = fonts.semibold;

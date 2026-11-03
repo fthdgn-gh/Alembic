@@ -19,7 +19,17 @@ with `app/preview.sh`.
 
 ## Local changes
 
-All in `tools/`, each marked with an "Alembic:" comment:
+Each marked with an "Alembic:" comment. In `src/`:
+
+- `gfx/font.cpp`: `Font::wrap` also breaks between any two characters of
+  scripts that write no spaces (Chinese, Japanese), not only at spaces, and
+  keeps the Japanese line-breaking rules (、。」 and small kana never start a
+  line, 「（ never end one).
+
+In `tools/`:
+
+- `font-baker/bake_font.cpp`: a `file:<list.txt>` glyph set, every code
+  point in a UTF-8 file (the app's Japanese fallback faces).
 
 - `build-host-tools.sh`, `rebuild-libc.sh`, `fetch-opengl-sdk.sh`,
   `prepare-opengl.sh`, `setup-native-dependencies.sh`: downloads and build

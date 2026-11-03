@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The page's translations in the app: the same i18n.<code>.json files the
-// engine serves (and i18n.messages.json, the engine's message patterns), keyed by the English text, with the same rules as
-// src/engine/web/src/lib/i18n.ts. The app's fonts have Latin, Greek and
-// Cyrillic only, so Japanese shows the English texts for now.
+// engine serves (and i18n.messages.json, the engine's message patterns),
+// keyed by the English text, with the same rules as
+// src/engine/web/src/lib/i18n.ts. Japanese is drawn with IBM Plex Sans JP,
+// the faces' fallback (app/tools/fonts.sh).
 #pragma once
 
 #include <initializer_list>
@@ -27,8 +28,6 @@ bool messages_loaded();
 bool has_language(const std::string& code);
 void set_language(const std::string& code);
 const std::string& language();
-// Whether the app can draw this language (not Japanese yet).
-bool language_drawable(const std::string& code);
 
 std::string t(std::string_view text);
 std::string t(std::string_view text, Vars vars);

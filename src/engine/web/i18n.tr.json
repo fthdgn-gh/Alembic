@@ -838,7 +838,6 @@
  "Starting the engine…": "Motor başlatılıyor…",
  "The app and the page stop working until the engine is loaded again.": "Motor yeniden yüklenene kadar uygulama ve sayfa çalışmaz.",
  "The app sent its engine to the ELF loader on port 9021.": "Uygulama motorunu 9021 numaralı porttaki ELF yükleyicisine gönderdi.",
- "The app shows English for this language for now": "Uygulama bu dili şimdilik İngilizce gösteriyor",
  "The engine did not answer after it was started.": "Motor başlatıldıktan sonra yanıt vermedi.",
  "The engine keeps running and finishes its jobs; the page and the app can be opened again": "Motor çalışmaya devam eder ve işlerini bitirir; sayfa ve uygulama yeniden açılabilir",
  "Try again": "Yeniden dene",
