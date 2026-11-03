@@ -336,8 +336,11 @@ Result<AttachResult> attach_backport(const tree::Source& game, const std::string
     if (target.empty()) target = r.check.fakelib;
     std::string rel = target + "/" + kFileName;
     if (path_exists(r.folder + "/" + rel)) {
-        ALEMBIC_ASSIGN(File existing, File::open(r.folder + "/" + rel, File::Mode::read));
-        ALEMBIC_ASSIGN(bool same, same_content(existing, emulator));
+        bool same = false;
+        { // closed before the copy replaces it: Windows can't rename over an open file
+            ALEMBIC_ASSIGN(File existing, File::open(r.folder + "/" + rel, File::Mode::read));
+            ALEMBIC_ASSIGN(same, same_content(existing, emulator));
+        }
         if (!replace || same) {
             r.already_there = true;
             r.notes.push_back((same ? "the backport folder already has this emulator in " : "the backport folder already has ") + rel);
