@@ -58,6 +58,8 @@ const DIRS = {
   "/nfs/box": [g("/nfs/box", "Glass Meridian.ffpfsc", "ffpfsc", 12.6 * GB)],
   "/smb/nas": [g("/smb/nas", "Neon Harbor.pkg", "fpkg", 33.1 * GB), g("/smb/nas", "Starlight Drift.exfat", "exfat", 19.0 * GB)],
 };
+// Games in asset packs (the Files tag).
+const PACKS = { "/data/homebrew/Echoes of Arden.exfat": "zstd", "/data/homebrew/Neon Harbor.ffpkg": "lz4" };
 DIRS["/peer/" + PC + "/D:"] = [{ name: "Games", path: PCROOT, kind: "folder", mtime: mt }];
 
 const SPACE = [{ root: "/data", total: 825 * GB, free: 312 * GB }, { root: "/mnt/usb0", total: 2000 * GB, free: 1460 * GB }];
@@ -98,7 +100,7 @@ const DEPS = JSON.parse(fs.readFileSync(path.join(DATA, "deps.json"), "utf8"))
   .map((d) => Object.assign(d, { state: "installed", files: d.files.map((f) => Object.assign(f, { path: f.path.replace(/^.*\/(runtime|keys)\//, "/data/alembic/$1/") })) }));
 
 // Jobs. Running ones move along with the clock.
-const spec = (o) => Object.assign({ kind: "convert", level: 6, overwrite: false, rebuild: false, cluster_size: 0, lz4: false, lz4_profile: "auto", lz4_level: 9, lz4_runtime: "", lz4_unpack: false, ampr_emu: "auto", delete_source: false, verify: true }, o);
+const spec = (o) => Object.assign({ kind: "convert", level: 6, overwrite: false, rebuild: false, cluster_size: 0, lz4: false, lz4_profile: "auto", lz4_level: 9, lz4_runtime: "", lz4_unpack: false, zstd: false, zstd_level: 5, zstd_unpack: false, ampr_emu: "auto", delete_source: false, verify: true }, o);
 const running = (id, s, stage, total, startPct, rate, elapsed0) => () => {
   const e = process.env.MOCK_FROZEN ? 0 : now() - T0; // frozen: for comparing two builds
   return { id, spec: s, state: "running", stage, done: Math.min(total, Math.round(total * startPct + rate * e)), total, created: mt, started: mt, finished: 0, error: "", result: null, elapsed: Math.round(elapsed0 + e), keeps_progress: true };
@@ -116,7 +118,7 @@ let LOCAL = [
 let REMOTE = [
   () => ({ id: 1, spec: spec({ input: "D:/Games/Mossback.ffpfsc", output: "/peer/" + SELF + "/mnt/usb0/homebrew/Mossback.ffpfsc", kind: "copy" }), state: "done", stage: "Done", done: 1, total: 1, created: mt, started: mt, finished: mt + 5400, error: "", elapsed: 66,
     result: { output: "/peer/" + SELF + "/mnt/usb0/homebrew/Mossback.ffpfsc", output_bytes: 8.2 * GB } }),
-  running(2, spec({ input: "D:/Games/Ember Lane.pkg", output: "D:/Games/Ember Lane.exfat", to: "exfat" }), "Building exFAT", 31.5 * GB, 0.42, 380e6, 248),
+  running(2, spec({ input: "D:/Games/Ember Lane.pkg", output: "D:/Games/Ember Lane-zstd.exfat", to: "exfat", zstd: true }), "zstd pass 1", 31.5 * GB, 0.42, 380e6, 248),
 ];
 
 const ICON_ART = {
@@ -221,7 +223,7 @@ http.createServer((req, res) => {
       const t = titleOf(q("path"));
       if (!t) return send(res, 404, { error: "not a game" });
       const [id, v, , platform] = GAMES[t];
-      return send(res, 200, { title: t, title_id: id, content_id: "UP0000-" + id + "_00-0000000000000000", version: v, icon: true, platform: platform || "ps5" });
+      return send(res, 200, { title: t, title_id: id, content_id: "UP0000-" + id + "_00-0000000000000000", version: v, icon: true, platform: platform || "ps5", packs: PACKS[q("path")] || "" });
     }
     if (p === "/api/icon") { const t = titleOf(q("path")); return t ? send(res, 200, iconSvg(GAMES[t][2]), "image/svg+xml") : send(res, 404, ""); }
     if (p === "/api/inspect") {

@@ -24,7 +24,9 @@ debug licence, so no lock on the title); a paused
 conversion carries on after the engine is updated; the engine updates
 itself from a release (loaded through Payload Manager); the console app
 starts from ShadowMount+, starts and restarts the engine, and drives a
-conversion on a paired PC; a package converted from an SMB share.
+conversion on a paired PC; a package converted from an SMB share; a game
+in zstd packs (a 160 GB package packed at level 5 by a PC engine into a
+96 GB exFAT written to the console) starts with ampr-emu-ng.
 PS4 games converted from their packages start from images through
 ShadowMount+ 1.7beta8 (it shows "Trophy registration failed" for them: a
 ShadowMount+ issue, [#97](https://github.com/drakmor/ShadowMountPlus/issues/97)).
@@ -91,11 +93,16 @@ and the app mark each game with a **PS5** (white) or **PS4** (black) pill.
   LZ4 and faster to make (a 26 GiB set of game files became 11.1 GiB in
   33 s on a Mac, against 17.5 GiB in 77 s for LZ4). The game gets
   ampr-emu-ng's `libSceAmpr.sprx` (from Components); turn off ShadowMount+'s
-  "update emulators" so it isn't swapped for one that can't read them. Not
-  yet tried on a console.
+  "update emulators" so it isn't swapped for one that can't read them.
+  Levels 1, 5 (default) and 19. Tried on a PS5. A packed game can switch
+  between LZ4 and zstd packs in Convert ("Switch to zstd packs"), the old
+  packs decoded straight into the new ones.
 - **AMPR emulator:** games that use the console's APR file reader need
-  ampr_emu's `libSceAmpr.sprx` to start from an image or folder. Alembic
-  adds it when converting, or to a game you already have.
+  an emulator's `libSceAmpr.sprx` to start from an image or folder:
+  drakmor's ampr_emu or quer3q's ampr-emu-ng (Components says which is in
+  use). Alembic adds it when converting, or to a game you already have;
+  on a game that has one, "Add the AMPR emulator" offers to switch it to
+  the other.
 - **Fast:** compression and package decoding use every core; AES, CRC32C
   and SHA-256 use the CPU's own instructions where it has them; zlib level 6
   by default (level 9 for exact PS5PKGTool output).
@@ -142,7 +149,7 @@ GitHub release first, checked against `SHA256SUMS`).
    from a checkpoint), reorder, cancel. You get a notification when one
    finishes.
 
-![The Convert dialog: target formats, compression level, the AMPR emulator switch, and the output path on a paired PC](docs/screenshots/convert.png)
+![The Convert dialog: target formats, compression level, the LZ4 and zstd pack switches, the AMPR emulator switch, and the output path on a paired PC](docs/screenshots/convert.png)
 
 ![The queue: a running conversion with speed and time left, a paused one that continues from its checkpoint, a copy to a NAS share, and a job running on the paired PC](docs/screenshots/queue.png)
 
@@ -173,6 +180,10 @@ Also on the page:
   out), Install, Add the AMPR emulator, Hide from or Show to ShadowMount+,
   Rename with a format (old → new shown first), Send to another engine,
   Copy, Move and Delete; each action takes the files it applies to.
+- **Packs and hiding** (from 0.5.0): games in asset packs carry an LZ4 or
+  ZSTD tag after their format. **Hide** / **Unhide** (renaming to `.name`
+  and back) work on any file or folder, packages included; images keep
+  Hide from / Show to ShadowMount+, which also rescan.
 - **Network servers** (Settings, from 0.3.3): games on a PC or NAS can be
   converted without copying them to the console first, over
   - **SMB** (Windows shared folders, most NAS boxes): SMB 2 and 3 with
