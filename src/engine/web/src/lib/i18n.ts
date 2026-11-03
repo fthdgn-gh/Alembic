@@ -1,11 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Translations are in i18n.js (window.I18N), keyed by the English text;
-// anything missing stays English. tools/i18n_keys.py finds the texts by
-// their t() calls, so pass texts to t() as plain string literals.
+// Translations are in i18n.json (served at /i18n.json; the engine and the
+// console app read the same file), keyed by the English text; anything
+// missing stays English. "messages" lists what the engine sends (errors,
+// warnings, console notifications) as patterns whose {name} parts match any
+// text, longest first. tools/i18n_keys.py finds the texts by their t() calls,
+// so pass texts to t() as plain string literals; run it with --check after
+// changing texts (missing or unused keys, placeholder mismatches).
 import { signal } from "@preact/signals";
 
-declare global {
-  interface Window { I18N?: { messages?: string[]; [lang: string]: Record<string, string> | string[] | undefined } }
+type Tables = { messages?: string[]; [lang: string]: Record<string, string> | string[] | undefined };
+let I18N: Tables = {};
+
+// Fetches the tables; the page is drawn once they are in (or in English when
+// they cannot be had).
+export function loadTranslations(): Promise<void> {
+  return fetch("/i18n.json")
+    .then((r) => (r.ok ? r.json() : {}))
+    .then((j: Tables) => { I18N = j || {}; })
+    .catch(() => {});
 }
 
 export const LANGS: [string, string][] = [["en", "English"], ["es", "Español"], ["fr", "Français"], ["de", "Deutsch"], ["ja", "日本語"], ["tr", "Türkçe"]];
@@ -27,7 +39,7 @@ document.documentElement.lang = lang.value;
 
 type Vars = Record<string, string | number>;
 function table(): Record<string, string> | null {
-  const d = (window.I18N || {})[lang.value];
+  const d = I18N[lang.value];
   return d && !Array.isArray(d) ? d : null;
 }
 
@@ -73,7 +85,7 @@ export function tMsg(text: string | null | undefined): string {
   const d = table();
   if (!d) return text;
   if (d[text] != null) return d[text];
-  for (const p of (window.I18N && window.I18N.messages) || []) {
+  for (const p of I18N.messages || []) {
     const vars = matchPattern(p, text);
     if (vars) { for (const k in vars) vars[k] = tMsg(vars[k]); return t(p, vars); }
   }

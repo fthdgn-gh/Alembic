@@ -75,9 +75,9 @@ if (args.includes("--serve")) {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
       return res.end(html);
     }
-    if (req.url === "/i18n.js") {
-      res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
-      return res.end(fs.readFileSync(path.join(here, "i18n.js")));
+    if (req.url === "/i18n.json") {
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+      return res.end(fs.readFileSync(path.join(here, "i18n.json")));
     }
     // Everything else (the API, icons) comes from the engine.
     const up = http.request({ host: engine.hostname, port: engine.port, path: req.url, method: req.method, headers: req.headers }, (r) => {

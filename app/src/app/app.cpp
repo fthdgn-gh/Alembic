@@ -166,7 +166,7 @@ void App::load_info() {
         JsonValue i = r.json;
         if (!i18n_loaded_ && !i18n_busy_) {
             i18n_busy_ = true;
-            engine.fetch("/i18n.js", nullptr, [this](int status, std::string body) {
+            engine.fetch("/i18n.json", nullptr, [this](int status, std::string body) {
                 i18n_busy_ = false;
                 if (status == 200 && load_i18n(body)) i18n_loaded_ = true;
             });

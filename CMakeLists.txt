@@ -182,13 +182,13 @@ if(ALEMBIC_BUILD_ENGINE)
         DEPENDS ${ALEMBIC_WEB_PAGE} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_text.cmake
         COMMENT "Embedding the engine web page"
         VERBATIM)
-    set(ALEMBIC_I18N_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/engine_i18n_js.cpp)
+    set(ALEMBIC_I18N_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/engine_i18n_json.cpp)
     add_custom_command(
         OUTPUT ${ALEMBIC_I18N_SOURCE}
-        COMMAND ${CMAKE_COMMAND} -DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/src/engine/web/i18n.js
-                -DOUTPUT=${ALEMBIC_I18N_SOURCE} -DSYMBOL=kI18nJs -DNAMESPACE=alembic::engine
+        COMMAND ${CMAKE_COMMAND} -DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/src/engine/web/i18n.json
+                -DOUTPUT=${ALEMBIC_I18N_SOURCE} -DSYMBOL=kI18nJson -DNAMESPACE=alembic::engine
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_text.cmake
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/web/i18n.js ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_text.cmake
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/web/i18n.json ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_text.cmake
         COMMENT "Embedding the page translations"
         VERBATIM)
     set(ALEMBIC_ICON_SOURCE ${CMAKE_CURRENT_BINARY_DIR}/engine_icon_svg.cpp)

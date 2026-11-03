@@ -3221,6 +3221,22 @@ release: see "components follow their latest releases" below.)
   and app; tried both ways on a PC engine.
 - **Not yet**: on a console.
 
+### 2026-11-03: the app's languages; translations are plain JSON
+
+- **The app never translated** (owner: the language choice did nothing): it
+  cut `i18n.js` at its first '=', which was in the file's opening comment,
+  so the table never parsed and every language showed English. Section
+  headings now upper-case accented letters as the page's CSS does
+  ("APLICACIÓN", "ß" as "SS").
+- **`src/engine/web/i18n.json`** (owner) replaces `i18n.js`: plain JSON,
+  served at `/i18n.json` (no `/i18n.js` any more; older apps could not read
+  it anyway), embedded as `kI18nJson`. The page fetches it before it draws
+  (`loadTranslations()` in `lib/i18n.ts`; English if it fails); the
+  engine, the app, the test and `tools/i18n_keys.py` (no Node any more)
+  parse it as it is. The file's old header comment lives in `lib/i18n.ts`.
+  Page in Spanish in a headless browser and the app in Spanish and Turkish,
+  both against a PC engine.
+
 ## Next session
 
 **Settled (owner, 2026-10-22):**

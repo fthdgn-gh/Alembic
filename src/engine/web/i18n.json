@@ -1,12 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// Translations of Alembic's texts, keyed by the English text. The page passes
-// its own texts through t(); "messages" lists what the engine sends (errors,
-// warnings, console notifications) as patterns whose {name} parts match any
-// text, longest first. A missing key shows the English text.
-// The engine reads this file too (l10n.cpp): the part after "var I18N =" must
-// stay plain JSON. tools/i18n_keys.py --check lists missing or unused keys and
-// placeholder mismatches; run it after changing texts.
-var I18N = {
+{
  "messages": [
   "a format is empty",
   "a format has at most 200 characters",
@@ -4517,4 +4509,4 @@ var I18N = {
   "Hashing the package": "パッケージのハッシュを計算中",
   "built a PS4 package from the file tree": "ファイルツリーから PS4 パッケージを作成しました"
  }
-};
+}

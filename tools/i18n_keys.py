@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Lists the texts the engine page translates, and checks i18n.js against them:
+# Lists the texts the engine page translates, and checks i18n.json against them:
 #   tools/i18n_keys.py          -> every key, one per line
 #   tools/i18n_keys.py --check  -> missing or unused keys and {placeholder} mismatches per language
-import json, re, subprocess, sys
+import json, re, sys
 from pathlib import Path
 
 web = Path(__file__).resolve().parent.parent / "src/engine/web"
@@ -51,7 +51,7 @@ ENGINE = [
     "Internal storage", "Internal", "USB {n}", "Extended {n}",
 ]
 keys |= set(ENGINE)
-# The engine's notifications (l10n::t in main.cpp) and the messages it sends (the patterns in i18n.js).
+# The engine's notifications (l10n::t in main.cpp) and the messages it sends (the patterns in i18n.json).
 engine_src = (web.parent / "main.cpp").read_text()
 keys |= set(re.findall(r'l10n::t\(\s*"((?:[^"\\]|\\.)*)"', engine_src))
 keys |= set(re.findall(r'\? "((?:[^"\\]|\\.)*\{name\})"', engine_src))  # l10n::t(a ? "Copied {name}" : ...)
@@ -68,16 +68,13 @@ app_keys = set(re.findall(r'\bt\(\s*"((?:[^"\\]|\\.)*)"', app_src))
 app_keys |= {k for pair in re.findall(r'plural\([^,]+, "([^"]+)", "([^"]+)"\)', app_src) for k in pair}
 app_keys |= set(re.findall(r'\{"\w+", "[^"]+", "([^"]* [^"]*)"\}', app_src))  # the Convert formats
 keys |= {_cpp_text(k).replace('\\"', '"') for k in app_keys}
-_js = (web / "i18n.js").read_text()
-keys |= set(json.loads(_js[_js.index("{", _js.index("var I18N =")):_js.rindex("}") + 1]).get("messages", []))
+tables = json.loads((web / "i18n.json").read_text())
+keys |= set(tables.get("messages", []))
 keys = sorted(k.encode().decode("unicode_escape") if "\\" in k else k for k in keys)
 
 if "--check" not in sys.argv:
     print("\n".join(keys)); sys.exit(0)
 
-js = (web / "i18n.js").read_text()
-out = subprocess.run(["node", "-e", js + "\nprocess.stdout.write(JSON.stringify(I18N));"], capture_output=True, text=True, check=True).stdout
-tables = json.loads(out)
 ph = lambda s: sorted(re.findall(r"\{(\w+)\}", s))
 bad = 0
 for lang, table in tables.items():

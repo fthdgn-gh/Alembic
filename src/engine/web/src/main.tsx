@@ -15,7 +15,7 @@ import "./debug";
 import { effect } from "@preact/signals";
 import { info, loadInfo, notConnected } from "./state/engine";
 import { refreshJobs } from "./state/jobs";
-import { t, tMsg } from "./lib/i18n";
+import { loadTranslations, t, tMsg } from "./lib/i18n";
 import { browse } from "./pages/files/browse";
 import { applyScale } from "./pages/settings/prefs";
 import { watchIncoming } from "./pages/settings/Engines";
@@ -28,13 +28,15 @@ window.addEventListener("resize", applyScale);
 // A reload keeps its place in the history: the entries before it are the
 // page's too, and leaving (L2 + R2) goes back through them.
 history.replaceState({ view: "files", path: "/", depth: depth() }, "");
-render(<App />, document.getElementById("app")!);
-
-loadInfo().then(() => browse("/", false))
-  .catch((e) => { notConnected.value = t("Engine not reachable: {error}", { error: tMsg(e.message) }); browse("/", false); });
-refreshJobs();
-setInterval(refreshJobs, 1000);
-setInterval(() => loadInfo().catch(() => {}), 15000);
-setInterval(() => watchIncoming().catch(() => {}), 2000);
-// A newer release (the engine checks GitHub at start): said once per version.
-effect(() => noticeUpdate(info.value));
+// Drawn once the translations are in, so the page never starts in English.
+loadTranslations().then(() => {
+  render(<App />, document.getElementById("app")!);
+  loadInfo().then(() => browse("/", false))
+    .catch((e) => { notConnected.value = t("Engine not reachable: {error}", { error: tMsg(e.message) }); browse("/", false); });
+  refreshJobs();
+  setInterval(refreshJobs, 1000);
+  setInterval(() => loadInfo().catch(() => {}), 15000);
+  setInterval(() => watchIncoming().catch(() => {}), 2000);
+  // A newer release (the engine checks GitHub at start): said once per version.
+  effect(() => noticeUpdate(info.value));
+});

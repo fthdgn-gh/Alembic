@@ -70,13 +70,7 @@ std::string message_locked(const std::string& text, int depth) {
 } // namespace
 
 void load(const char* data, std::size_t size) {
-    std::string text(data, size);
-    // The line that starts "var I18N =" (the opening comment mentions it too).
-    std::size_t start = text.find("\nvar I18N =");
-    start = start == std::string::npos ? std::string::npos : text.find('{', start);
-    std::size_t end = text.rfind('}');
-    if (start == std::string::npos || end == std::string::npos || end < start) return;
-    auto json = parse_json(text.substr(start, end - start + 1));
+    auto json = parse_json(std::string_view(data, size));
     if (!json.ok()) return;
     std::lock_guard<std::mutex> lock(g_mutex);
     g_tables.clear();
