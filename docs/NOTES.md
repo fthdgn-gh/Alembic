@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (2026-11-03, release 0.5.0)
+## Where we are (2026-11-03, release 0.5.1)
 
 ### What works
 
@@ -80,6 +80,13 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   main and wait for CI before tagging. Catalog PR from the fork branch
   update-alembic-0.5.0: darkxex/ps5-homebrew-catalog#1084 (opened by the
   owner: auto mode refuses it).
+- **In 0.5.1 (2026-11-03):** languages. The console app translates at
+  all (it never had: i18n.js's comment broke its parser), translations
+  are one plain JSON file per language (`i18n.<code>.json`, fetched as
+  needed), Japanese in the app (IBM Plex Sans JP, line breaks between
+  Japanese characters), Russian (three plural forms), English and Türkçe
+  first in the list, extended-storage places translated. Owner tried the
+  app on the console with the new engine before the release.
 - **Console app** (`app/`, title `PPSA99594`, work for 0.3.0; see the
   2026-10-25 entry): the engine's page drawn natively with
   ps5-homebrew-ui, every section and dialog, talking to the engine on
