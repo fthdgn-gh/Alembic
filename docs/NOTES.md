@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (2026-11-01, release 0.4.2)
+## Where we are (2026-11-03, release 0.5.0)
 
 ### What works
 
@@ -63,6 +63,14 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   darkxex/ps5-homebrew-catalog#1028 (#1026, for 0.4.1, merged).
   Console limits measured: payloads run on 5 of 16 logical CPUs (mask
   0xEA00) at priority 700.
+- **In 0.5.0 (2026-11-03):** zstd asset packs for quer3q's ampr-emu-ng
+  (engine, page, app; levels 1/5/19; pass 2 copies pass 1's frames),
+  ampr-emu-ng as a second AMPR emulator, the emulators following their
+  latest releases, switching a game's emulator, switching a packed game
+  between LZ4 and zstd in Convert, LZ4/ZSTD tags in Files, Hide/Unhide for
+  any file. Console: a 160 GB package packed at level 5 by the Mac engine
+  (pass 1 ~1.5 GB/s, 96.4 GB exFAT written to the console at 41 MB/s, 41
+  min) starts through ShadowMount+ with "update emulators" off (owner).
 - **Console app** (`app/`, title `PPSA99594`, work for 0.3.0; see the
   2026-10-25 entry): the engine's page drawn natively with
   ps5-homebrew-ui, every section and dialog, talking to the engine on
