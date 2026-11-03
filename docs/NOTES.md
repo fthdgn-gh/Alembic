@@ -86,7 +86,10 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   needed), Japanese in the app (IBM Plex Sans JP, line breaks between
   Japanese characters), Russian (three plural forms), English and Türkçe
   first in the list, extended-storage places translated. Owner tried the
-  app on the console with the new engine before the release.
+  app on the console with the new engine before the release. Main's CI
+  green before the tag (the macOS runner queued ~10 min); published
+  2026-11-03, every job green. Catalog PR from the fork branch
+  update-alembic-0.5.1 (opened by the owner: auto mode refuses it).
 - **Console app** (`app/`, title `PPSA99594`, work for 0.3.0; see the
   2026-10-25 entry): the engine's page drawn natively with
   ps5-homebrew-ui, every section and dialog, talking to the engine on
