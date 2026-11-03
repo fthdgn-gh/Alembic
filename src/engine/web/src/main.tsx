@@ -15,7 +15,7 @@ import "./debug";
 import { effect } from "@preact/signals";
 import { info, loadInfo, notConnected } from "./state/engine";
 import { refreshJobs } from "./state/jobs";
-import { loadTranslations, t, tMsg } from "./lib/i18n";
+import { lang, loadTranslations, t, tMsg } from "./lib/i18n";
 import { browse } from "./pages/files/browse";
 import { applyScale } from "./pages/settings/prefs";
 import { watchIncoming } from "./pages/settings/Engines";
@@ -29,7 +29,7 @@ window.addEventListener("resize", applyScale);
 // page's too, and leaving (L2 + R2) goes back through them.
 history.replaceState({ view: "files", path: "/", depth: depth() }, "");
 // Drawn once the translations are in, so the page never starts in English.
-loadTranslations().then(() => {
+loadTranslations(lang.value).then(() => {
   render(<App />, document.getElementById("app")!);
   loadInfo().then(() => browse("/", false))
     .catch((e) => { notConnected.value = t("Engine not reachable: {error}", { error: tMsg(e.message) }); browse("/", false); });

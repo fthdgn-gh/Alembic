@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Lists the texts the engine page translates, and checks i18n.json against them:
+# Lists the texts the engine page translates, and checks the i18n.<code>.json files against them:
 #   tools/i18n_keys.py          -> every key, one per line
 #   tools/i18n_keys.py --check  -> missing or unused keys and {placeholder} mismatches per language
 import json, re, sys
@@ -51,7 +51,7 @@ ENGINE = [
     "Internal storage", "Internal", "USB {n}", "Extended {n}",
 ]
 keys |= set(ENGINE)
-# The engine's notifications (l10n::t in main.cpp) and the messages it sends (the patterns in i18n.json).
+# The engine's notifications (l10n::t in main.cpp) and the messages it sends (the patterns in i18n.messages.json).
 engine_src = (web.parent / "main.cpp").read_text()
 keys |= set(re.findall(r'l10n::t\(\s*"((?:[^"\\]|\\.)*)"', engine_src))
 keys |= set(re.findall(r'\? "((?:[^"\\]|\\.)*\{name\})"', engine_src))  # l10n::t(a ? "Copied {name}" : ...)
@@ -68,17 +68,29 @@ app_keys = set(re.findall(r'\bt\(\s*"((?:[^"\\]|\\.)*)"', app_src))
 app_keys |= {k for pair in re.findall(r'plural\([^,]+, "([^"]+)", "([^"]+)"\)', app_src) for k in pair}
 app_keys |= set(re.findall(r'\{"\w+", "[^"]+", "([^"]* [^"]*)"\}', app_src))  # the Convert formats
 keys |= {_cpp_text(k).replace('\\"', '"') for k in app_keys}
-tables = json.loads((web / "i18n.json").read_text())
-keys |= set(tables.get("messages", []))
+# One file per language (i18n.<code>.json) and the engine's message patterns
+# (i18n.messages.json). A key written twice in a file is a problem too.
+repeated = []
+def _pairs(path):
+    def hook(pairs):
+        seen = set()
+        for k, _ in pairs:
+            if k in seen: repeated.append(f"{path.name}: {k!r} is there twice")
+            seen.add(k)
+        return dict(pairs)
+    return json.loads(path.read_text(), object_pairs_hook=hook)
+patterns = _pairs(web / "i18n.messages.json")
+tables = {p.name[len("i18n."):-len(".json")]: _pairs(p) for p in sorted(web.glob("i18n.*.json")) if p.name != "i18n.messages.json"}
+keys |= set(patterns)
 keys = sorted(k.encode().decode("unicode_escape") if "\\" in k else k for k in keys)
 
 if "--check" not in sys.argv:
     print("\n".join(keys)); sys.exit(0)
 
 ph = lambda s: sorted(re.findall(r"\{(\w+)\}", s))
-bad = 0
+bad = len(repeated)
+for r in repeated: print(r)
 for lang, table in tables.items():
-    if lang == "messages": continue
     missing = [k for k in keys if k not in table]
     unused = [k for k in table if k not in keys]
     wrong = [k for k in keys if k in table and ph(k) != ph(table[k])]
@@ -86,5 +98,5 @@ for lang, table in tables.items():
     for k in unused: print(f"{lang}: unused {k!r}")
     for k in wrong: print(f"{lang}: placeholders differ in {k!r}: {table[k]!r}")
     bad += len(missing) + len(unused) + len(wrong)
-print(f"{len(keys)} keys, {len([l for l in tables if l != "messages"])} languages, {bad} problems")
+print(f"{len(keys)} keys, {len(tables)} languages, {bad} problems")
 sys.exit(1 if bad else 0)

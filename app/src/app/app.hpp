@@ -114,6 +114,8 @@ public:
     bool is_ps5() const { return info["platform"].str() == "ps5"; }
 
     void load_info();
+    // Speaks `code` once its table is here (fetched from the engine when not).
+    void use_language(const std::string& code);
     void refresh_jobs(bool remote_now = false);
     // Settings > Restart the engine (after the question): the engine starts
     // a copy of itself; an engine that can't (none found, or before 0.3.0)
@@ -300,8 +302,8 @@ private:
     std::string launch_why_, launch_status_;
     std::function<void(bool, const std::string&)> launch_done_;
     float restart_poll_ = 0.0f;
-    bool i18n_loaded_ = false;
-    bool i18n_busy_ = false;
+    std::string lang_wanted_;   // the language use_language was last asked for
+    std::string lang_loading_;  // the one being fetched
     bool first_browse_ = false;
     std::string update_told_;
     std::string mismatch_told_;  // the engine version the app-is-older notice was shown for

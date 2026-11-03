@@ -69,20 +69,18 @@ std::string message_locked(const std::string& text, int depth) {
 
 } // namespace
 
-void load(const char* data, std::size_t size) {
-    auto json = parse_json(std::string_view(data, size));
-    if (!json.ok()) return;
+void load(const std::string& name, std::string_view json) {
+    auto parsed = parse_json(json);
+    if (!parsed.ok()) return;
     std::lock_guard<std::mutex> lock(g_mutex);
-    g_tables.clear();
-    g_patterns.clear();
-    for (const auto& [key, value] : json->fields()) {
-        if (key == "messages") {
-            for (const JsonValue& p : value.items()) g_patterns.push_back(p.str());
-            continue;
-        }
-        auto& t = g_tables[key];
-        for (const auto& [english, translated] : value.fields()) t[english] = translated.str();
+    if (name == "messages") {
+        g_patterns.clear();
+        for (const JsonValue& p : parsed->items()) g_patterns.push_back(p.str());
+        return;
     }
+    auto& t = g_tables[name];
+    t.clear();
+    for (const auto& [english, translated] : parsed->fields()) t[english] = translated.str();
 }
 
 void set_language(const std::string& code) {

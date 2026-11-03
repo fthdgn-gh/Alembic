@@ -187,7 +187,8 @@ http.createServer((req, res) => {
   req.on("end", () => {
     const json = body ? JSON.parse(body) : {};
     if (p === "/" || p === "/index.html") return send(res, 200, fs.readFileSync(process.env.MOCK_PAGE || REPO + "/build/web/index.html"), "text/html; charset=utf-8");
-    if (p === "/i18n.json") return send(res, 200, fs.readFileSync(REPO + "/src/engine/web/i18n.json"), "application/json; charset=utf-8");
+    const i18n = /^\/(i18n\.[a-z]+\.json)$/.exec(p);
+    if (i18n && fs.existsSync(REPO + "/src/engine/web/" + i18n[1])) return send(res, 200, fs.readFileSync(REPO + "/src/engine/web/" + i18n[1]), "application/json; charset=utf-8");
     if (p === "/icon.svg" || p === "/favicon.ico") return send(res, 200, fs.readFileSync(REPO + "/assets/icon/alembic.svg"), "image/svg+xml");
     if (p === "/api/info") return send(res, 200, INFO);
     if (p === "/api/fs/space") return send(res, 200, SPACE);

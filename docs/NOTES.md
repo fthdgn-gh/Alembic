@@ -3228,14 +3228,22 @@ release: see "components follow their latest releases" below.)
   so the table never parsed and every language showed English. Section
   headings now upper-case accented letters as the page's CSS does
   ("APLICACIÓN", "ß" as "SS").
-- **`src/engine/web/i18n.json`** (owner) replaces `i18n.js`: plain JSON,
-  served at `/i18n.json` (no `/i18n.js` any more; older apps could not read
-  it anyway), embedded as `kI18nJson`. The page fetches it before it draws
-  (`loadTranslations()` in `lib/i18n.ts`; English if it fails); the
-  engine, the app, the test and `tools/i18n_keys.py` (no Node any more)
-  parse it as it is. The file's old header comment lives in `lib/i18n.ts`.
-  Page in Spanish in a headless browser and the app in Spanish and Turkish,
-  both against a PC engine.
+- **One plain JSON file per language** (owner): `i18n.js` became
+  `src/engine/web/i18n.<code>.json` (es, fr, de, ja, tr; ~865 lines each)
+  plus `i18n.messages.json` (the engine-message patterns all languages
+  share), each served at `/i18n.<name>.json` (no `/i18n.js` any more; older
+  apps could not read it anyway). CMake embeds every `i18n.*.json` it finds
+  (`cmake/embed_i18n.cmake`: `kI18nNames` / `kI18nData` / `kI18nSizes`), so
+  a new language is a new file (plus `LANGS` in `lib/i18n.ts` and
+  `languages()` in the app). The page and the app fetch only the language
+  in use (and the patterns, once) and switch once it is in
+  (`loadTranslations(code)` in `lib/i18n.ts`, `App::use_language`); English
+  needs none. `tools/i18n_keys.py` (no Node any more) also reports a key
+  written twice: the old file had "Update to {version}" twice in every
+  language (same text), dropped in the split. The old header comment lives
+  in `lib/i18n.ts`. Checked against a PC engine: the page in a headless
+  browser (Spanish, switched to Turkish and English, fetching only those),
+  the app in Spanish, Turkish and German (switched in Settings).
 
 ## Next session
 

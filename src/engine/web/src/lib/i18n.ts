@@ -1,23 +1,33 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Translations are in i18n.json (served at /i18n.json; the engine and the
-// console app read the same file), keyed by the English text; anything
-// missing stays English. "messages" lists what the engine sends (errors,
-// warnings, console notifications) as patterns whose {name} parts match any
-// text, longest first. tools/i18n_keys.py finds the texts by their t() calls,
-// so pass texts to t() as plain string literals; run it with --check after
-// changing texts (missing or unused keys, placeholder mismatches).
+// Translations are one file per language, i18n.<code>.json (served at
+// /i18n.<code>.json; the engine and the console app read the same files),
+// keyed by the English text; anything missing stays English.
+// i18n.messages.json lists what the engine sends (errors, warnings, console
+// notifications) as patterns whose {name} parts match any text, longest
+// first. tools/i18n_keys.py finds the texts by their t() calls, so pass texts
+// to t() as plain string literals; run it with --check after changing texts
+// (missing, unused or repeated keys, placeholder mismatches).
 import { signal } from "@preact/signals";
 
-type Tables = { messages?: string[]; [lang: string]: Record<string, string> | string[] | undefined };
-let I18N: Tables = {};
+const tables: Record<string, Record<string, string>> = {};
+let patterns: string[] = [];
 
-// Fetches the tables; the page is drawn once they are in (or in English when
-// they cannot be had).
-export function loadTranslations(): Promise<void> {
-  return fetch("/i18n.json")
-    .then((r) => (r.ok ? r.json() : {}))
-    .then((j: Tables) => { I18N = j || {}; })
-    .catch(() => {});
+function getJson<T>(path: string): Promise<T | null> {
+  return fetch(path).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+}
+
+// Fetches a language's table (and the message patterns, once) if it is not
+// here yet. It never fails: a language that cannot be had shows English.
+let patternsLoaded = false;
+export function loadTranslations(code: string): Promise<void> {
+  if (code === "en" || tables[code]) return Promise.resolve();
+  return Promise.all([
+    getJson<Record<string, string>>("/i18n." + code + ".json"),
+    patternsLoaded ? Promise.resolve(null) : getJson<string[]>("/i18n.messages.json"),
+  ]).then(([table, p]) => {
+    if (table) tables[code] = table;
+    if (p) { patterns = p; patternsLoaded = true; }
+  });
 }
 
 export const LANGS: [string, string][] = [["en", "English"], ["es", "Español"], ["fr", "Français"], ["de", "Deutsch"], ["ja", "日本語"], ["tr", "Türkçe"]];
@@ -39,8 +49,7 @@ document.documentElement.lang = lang.value;
 
 type Vars = Record<string, string | number>;
 function table(): Record<string, string> | null {
-  const d = I18N[lang.value];
-  return d && !Array.isArray(d) ? d : null;
+  return tables[lang.value] || null;
 }
 
 // English text in, translated text out; {name} is filled from `vars`.
@@ -76,7 +85,7 @@ let namePaths: (text: string) => string = (s) => s;
 export function setPathNamer(fn: (text: string) => string) { namePaths = fn; }
 
 // An engine message in the page's language: an exact key, else the first of
-// I18N.messages (longest first) whose {name} parts match. The matched parts are
+// i18n.messages.json (longest first) whose {name} parts match. The matched parts are
 // translated too, so a system reason inside an error ("No space left on
 // device") is. The engine's log keeps the English text.
 export function tMsg(text: string | null | undefined): string {
@@ -85,7 +94,7 @@ export function tMsg(text: string | null | undefined): string {
   const d = table();
   if (!d) return text;
   if (d[text] != null) return d[text];
-  for (const p of I18N.messages || []) {
+  for (const p of patterns) {
     const vars = matchPattern(p, text);
     if (vars) { for (const k in vars) vars[k] = tMsg(vars[k]); return t(p, vars); }
   }

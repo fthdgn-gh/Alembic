@@ -120,11 +120,13 @@ TEST_CASE(engine_names_outputs_next_to_the_input) {
     CHECK(*resolve_target(none) == "ffpfsc");
 }
 
-// The engine's translations come from the page's i18n.json.
+// The engine's translations come from the page's i18n.<name>.json files.
 TEST_CASE(engine_l10n_messages) {
-    std::vector<std::uint8_t> js = test::read_file(test::source_dir() + "/src/engine/web/i18n.json");
-    CHECK(!js.empty());
-    l10n::load(reinterpret_cast<const char*>(js.data()), js.size());
+    for (const char* name : {"messages", "es", "fr", "de", "ja", "tr"}) {
+        std::vector<std::uint8_t> js = test::read_file(test::source_dir() + "/src/engine/web/i18n." + name + ".json");
+        CHECK(!js.empty());
+        l10n::load(name, std::string_view(reinterpret_cast<const char*>(js.data()), js.size()));
+    }
     CHECK(l10n::has_language("tr") && l10n::has_language("ja") && !l10n::has_language("xx"));
 
     l10n::Vars v;

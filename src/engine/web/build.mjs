@@ -75,9 +75,10 @@ if (args.includes("--serve")) {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
       return res.end(html);
     }
-    if (req.url === "/i18n.json") {
+    const i18n = /^\/(i18n\.[a-z]+\.json)$/.exec(req.url || "");
+    if (i18n && fs.existsSync(path.join(here, i18n[1]))) {
       res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
-      return res.end(fs.readFileSync(path.join(here, "i18n.json")));
+      return res.end(fs.readFileSync(path.join(here, i18n[1])));
     }
     // Everything else (the API, icons) comes from the engine.
     const up = http.request({ host: engine.hostname, port: engine.port, path: req.url, method: req.method, headers: req.headers }, (r) => {

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The engine's own texts in the user's language (console notifications), from
-// the same tables as the page (web/i18n.json, embedded in the engine).
+// the same tables as the page (web/i18n.<code>.json, embedded in the engine).
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -11,8 +12,9 @@ namespace alembic::engine::l10n {
 
 using Vars = std::vector<std::pair<std::string, std::string>>;
 
-// Reads the tables from the embedded i18n.json.
-void load(const char* data, std::size_t size);
+// Reads one embedded i18n.<name>.json: a language's table ("tr", ...) or,
+// for "messages", the engine's message patterns.
+void load(const std::string& name, std::string_view json);
 // "en", "tr", ...: a code with a table, or "en".
 void set_language(const std::string& code);
 std::string language();

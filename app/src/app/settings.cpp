@@ -678,7 +678,7 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
         y += choice_row(ui, "s:lang", x, y, w, t("Language"), hint, labels, &index, &changed);
         if (changed) {
             const std::string code = langs[static_cast<std::size_t>(index)].first;
-            set_language(code);
+            app.use_language(code);
             JsonValue body = JsonValue::object();
             body.set("lang", code);
             app.post("/api/lang", body, nullptr);

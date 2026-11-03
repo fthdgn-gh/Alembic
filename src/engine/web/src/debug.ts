@@ -5,8 +5,9 @@ import { browse } from "./pages/files/browse";
 import { showTab } from "./input/history";
 import { openConvert } from "./dialogs/ConvertDialog";
 import { closeOverlay } from "./components/Overlay";
+import { setLang } from "./pages/settings/prefs";
 
 (window as any).__alembic = {
   state: { get listing() { return listing.value; }, get cwd() { return cwd.value; } },
-  browse, showTab, openConvert, closeOverlay,
+  browse, showTab, openConvert, closeOverlay, setLang,
 };

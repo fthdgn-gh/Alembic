@@ -154,6 +154,33 @@ bool App::any_paired() const {
     return false;
 }
 
+void App::use_language(const std::string& code) {
+    lang_wanted_ = code;
+    // English needs no table, and Japanese shows English until the fonts have it.
+    if (has_language(code) || !language_drawable(code)) {
+        set_language(code);
+        return;
+    }
+    if (lang_loading_ == code) return;
+    lang_loading_ = code;
+    auto table = [this, code] {
+        engine.fetch("/i18n." + code + ".json", nullptr, [this, code](int status, std::string body) {
+            lang_loading_.clear();
+            if (status == 200) load_language(code, body);
+            // Not to be had: the language stays as it was; asked for again at the next refresh.
+            if (lang_wanted_ == code && has_language(code)) set_language(code);
+        });
+    };
+    if (messages_loaded()) {
+        table();
+        return;
+    }
+    engine.fetch("/i18n.messages.json", nullptr, [table](int status, std::string body) {
+        if (status == 200) load_messages(body);
+        table();
+    });
+}
+
 void App::load_info() {
     if (info_busy_) return;
     info_busy_ = true;
@@ -164,16 +191,9 @@ void App::load_info() {
             return;
         }
         JsonValue i = r.json;
-        if (!i18n_loaded_ && !i18n_busy_) {
-            i18n_busy_ = true;
-            engine.fetch("/i18n.json", nullptr, [this](int status, std::string body) {
-                i18n_busy_ = false;
-                if (status == 200 && load_i18n(body)) i18n_loaded_ = true;
-            });
-        }
         // The app speaks the language the engine keeps for its notifications
         // (the page's, or the console's).
-        set_language(i["lang"].str("en"));
+        use_language(i["lang"].str("en"));
         get("/api/fs/space", [this, i](const Reply& sp) {
             get("/api/locations", [this, i, sp](const Reply& loc) {
                 get("/api/servers", [this, i, sp, loc](const Reply& f) {

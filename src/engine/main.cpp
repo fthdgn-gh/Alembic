@@ -137,8 +137,11 @@ namespace alembic::engine {
 extern const char* const kIndexHtml;
 extern const std::size_t kIndexHtmlSize;
 // assets/icon/alembic.svg
-extern const char* const kI18nJson;
-extern const std::size_t kI18nJsonSize;
+// The page's translations, i18n.<name>.json (cmake/embed_i18n.cmake).
+extern const std::size_t kI18nCount;
+extern const char* const kI18nNames[];
+extern const char* const kI18nData[];
+extern const std::size_t kI18nSizes[];
 extern const char* const kIconSvg;
 extern const std::size_t kIconSvgSize;
 // assets/icon/icon0.png, the home-screen shortcut's icon
@@ -477,11 +480,14 @@ private:
             resp.body.assign(kIndexHtml, kIndexHtmlSize);
             return resp;
         }
-        if (r.path == "/i18n.json") {
-            HttpResponse resp;
-            resp.content_type = "application/json; charset=utf-8";
-            resp.body.assign(kI18nJson, kI18nJsonSize);
-            return resp;
+        if (r.path.rfind("/i18n.", 0) == 0) {
+            for (std::size_t i = 0; i < kI18nCount; ++i) {
+                if (r.path != std::string("/i18n.") + kI18nNames[i] + ".json") continue;
+                HttpResponse resp;
+                resp.content_type = "application/json; charset=utf-8";
+                resp.body.assign(kI18nData[i], kI18nSizes[i]);
+                return resp;
+            }
         }
         if (r.path == "/icon.svg" || r.path == "/favicon.ico") {
             HttpResponse resp;
@@ -2450,7 +2456,7 @@ int main(int argc, char** argv) {
     log_line(std::string("Alembic engine ") + version() + " starting (" + platform::name() + ")");
 
     // Notifications follow the page's language (saved by /api/lang), else the console's.
-    l10n::load(kI18nJson, kI18nJsonSize);
+    for (std::size_t i = 0; i < kI18nCount; ++i) l10n::load(kI18nNames[i], std::string_view(kI18nData[i], kI18nSizes[i]));
     {
         std::string code = platform::system_language();
         if (std::FILE* f = alembic::open_stdio((config.state_dir + "/lang"), "r")) {

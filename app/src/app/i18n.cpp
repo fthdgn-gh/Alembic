@@ -12,6 +12,7 @@ namespace {
 struct Tables {
     std::map<std::string, std::map<std::string, std::string, std::less<>>> langs;
     std::vector<std::string> messages;
+    bool messages_loaded = false;
     std::string current = "en";
 };
 Tables& tables() {
@@ -101,22 +102,27 @@ const std::vector<std::pair<std::string, std::string>>& languages() {
     return list;
 }
 
-bool load_i18n(std::string_view json) {
+bool load_messages(std::string_view json) {
     auto parsed = engine::parse_json(json);
-    if (!parsed || !parsed->is_object()) return false;
+    if (!parsed || parsed->type() != engine::JsonValue::Type::array) return false;
     Tables& T = tables();
-    T.langs.clear();
     T.messages.clear();
-    for (const auto& [key, value] : parsed->fields()) {
-        if (key == "messages") {
-            for (const auto& m : value.items()) T.messages.push_back(m.str());
-            continue;
-        }
-        auto& dest = T.langs[key];
-        for (const auto& [k, v] : value.fields()) dest[k] = v.str();
-    }
+    for (const auto& m : parsed->items()) T.messages.push_back(m.str());
+    T.messages_loaded = true;
     return true;
 }
+
+bool load_language(const std::string& code, std::string_view json) {
+    auto parsed = engine::parse_json(json);
+    if (!parsed || !parsed->is_object()) return false;
+    auto& dest = tables().langs[code];
+    dest.clear();
+    for (const auto& [k, v] : parsed->fields()) dest[k] = v.str();
+    return true;
+}
+
+bool messages_loaded() { return tables().messages_loaded; }
+bool has_language(const std::string& code) { return code == "en" || tables().langs.count(code) > 0; }
 
 void set_language(const std::string& code) { tables().current = code.empty() ? "en" : code; }
 const std::string& language() { return tables().current; }
