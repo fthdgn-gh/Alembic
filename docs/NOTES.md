@@ -78,7 +78,8 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   there with the owner's OK (the owner force-pushed it: the agent's
   auto mode refuses). Published 2026-11-03, every job green. Lesson: push
   main and wait for CI before tagging. Catalog PR from the fork branch
-  update-alembic-0.5.0 (opened by the owner: auto mode refuses it).
+  update-alembic-0.5.0: darkxex/ps5-homebrew-catalog#1084 (opened by the
+  owner: auto mode refuses it).
 - **Console app** (`app/`, title `PPSA99594`, work for 0.3.0; see the
   2026-10-25 entry): the engine's page drawn natively with
   ps5-homebrew-ui, every section and dialog, talking to the engine on
