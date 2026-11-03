@@ -71,6 +71,14 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   any file. Console: a 160 GB package packed at level 5 by the Mac engine
   (pass 1 ~1.5 GB/s, 96.4 GB exFAT written to the console at 41 MB/s, 41
   min) starts through ShadowMount+ with "update emulators" off (owner).
+  Release: the Windows test had failed on main since the Replace option
+  (`attach_backport` replaced the emulator while its old file was still
+  open; Windows can't rename over an open file), unseen because those
+  commits were not pushed until the tag. Fixed (db40e2c); the tag moved
+  there with the owner's OK (the owner force-pushed it: the agent's
+  auto mode refuses). Published 2026-11-03, every job green. Lesson: push
+  main and wait for CI before tagging. Catalog PR from the fork branch
+  update-alembic-0.5.0 (opened by the owner: auto mode refuses it).
 - **Console app** (`app/`, title `PPSA99594`, work for 0.3.0; see the
   2026-10-25 entry): the engine's page drawn natively with
   ps5-homebrew-ui, every section and dialog, talking to the engine on
