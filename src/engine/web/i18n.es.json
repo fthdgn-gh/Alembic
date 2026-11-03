@@ -210,6 +210,7 @@
  "Enter the six-digit code": "Escribe el código de seis cifras",
  "Enter this code on {name}:": "Escribe este código en {name}:",
  "Extended {n}": "Ampliado {n}",
+ "Extended storage {n}": "Almacenamiento ampliado {n}",
  "Extracting": "Extrayendo",
  "FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data.": "Aquí FFPFSC carga más lento que exFAT: la consola deshace zlib y luego LZ4, y zlib ahorra poco con datos LZ4.",
  "FileZilla and other FTP servers": "FileZilla y otros servidores FTP",

@@ -210,6 +210,7 @@
  "Enter the six-digit code": "6 桁のコードを入力してください",
  "Enter this code on {name}:": "このコードを {name} で入力してください:",
  "Extended {n}": "拡張ストレージ {n}",
+ "Extended storage {n}": "拡張ストレージ {n}",
  "Extracting": "展開中",
  "FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data.": "この場合 FFPFSC は exFAT より読み込みが遅くなります。本体は zlib を展開してから LZ4 を展開し、LZ4 のデータには zlib がほとんど効きません。",
  "FileZilla and other FTP servers": "FileZilla などの FTP サーバー",

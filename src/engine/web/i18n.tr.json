@@ -210,6 +210,7 @@
  "Enter the six-digit code": "Altı haneli kodu girin",
  "Enter this code on {name}:": "Bu kodu {name} üzerinde girin:",
  "Extended {n}": "Genişletilmiş {n}",
+ "Extended storage {n}": "Genişletilmiş depolama {n}",
  "Extracting": "Çıkarılıyor",
  "FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data.": "Burada FFPFSC, exFAT'ten yavaş yüklenir: konsol önce zlib'i, sonra LZ4'ü açar ve zlib, LZ4 verisinde pek yer kazandırmaz.",
  "FileZilla and other FTP servers": "FileZilla ve diğer FTP sunucuları",

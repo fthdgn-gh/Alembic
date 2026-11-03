@@ -216,13 +216,14 @@ std::string place_label(std::string_view label) {
     std::string s(label);
     if (s == "Internal storage") return t("Internal storage");
     if (s.compare(0, 8, "Internal") == 0 && (s.size() == 8 || s[8] == ' ')) return t("Internal") + s.substr(8);
-    for (const char* prefix : {"USB ", "Extended "}) {
+    for (const char* prefix : {"USB ", "Extended storage ", "Extended "}) {
         const std::size_t n = std::char_traits<char>::length(prefix);
         if (s.compare(0, n, prefix) == 0 && s.size() > n && s[n] >= '0' && s[n] <= '9') {
             std::size_t end = n;
             while (end < s.size() && s[end] >= '0' && s[end] <= '9') ++end;
             const std::string num = s.substr(n, end - n);
-            return t(prefix[0] == 'U' ? "USB {n}" : "Extended {n}", {{"n", num}}) + s.substr(end);
+            const std::string key = std::string(prefix) + "{n}";
+            return t(key, {{"n", num}}) + s.substr(end);
         }
     }
     return s;

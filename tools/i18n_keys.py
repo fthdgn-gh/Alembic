@@ -48,7 +48,7 @@ ENGINE = [
     # shortcut status (main.cpp), the simple ones
     "not tried", "registering…", "registered", "registered earlier", "removed", "turned off in Settings", "not available",
     # place names (platform_ps5.cpp)
-    "Internal storage", "Internal", "USB {n}", "Extended {n}",
+    "Internal storage", "Internal", "USB {n}", "Extended {n}", "Extended storage {n}",
 ]
 keys |= set(ENGINE)
 # The engine's notifications (l10n::t in main.cpp) and the messages it sends (the patterns in i18n.messages.json).

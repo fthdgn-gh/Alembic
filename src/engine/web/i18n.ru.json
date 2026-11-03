@@ -210,6 +210,7 @@
  "Enter the six-digit code": "Введите шестизначный код",
  "Enter this code on {name}:": "Введите этот код на {name}:",
  "Extended {n}": "Расширенное хранилище {n}",
+ "Extended storage {n}": "Расширенное хранилище {n}",
  "Extracting": "Извлечение",
  "FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data.": "Здесь FFPFSC загружается медленнее, чем exFAT: консоль сначала распаковывает zlib, затем LZ4, а zlib почти не сжимает данные LZ4.",
  "FileZilla and other FTP servers": "FileZilla и другие FTP-серверы",
