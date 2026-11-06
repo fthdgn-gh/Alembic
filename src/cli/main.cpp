@@ -8,6 +8,7 @@
 #include "alembic/ffpfsc.hpp"
 #include "alembic/fpkg.hpp"
 #include "alembic/fpkg_inner.hpp"
+#include "alembic/fself.hpp"
 #include "alembic/lz4pack.hpp"
 #include "alembic/zstdpack.hpp"
 #include "alembic/unicode.hpp"
@@ -68,7 +69,7 @@ void usage() {
         "                              (ampr_zstd.index + ampr_zstd-NNN.pak, 256 KiB chunks; any\n"
         "                              output but .pkg; read on the console by ampr-emu-ng's\n"
         "                              runtime; not with --lz4). Files chosen as ps5-dump-forge\n"
-        "                              does; an LZ4-packed input keeps its LZ4 pack set\n"
+        "                              does: everything but executables and system folders\n"
         "        --zstd-runtime FILE   that runtime (ampr-emu-ng's libSceAmpr.sprx), placed in\n"
         "                              fakelib/\n"
         "        --zstd-level N        1 (fastest) to 22 (smallest), default 5\n"
@@ -79,6 +80,9 @@ void usage() {
         "                              uses the console's APR and the game ships none (a game\n"
         "                              run from an image or folder needs it; not for .pkg)\n"
         "        --ampr-emu-always     add it even when the game does not seem to need it\n"
+        "        --no-fake-sign        leave unsigned executables (plain PS5 ELF) as they are;\n"
+        "                              by default they become fake-signed SELFs, as\n"
+        "                              make_fself.py --ptype fake writes them (not for .pkg)\n"
         "  ampr-emu <input> [--ampr-emu FILE [--replace]] [--backports DIR] [--passcode P]\n"
         "        tell whether a game needs ampr_emu; with --ampr-emu, add it: into a game\n"
         "        folder directly, or for an image as a ShadowMount+ backport folder\n"
@@ -96,6 +100,9 @@ void usage() {
         "        pkg_build makes it: --ps4-keys FILE (LibOrbisPkg's Util/Keys.cs, pinned by\n"
         "        SHA-256), --package-passcode, --timestamp UNIX, and --creation-date YYYYMMDD\n"
         "        [--creation-time HHMMSS] when param.sfo has no PUBTOOLINFO c_date\n"
+        "  fself <in.elf> <out>\n"
+        "        fake-sign one PS5 executable, byte for byte as ampr-emu-ng's make_fself.py\n"
+        "        --ptype fake\n"
         "  ls <input> [--passcode P]\n"
         "        list the files in a folder, exFAT, FFPKG, FFPFSC or debug FPKG\n"
         "  cat <input> <path> [<out>] [--passcode P]\n"
@@ -407,6 +414,7 @@ int cmd_convert(const Args& args) {
         options.ampr_emulator = std::make_shared<File>(std::move(*file));
     }
     options.ampr_emulator_always = args.get("--ampr-emu-always").has_value();
+    options.fake_sign = !args.get("--no-fake-sign").has_value();
     if (options.ampr_emulator_always && !options.ampr_emulator)
         return std::fputs("error: --ampr-emu-always needs --ampr-emu FILE\n", stderr), 2;
     // FFPKG (UFS2): fixed time stamp and process ID for reproducible images.
@@ -518,6 +526,12 @@ int cmd_convert(const Args& args) {
     if (!report->detail.empty())
         std::printf("%s: %s\n", report->to == convert::Format::fpkg ? "content ID" : "inner name", report->detail.c_str());
     if (report->ampr_emulator_added) std::printf("AMPR emulator: added as %s\n", report->ampr_emulator_path.c_str());
+    if (!report->fake_signed.empty()) {
+        std::printf("fake-signed:   %zu executables", report->fake_signed.size());
+        if (report->fake_sign_index_records) std::printf(" (%zu ampr_emu.index records resized)", report->fake_sign_index_records);
+        std::printf("\n");
+        for (const std::string& p : report->fake_signed) std::printf("  %s\n", p.c_str());
+    }
     for (const std::string& w : report->warnings) std::fprintf(stderr, "warning: %s\n", w.c_str());
     if (report->lz4) {
         const lz4pack::PackStats& st = *report->lz4;
@@ -967,6 +981,26 @@ int cmd_pfsc_decode(const Args& args) {
     return 0;
 }
 
+int cmd_fself(const Args& args) {
+    if (args.positional.size() != 2) return usage(), 2;
+    auto input = File::open(args.positional[0], File::Mode::read);
+    if (!input.ok()) return fail(input.error());
+    auto size = input->size();
+    if (!size.ok()) return fail(size.error());
+    if (*size > (1ull << 31)) return fail(make_error(Errc::too_large, "an executable this large is not read whole"));
+    std::vector<std::uint8_t> elf(static_cast<std::size_t>(*size));
+    if (Status s = input->read_at(0, elf); !s.ok()) return fail(s.error());
+    if (!fself::is_unsigned_elf(elf)) return fail(make_error(Errc::invalid_argument, "not an unsigned PS5 executable (ELF type 0xFE10 or 0xFE18)"));
+    auto self = fself::make_fself(elf);
+    if (!self.ok()) return fail(self.error());
+    auto output = AtomicOutput::create(args.positional[1], true);
+    if (!output.ok()) return fail(output.error());
+    if (Status s = output->file().write_at(0, *self); !s.ok()) return fail(s.error());
+    if (Status s = output->commit(); !s.ok()) return fail(s.error());
+    std::printf("fake-signed: %zu -> %zu bytes\n", elf.size(), self->size());
+    return 0;
+}
+
 int cmd_ampr_emu(const Args& args) {
     if (args.positional.size() != 1) return usage(), 2;
     const std::string& path = args.positional[0];
@@ -1044,7 +1078,8 @@ int main(int argc, char** argv) {
     if (command == "convert")
         return cmd_convert(
             parse(argc, argv, {"--no-ampr", "--case-sensitive", "--overwrite", "--rebuild", "--lz4", "--lz4-unpack",
-                                    "--zstd", "--zstd-unpack", "--ampr-emu-always"}));
+                                    "--zstd", "--zstd-unpack", "--ampr-emu-always", "--no-fake-sign"}));
+    if (command == "fself") return cmd_fself(parse(argc, argv, {}));
     if (command == "ampr-emu") return cmd_ampr_emu(parse(argc, argv, {"--replace"}));
     if (command == "lz4-verify") return cmd_lz4_verify(parse(argc, argv, {}));
     if (command == "lz4-info") return cmd_lz4_info(parse(argc, argv, {}));

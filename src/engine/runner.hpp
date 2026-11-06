@@ -117,6 +117,7 @@ struct AmprState {
     std::string title_id;
     bool zstd_packs = false;       // ampr_zstd.index at the root: only ampr-emu-ng reads those
     bool lz4_packs = false;        // ampr_assets.index at the root: both emulators read those
+    std::size_t unsigned_executables = 0; // plain PS5 ELFs: conversions fake-sign them (fself.hpp)
     bool needed() const { return imports && !ships; }
 };
 std::optional<AmprState> ampr_state(const std::string& path, const std::string& passcode);

@@ -23,6 +23,7 @@
 #include "alembic/crypto.hpp"
 #include "alembic/kraken.hpp"
 #include "alembic/ffpfsc.hpp"
+#include "alembic/fself.hpp"
 #include "alembic/lz4pack.hpp"
 #include "alembic/zstdpack.hpp"
 #include "alembic/resume.hpp"
@@ -605,6 +606,11 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     if (resumed) r.set("resumed", true);
     if (!report.detail.empty()) r.set("detail", report.detail);
     if (report.ampr_emulator_added) r.set("ampr_emulator", report.ampr_emulator_path);
+    if (!report.fake_signed.empty()) {
+        JsonValue paths = JsonValue::array();
+        for (const std::string& p : report.fake_signed) paths.push(p);
+        r.set("fake_signed", std::move(paths));
+    }
     if (!report.title_id.empty()) r.set("title_id", report.title_id);
     if (!report.warnings.empty()) {
         JsonValue warnings = JsonValue::array();
@@ -663,6 +669,10 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
                 if (!(spec.lz4 && p == lz4pack::kRuntimeRelativePath) && !(spec.zstd && p == zstdpack::kRuntimeRelativePath) &&
                     p != report.ampr_emulator_path)
                     extra.push_back(p);
+            // Fake-signed executables are SELFs now, by design.
+            std::erase_if(cmp.different, [&](const std::string& p) {
+                return std::find(report.fake_signed.begin(), report.fake_signed.end(), p) != report.fake_signed.end();
+            });
             // A package build writes its own sce_sys/playgo-chunk.dat (as ProsperoPkgTool does).
             if (to == convert::Format::fpkg)
                 cmp.different.erase(std::remove_if(cmp.different.begin(), cmp.different.end(),
@@ -763,6 +773,10 @@ std::optional<AmprState> ampr_state(const std::string& path, const std::string& 
             a.zstd_packs = zstd && !zstd->is_directory;
             const tree::Node* lz4 = tree::find_child_icase(input->tree->root(), "ampr_assets.index");
             a.lz4_packs = lz4 && !lz4->is_directory;
+            // A PS5 game's only: conversions leave a PS4 game's as they are.
+            auto game = ffpfsc::resolve_game_root(input->tree->root());
+            if (!(game.ok() && ffpfsc::is_ps4_game(*input->tree, **game)))
+                if (auto u = fself::find_unsigned(*input->tree); u.ok()) a.unsigned_executables = u->size();
             state = a;
         }
     }

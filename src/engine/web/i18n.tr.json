@@ -861,5 +861,14 @@
  "The debug licence key, for packages of games that have no licence (without one, the title shows a lock), and the keys a PS4 fake package is built with (Sony's public package keys, the fake image key's modulus). Needed for PKG output.": "Lisansı olmayan oyunların paketleri için debug lisans anahtarı (lisans olmadan başlıkta kilit görünür) ve bir PS4 sahte paketinin yapıldığı anahtarlar (Sony'nin genel paket anahtarları, sahte imaj anahtarının modülü). PKG çıktısı için gerekir.",
  "Writing the package": "Paket yazılıyor",
  "Hashing the package": "Paketin özeti hesaplanıyor",
- "built a PS4 package from the file tree": "dosya ağacından PS4 paketi oluşturdu"
+ "built a PS4 package from the file tree": "dosya ağacından PS4 paketi oluşturdu",
+ "This game has {n} unsigned executable, so it would not start: it is fake-signed on the way.": "Bu oyunda {n} imzasız yürütülebilir dosya var, bu yüzden açılmaz: dönüştürülürken sahte imzalanır.",
+ "This game has {n} unsigned executables, so it would not start: they are fake-signed on the way.": "Bu oyunda {n} imzasız yürütülebilir dosya var, bu yüzden açılmaz: dönüştürülürken sahte imzalanırlar.",
+ "This game has {n} unsigned executable: packages cannot be made from unsigned executables yet.": "Bu oyunda {n} imzasız yürütülebilir dosya var: imzasız yürütülebilir dosyalardan henüz paket yapılamıyor.",
+ "This game has {n} unsigned executables: packages cannot be made from unsigned executables yet.": "Bu oyunda {n} imzasız yürütülebilir dosya var: imzasız yürütülebilir dosyalardan henüz paket yapılamıyor.",
+ "Some of these games have unsigned executables, so they would not start: they are fake-signed on the way.": "Bu oyunların bazılarında imzasız yürütülebilir dosyalar var, bu yüzden açılmazlar: dönüştürülürken sahte imzalanırlar.",
+ "Some of these games have unsigned executables: packages cannot be made from unsigned executables yet.": "Bu oyunların bazılarında imzasız yürütülebilir dosyalar var: imzasız yürütülebilir dosyalardan henüz paket yapılamıyor.",
+ "cannot fake-sign {path} ({reason}); it is left as it is": "{path} sahte imzalanamadı ({reason}); olduğu gibi bırakıldı",
+ "fake-signed the executables and {rest}": "yürütülebilir dosyaları sahte imzaladı ve {rest}",
+ "Checking executables": "Yürütülebilir dosyalar denetleniyor"
 }

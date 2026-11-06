@@ -1355,6 +1355,12 @@ public:
                                                      ampr ? t("This game uses the console's APR and ships no emulator: ampr_emu goes into its fakelib.")
                                                           : t("This game uses the console's APR and ships no emulator: without it, it will likely stop at start."),
                                                      px, yy + 0.5f * R, pw, 0.88f * R, 0.88f * 1.45f * R, warn);
+                if (const long long n = static_cast<long long>(plan["unsigned_executables"].number()); n > 0)
+                    yy += 0.5f * R + draw::paragraph(ui, Face::regular,
+                                                     target == "fpkg"
+                                                         ? plural(n, "This game has {n} unsigned executable: packages cannot be made from unsigned executables yet.", "This game has {n} unsigned executables: packages cannot be made from unsigned executables yet.")
+                                                         : plural(n, "This game has {n} unsigned executable, so it would not start: it is fake-signed on the way.", "This game has {n} unsigned executables, so it would not start: they are fake-signed on the way."),
+                                                     px, yy + 0.5f * R, pw, 0.88f * R, 0.88f * 1.45f * R, warn);
                 std::string needs;
                 for (const auto& d : plan["needs"].items())
                     needs += (needs.empty() ? "" : ", ") + t(d["label"].str()) + " (" + bytes(d["bytes"].number()) + ")";
@@ -1406,7 +1412,7 @@ public:
             if (target == f.value) label = f.label;
         const std::vector<Entry> jobs = work(app);
         double need = 0;
-        bool any_ampr = false;
+        bool any_ampr = false, any_unsigned = false;
         auto row = [&](const Entry& e, bool left_out) {
             const Meta* m = app.meta(e.path, e.mtime, e.size);
             draw::hline(ui, px, yy, pw, line);
@@ -1440,6 +1446,7 @@ public:
                 if (!warns.empty())
                     yy += draw::paragraph(ui, Face::regular, warns, px, yy, pw, 0.8f * R, 0.8f * 1.45f * R, warn) + 0.3f * R;
                 any_ampr = any_ampr || pl->second["ampr_needed"].boolean();
+                any_unsigned = any_unsigned || pl->second["unsigned_executables"].number() > 0;
             }
             auto in = inspects.find(e.path);
             if (!left_out && in != inspects.end()) need += in->second["bytes"].number();
@@ -1462,6 +1469,10 @@ public:
             yy += 0.5f * R + draw::paragraph(ui, Face::regular,
                                              ampr ? t("Games that use the console's APR and ship no emulator get ampr_emu in their fakelib.")
                                                   : t("Some of these games use the console's APR and ship no emulator: without it, they will likely stop at start."),
+                                             px, yy + 0.5f * R, pw, 0.88f * R, 0.88f * 1.45f * R, warn);
+        if (any_unsigned)
+            yy += 0.5f * R + draw::paragraph(ui, Face::regular,
+                                             target == "fpkg" ? t("Some of these games have unsigned executables: packages cannot be made from unsigned executables yet.") : t("Some of these games have unsigned executables, so they would not start: they are fake-signed on the way."),
                                              px, yy + 0.5f * R, pw, 0.88f * R, 0.88f * 1.45f * R, warn);
         std::string needs;
         std::vector<std::string> ids;

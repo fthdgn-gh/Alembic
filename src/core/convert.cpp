@@ -5,6 +5,7 @@
 #include "alembic/bytes.hpp"
 #include "alembic/exfat_reader.hpp"
 #include "alembic/fpkg_inner.hpp"
+#include "alembic/fself.hpp"
 #include "alembic/resume.hpp"
 #include "alembic/pfs.hpp"
 #include "alembic/ufs2.hpp"
@@ -319,6 +320,21 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         return make_error(Errc::unsupported, "LZ4 asset packs are for PS5 games; this is a PS4 game");
     if (ps4 && options.zstd)
         return make_error(Errc::unsupported, "zstd asset packs are for PS5 games; this is a PS4 game");
+    // Unsigned executables served fake-signed, before anything sizes the tree
+    // (packers and image writers list the SELF sizes in ampr_emu.index).
+    std::unique_ptr<tree::Source> signed_tree;
+    if (options.fake_sign && to != Format::fpkg && !ps4) {
+        if (progress && !progress({"Checking executables", 0, 0})) return make_error(Errc::cancelled, "cancelled");
+        ALEMBIC_ASSIGN(fself::Signed s, fself::sign(*tree_ptr));
+        for (const auto& [path, why] : s.refused)
+            report.warnings.push_back("cannot fake-sign " + path + " (" + why + "); it is left as it is");
+        if (s.tree) {
+            signed_tree = std::move(s.tree);
+            tree_ptr = signed_tree.get();
+            report.fake_signed = std::move(s.signed_paths);
+            report.fake_sign_index_records = s.index_records_resized;
+        }
+    }
     // zstd packs are decoded to be unpacked or packed again (zstd or LZ4).
     if ((options.zstd_unpack || options.zstd || options.lz4) && zstdpack::is_packed(tree_ptr->root())) {
         ALEMBIC_ASSIGN(zstd_unpacked, zstdpack::unpack(*tree_ptr));
@@ -430,7 +446,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
                             : unpacked      ? "LZ4-unpacked and "
                             : zstd_unpacked ? "zstd-unpacked and "
                                             : "";
-    std::string prefix_text = std::string(pack_text) +
+    std::string prefix_text = std::string(signed_tree ? "fake-signed the executables and " : "") + pack_text +
                               (with_emulator ? "added the AMPR emulator and " : "");
     const char* prefix = prefix_text.c_str();
     resume::Session* session = packed ? (options.resume ? &packed_session : nullptr) : options.resume;

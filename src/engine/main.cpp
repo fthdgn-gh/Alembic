@@ -2236,12 +2236,15 @@ private:
         if (!queue) {
             JsonValue v = spec->to_json();
             v.set("needs", std::move(needs));
-            // Whether the AMPR emulator goes in (the page says so).
-            if (*target != "fpkg" && !spec->lz4 && !spec->zstd)
-                if (auto a = ampr_state(spec->input, spec->passcode.empty() ? std::string(32, '0') : spec->passcode)) {
+            if (auto a = ampr_state(spec->input, spec->passcode.empty() ? std::string(32, '0') : spec->passcode)) {
+                // Whether the AMPR emulator goes in (the page says so).
+                if (*target != "fpkg" && !spec->lz4 && !spec->zstd) {
                     v.set("ampr_needed", a->needed());
                     v.set("ships_emulator", a->ships);
                 }
+                // Unsigned executables: fake-signed on the way, refused for a package.
+                if (a->unsigned_executables) v.set("unsigned_executables", a->unsigned_executables);
+            }
             JsonValue warnings = JsonValue::array();
             if (std::string w = mount_name_warning(*output); !w.empty()) warnings.push(w);
             v.set("warnings", std::move(warnings));

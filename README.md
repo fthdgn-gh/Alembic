@@ -103,6 +103,10 @@ and the app mark each game with a **PS5** (white) or **PS4** (black) pill.
   use). Alembic adds it when converting, or to a game you already have;
   on a game that has one, "Add the AMPR emulator" offers to switch it to
   the other.
+- **Fake-signing:** a PS5 game whose executables are plain (unsigned) ELF
+  files never starts. Conversions to an image or folder turn them into
+  fake-signed SELFs on the way, byte-identical to ampr-emu-ng's
+  `make_fself.py`, and Convert says so beforehand. Not for packages yet.
 - **Fast:** compression and package decoding use every core; AES, CRC32C
   and SHA-256 use the CPU's own instructions where it has them; zlib level 6
   by default (level 9 for exact PS5PKGTool output).
@@ -400,6 +404,7 @@ tools/pkg-oracle/compare.sh    # FPKG reading and writing vs ProsperoPkgTool / L
 tools/pkg-oracle/write_samples.sh  # FPKG writing vs ProsperoPkgTool on your own packages
 tools/lz4-oracle/compare.sh    # LZ4 packs vs ampr_emu's ampr_pack.py
 tools/zstd-oracle/compare.sh   # zstd packs vs ps5-dump-forge (builds it with cargo)
+tools/fself-oracle/compare.sh  # fake-signed SELFs vs ampr-emu-ng's make_fself.py
 tools/ps4-oracle/compare.sh    # PS4 packages vs LibOrbisPkg's pkg_build, pkg_extract and pkg_validate
 ```
 

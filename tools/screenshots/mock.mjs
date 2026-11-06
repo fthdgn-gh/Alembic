@@ -60,6 +60,8 @@ const DIRS = {
 };
 // Games in asset packs (the Files tag).
 const PACKS = { "/data/homebrew/Echoes of Arden.exfat": "zstd", "/data/homebrew/Neon Harbor.ffpkg": "lz4" };
+// A decrypted dump whose executables are plain ELF: conversions fake-sign them.
+const UNSIGNED = { "/data/homebrew/Quiet Orbit": 3 };
 DIRS["/peer/" + PC + "/D:"] = [{ name: "Games", path: PCROOT, kind: "folder", mtime: mt }];
 
 const SPACE = [{ root: "/data", total: 825 * GB, free: 312 * GB }, { root: "/mnt/usb0", total: 2000 * GB, free: 1460 * GB }];
@@ -260,7 +262,8 @@ http.createServer((req, res) => {
       const ext = { ffpfsc: ".ffpfsc", exfat: ".exfat", ffpkg: ".ffpkg", ffpfs: ".ffpfs", fpkg: ".pkg", folder: "" }[json.to] || "";
       const name = json.output_name || path.posix.basename(json.input || "").replace(/\.[a-z]+$/, "") + ext;
       const dir = json.output_dir || path.posix.dirname(json.input || "/");
-      return send(res, 200, Object.assign({}, spec(json), { output: dir + "/" + name, needs: [], ampr_needed: true, ships_emulator: false, warnings: [] }));
+      return send(res, 200, Object.assign({}, spec(json), { output: dir + "/" + name, needs: [], ampr_needed: true, ships_emulator: false, warnings: [] },
+        UNSIGNED[json.input] ? { unsigned_executables: UNSIGNED[json.input] } : {}));
     }
     send(res, 404, { error: "not found" });
   });

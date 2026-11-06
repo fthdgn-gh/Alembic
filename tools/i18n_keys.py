@@ -31,6 +31,7 @@ ENGINE = [
     "LZ4 planning", "zstd pass 1", "Measuring", "Checking eboot.bin", "Writing the emulator", "Verifying LZ4 packs", "Verifying", "Writing PFS image", "Writing UFS2 image",
     # how a conversion was done
     "LZ4-packed and {rest}", "LZ4-unpacked and {rest}", "zstd-packed and {rest}", "zstd-unpacked and {rest}", "added the AMPR emulator and {rest}",
+    "fake-signed the executables and {rest}", "Checking executables",
     "added the AMPR emulator to the game folder", "added the AMPR emulator as a ShadowMount+ backport",
     "replaced the AMPR emulator in the game folder", "replaced the AMPR emulator through a ShadowMount+ backport",
     "nothing to do: the emulator is already in place",

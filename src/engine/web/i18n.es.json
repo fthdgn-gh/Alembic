@@ -861,5 +861,14 @@
  "The debug licence key, for packages of games that have no licence (without one, the title shows a lock), and the keys a PS4 fake package is built with (Sony's public package keys, the fake image key's modulus). Needed for PKG output.": "La clave de licencia de depuración, para paquetes de juegos sin licencia (sin ella, el título muestra un candado), y las claves con las que se crea un paquete falso de PS4 (las claves públicas de paquetes de Sony, el módulo de la clave de imagen falsa). Necesaria para la salida PKG.",
  "Writing the package": "Escribiendo el paquete",
  "Hashing the package": "Calculando los resúmenes del paquete",
- "built a PS4 package from the file tree": "creó un paquete de PS4 a partir del árbol de archivos"
+ "built a PS4 package from the file tree": "creó un paquete de PS4 a partir del árbol de archivos",
+ "This game has {n} unsigned executable, so it would not start: it is fake-signed on the way.": "Este juego tiene {n} ejecutable sin firmar, así que no arrancaría: recibe una firma falsa durante la conversión.",
+ "This game has {n} unsigned executables, so it would not start: they are fake-signed on the way.": "Este juego tiene {n} ejecutables sin firmar, así que no arrancaría: reciben una firma falsa durante la conversión.",
+ "This game has {n} unsigned executable: packages cannot be made from unsigned executables yet.": "Este juego tiene {n} ejecutable sin firmar: aún no se pueden crear paquetes con ejecutables sin firmar.",
+ "This game has {n} unsigned executables: packages cannot be made from unsigned executables yet.": "Este juego tiene {n} ejecutables sin firmar: aún no se pueden crear paquetes con ejecutables sin firmar.",
+ "Some of these games have unsigned executables, so they would not start: they are fake-signed on the way.": "Algunos de estos juegos tienen ejecutables sin firmar, así que no arrancarían: reciben una firma falsa durante la conversión.",
+ "Some of these games have unsigned executables: packages cannot be made from unsigned executables yet.": "Algunos de estos juegos tienen ejecutables sin firmar: aún no se pueden crear paquetes con ejecutables sin firmar.",
+ "cannot fake-sign {path} ({reason}); it is left as it is": "no se puede aplicar la firma falsa a {path} ({reason}); se deja tal cual",
+ "fake-signed the executables and {rest}": "aplicó la firma falsa a los ejecutables y {rest}",
+ "Checking executables": "Comprobando ejecutables"
 }

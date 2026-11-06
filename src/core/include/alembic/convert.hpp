@@ -95,9 +95,8 @@ struct Options {
     // outputs; images are rebuilt).
     std::optional<lz4pack::PackOptions> lz4;
     // Or into zstd packs (ampr-emu-ng's; zstdpack.hpp), on the way to any
-    // output but FPKG. An LZ4-packed input is unpacked first and its LZ4 pack
-    // set becomes the zstd one (as ps5-dump-forge does); a zstd-packed input
-    // is unpacked and packed again. Not resumable yet.
+    // output but FPKG. An LZ4- or zstd-packed input is unpacked first and its
+    // files chosen afresh (as ps5-dump-forge does). Not resumable yet.
     std::optional<zstdpack::PackOptions> zstd;
     // FPKG output: keys_folder is required; `overwrite` comes from above.
     fpkg::build::PackageOptions fpkg;
@@ -117,6 +116,10 @@ struct Options {
     // packing adds its runtime by itself. Images are then rebuilt.
     std::shared_ptr<const RandomAccess> ampr_emulator;
     bool ampr_emulator_always = false; // add it even when the game does not seem to need it
+    // Serve a PS5 game's unsigned executables (plain ELF) as fake-signed SELFs
+    // (fself.hpp): the console refuses to start them otherwise. Every output
+    // but FPKG, which refuses them for now.
+    bool fake_sign = true;
 };
 
 struct Report {
@@ -134,6 +137,8 @@ struct Report {
     bool ampr_emulator_added = false;
     std::string ampr_emulator_path; // where it went, e.g. "fakelib/libSceAmpr.sprx"
     std::string title_id;           // from sce_sys/param.json, when it has one
+    std::vector<std::string> fake_signed; // executables served as fake-signed SELFs
+    std::size_t fake_sign_index_records = 0; // ampr_emu.index records set to their SELF sizes
 };
 
 Result<Report> run(const std::string& input, const std::string& output, Format to, const Options& options = {},

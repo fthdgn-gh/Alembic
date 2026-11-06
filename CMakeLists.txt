@@ -92,6 +92,7 @@ add_library(alembic_core STATIC
     ${ALEMBIC_PROFILE_SOURCE}
     src/core/ampr.cpp
     src/core/ampr_emu.cpp
+    src/core/fself.cpp
     src/core/convert.cpp
     src/core/crypto.cpp
     src/core/exfat_image.cpp
@@ -290,6 +291,7 @@ if(ALEMBIC_BUILD_TESTS)
         tests/test_main.cpp
         tests/test_ampr.cpp
         tests/test_ampr_emu.cpp
+        tests/test_fself.cpp
         tests/test_convert.cpp
         tests/test_crypto.cpp
         tests/test_exfat.cpp

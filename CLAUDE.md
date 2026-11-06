@@ -18,6 +18,7 @@ tools/pkg-oracle/write_samples.sh             # FPKG writing vs img_create on th
 tools/netfs/samba_check.sh                    # SMB client vs Homebrew Samba (encryption on and off)
 tools/lz4-oracle/compare.sh                   # LZ4 packs vs ampr_emu's ampr_pack.py (needs .refs/venv)
 tools/zstd-oracle/compare.sh                  # zstd packs vs ps5-dump-forge (builds it with cargo)
+tools/fself-oracle/compare.sh                 # fake-signed SELFs vs ampr-emu-ng's make_fself.py
 tools/ps4-oracle/compare.sh                   # PS4 packages vs LibOrbisPkg (builds its PkgTool for .NET 10)
 cmake -S . -B build-win -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake \
       -DLLVM_MINGW=$PWD/.refs/llvm-mingw-20261006-ucrt-macos-universal && cmake --build build-win   # Windows .exe

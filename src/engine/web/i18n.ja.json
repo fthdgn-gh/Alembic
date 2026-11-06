@@ -861,5 +861,14 @@
  "The debug licence key, for packages of games that have no licence (without one, the title shows a lock), and the keys a PS4 fake package is built with (Sony's public package keys, the fake image key's modulus). Needed for PKG output.": "ライセンスのないゲームのパッケージ用のデバッグライセンス鍵（ライセンスがないとタイトルに鍵マークが付きます）と、PS4 偽パッケージを作る鍵（Sony の公開パッケージ鍵、偽イメージ鍵のモジュラス）。PKG 出力に必要です。",
  "Writing the package": "パッケージを書き込み中",
  "Hashing the package": "パッケージのハッシュを計算中",
- "built a PS4 package from the file tree": "ファイルツリーから PS4 パッケージを作成しました"
+ "built a PS4 package from the file tree": "ファイルツリーから PS4 パッケージを作成しました",
+ "This game has {n} unsigned executable, so it would not start: it is fake-signed on the way.": "このゲームには未署名の実行ファイルが {n} 個あり、このままでは起動しません。変換の途中で偽署名します。",
+ "This game has {n} unsigned executables, so it would not start: they are fake-signed on the way.": "このゲームには未署名の実行ファイルが {n} 個あり、このままでは起動しません。変換の途中で偽署名します。",
+ "This game has {n} unsigned executable: packages cannot be made from unsigned executables yet.": "このゲームには未署名の実行ファイルが {n} 個あります。未署名の実行ファイルからはまだパッケージを作れません。",
+ "This game has {n} unsigned executables: packages cannot be made from unsigned executables yet.": "このゲームには未署名の実行ファイルが {n} 個あります。未署名の実行ファイルからはまだパッケージを作れません。",
+ "Some of these games have unsigned executables, so they would not start: they are fake-signed on the way.": "これらのゲームの一部には未署名の実行ファイルがあり、このままでは起動しません。変換の途中で偽署名します。",
+ "Some of these games have unsigned executables: packages cannot be made from unsigned executables yet.": "これらのゲームの一部には未署名の実行ファイルがあります。未署名の実行ファイルからはまだパッケージを作れません。",
+ "cannot fake-sign {path} ({reason}); it is left as it is": "{path} を偽署名できません（{reason}）。そのまま残します",
+ "fake-signed the executables and {rest}": "実行ファイルを偽署名し、{rest}",
+ "Checking executables": "実行ファイルを確認中"
 }

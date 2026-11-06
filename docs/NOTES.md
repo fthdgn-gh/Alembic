@@ -120,6 +120,7 @@ tools/pkg-oracle/compare.sh         # FPKG reading/writing vs ProsperoPkgTool/Li
 tools/pkg-oracle/check_samples.sh   # owner's real files in .refs/samples/ (~4 min; skips files over
                                     # ALEMBIC_SAMPLES_MAX_GB GiB, default 20; cleans up after each step)
 tools/lz4-oracle/compare.sh         # LZ4 packs vs ampr_pack.py (needs .refs/venv, Homebrew lz4)
+tools/fself-oracle/compare.sh       # fake-signed SELFs vs ampr-emu-ng's make_fself.py (passes)
 tools/zstd-oracle/compare.sh        # zstd packs vs ps5-dump-forge (builds it with cargo; passes;
                                     # --no-cargo: Alembic + check_pack.py only, needs Homebrew zstd)
 tools/pkg-oracle/write_samples.sh   # fpkg-build vs img_create on every real PS5 package (stored, Kraken)
@@ -165,8 +166,9 @@ app/preview.sh [dir] [script]       # PNGs of the app drawn on this computer (Me
 - Writing FPKG: stored or Kraken (`--compression kraken`, the page's
   Compression choice). The Kraken encoder is ProsperoPkgTool's (greedy/lazy
   LZ parse, raw or Huffman arrays): a 1.3 GB package came out at 1.6 GB
-  (2.7 GB stored), so Sony's encoder still does better. No fake-signing,
-  DDS generation or keystone generation. Not yet installed on a console,
+  (2.7 GB stored), so Sony's encoder still does better. No fake-signing
+  for packages (images and folders have it), DDS generation or keystone
+  generation. Not yet installed on a console,
   stored or Kraken.
 - zstd packs: not tried on a console; not resumable (no pass-1
   checkpoints: a stopped zstd conversion starts over).
@@ -3329,6 +3331,51 @@ ampr-emu-ng's `tools/make_fself.py --ptype fake` writes (GPL-3.0; paid
 derived PAID, `.sceversion` records filled from eboot.bin for stripped
 modules) that `img_create` applies to modules by default (`--no_fself`
 turns it off); our FPKG writer refuses raw ELFs instead.
+
+### 2026-11-06: fake-signing in conversions
+
+A PS5 game whose executables are plain ELF (`e_type` 0xFE10/0xFE18) never
+starts. `src/core/fself.cpp` (ported from ps5-dump-forge's `fself.rs` and
+ampr-emu-ng's `tools/make_fself.py`, both GPL-3.0) serves them as
+fake-signed SELFs, byte for byte what `make_fself.py --ptype fake` writes:
+- **Which files:** `.elf`, `.self`, `.prx`, `.sprx` and an `eboot*.bin`
+  (any case; data `.bin` files are never opened), `fakelib*/` included,
+  at least 0x40 bytes, ELF magic and e_type 0xFE10/0xFE18; at most 4096.
+  One make_fself would refuse (not x86-64, a segment past the end, headers
+  over 64 KiB) is left as it is with a warning.
+- **Streamed:** the SELF is planned from the headers; its bytes are made as
+  they are read (head, then the copied segments, then PT_SCE_VERSION). The
+  ex-info SHA-256 of the whole ELF is worked out on the first read that
+  reaches it (the ELF is read twice, as in ps5-dump-forge).
+- **Where:** `convert::run`, first thing after the PS4 check, so packers and
+  image writers see the SELF sizes; every output but FPKG (still refused
+  there) and never for a PS4 game. The game's own `ampr_emu.index` records
+  of signed files that list the ELF size get the SELF size (the rest of the
+  index byte for byte). `convert::Options::fake_sign` (default on); CLI
+  `--no-fake-sign`; `alembic fself IN OUT` signs one file. A signed input
+  image is no longer "copied unchanged": it is rebuilt.
+- **Engine:** the job report lists `fake_signed`; verify-before-delete
+  ignores those files' differences; the convert plan has
+  `unsigned_executables` (a PS5 game's only), and Convert (page and app)
+  says they will be fake-signed, or for FPKG that packages can't be made
+  from them yet. The method reads "fake-signed the executables and ...";
+  the page and the app also translate "zstd-packed/-unpacked and ..." now
+  (they were left in English).
+- **Checked:** `tools/fself-oracle/compare.sh`: six synthetic ELFs
+  (`make_elfs.py`: ps5-dump-forge's own test ELF, whose SELF is 18917 bytes
+  as its test says, plus a module with every copied type, a zero-size and two
+  version segments, no program headers, late program headers, a segment
+  over one digest block, a large ehsize) through `alembic fself` and through
+  conversions to a folder and to exFAT and back: all byte-identical.
+  `tests/test_fself.cpp`: the SHA-256, reads in windows from fresh trees,
+  which files are found, the index records, conversions on and off.
+  The stand-in engine (`tools/screenshots/mock.mjs`) gives Quiet Orbit 3
+  unsigned executables; app pictures of Convert to FFPFSC and to FPKG looked
+  at. **Not yet:** a fake-signed game started on a console (owner).
+- **Next (agreed):** fake-signing for FPKG output, ported from
+  ProsperoPkgTool's `ProsperoSelfBuilder.cs` (MIT; its own flavour:
+  program type 0x10000101, derived authority ID, `.sceversion` records from
+  eboot.bin for stripped modules), byte-identical to `img_create`.
 
 ## Next session
 
