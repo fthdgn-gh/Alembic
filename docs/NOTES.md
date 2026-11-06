@@ -3288,6 +3288,48 @@ release: see "components follow their latest releases" below.)
   Deutsch, Español, Français, Русский, 日本語 (page, app, README). Page
   and app pictures in Russian against a PC engine.
 
+### 2026-11-06: zstd packs follow ps5-dump-forge v0.5.4
+
+ps5-dump-forge moved from v0.5.1 to v0.5.4 (`70b4884`, `.refs` updated).
+What changed its zstd bytes, now ported:
+- **No 1% store-only rule** (v0.5.3, `writer.rs`): every chunk is
+  compressed and kept raw only when the frame is not smaller; no file is
+  flagged store-only. The reader still takes the flag (older packs).
+  `PackStats::files_store_only` and the job report's `files_store_only` are
+  gone (nothing read them).
+- **Which files** (`rules.rs::select_everything`): everything not empty and
+  not `always_loose` is packed - root files, configs, media, `save/` and the
+  rest too (ampr-emu-ng serves plain and libc I/O on packed files). The
+  keep-loose list and `PackOptions::packed_set` are gone, and an LZ4-packed
+  input is chosen afresh instead of keeping its LZ4 set.
+- **`always_loose` folds ASCII case** (`EBOOT.BIN`, `SCE_SYS/`,
+  `FakeLib2/`, the artifacts), as images do.
+- Packing a game whose eboot.bin does not import libSceAmpr: ps5-dump-forge
+  now allows it (it used to refuse); Alembic never refused.
+
+`check_pack.py` now expects no store-only file; the fixture gained
+system files in other letter cases. 118 tests pass, `compare.sh --no-cargo`
+passes (17 files packed). **The cargo comparison against v0.5.4 is the
+owner's to run.**
+
+Not ported (their own policy or new features): pack profiles for zstd
+(`--pack-profile`, with `include_from`/`exclude_from` files, also new for
+LZ4 profiles), LZ4 "pack everything" when the runtime is ampr-emu-ng,
+folder outputs writing `sce_sys/` and `eboot.bin` last, the zstd reader
+taking a packed file that is also on disk.
+
+**Fake-signing (their v0.5.3, `fself.rs`, not ported):** a dump whose
+executables are plain ELF (`e_type` 0xFE10/0xFE18) never starts; every
+conversion serves them as fake-signed SELFs, byte for byte what
+ampr-emu-ng's `tools/make_fself.py --ptype fake` writes (GPL-3.0; paid
+0x3100000000000002, ptype 1), planned from the headers and streamed, and
+`ampr_emu.index` gets the SELF size. Executables: `eboot*.bin`, `.elf`,
+`.self`, `.prx`, `.sprx`, `fakelib*/` included. ProsperoPkgTool (MIT,
+`Content/ProsperoSelfBuilder.cs`) has its own flavour (ptype 0x10000101,
+derived PAID, `.sceversion` records filled from eboot.bin for stripped
+modules) that `img_create` applies to modules by default (`--no_fself`
+turns it off); our FPKG writer refuses raw ELFs instead.
+
 ## Next session
 
 **Settled (owner, 2026-10-22):**

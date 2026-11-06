@@ -11,8 +11,9 @@ chunk with libzstd (ctypes; Homebrew's 1.5.7 on macOS) and compares it with
 the original file. Then it re-encodes each chunk the way ps5-dump-forge's
 writer.rs does (a context with the level, window log 18, checksum and content
 size; the chunk pledged, fed with ZSTD_e_continue and closed with ZSTD_e_end
-into a buffer of the chunk's size) and checks the codec choice, the frame
-bytes and the 1% store-only rule. Exits non-zero on the first mismatch.
+into a buffer of the chunk's size) and checks the codec choice and the frame
+bytes; no file is store-only (ps5-dump-forge dropped its 1% rule in v0.5.3).
+Exits non-zero on the first mismatch.
 """
 import ctypes
 import ctypes.util
@@ -152,7 +153,7 @@ def main():
     previous = None
     volume, cursor = 0, 64
     sum_sizes = 0
-    stats = {"zstd": 0, "raw": 0, "store_only": 0}
+    stats = {"zstd": 0, "raw": 0}
     for i in range(files):
         r = 128 + 32 * i
         ph, size, first, path_off, path_len, flags, reserved = struct.unpack_from("<QQIIHHI", data, r)
@@ -167,7 +168,6 @@ def main():
         if len(src) != size:
             fail(f"{path!r} size")
         count = (size + CHUNK - 1) // CHUNK
-        stored_total, want_total = 0, 0
         want_codecs = []
         for k in range(count):
             (word,) = struct.unpack_from("<Q", data, chunks_off + 8 * (first + k))
@@ -199,20 +199,16 @@ def main():
                 stats["zstd"] += 1
             else:
                 fail(f"{path!r} chunk {k} codec {codec}")
-            stored_total += stored
             frame = encode(raw, lvl)
             want_codecs.append(frame)
-            want_total += len(frame) if frame is not None else len(raw)
             if codec == 1 and frame != body:
                 fail(f"{path!r} chunk {k}: not the frame ps5-dump-forge's call sequence makes")
-        store_only = count > 0 and want_total * 100 > size * 99
-        if bool(flags & 1) != store_only:
-            fail(f"{path!r} store-only flag")
+        if flags & 1:
+            fail(f"{path!r} is store-only")
         for k, frame in enumerate(want_codecs):
             (word,) = struct.unpack_from("<Q", data, chunks_off + 8 * (first + k))
-            if (word >> 62) != (0 if store_only or frame is None else 1):
+            if (word >> 62) != (0 if frame is None else 1):
                 fail(f"{path!r} chunk {k} codec choice")
-        stats["store_only"] += store_only
         expect_chunk += count
     if expect_chunk != chunks or sum_sizes != total:
         fail("chunk count or logical total")
@@ -220,7 +216,7 @@ def main():
         fail("final volume size")
     print(
         f"ok    {packed}: {files} files, {chunks} chunks ({stats['zstd']} zstd, {stats['raw']} raw), "
-        f"{stats['store_only']} store-only, {volumes} volumes, level {lvl}"
+        f"{volumes} volumes, level {lvl}"
     )
 
 

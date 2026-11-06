@@ -640,7 +640,6 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
         z.set("level", spec.zstd_level);
         z.set("files_total", st.files_total);
         z.set("files_packed", st.files_packed);
-        z.set("files_store_only", st.files_store_only);
         z.set("packed_bytes", st.logical_bytes);
         z.set("volume_bytes", st.volume_bytes);
         z.set("loose_bytes", st.loose_bytes);

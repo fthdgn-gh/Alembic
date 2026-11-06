@@ -551,9 +551,8 @@ int cmd_convert(const Args& args) {
         bool small = st.logical_bytes + st.loose_bytes < (1ull << 30);
         auto unit = [&](std::uint64_t v) { return static_cast<double>(v) / (small ? 1024.0 * 1024.0 : 1024.0 * 1024.0 * 1024.0); };
         const char* u = small ? "MiB" : "GiB";
-        std::printf("zstd packs: %llu of %llu files packed (%llu stored raw), %u volumes\n",
-                    static_cast<unsigned long long>(st.files_packed), static_cast<unsigned long long>(st.files_total),
-                    static_cast<unsigned long long>(st.files_store_only), st.volumes);
+        std::printf("zstd packs: %llu of %llu files packed, %u volumes\n", static_cast<unsigned long long>(st.files_packed),
+                    static_cast<unsigned long long>(st.files_total), st.volumes);
         std::printf("            %.2f %s packed -> %.2f %s in volumes (%llu zstd, %llu raw chunks)\n", unit(st.logical_bytes), u,
                     unit(st.volume_bytes), u, static_cast<unsigned long long>(st.chunks_zstd),
                     static_cast<unsigned long long>(st.chunks_raw));

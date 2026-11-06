@@ -9,8 +9,10 @@
 //
 // Every packed file is cut into 256 KiB chunks; each chunk is one zstd frame
 // (libzstd 1.5.7, content size and checksum on, window 2^18) or stored raw
-// when the frame is not smaller. A file whose chunks save less than 1% is
-// stored raw entirely ("store-only"). Files are written in (path hash, path)
+// when the frame is not smaller. The format's "store-only" flag (a whole file
+// stored raw) is read but never written: ps5-dump-forge dropped its 1% rule in
+// v0.5.3, the per-chunk choice already keeps incompressible data raw. Files are
+// written in (path hash, path)
 // order, chunks back to back from offset 64 of each volume; a volume holds
 // at most 4 GiB less 64 KiB.
 //
@@ -154,15 +156,15 @@ private:
 
 // ---------------------------------------------------------------- which files
 
-// ps5-dump-forge's rules: never packed (eboot.bin, *.elf, *.self, *.prx,
-// *.sprx, files under sce_sys/, sce_module/, fakelib*/, the ampr_emu and LZ4
-// pack artifacts, the zstd pack files, ampr_emu.index) ...
+// ps5-dump-forge's rules (ASCII case-insensitive, as exFAT and PFS images
+// fold case): never packed are eboot.bin, *.elf, *.self, *.prx, *.sprx, files
+// under sce_sys/, sce_module/, fakelib*/, the ampr_emu and LZ4 pack
+// artifacts, the zstd pack files and ampr_emu.index ...
 bool always_loose(std::string_view path);
-// ... its keep-loose list (configs, media, containers; protected folders) ...
-bool keep_loose(std::string_view path);
-// ... and its default choice: not empty, not always_loose, not at the root,
-// not keep_loose. (Its LZ4-packed sources keep their LZ4 pack set instead;
-// see PackOptions::packed_set.)
+// ... and everything else that is not empty is packed (its "pack everything
+// except system files" strategy, select_everything: ampr-emu-ng serves plain
+// and libc I/O on packed files, so root files, media and configs go in too).
+// Every source takes it, an LZ4-packed one too.
 bool default_selected(std::string_view path, std::uint64_t size);
 
 // ---------------------------------------------------------------- packing
@@ -179,9 +181,6 @@ struct PackOptions {
     // Modification time of the files the packer adds. Default: now.
     std::optional<std::int64_t> timestamp;
     unsigned workers = 0; // compression threads, 0 = every core; never changes the output
-    // Which files to pack instead of default_selected (paths relative to the
-    // root). Paths always_loose would keep loose stay loose anyway.
-    std::optional<std::vector<std::string>> packed_set;
     // A scratch file for the zstd frames pass 1 makes: pass 2 then copies
     // them instead of compressing every chunk again (and reads no source
     // data for them). It holds about the packs' size and is deleted with the
@@ -195,7 +194,6 @@ struct PackOptions {
 struct PackStats {
     std::uint64_t files_total = 0; // in the output tree, before packing
     std::uint64_t files_packed = 0;
-    std::uint64_t files_store_only = 0;
     std::uint64_t chunks = 0;
     std::uint64_t chunks_zstd = 0;
     std::uint64_t chunks_raw = 0;

@@ -14,7 +14,7 @@
 # folder with --zstd-archive-id. ampr_zstd.index and every volume must be byte
 # for byte the same, and so must the set of loose files. Both outputs also go
 # through check_pack.py (the format, every frame re-made with libzstd, the
-# store-only rule) and through each tool's own reader.
+# codec of every chunk) and through each tool's own reader.
 # --no-cargo skips ps5-dump-forge and runs only the Alembic side and
 # check_pack.py. Needs: a configured build in ./build, Python 3, libzstd
 # 1.5.7 where ctypes finds it (Homebrew's), and for the comparison cargo

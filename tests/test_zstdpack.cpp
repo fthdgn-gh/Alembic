@@ -62,7 +62,8 @@ std::vector<std::uint8_t> concat(std::vector<std::uint8_t> a, const std::vector<
 }
 
 // Three chunks of noise and a fourth that starts with `zeros` zero bytes:
-// ps5-dump-forge's edge files around the 1% store-only line.
+// ps5-dump-forge's edge files around its old 1% store-only line (dropped in
+// its v0.5.3: no file is store-only now, only chunks are raw).
 std::vector<std::uint8_t> edge(std::size_t zeros) {
     std::vector<std::uint8_t> last = noise(kChunk, 9);
     std::fill(last.begin(), last.begin() + static_cast<std::ptrdiff_t>(zeros), 0);
@@ -83,9 +84,9 @@ std::string make_game(const std::string& parent) {
     test::write_file(root + "/data/empty.bin", {});
     test::write_file(root + "/data/sub/edge-store.bin", edge(4 << 10));
     test::write_file(root + "/data/sub/edge-packed.bin", edge(32 << 10));
-    test::write_file(root + "/data/conf.json", text(2000, 9)); // keep-loose suffix
-    test::write_file(root + "/save/x.bin", text(2000, 10));    // protected folder
-    test::write_file(root + "/root.bin", text(3000, 11));      // root files stay loose
+    test::write_file(root + "/data/conf.json", text(2000, 9)); // configs, saves and root files are packed too
+    test::write_file(root + "/save/x.bin", text(2000, 10));
+    test::write_file(root + "/root.bin", text(3000, 11));
     return root;
 }
 
@@ -108,9 +109,9 @@ PackOptions options_for(unsigned workers = 3) {
     return o;
 }
 
-const char* kPackedFiles[] = {"data/text.bin",  "data/noise.bin",          "data/exact.bin",
-                              "data/plus1.bin", "data/small.bin",          "data/sub/edge-store.bin",
-                              "data/sub/edge-packed.bin"};
+const char* kPackedFiles[] = {"data/text.bin",           "data/noise.bin",           "data/exact.bin", "data/plus1.bin",
+                              "data/small.bin",          "data/sub/edge-store.bin",  "data/sub/edge-packed.bin",
+                              "data/conf.json",          "save/x.bin",               "root.bin"};
 
 } // namespace
 
@@ -315,28 +316,21 @@ TEST_CASE(zstd_chunk_frames) {
 
 TEST_CASE(zstd_default_selection) {
     auto f = [](const char* p) { return default_selected(p, 10); };
-    CHECK(f("data/a.bin"));
-    CHECK(f("a/b/c.bin"));
-    CHECK(!f("root.bin"));
-    CHECK(!f("data/a.PNG"));
-    CHECK(!f("data/a.json"));
-    CHECK(!f("data/a.utoc"));
-    CHECK(!f("data/system/a.bin"));
-    CHECK(!f("system/a.bin"));
-    CHECK(!f("decrypted/a.bin"));
-    CHECK(f("data/decrypted/a.bin"));
-    CHECK(f("data/_DUPLEX_/a.bin"));
-    CHECK(!f("_DUPLEX_/a.bin"));
-    CHECK(!f("data/eboot.bin"));
-    CHECK(!f("d/a.bik"));
-    CHECK(!f("sb/plugins/x.UPluginManifest"));
-    CHECK(!f("sce_sys/x.bin"));
-    CHECK(!f("fakelib2/x.bin"));
-    CHECK(!f("data/x.SPRX"));
+    // Everything but system files: root files, media, configs and protected
+    // folders too (ps5-dump-forge's select_everything).
+    for (const char* p : {"data/a.bin", "a/b/c.bin", "root.bin", "data/a.PNG", "data/a.json", "data/a.utoc", "system/a.bin",
+                          "save/a.bin", "decrypted/a.bin", "d/a.bik", "data/fakelib/a.bin", "data/sce_sys/a.bin"})
+        CHECK(f(p));
+    // Never: executables, sce_sys/, sce_module/, fakelib*/, whatever the case.
+    for (const char* p : {"eboot.bin", "data/eboot.bin", "EBOOT.BIN", "data/x.SPRX", "a.elf", "b/c.self", "x.prx", "sce_sys/x.bin",
+                          "SCE_SYS/x.bin", "Sce_Module/x.bin", "fakelib2/x.bin", "FakeLib/x.bin"})
+        CHECK(!f(p));
     CHECK(!default_selected("data/a.bin", 0));
     CHECK(always_loose("ampr_zstd.index"));
     CHECK(always_loose("AMPR_ZSTD-003.PAK"));
     CHECK(always_loose("ampr_emu.index"));
+    CHECK(always_loose("AMPR_EMU.INDEX"));
+    CHECK(always_loose("Ampr_Assets.index"));
     CHECK(!always_loose("data/ampr_zstd.index"));
 }
 
@@ -347,12 +341,12 @@ TEST_CASE(zstd_pack_round_trip) {
     auto packed = pack(**folder, options_for());
     REQUIRE_OK(packed);
     const PackStats& st = (*packed)->stats();
-    CHECK_EQ(st.files_packed, 7ull);
+    CHECK_EQ(st.files_packed, 10ull);
     CHECK_EQ(st.volumes, 1u);
     const tree::Node& root = (*packed)->root();
     for (const char* p : kPackedFiles) CHECK(tree::find(root, p) == nullptr);
-    for (const char* p : {"eboot.bin", "sce_sys/param.json", "data/empty.bin", "data/conf.json", "save/x.bin", "root.bin",
-                          "ampr_emu.index", "ampr_zstd.index", "ampr_zstd-000.pak", "fakelib/libSceAmpr.sprx"})
+    for (const char* p : {"eboot.bin", "sce_sys/param.json", "data/empty.bin", "ampr_emu.index", "ampr_zstd.index",
+                          "ampr_zstd-000.pak", "fakelib/libSceAmpr.sprx"})
         CHECK(tree::find(root, p) != nullptr);
 
     // The index, read back here, and the files it describes.
@@ -379,17 +373,17 @@ TEST_CASE(zstd_pack_round_trip) {
     CHECK(ix->chunks[plus1->first_chunk].codec == Codec::zstd);
     CHECK(ix->chunks[plus1->first_chunk + 1].codec == Codec::raw);
     CHECK_EQ(ix->chunks[plus1->first_chunk + 1].stored_size, 1u);
-    // Incompressible: store-only, every chunk raw at its own size.
-    CHECK(noise_file->store_only);
+    // Incompressible: every chunk raw at its own size; no file is store-only.
+    for (const FileRecord& f : ix->files) CHECK(!f.store_only);
     for (std::uint32_t k = 0; k < 4; ++k) {
         const Chunk& c = ix->chunks[noise_file->first_chunk + k];
         CHECK(c.codec == Codec::raw);
         CHECK_EQ(c.stored_size, k < 3 ? kChunk : 5u);
     }
-    // The 1% line (ps5-dump-forge's edge files).
-    CHECK(store->store_only);
-    CHECK(!packed_edge->store_only);
-    CHECK(ix->chunks[packed_edge->first_chunk + 3].codec == Codec::zstd);
+    // ps5-dump-forge's edge files: three raw chunks of noise, then one zstd
+    // shrinks (it was stored whole under the old 1% rule).
+    for (const FileRecord* f : {store, packed_edge})
+        for (std::uint32_t k = 0; k < 4; ++k) CHECK(ix->chunks[f->first_chunk + k].codec == (k < 3 ? Codec::raw : Codec::zstd));
     // Chunks back to back from offset 64.
     std::uint64_t at = 64;
     for (const Chunk& c : ix->chunks) {
@@ -430,7 +424,7 @@ TEST_CASE(zstd_pack_round_trip) {
 
     auto verified = verify(**packed);
     REQUIRE_OK(verified);
-    CHECK_EQ(verified->files, 7ull);
+    CHECK_EQ(verified->files, 10ull);
     auto unpacked = unpack(**packed);
     REQUIRE_OK(unpacked);
     for (const char* p : kPackedFiles) {
@@ -444,21 +438,15 @@ TEST_CASE(zstd_pack_round_trip) {
     CHECK(tree::find((*unpacked)->root(), "ampr_zstd-000.pak") == nullptr);
 }
 
-TEST_CASE(zstd_pack_empty_files_and_a_chosen_set) {
+TEST_CASE(zstd_pack_leaves_empty_files_loose) {
     auto dir = test::make_temp_dir();
     auto folder = tree::open_folder(make_game(dir));
     REQUIRE_OK(folder);
-    PackOptions o = options_for();
-    o.packed_set = std::vector<std::string>{"data/empty.bin", "root.bin", "data/small.bin", "eboot.bin"};
-    auto packed = pack(**folder, o);
+    auto packed = pack(**folder, options_for());
     REQUIRE_OK(packed);
-    const Index& ix = (*packed)->index();
-    CHECK_EQ(ix.files.size(), 3u); // eboot.bin stays loose whatever the set says
-    for (const FileRecord& f : ix.files)
-        if (f.path == "data/empty.bin") CHECK_EQ(f.size, 0ull);
-    CHECK_EQ(ix.chunks.size(), 2u);
-    CHECK(tree::find((*packed)->root(), "eboot.bin") != nullptr);
-    CHECK(tree::find((*packed)->root(), "data/empty.bin") == nullptr);
+    for (const FileRecord& f : (*packed)->index().files) CHECK(f.path != "data/empty.bin");
+    CHECK(tree::find((*packed)->root(), "data/empty.bin") != nullptr);
+    CHECK(tree::find((*packed)->root(), "root.bin") == nullptr);
     auto unpacked = unpack(**packed);
     REQUIRE_OK(unpacked);
     auto empty = read(**unpacked, "data/empty.bin");
@@ -601,7 +589,7 @@ TEST_CASE(zstd_convert_through_images_and_back) {
         auto report = convert::run(game, dir + name, format, o);
         REQUIRE_OK(report);
         REQUIRE_OK(report->zstd ? Status{} : Status(make_error(Errc::invalid_data, "no zstd stats")));
-        CHECK_EQ(report->zstd->files_packed, 7ull);
+        CHECK_EQ(report->zstd->files_packed, 10ull);
         auto input = convert::open(dir + name);
         REQUIRE_OK(input);
         CHECK(is_packed(input->tree->root()));
@@ -634,7 +622,7 @@ TEST_CASE(zstd_convert_through_images_and_back) {
     CHECK(!convert::run(game, dir + "/y.exfat", convert::Format::exfat, both).ok());
 }
 
-TEST_CASE(zstd_from_lz4_packs_keeps_the_lz4_set) {
+TEST_CASE(zstd_from_lz4_packs_chooses_afresh) {
     auto dir = test::make_temp_dir();
     std::string game = make_game(dir);
     convert::Options l;
@@ -659,8 +647,10 @@ TEST_CASE(zstd_from_lz4_packs_keeps_the_lz4_set) {
     REQUIRE_OK(index_bytes);
     auto ix = parse_index(*index_bytes);
     REQUIRE_OK(ix);
-    CHECK_EQ(ix->files.size(), 2u);
-    CHECK(tree::find((*folder)->root(), "data/noise.bin") != nullptr);
+    // Not just the LZ4 set (ps5-dump-forge since v0.5.3): every file the
+    // default rules pack.
+    CHECK_EQ(ix->files.size(), 10u);
+    CHECK(tree::find((*folder)->root(), "data/noise.bin") == nullptr);
     auto same = convert::compare(game, dir + "/zstd");
     REQUIRE_OK(same);
     CHECK(same->only_in_a.empty());

@@ -4,10 +4,10 @@
 // and ps5-dump-forge-core/src/zstd_pack.rs (which files, the runtime and a
 // fresh ampr_emu.index); the tree handling follows Alembic's LZ4 packer.
 //
-// ps5-dump-forge writes each file in one pass while its encoded chunks fit
-// a buffer and reads it again otherwise; here pass 1 only measures (codec,
-// size and CRC of every chunk, decided per file by the 1% store-only rule)
-// and the volumes are made in pass 2 while they are read. Same bytes.
+// ps5-dump-forge writes each file in one pass, every chunk compressed and a
+// chunk zstd does not shrink kept raw (no file is store-only since its
+// v0.5.3); here pass 1 only measures (codec, size and CRC of every chunk) and
+// the volumes are made in pass 2 while they are read. Same bytes.
 #include "zstdpack_internal.hpp"
 
 #include "alembic/ampr.hpp"
@@ -38,7 +38,7 @@ struct Block {
     std::vector<std::uint8_t> raw;
     std::vector<std::uint8_t> frame; // the zstd frame when it is smaller than raw
     bool zstd = false;               // the frame is smaller
-    bool raw_only = false;           // store raw without compressing (store-only file, raw chunk)
+    bool raw_only = false;           // store raw without compressing (a chunk pass 1 kept raw)
     bool keep_frame = false;         // pass 2 writes the bytes; pass 1 needs only sizes and CRCs
     std::uint32_t frame_size = 0;
     std::uint32_t raw_crc = 0, frame_crc = 0;
@@ -117,12 +117,6 @@ tree::Node* find_dir_icase(tree::Node& dir, std::string_view name) {
 
 std::string join(const std::string& a, const std::string& b) { return a.empty() ? b : a + "/" + b; }
 
-// `stored * 100 > size * 99`, exactly: the file saves less than 1%.
-bool store_only(std::uint64_t stored, std::uint64_t size) {
-    __extension__ typedef unsigned __int128 u128;
-    return static_cast<u128>(stored) * 100 > static_cast<u128>(size) * 99;
-}
-
 // What a node of the output tree holds.
 struct Content {
     enum Kind { input, bytes, module, volume } kind = input;
@@ -152,7 +146,6 @@ struct Item {
     std::uint64_t output_id = 0;            // its node id in the output tree
     std::uint64_t size = 0;
     std::uint32_t first_chunk = 0;
-    bool store_only = false;
 };
 
 // Pass 1's frames on disk (PackOptions::spill_path), deleted with the tree.
@@ -232,7 +225,7 @@ public:
 
 private:
     Status make_deployed_tree(const PackOptions& options, std::int64_t now);
-    Status choose(const PackOptions& options);
+    Status choose();
     Status pass_one(const ProgressFn& progress, std::uint64_t volume_limit);
     Status finish(std::int64_t now, std::uint64_t volume_limit);
     tree::Node& add_file(const std::string& rel, std::uint64_t size, std::int64_t mtime, Content c);
@@ -344,9 +337,7 @@ Status PackedTreeImpl::make_deployed_tree(const PackOptions& options, std::int64
     return {};
 }
 
-Status PackedTreeImpl::choose(const PackOptions& options) {
-    std::set<std::string> wanted;
-    if (options.packed_set) wanted.insert(options.packed_set->begin(), options.packed_set->end());
+Status PackedTreeImpl::choose() {
     std::function<void(const tree::Node&, const std::string&)> walk = [&](const tree::Node& dir, const std::string& prefix) {
         for (const tree::Node& n : dir.children) {
             std::string rel = join(prefix, n.name);
@@ -356,8 +347,7 @@ Status PackedTreeImpl::choose(const PackOptions& options) {
             }
             ++stats_.files_total;
             const Content& c = contents_[n.id];
-            bool pack = options.packed_set ? wanted.count(rel) && !always_loose(rel) : default_selected(rel, n.size);
-            if (!pack || c.kind != Content::input) {
+            if (!default_selected(rel, n.size) || c.kind != Content::input) {
                 stats_.loose_bytes += n.size;
                 continue;
             }
@@ -431,14 +421,9 @@ Status PackedTreeImpl::pass_one(const ProgressFn& progress, std::uint64_t volume
                 if (progress && !progress({"zstd pass 1", done, total})) return make_error(Errc::cancelled, "cancelled");
             }
         }
-        // The 1% rule on what the chunks would store.
-        std::uint64_t stored = 0;
-        for (std::uint64_t k = 0; k < count; ++k)
-            stored += results[k].zstd ? results[k].frame_size : chunk_raw_size(item.size, k);
-        item.store_only = count && store_only(stored, item.size);
         for (std::uint64_t k = 0; k < count; ++k) {
             const Result1& r = results[k];
-            const bool zstd = r.zstd && !item.store_only;
+            const bool zstd = r.zstd; // else kept raw: the frame is not smaller
             const std::uint32_t size = zstd ? r.frame_size : static_cast<std::uint32_t>(chunk_raw_size(item.size, k));
             if (cursor && cursor + size > volume_limit) {
                 index_.volume_sizes.push_back(cursor);
@@ -465,7 +450,6 @@ Status PackedTreeImpl::pass_one(const ProgressFn& progress, std::uint64_t volume
         }
         stats_.logical_bytes += item.size;
         ++stats_.files_packed;
-        if (item.store_only) ++stats_.files_store_only;
     }
     if (cursor) index_.volume_sizes.push_back(cursor);
     volume_first_.push_back(index_.chunks.size());
@@ -480,7 +464,6 @@ Status PackedTreeImpl::finish(std::int64_t now, std::uint64_t volume_limit) {
         f.path = item.rel;
         f.size = item.size;
         f.first_chunk = item.first_chunk;
-        f.store_only = item.store_only;
         index_.files.push_back(std::move(f));
     }
     ALEMBIC_ASSIGN(std::vector<std::uint8_t> bytes, encode_index(index_, volume_limit));
@@ -540,7 +523,7 @@ Status PackedTreeImpl::build(const tree::Source& source, const PackOptions& opti
         spill_->path = options.spill_path;
     }
     ALEMBIC_TRY(make_deployed_tree(options, now));
-    ALEMBIC_TRY(choose(options));
+    ALEMBIC_TRY(choose());
     ALEMBIC_TRY(pass_one(progress, options.volume_limit));
     ALEMBIC_TRY(finish(now, options.volume_limit));
     return {};

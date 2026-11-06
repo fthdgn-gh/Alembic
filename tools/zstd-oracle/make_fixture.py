@@ -5,10 +5,10 @@
     make_fixture.py OUT_DIR [--big]
 
 Files around every rule of the writer: compressible and incompressible data,
-exactly 256 KiB and 256 KiB + 1, files at the 1% store-only line, an empty
-file, keep-loose suffixes and folders, root files, executables, and (--big)
-files of tens of MiB so compression runs over many batches. eboot.bin names
-libSceAmpr, which ps5-dump-forge requires before it packs.
+exactly 256 KiB and 256 KiB + 1, files at the old 1% store-only line, an empty
+file, configs, media and root files (packed since ps5-dump-forge v0.5.3),
+executables and system folders in other letter cases (never packed), and
+(--big) files of tens of MiB so compression runs over many batches.
 """
 import json
 import os
@@ -72,6 +72,9 @@ def main():
         "data/decrypted/y.bin": text(20000, 20),
         "root.bin": text(3000, 21),
         "lib/module.sprx": noise(4000, 22),
+        "data/EBOOT.BIN": noise(3000, 23),
+        "Fakelib2/extra.bin": text(3000, 24),
+        "Sce_Module/other.bin": text(3000, 25),
     }
     if big:
         files["data/big/text.bin"] = text(40 << 20, 30)

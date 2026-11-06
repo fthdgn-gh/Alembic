@@ -3,7 +3,7 @@
 // for which files are packed. Ported from quer3q/ps5-dump-forge's
 // ps5-dump-forge-zstd (lib.rs, index.rs, volume.rs, writer.rs's
 // encode_chunk; GPL-3.0) and ps5-dump-forge-lz4's rules.rs (always_loose,
-// keep_loose, select); the layout is ampr-emu-ng's docs/zstd-format.md.
+// select_everything); the layout is ampr-emu-ng's docs/zstd-format.md.
 #include "zstdpack_internal.hpp"
 
 #include "alembic/bytes.hpp"
@@ -438,12 +438,15 @@ bool always_loose(std::string_view path) {
     std::string_view file = last == std::string_view::npos ? path : path.substr(last + 1);
     std::string_view first = path.substr(0, path.find('/'));
     const bool in_dir = last != std::string_view::npos;
-    // ps5-dump-forge-lz4's always_loose (with its artifact list) ...
-    if (file == "eboot.bin" || any_suffix(path, {".elf", ".self", ".prx", ".sprx"})) return true;
-    if (in_dir && (first == "sce_sys" || first == "sce_module" || first.substr(0, 7) == "fakelib")) return true;
+    // ps5-dump-forge-lz4's always_loose (with its artifact list), ASCII
+    // case-insensitive ...
+    if (unicode::ascii_iequals(file, "eboot.bin") || any_suffix(path, {".elf", ".self", ".prx", ".sprx"})) return true;
+    if (in_dir && (unicode::ascii_iequals(first, "sce_sys") || unicode::ascii_iequals(first, "sce_module") ||
+                   (first.size() >= 7 && unicode::ascii_iequals(first.substr(0, 7), "fakelib"))))
+        return true;
     for (std::string_view a : {"ampr_assets.index", "ampr_assets.index.crc", "ampr_assets.index.runtime", "ampr_emu.index",
                                "fakelib/libSceAmpr.sprx", "ampr_commands.bin", "ampr_emu.log", "apr_emu.log"})
-        if (path == a) return true;
+        if (unicode::ascii_iequals(path, a)) return true;
     // ... and zstd_pack.rs's loose(): the zstd pack files themselves.
     if (!in_dir) {
         std::string lower(path);
@@ -455,32 +458,6 @@ bool always_loose(std::string_view path) {
     return false;
 }
 
-bool keep_loose(std::string_view path) {
-    if (any_suffix(path, {".bak", ".dat", ".utoc", ".json", ".ini", ".cfg", ".xml", ".txt", ".bk2", ".mp4", ".ivf",
-                          ".usm", ".bnk", ".wem", ".at9", ".pfs", ".img", ".png", ".jpg", ".jpeg", ".webp", ".gif",
-                          ".bmp", ".ico", ".tga", ".tif", ".tiff", ".exr", ".hdr", ".psd", ".dds", ".ktx", ".ktx2",
-                          ".astc", ".basis", ".gnf", ".gnfp", ".jxm", ".vtf", ".zip", ".7z", ".rar", ".gz", ".xz",
-                          ".bz2", ".zst", ".lz4", ".pak", ".mp3", ".ogg", ".flac", ".aac", ".opus", ".m4a", ".avi",
-                          ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".bik", ".mpg", ".mpeg", ".m2v",
-                          ".uproject", ".uplugin", ".upluginmanifest"}))
-        return true;
-    // Folder names (not the file's own), case kept.
-    std::size_t at = 0;
-    bool first = true;
-    for (;;) {
-        std::size_t slash = path.find('/', at);
-        if (slash == std::string_view::npos) return false;
-        std::string_view dir = path.substr(at, slash - at);
-        for (std::string_view p : {"sce_module", "sce_sys", "system", "mods", "save", "fakelib", "trophy2", "uds"})
-            if (dir == p) return true;
-        if (first && (dir == "decrypted" || dir == "_DUPLEX_")) return true;
-        first = false;
-        at = slash + 1;
-    }
-}
-
-bool default_selected(std::string_view path, std::uint64_t size) {
-    return size != 0 && !always_loose(path) && path.find('/') != std::string_view::npos && !keep_loose(path);
-}
+bool default_selected(std::string_view path, std::uint64_t size) { return size != 0 && !always_loose(path); }
 
 } // namespace alembic::zstdpack

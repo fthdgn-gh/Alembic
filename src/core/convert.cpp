@@ -328,21 +328,9 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     }
     if (options.zstd) {
         zstdpack::PackOptions pack = *options.zstd;
-        // An LZ4-packed input keeps its pack set (ps5-dump-forge's rule): the
-        // game reads those files through the runtime.
+        // An LZ4-packed input is unpacked and chosen afresh, like any other
+        // (ps5-dump-forge since v0.5.3).
         if (lz4pack::is_packed(tree_ptr->root())) {
-            const tree::Node* node = tree::find(tree_ptr->root(), lz4pack::kIndexName);
-            if (!node || node->is_directory) return make_error(Errc::invalid_data, "cannot read the LZ4 pack index");
-            ALEMBIC_ASSIGN(std::shared_ptr<const RandomAccess> file, tree_ptr->open(*node));
-            std::vector<std::uint8_t> data(static_cast<std::size_t>(node->size));
-            ALEMBIC_TRY(file->read_at(0, data));
-            ALEMBIC_ASSIGN(lz4pack::Manifest m, lz4pack::parse_manifest(data));
-            if (!pack.packed_set) {
-                std::vector<std::string> set;
-                for (std::size_t i = 0; i < m.files.size(); ++i)
-                    if (m.files[i].flags & lz4pack::kFilePacked) set.push_back(m.file_path(i).substr(6));
-                pack.packed_set = std::move(set);
-            }
             ALEMBIC_ASSIGN(lz4_for_zstd, lz4pack::unpack(*tree_ptr));
             tree_ptr = lz4_for_zstd.get();
         }
