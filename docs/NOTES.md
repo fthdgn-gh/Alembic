@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (2026-11-03, release 0.5.1)
+## Where we are (2026-11-06, release 0.5.2)
 
 ### What works
 
@@ -80,6 +80,13 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   main and wait for CI before tagging. Catalog PR from the fork branch
   update-alembic-0.5.0: darkxex/ps5-homebrew-catalog#1084 (opened by the
   owner: auto mode refuses it).
+- **In 0.5.2 (2026-11-06):** fake-signing. Unsigned PS5 executables
+  (plain ELF) become fake-signed SELFs in every conversion: images and
+  folders as ampr-emu-ng's make_fself.py makes them, packages as
+  ProsperoPkgTool's img_create does (FPKG no longer refuses them); Convert
+  says so beforehand. zstd packs follow ps5-dump-forge v0.5.4 (no
+  store-only files; everything but system files packed). Not tried on a
+  console: the owner can't, users' reports decide.
 - **In 0.5.1 (2026-11-03):** languages. The console app translates at
   all (it never had: i18n.js's comment broke its parser), translations
   are one plain JSON file per language (`i18n.<code>.json`, fetched as
