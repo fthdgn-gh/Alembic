@@ -86,7 +86,10 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   ProsperoPkgTool's img_create does (FPKG no longer refuses them); Convert
   says so beforehand. zstd packs follow ps5-dump-forge v0.5.4 (no
   store-only files; everything but system files packed). Not tried on a
-  console: the owner can't, users' reports decide.
+  console: the owner can't, users' reports decide. Main's CI green before
+  the tag; published 2026-11-06, every job green. Catalog PR from the fork
+  branch update-alembic-0.5.2: darkxex/ps5-homebrew-catalog#1157 (opened by
+  the owner: auto mode refuses it).
 - **In 0.5.1 (2026-11-03):** languages. The console app translates at
   all (it never had: i18n.js's comment broke its parser), translations
   are one plain JSON file per language (`i18n.<code>.json`, fetched as
