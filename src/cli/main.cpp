@@ -82,14 +82,15 @@ void usage() {
         "        --ampr-emu-always     add it even when the game does not seem to need it\n"
         "        --no-fake-sign        leave unsigned executables (plain PS5 ELF) as they are;\n"
         "                              by default they become fake-signed SELFs, as\n"
-        "                              make_fself.py --ptype fake writes them (not for .pkg)\n"
+        "                              make_fself.py --ptype fake writes them (for .pkg as\n"
+        "                              ProsperoPkgTool img_create does, unless --no_fself)\n"
         "  ampr-emu <input> [--ampr-emu FILE [--replace]] [--backports DIR] [--passcode P]\n"
         "        tell whether a game needs ampr_emu; with --ampr-emu, add it: into a game\n"
         "        folder directly, or for an image as a ShadowMount+ backport folder\n"
         "        DIR/<TITLE_ID>/ (on the console DIR is /data/homebrew/backports);\n"
         "        --replace puts FILE in place of a libSceAmpr.sprx the game already has\n"
         "  fpkg-build <input> <out.pkg> --keys DIR [--seed HEX32] [--package-passcode P]\n"
-        "             [--compression stored|kraken] [--overwrite]\n"
+        "             [--compression stored|kraken] [--no-fake-sign] [--overwrite]\n"
         "        build a debug FPKG from a game folder or image; DIR holds ProsperoPkgTool's\n"
         "        passcode.bin and mount_image.bin; a fixed --seed makes it reproducible.\n"
         "        --compression kraken compresses the game's files (not executables) with\n"
@@ -100,9 +101,9 @@ void usage() {
         "        pkg_build makes it: --ps4-keys FILE (LibOrbisPkg's Util/Keys.cs, pinned by\n"
         "        SHA-256), --package-passcode, --timestamp UNIX, and --creation-date YYYYMMDD\n"
         "        [--creation-time HHMMSS] when param.sfo has no PUBTOOLINFO c_date\n"
-        "  fself <in.elf> <out>\n"
+        "  fself <in.elf> <out> [--prospero]\n"
         "        fake-sign one PS5 executable, byte for byte as ampr-emu-ng's make_fself.py\n"
-        "        --ptype fake\n"
+        "        --ptype fake; --prospero as ProsperoPkgTool fself (what packages get)\n"
         "  ls <input> [--passcode P]\n"
         "        list the files in a folder, exFAT, FFPKG, FFPFSC or debug FPKG\n"
         "  cat <input> <path> [<out>] [--passcode P]\n"
@@ -622,8 +623,10 @@ int cmd_fpkg_build(const Args& args) {
     fpkg::build::PackageOptions o;
     if (!parse_package_options(args, o)) return 2;
     o.overwrite = args.get("--overwrite").has_value();
+    o.fake_sign = !args.get("--no-fake-sign").has_value();
     auto r = fpkg::build::write_package(*input->tree, input->tree->root(), args.positional[1], o);
     if (!r.ok()) return fail(r.error());
+    for (const std::string& p : r->fake_signed) std::printf("fake-signed: %s\n", p.c_str());
     for (const std::string& w : r->warnings) std::fprintf(stderr, "warning: %s\n", w.c_str());
     std::printf("%s: %llu bytes, %zu inner files (content ID %s)\n", args.positional[1].c_str(),
                 static_cast<unsigned long long>(r->package_length), r->inner_files, r->content_id.c_str());
@@ -990,8 +993,10 @@ int cmd_fself(const Args& args) {
     if (*size > (1ull << 31)) return fail(make_error(Errc::too_large, "an executable this large is not read whole"));
     std::vector<std::uint8_t> elf(static_cast<std::size_t>(*size));
     if (Status s = input->read_at(0, elf); !s.ok()) return fail(s.error());
-    if (!fself::is_unsigned_elf(elf)) return fail(make_error(Errc::invalid_argument, "not an unsigned PS5 executable (ELF type 0xFE10 or 0xFE18)"));
-    auto self = fself::make_fself(elf);
+    const bool prospero = args.get("--prospero").has_value();
+    if (!prospero && !fself::is_unsigned_elf(elf))
+        return fail(make_error(Errc::invalid_argument, "not an unsigned PS5 executable (ELF type 0xFE10 or 0xFE18)"));
+    auto self = prospero ? fself::make_prospero_fself(elf) : fself::make_fself(elf);
     if (!self.ok()) return fail(self.error());
     auto output = AtomicOutput::create(args.positional[1], true);
     if (!output.ok()) return fail(output.error());
@@ -1079,7 +1084,7 @@ int main(int argc, char** argv) {
         return cmd_convert(
             parse(argc, argv, {"--no-ampr", "--case-sensitive", "--overwrite", "--rebuild", "--lz4", "--lz4-unpack",
                                     "--zstd", "--zstd-unpack", "--ampr-emu-always", "--no-fake-sign"}));
-    if (command == "fself") return cmd_fself(parse(argc, argv, {}));
+    if (command == "fself") return cmd_fself(parse(argc, argv, {"--prospero"}));
     if (command == "ampr-emu") return cmd_ampr_emu(parse(argc, argv, {"--replace"}));
     if (command == "lz4-verify") return cmd_lz4_verify(parse(argc, argv, {}));
     if (command == "lz4-info") return cmd_lz4_info(parse(argc, argv, {}));
@@ -1087,7 +1092,7 @@ int main(int argc, char** argv) {
     if (command == "zstd-info") return cmd_zstd_info(parse(argc, argv, {}));
     if (command == "same") return cmd_same(parse(argc, argv, {}));
     if (command == "ls") return cmd_ls(parse(argc, argv, {}));
-    if (command == "fpkg-build") return cmd_fpkg_build(parse(argc, argv, {"--overwrite"}));
+    if (command == "fpkg-build") return cmd_fpkg_build(parse(argc, argv, {"--overwrite", "--no-fake-sign"}));
     if (command == "cat") return cmd_cat(parse(argc, argv, {}));
     if (command == "exfat") return cmd_exfat(parse(argc, argv, {"--no-ampr"}));
     if (command == "ampr-index") return cmd_ampr_index(parse(argc, argv, {}));

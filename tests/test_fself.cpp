@@ -192,3 +192,148 @@ TEST_CASE(fself_in_conversions) {
     REQUIRE_OK(again);
     CHECK(again->fake_signed.empty());
 }
+
+// ---- ProsperoPkgTool's flavour (packages). The digests are ProsperoPkgTool
+// fself's output; tools/pkg-oracle/compare.sh checks whole packages.
+
+namespace {
+
+// tools/fself-oracle/make_elfs.py's elf(): filler bytes, the header, program headers.
+struct Ph {
+    std::uint32_t type;
+    std::uint64_t offset, size;
+};
+std::vector<std::uint8_t> py_elf(std::uint16_t type, std::size_t size, std::vector<Ph> phdrs, unsigned fill) {
+    std::vector<std::uint8_t> f(size);
+    for (std::size_t i = 0; i < size; ++i) f[i] = static_cast<std::uint8_t>(i * fill + 3);
+    const std::uint8_t ident[16] = {0x7F, 'E', 'L', 'F', 2, 1, 1, 9, 0, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0x55};
+    std::memcpy(f.data(), ident, 16);
+    std::uint8_t* p = f.data();
+    put_u16(p + 0x10, type);
+    put_u16(p + 0x12, 0x3E);
+    put_u32(p + 0x14, 1);
+    put_u64(p + 0x18, 0x1234);
+    put_u64(p + 0x20, 0x40);
+    put_u64(p + 0x28, 0);
+    put_u32(p + 0x30, 0);
+    const std::uint16_t half[6] = {0x40, 0x38, static_cast<std::uint16_t>(phdrs.size()), 0x40, 0, 2};
+    for (int i = 0; i < 6; ++i) put_u16(p + 0x34 + 2 * i, half[i]);
+    for (std::size_t i = 0; i < phdrs.size(); ++i) {
+        std::uint8_t* h = p + 0x40 + i * 0x38;
+        put_u32(h, phdrs[i].type);
+        put_u32(h + 4, 4);
+        put_u64(h + 8, phdrs[i].offset);
+        put_u64(h + 0x10, 0x100000 + phdrs[i].offset);
+        put_u64(h + 0x18, 0x100000 + phdrs[i].offset);
+        put_u64(h + 0x20, phdrs[i].size);
+        put_u64(h + 0x28, phdrs[i].size + 0x100);
+        put_u64(h + 0x30, 0x4000);
+    }
+    return f;
+}
+
+std::vector<std::uint8_t> sceversion(const std::string& name, const std::vector<std::uint8_t>& v) {
+    std::string n = name + ":";
+    std::vector<std::uint8_t> r(5 + n.size());
+    put_u16(r.data() + 2, static_cast<std::uint16_t>(1 + n.size() + 16));
+    r[4] = 8;
+    std::memcpy(r.data() + 5, n.data(), n.size());
+    r.insert(r.end(), v.begin(), v.end());
+    r.insert(r.end(), v.begin(), v.end());
+    return r;
+}
+
+// make_elfs.py's with_sections() with one .sceversion section.
+std::vector<std::uint8_t> with_sceversion(std::vector<std::uint8_t> f, const std::vector<std::uint8_t>& records, std::uint8_t ex_info) {
+    f[0x3F00] = ex_info;
+    const char names[] = "\0.shstrtab\0.sceversion\0";
+    const std::uint64_t names_at = f.size();
+    f.insert(f.end(), names, names + sizeof names - 1);
+    const std::uint64_t records_at = f.size();
+    f.insert(f.end(), records.begin(), records.end());
+    while (f.size() % 8) f.push_back(0);
+    const std::uint64_t shoff = f.size();
+    f.resize(f.size() + 3 * 0x40, 0);
+    auto header = [&](int i, std::uint32_t name, std::uint32_t type, std::uint64_t offset, std::uint64_t size) {
+        std::uint8_t* h = f.data() + shoff + i * 0x40;
+        put_u32(h, name);
+        put_u32(h + 4, type);
+        put_u64(h + 0x18, offset);
+        put_u64(h + 0x20, size);
+        put_u64(h + 0x30, 1);
+    };
+    header(1, 1, 3, names_at, sizeof names - 1);
+    header(2, 11, 1, records_at, records.size());
+    put_u64(f.data() + 0x28, shoff);
+    put_u16(f.data() + 0x3A, 0x40);
+    put_u16(f.data() + 0x3C, 3);
+    put_u16(f.data() + 0x3E, 1);
+    return f;
+}
+
+class Mem final : public RandomAccess {
+public:
+    explicit Mem(const std::vector<std::uint8_t>& d) : d_(d) {}
+    Result<std::uint64_t> size() const override { return d_.size(); }
+    Status read_at(std::uint64_t offset, MutableBytes out) const override {
+        if (offset > d_.size() || out.size() > d_.size() - offset) return make_error(Errc::invalid_argument, "past the end");
+        std::memcpy(out.data(), d_.data() + offset, out.size());
+        return {};
+    }
+
+private:
+    const std::vector<std::uint8_t>& d_;
+};
+
+} // namespace
+
+TEST_CASE(fself_prospero_matches_prosperopkgtool) {
+    constexpr std::uint32_t kLoad = 1, kDynlib = 0x61000000, kRelro = 0x61000010, kComment = 0x6FFFFF00, kVersion = 0x6FFFFF01;
+    auto module = fself::make_prospero_fself(py_elf(kDynamic, 0x9000,
+        {{kLoad, 0x400, 0x3001}, {kDynlib, 0x3500, 0x777}, {kComment, 0x4000, 0x10}, {kLoad, 0x4100, 0},
+         {kVersion, 0x4200, 0x30}, {kRelro, 0x4400, 0x200}, {kVersion, 0x4700, 0x18}}, 13));
+    REQUIRE_OK(module);
+    CHECK_EQ(module->size(), 17008u);
+    CHECK(sha256_hex(*module) == "935c3770d79cfd0688f978ce526b04bbbbab68503743f81fbe64ade8c564c935");
+    CHECK_EQ(get_u32(module->data()), 0xEEF51454u);
+
+    const std::vector<std::uint8_t> v = {0x04, 0x50, 0x00, 0x31, 0x00, 0x00, 0x04, 0x11};
+    std::vector<std::uint8_t> records = sceversion("eboot", v), libc = sceversion("libc", v);
+    records.insert(records.end(), libc.begin(), libc.end());
+    const std::vector<std::uint8_t> eboot = with_sceversion(
+        py_elf(kExecAslr, 0x5000, {{kLoad, 0x1000, 0x2345}, {kRelro, 0x3400, 0x300}, {kDynlib, 0x3800, 0x5A0}}, 17), records, 0x40);
+    auto signed_eboot = fself::make_prospero_fself(eboot); // its own .sceversion at the end; authority ...1101
+    REQUIRE_OK(signed_eboot);
+    CHECK_EQ(signed_eboot->size(), 13077u);
+    CHECK(sha256_hex(*signed_eboot) == "7d58783b5e1e05d3089eecce9915ca96ba52f830d962309bd1b4165b1d34a616");
+
+    // The application's record, from the ELF and from its SELF alike.
+    auto record = fself::sceversion_record(Mem(eboot));
+    REQUIRE_OK(record);
+    REQUIRE_OK(*record ? Status{} : Status(make_error(Errc::invalid_data, "no record")));
+    CHECK(std::equal(v.begin(), v.end(), (*record)->begin()));
+    auto from_self = fself::sceversion_record(Mem(*signed_eboot));
+    REQUIRE_OK(from_self);
+    CHECK(*from_self == *record);
+
+    // A stripped module: as it is, and with a record made from eboot.bin's.
+    const std::vector<std::uint8_t> stripped = py_elf(kDynamic, 0x2000, {{kLoad, 0x400, 0x1234}, {kComment, 0x1800, 0x40}}, 19);
+    auto plain = fself::make_prospero_fself(stripped);
+    REQUIRE_OK(plain);
+    CHECK(sha256_hex(*plain) == "8b5077dac5a0aefd4dc0a74fad17c1788d2015c434cc788dcd55ee56454f75d1");
+    auto none = fself::sceversion_record(Mem(stripped));
+    REQUIRE_OK(none);
+    CHECK(!*none);
+    fself::ProsperoOptions o;
+    o.sceversion_name = "libstripped";
+    o.sceversion_record = *record;
+    auto made = fself::make_prospero_fself(stripped, o);
+    REQUIRE_OK(made);
+    CHECK_EQ(made->size(), 6225u);
+    CHECK(sha256_hex(*made) == "41956dc088a7396963eeeba08c347922a1fba83c9325c2d44a7dc0ea743f87d1");
+
+    // Which files img_create signs.
+    for (const char* p : {"/eboot.bin", "/EBOOT.BIN", "/x/eboot.bin", "/sce_module/a.prx", "/fakelib/b.SPRX", "/c.elf"})
+        CHECK(fself::is_prospero_target(p));
+    for (const char* p : {"/eboot2.bin", "/a.self", "/data/level.bin", "/sce_module/a.so"}) CHECK(!fself::is_prospero_target(p));
+}

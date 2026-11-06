@@ -166,9 +166,8 @@ app/preview.sh [dir] [script]       # PNGs of the app drawn on this computer (Me
 - Writing FPKG: stored or Kraken (`--compression kraken`, the page's
   Compression choice). The Kraken encoder is ProsperoPkgTool's (greedy/lazy
   LZ parse, raw or Huffman arrays): a 1.3 GB package came out at 1.6 GB
-  (2.7 GB stored), so Sony's encoder still does better. No fake-signing
-  for packages (images and folders have it), DDS generation or keystone
-  generation. Not yet installed on a console,
+  (2.7 GB stored), so Sony's encoder still does better. No DDS generation
+  or keystone generation. Not yet installed on a console,
   stored or Kraken.
 - zstd packs: not tried on a console; not resumable (no pass-1
   checkpoints: a stopped zstd conversion starts over).
@@ -3372,10 +3371,41 @@ fake-signed SELFs, byte for byte what `make_fself.py --ptype fake` writes:
   The stand-in engine (`tools/screenshots/mock.mjs`) gives Quiet Orbit 3
   unsigned executables; app pictures of Convert to FFPFSC and to FPKG looked
   at. **Not yet:** a fake-signed game started on a console (owner).
-- **Next (agreed):** fake-signing for FPKG output, ported from
-  ProsperoPkgTool's `ProsperoSelfBuilder.cs` (MIT; its own flavour:
-  program type 0x10000101, derived authority ID, `.sceversion` records from
-  eboot.bin for stripped modules), byte-identical to `img_create`.
+- **Then FPKG output** (same day, below).
+
+### 2026-11-06: fake-signing in packages
+
+FPKG output no longer refuses raw ELF modules: `fpkg::build::write_package`
+signs them as `img_create`'s `FakeSignInnerModules` does (on unless
+`--no_fself` there; `PackageOptions::fake_sign`, CLI `--no-fake-sign`),
+with `fself::make_prospero_fself`, ported from ProsperoPkgTool's
+`Content/ProsperoSelfBuilder.cs` (MIT):
+- **Which files:** a file named `eboot.bin`, `*.elf`, `*.prx` or `*.sprx`
+  (any case, any folder) whose first bytes are the ELF magic, any ELF type
+  (the image flavour takes only 0xFE10/0xFE18), at least 0x40 bytes; signed
+  in memory, as img_create does. Right after the files are collected,
+  before pfs-version.dat and the keystone.
+- **The flavour:** PS5 SELF magic 0xEEF51454, header bytes 10 01 01 12,
+  program type 0x10000101, flags 0x32; entries 0x10004 / 0x2804; a segment's
+  data right after its digests (aligned only between segments); the ELF
+  header and program headers verbatim; authority ID from the ELF type and
+  the byte at 0x3F00 (0x40, 0x80, else); ex-info, then 3, then the footer
+  marker. Program headers must follow the ELF header (else refused);
+  segments past the end are skipped. The module's `.sceversion` section is
+  appended; a stripped module other than `/eboot.bin` gets a record made
+  from eboot.bin's first one (`name:`, tuple twice; the name as .NET's
+  ASCII encoding writes it). A file it cannot sign is packed unchanged with
+  a warning, as img_create does.
+- **Checked:** `tools/pkg-oracle/compare.sh` builds a game with raw ELF
+  modules (`make_elfs.py --package-game`: an eboot with a `.sceversion`
+  section and 0x40 at 0x3F00, a stripped module, one with its own record, a
+  fakelib module with 0x80, one img_create refuses, an ELF under a data
+  name, a module that is already a SELF): fpkg-build equals img_create byte
+  for byte, stored and Kraken; and `alembic fself --prospero` equals
+  `ProsperoPkgTool fself` on every ELF of both fixture sets (or both
+  refuse). `tests/test_fself.cpp` pins four of its outputs. Convert's note
+  no longer says packages can't be made; app picture looked at.
+  **Not yet:** a package with fake-signed modules installed on a console.
 
 ## Next session
 

@@ -864,11 +864,10 @@
  "built a PS4 package from the file tree": "hat aus dem Dateibaum ein PS4-Paket erstellt",
  "This game has {n} unsigned executable, so it would not start: it is fake-signed on the way.": "Dieses Spiel hat {n} unsignierte ausführbare Datei und würde daher nicht starten: Sie wird beim Umwandeln fake-signiert.",
  "This game has {n} unsigned executables, so it would not start: they are fake-signed on the way.": "Dieses Spiel hat {n} unsignierte ausführbare Dateien und würde daher nicht starten: Sie werden beim Umwandeln fake-signiert.",
- "This game has {n} unsigned executable: packages cannot be made from unsigned executables yet.": "Dieses Spiel hat {n} unsignierte ausführbare Datei: Aus unsignierten ausführbaren Dateien lassen sich noch keine Pakete erstellen.",
- "This game has {n} unsigned executables: packages cannot be made from unsigned executables yet.": "Dieses Spiel hat {n} unsignierte ausführbare Dateien: Aus unsignierten ausführbaren Dateien lassen sich noch keine Pakete erstellen.",
  "Some of these games have unsigned executables, so they would not start: they are fake-signed on the way.": "Einige dieser Spiele haben unsignierte ausführbare Dateien und würden daher nicht starten: Sie werden beim Umwandeln fake-signiert.",
- "Some of these games have unsigned executables: packages cannot be made from unsigned executables yet.": "Einige dieser Spiele haben unsignierte ausführbare Dateien: Aus unsignierten ausführbaren Dateien lassen sich noch keine Pakete erstellen.",
  "cannot fake-sign {path} ({reason}); it is left as it is": "{path} kann nicht fake-signiert werden ({reason}); bleibt unverändert",
  "fake-signed the executables and {rest}": "ausführbare Dateien fake-signiert und {rest}",
- "Checking executables": "Ausführbare Dateien werden geprüft"
+ "Checking executables": "Ausführbare Dateien werden geprüft",
+ "could not fake-sign {path}: {reason}; packing it unchanged": "{path} konnte nicht fake-signiert werden: {reason}; wird unverändert ins Paket gelegt",
+ "could not read the eboot sceversion record ({reason})": "Der sceversion-Eintrag von eboot.bin konnte nicht gelesen werden ({reason})"
 }

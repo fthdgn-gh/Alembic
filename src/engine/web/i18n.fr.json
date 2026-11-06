@@ -864,11 +864,10 @@
  "built a PS4 package from the file tree": "a créé un paquet PS4 à partir de l'arborescence",
  "This game has {n} unsigned executable, so it would not start: it is fake-signed on the way.": "Ce jeu a {n} exécutable non signé, il ne démarrerait donc pas : il reçoit une fausse signature pendant la conversion.",
  "This game has {n} unsigned executables, so it would not start: they are fake-signed on the way.": "Ce jeu a {n} exécutables non signés, il ne démarrerait donc pas : ils reçoivent une fausse signature pendant la conversion.",
- "This game has {n} unsigned executable: packages cannot be made from unsigned executables yet.": "Ce jeu a {n} exécutable non signé : on ne peut pas encore créer de paquet à partir d'exécutables non signés.",
- "This game has {n} unsigned executables: packages cannot be made from unsigned executables yet.": "Ce jeu a {n} exécutables non signés : on ne peut pas encore créer de paquet à partir d'exécutables non signés.",
  "Some of these games have unsigned executables, so they would not start: they are fake-signed on the way.": "Certains de ces jeux ont des exécutables non signés et ne démarreraient donc pas : ils reçoivent une fausse signature pendant la conversion.",
- "Some of these games have unsigned executables: packages cannot be made from unsigned executables yet.": "Certains de ces jeux ont des exécutables non signés : on ne peut pas encore créer de paquet à partir d'exécutables non signés.",
  "cannot fake-sign {path} ({reason}); it is left as it is": "impossible d'appliquer une fausse signature à {path} ({reason}) ; laissé tel quel",
  "fake-signed the executables and {rest}": "a appliqué une fausse signature aux exécutables et {rest}",
- "Checking executables": "Vérification des exécutables"
+ "Checking executables": "Vérification des exécutables",
+ "could not fake-sign {path}: {reason}; packing it unchanged": "impossible d'appliquer une fausse signature à {path} : {reason} ; empaqueté tel quel",
+ "could not read the eboot sceversion record ({reason})": "impossible de lire l'enregistrement sceversion d'eboot ({reason})"
 }

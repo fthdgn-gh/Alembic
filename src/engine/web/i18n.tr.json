@@ -864,11 +864,10 @@
  "built a PS4 package from the file tree": "dosya ağacından PS4 paketi oluşturdu",
  "This game has {n} unsigned executable, so it would not start: it is fake-signed on the way.": "Bu oyunda {n} imzasız yürütülebilir dosya var, bu yüzden açılmaz: dönüştürülürken sahte imzalanır.",
  "This game has {n} unsigned executables, so it would not start: they are fake-signed on the way.": "Bu oyunda {n} imzasız yürütülebilir dosya var, bu yüzden açılmaz: dönüştürülürken sahte imzalanırlar.",
- "This game has {n} unsigned executable: packages cannot be made from unsigned executables yet.": "Bu oyunda {n} imzasız yürütülebilir dosya var: imzasız yürütülebilir dosyalardan henüz paket yapılamıyor.",
- "This game has {n} unsigned executables: packages cannot be made from unsigned executables yet.": "Bu oyunda {n} imzasız yürütülebilir dosya var: imzasız yürütülebilir dosyalardan henüz paket yapılamıyor.",
  "Some of these games have unsigned executables, so they would not start: they are fake-signed on the way.": "Bu oyunların bazılarında imzasız yürütülebilir dosyalar var, bu yüzden açılmazlar: dönüştürülürken sahte imzalanırlar.",
- "Some of these games have unsigned executables: packages cannot be made from unsigned executables yet.": "Bu oyunların bazılarında imzasız yürütülebilir dosyalar var: imzasız yürütülebilir dosyalardan henüz paket yapılamıyor.",
  "cannot fake-sign {path} ({reason}); it is left as it is": "{path} sahte imzalanamadı ({reason}); olduğu gibi bırakıldı",
  "fake-signed the executables and {rest}": "yürütülebilir dosyaları sahte imzaladı ve {rest}",
- "Checking executables": "Yürütülebilir dosyalar denetleniyor"
+ "Checking executables": "Yürütülebilir dosyalar denetleniyor",
+ "could not fake-sign {path}: {reason}; packing it unchanged": "{path} sahte imzalanamadı: {reason}; değiştirilmeden pakete kondu",
+ "could not read the eboot sceversion record ({reason})": "eboot'un sceversion kaydı okunamadı ({reason})"
 }

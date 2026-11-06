@@ -211,7 +211,7 @@ export interface Plan {
   ampr_needed?: boolean;
   ships_emulator?: boolean;
   imports_ampr?: boolean;
-  unsigned_executables?: number; // plain PS5 ELFs: fake-signed on the way, refused for a package
+  unsigned_executables?: number; // plain PS5 ELFs: fake-signed on the way
   // "ampr_emu" plans: the libSceAmpr.sprx the game runs with (its backport's, for an image)
   emulator_present?: boolean;
   emulator_name?: string;    // "ampr_emu 0.4.2.1" when it is a known build, else ""

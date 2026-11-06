@@ -864,11 +864,10 @@
  "built a PS4 package from the file tree": "из дерева файлов собран пакет PS4",
  "This game has {n} unsigned executable, so it would not start: it is fake-signed on the way.": "В этой игре {n} неподписанный исполняемый файл, поэтому она не запустится: при конвертации он получит фейковую подпись.",
  "This game has {n} unsigned executables, so it would not start: they are fake-signed on the way.": "В этой игре {n} неподписанных исполняемых файла, поэтому она не запустится: при конвертации они получат фейковую подпись.|В этой игре {n} неподписанных исполняемых файлов, поэтому она не запустится: при конвертации они получат фейковую подпись.",
- "This game has {n} unsigned executable: packages cannot be made from unsigned executables yet.": "В этой игре {n} неподписанный исполняемый файл: из неподписанных исполняемых файлов пакеты пока не собираются.",
- "This game has {n} unsigned executables: packages cannot be made from unsigned executables yet.": "В этой игре {n} неподписанных исполняемых файла: из неподписанных исполняемых файлов пакеты пока не собираются.|В этой игре {n} неподписанных исполняемых файлов: из неподписанных исполняемых файлов пакеты пока не собираются.",
  "Some of these games have unsigned executables, so they would not start: they are fake-signed on the way.": "В некоторых из этих игр есть неподписанные исполняемые файлы, поэтому они не запустятся: при конвертации эти файлы получат фейковую подпись.",
- "Some of these games have unsigned executables: packages cannot be made from unsigned executables yet.": "В некоторых из этих игр есть неподписанные исполняемые файлы: из неподписанных исполняемых файлов пакеты пока не собираются.",
  "cannot fake-sign {path} ({reason}); it is left as it is": "не удалось поставить фейковую подпись на {path} ({reason}); файл оставлен как есть",
  "fake-signed the executables and {rest}": "исполняемые файлы получили фейковую подпись и {rest}",
- "Checking executables": "Проверка исполняемых файлов"
+ "Checking executables": "Проверка исполняемых файлов",
+ "could not fake-sign {path}: {reason}; packing it unchanged": "не удалось поставить фейковую подпись на {path}: {reason}; файл упакован без изменений",
+ "could not read the eboot sceversion record ({reason})": "не удалось прочитать запись sceversion из eboot ({reason})"
 }

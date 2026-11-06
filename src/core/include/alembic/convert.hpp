@@ -117,8 +117,8 @@ struct Options {
     std::shared_ptr<const RandomAccess> ampr_emulator;
     bool ampr_emulator_always = false; // add it even when the game does not seem to need it
     // Serve a PS5 game's unsigned executables (plain ELF) as fake-signed SELFs
-    // (fself.hpp): the console refuses to start them otherwise. Every output
-    // but FPKG, which refuses them for now.
+    // (fself.hpp): the console refuses to start them otherwise. FPKG output
+    // signs its modules as img_create does (ProsperoPkgTool's flavour).
     bool fake_sign = true;
 };
 

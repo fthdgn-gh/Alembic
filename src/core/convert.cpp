@@ -599,10 +599,13 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         fpkg::build::PackageOptions o = options.fpkg;
         o.overwrite = options.overwrite;
         if (!o.threads) o.threads = options.ffpfsc.compression.threads;
+        o.fake_sign = options.fake_sign;
         ALEMBIC_ASSIGN(fpkg::build::PackageResult r, fpkg::build::write_package(tree, tree.root(), output, o, progress, session));
-        report.method = std::string(prefix) + "built a debug package from the file tree";
+        report.method = std::string(r.fake_signed.empty() ? "" : "fake-signed the executables and ") + prefix +
+                        "built a debug package from the file tree";
         report.detail = r.content_id;
-        report.warnings = std::move(r.warnings);
+        report.warnings.insert(report.warnings.end(), r.warnings.begin(), r.warnings.end());
+        report.fake_signed = std::move(r.fake_signed);
         return report;
     }
     }

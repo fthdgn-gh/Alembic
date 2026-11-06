@@ -2242,7 +2242,7 @@ private:
                     v.set("ampr_needed", a->needed());
                     v.set("ships_emulator", a->ships);
                 }
-                // Unsigned executables: fake-signed on the way, refused for a package.
+                // Unsigned executables: fake-signed on the way (packages as img_create signs them).
                 if (a->unsigned_executables) v.set("unsigned_executables", a->unsigned_executables);
             }
             JsonValue warnings = JsonValue::array();

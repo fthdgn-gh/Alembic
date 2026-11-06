@@ -5,7 +5,7 @@
 // what ampr-emu-ng's tools/make_fself.py --ptype fake writes (its defaults:
 // program authority ID 0x3100000000000002, program type 1, versions 0, no
 // auth info), as ps5-dump-forge's fself.rs does in every conversion. Ported
-// from both (GPL-3.0).
+// from both (GPL-3.0). Packages use ProsperoPkgTool's flavour (below).
 //
 // A SELF is planned from the ELF's headers alone and its bytes are made as
 // they are read: the headers and meta data, each copied segment (PT_LOAD,
@@ -17,7 +17,9 @@
 #include "alembic/io.hpp"
 #include "alembic/tree.hpp"
 
+#include <array>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -51,5 +53,32 @@ struct Signed {
     std::size_t index_records_resized = 0;
 };
 Result<Signed> sign(const tree::Source& source);
+
+// ---- ProsperoPkgTool's flavour (Content/ProsperoSelfBuilder.cs, MIT) ----
+// What img_create applies to a package's modules (FakeSignInnerModules):
+// the PS5 SELF magic, program type 0x10000101, an authority ID derived from
+// the ELF (its type and the byte at 0x3F00), each segment's data right after
+// its digests, and the module's .sceversion section appended, or for a
+// stripped module one made from eboot.bin's record. Errors are
+// Errc::unsupported: img_create packs such a file unchanged.
+
+// img_create's IsFakeSignTarget: a file named eboot.bin, *.elf, *.prx or
+// *.sprx (any case), anywhere in the game.
+bool is_prospero_target(std::string_view path);
+
+using VersionRecord = std::array<std::uint8_t, 8>;
+
+// TryGetSceVersionRecord: the first 8-byte version tuple of an ELF's
+// .sceversion section or of the trailer after a SELF's file size; none when
+// there is no such record (an error when the ELF's sections overrun it).
+Result<std::optional<VersionRecord>> sceversion_record(const RandomAccess& image);
+
+struct ProsperoOptions {
+    // For a stripped module (no .sceversion): its file name without the
+    // extension and the application's record, to make one from.
+    std::string sceversion_name;
+    std::optional<VersionRecord> sceversion_record;
+};
+Result<std::vector<std::uint8_t>> make_prospero_fself(Bytes elf, const ProsperoOptions& options = {});
 
 } // namespace alembic::fself

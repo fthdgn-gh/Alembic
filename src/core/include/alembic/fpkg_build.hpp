@@ -360,6 +360,8 @@ struct PackageOptions {
     // DRM 0x10, content type 0x20, as PS5 fake packages carry); without it the
     // package has none and its title shows a lock on the console.
     std::string license_keys_file;
+    // Raw ELF modules packed as fake-SELFs, as img_create does unless --no_fself.
+    bool fake_sign = true;
 };
 struct PackageResult {
     bool generated_license = false; // the game had none: a debug licence was made
@@ -367,6 +369,7 @@ struct PackageResult {
     std::uint64_t package_length = 0;
     std::size_t inner_files = 0;
     std::vector<std::string> warnings;
+    std::vector<std::string> fake_signed; // raw ELF modules packed as fake-SELFs
 };
 // Builds a debug package from a game tree (the folder layout of a dump:
 // eboot.bin, sce_sys/param.json, ...), byte-identical to ProsperoPkgTool

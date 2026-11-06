@@ -7,7 +7,8 @@
 #   - the param.json CNT entry equals the source file,
 # and Alembic's writer against ProsperoPkgTool's:
 #   - fpkg-build equals img_create --seed S --no_right_sprx byte for byte,
-#     stored and Kraken.
+#     stored and Kraken, also with raw ELF modules (fake-signed by both);
+#   - fself --prospero equals ProsperoPkgTool fself.
 #   tools/pkg-oracle/compare.sh [refs-dir]   (default: .refs)
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -88,6 +89,36 @@ for c in stored kraken; do
     if cmp -s "$work/w-ppt-$c.pkg" "$work/w-alembic-$c.pkg"; then
         echo "same  fpkg-build --compression $c: byte for byte ($(wc -c <"$work/w-alembic-$c.pkg" | tr -d ' ') bytes)"
     else echo "DIFF  fpkg-build --compression $c"; fail=1; fi
+done
+# Raw ELF modules: img_create fake-signs them (ProsperoPkgTool's flavour),
+# eboot.bin's .sceversion record going to a stripped module; one it cannot
+# sign is packed unchanged. Each also through ProsperoPkgTool fself alone.
+elfgame="$work/elfgame"
+cp -R "$game" "$elfgame"
+python3 -I "$repo/tools/fself-oracle/make_elfs.py" --package-game "$elfgame"
+for c in stored kraken; do
+    ppt img_create "$elfgame" --out "$work/e-ppt-$c.pkg" --compression $c --seed $seed --no_right_sprx >/dev/null
+    "$alembic" fpkg-build "$elfgame" "$work/e-alembic-$c.pkg" --keys "$keys" --seed $seed --compression $c \
+        >"$work/e-alembic-$c.log" 2>&1
+    if cmp -s "$work/e-ppt-$c.pkg" "$work/e-alembic-$c.pkg"; then
+        echo "same  fpkg-build --compression $c with raw ELF modules: byte for byte"
+    else echo "DIFF  fpkg-build --compression $c with raw ELF modules"; fail=1; fi
+done
+if grep -q "fake-signed: sce_module/libstripped.prx" "$work/e-alembic-stored.log" &&
+    grep -qi "could not fake-sign data/tool.elf" "$work/e-alembic-stored.log"; then
+    echo "ok    fpkg-build names what it signed and what it could not"
+else echo "DIFF  fpkg-build's report"; cat "$work/e-alembic-stored.log"; fail=1; fi
+python3 -I "$repo/tools/fself-oracle/make_elfs.py" "$work/elves"
+for elf in "$work"/elves/* "$elfgame"/eboot.bin "$elfgame"/sce_module/lib*.prx "$elfgame"/fakelib/*.sprx \
+    "$elfgame"/data/tool.elf "$elfgame"/data/level.bin; do
+    n="$(basename "$elf")"
+    if ppt fself "$elf" --out "$work/f-ppt-$n" >/dev/null 2>&1; then
+        "$alembic" fself "$elf" "$work/f-alembic-$n" --prospero >/dev/null
+        if cmp -s "$work/f-ppt-$n" "$work/f-alembic-$n"; then echo "same  fself --prospero $n"
+        else echo "DIFF  fself --prospero $n"; fail=1; fi
+    elif "$alembic" fself "$elf" "$work/f-alembic-$n" --prospero >/dev/null 2>&1; then
+        echo "DIFF  fself --prospero $n: ProsperoPkgTool refuses it, Alembic does not"; fail=1
+    else echo "ok    fself --prospero $n: refused by both"; fi
 done
 # A generated licence (--ps4-keys, LibOrbisPkg's Keys.cs): put in sce_sys,
 # ProsperoPkgTool packs the same files into the same package.

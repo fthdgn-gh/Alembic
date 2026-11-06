@@ -104,9 +104,10 @@ and the app mark each game with a **PS5** (white) or **PS4** (black) pill.
   on a game that has one, "Add the AMPR emulator" offers to switch it to
   the other.
 - **Fake-signing:** a PS5 game whose executables are plain (unsigned) ELF
-  files never starts. Conversions to an image or folder turn them into
-  fake-signed SELFs on the way, byte-identical to ampr-emu-ng's
-  `make_fself.py`, and Convert says so beforehand. Not for packages yet.
+  files never starts. Conversions turn them into fake-signed SELFs on the
+  way, and Convert says so beforehand: for an image or folder
+  byte-identical to ampr-emu-ng's `make_fself.py`, for a package to
+  ProsperoPkgTool's `img_create`.
 - **Fast:** compression and package decoding use every core; AES, CRC32C
   and SHA-256 use the CPU's own instructions where it has them; zlib level 6
   by default (level 9 for exact PS5PKGTool output).

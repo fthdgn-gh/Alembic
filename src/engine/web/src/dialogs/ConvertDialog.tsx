@@ -372,9 +372,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
           </div>
           <div class="note" hidden={!amprShown}>{!amprShown ? "" : ampr ? t("This game uses the console's APR and ships no emulator: ampr_emu goes into its fakelib.")
             : t("This game uses the console's APR and ships no emulator: without it, it will likely stop at start.")}</div>
-          <div class="note" hidden={!unsignedN}>{!unsignedN ? "" : target === "fpkg"
-            ? plural(unsignedN, "This game has {n} unsigned executable: packages cannot be made from unsigned executables yet.", "This game has {n} unsigned executables: packages cannot be made from unsigned executables yet.")
-            : plural(unsignedN, "This game has {n} unsigned executable, so it would not start: it is fake-signed on the way.", "This game has {n} unsigned executables, so it would not start: they are fake-signed on the way.")}</div>
+          <div class="note" hidden={!unsignedN}>{!unsignedN ? "" : plural(unsignedN, "This game has {n} unsigned executable, so it would not start: it is fake-signed on the way.", "This game has {n} unsigned executables, so it would not start: they are fake-signed on the way.")}</div>
           <div class="note" hidden={!needs.length}>{needs.length ? t("Needs {list}. You'll be asked to download it when you add this to the queue.", { list: needs.map((d) => t(d.label) + " (" + bytes(d.bytes) + ")").join(", ") }) : ""}</div>
           <div class="note" hidden={!warnings.length}>{warnings.map(tMsg).join(" ")}</div>
         </div>}
@@ -416,7 +414,7 @@ function ManySide(props: { entries: Entry[]; work: Entry[]; skipped: Entry[]; ta
       <div class="muted" style="font-size:.88rem;margin-top:.4rem">{props.outSpace}</div>
       <div class="note" hidden={!props.amprShown}>{props.ampr ? t("Games that use the console's APR and ship no emulator get ampr_emu in their fakelib.")
         : t("Some of these games use the console's APR and ship no emulator: without it, they will likely stop at start.")}</div>
-      <div class="note" hidden={!props.unsigned}>{props.target === "fpkg" ? t("Some of these games have unsigned executables: packages cannot be made from unsigned executables yet.") : t("Some of these games have unsigned executables, so they would not start: they are fake-signed on the way.")}</div>
+      <div class="note" hidden={!props.unsigned}>{t("Some of these games have unsigned executables, so they would not start: they are fake-signed on the way.")}</div>
       <div class="note" hidden={!props.needs.length}>{props.needs.length ? t("Needs {list}. You'll be asked to download it when you add this to the queue.", { list: props.needs.map((d) => t(d.label) + " (" + bytes(d.bytes) + ")").join(", ") }) : ""}</div>
     </div>
   );

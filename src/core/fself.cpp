@@ -2,7 +2,8 @@
 // Fake-signed SELFs (fself.hpp). Ported from quer3q/ps5-dump-forge's
 // ps5-dump-forge-core/src/fself.rs (which executables, the plan from the
 // headers, ampr_emu.index's sizes) and the script it matches, ampr-emu-ng's
-// tools/make_fself.py (the layout); both GPL-3.0.
+// tools/make_fself.py (the layout); both GPL-3.0. The package flavour from
+// pearlxcore/ProsperoPkgTool's Content/ProsperoSelfBuilder.cs (MIT).
 #include "alembic/fself.hpp"
 
 #include "alembic/ampr.hpp"
@@ -411,6 +412,226 @@ Result<Signed> sign(const tree::Source& source) {
     }
     result.tree = std::make_unique<SignedTree>(source, std::move(plans), std::move(index), index_node);
     return result;
+}
+
+// ---------------------------------------------------------------- ProsperoPkgTool's flavour
+
+namespace {
+
+constexpr std::uint32_t kProsperoMagic = 0xEEF51454;
+constexpr std::uint32_t kOrbisMagic = 0x1D3D154F;
+
+bool ends_with_icase(std::string_view s, std::string_view suffix) {
+    return s.size() >= suffix.size() && unicode::ascii_iequals(s.substr(s.size() - suffix.size()), suffix);
+}
+
+// FindElfSection: where `name`'s payload is, or none. The checks and their
+// order are ProsperoSelfBuilder's (an overrun is an error, a missing table is not).
+struct Range {
+    std::uint64_t offset = 0, size = 0;
+};
+Result<std::optional<Range>> find_section(const RandomAccess& elf, std::uint64_t length, std::string_view name) {
+    std::uint8_t h[0x40];
+    ALEMBIC_TRY(elf.read_at(0, MutableBytes(h, sizeof h)));
+    const std::uint64_t table = get_u64(h + 0x28);
+    const std::uint64_t entry = get_u16(h + 0x3A), count = get_u16(h + 0x3C), names = get_u16(h + 0x3E);
+    if (table == 0 || count == 0 || entry < 0x40 || names >= count || table > 0x7FFFFFFF) return std::optional<Range>{};
+    if (table + count * entry > length) return refuse("ELF section headers overrun the file.");
+    std::vector<std::uint8_t> headers(static_cast<std::size_t>(count * entry));
+    ALEMBIC_TRY(elf.read_at(table, headers));
+    auto payload = [&](std::uint64_t at) -> Result<Range> {
+        const std::uint64_t offset = get_u64(headers.data() + at + 0x18), size = get_u64(headers.data() + at + 0x20);
+        if (offset > 0x7FFFFFFF || size > 0x7FFFFFFF || offset + size > length) return refuse("ELF section payload overruns the file.");
+        return Range{offset, size};
+    };
+    ALEMBIC_ASSIGN(Range strings_at, payload(names * entry));
+    std::vector<std::uint8_t> strings(static_cast<std::size_t>(strings_at.size));
+    ALEMBIC_TRY(elf.read_at(strings_at.offset, strings));
+    for (std::uint64_t i = 0; i < count; ++i) {
+        const std::uint32_t at = get_u32(headers.data() + i * entry);
+        if (at >= strings.size()) continue;
+        const std::uint8_t* begin = strings.data() + at;
+        const std::uint8_t* stop = strings.data() + strings.size();
+        const std::uint8_t* end = std::find(begin, stop, std::uint8_t{0});
+        if (end == stop) continue;
+        if (std::string_view(reinterpret_cast<const char*>(begin), static_cast<std::size_t>(end - begin)) == name) {
+            ALEMBIC_ASSIGN(Range r, payload(i * entry));
+            return std::optional<Range>(r);
+        }
+    }
+    return std::optional<Range>{};
+}
+
+// The record at the start of a .sceversion stream (TryGetSceVersionRecord):
+// `head` holds its first bytes, `total` is its whole length.
+std::optional<VersionRecord> first_record(Bytes head, std::uint64_t total) {
+    if (total < 4 || head.size() < 4) return std::nullopt;
+    const std::uint64_t declared = get_u16(head.data() + 2);
+    if (declared < 17 || declared + 4 > total || declared - 12 + 8 > head.size()) return std::nullopt;
+    VersionRecord r;
+    std::memcpy(r.data(), head.data() + declared - 12, 8);
+    return r;
+}
+
+// Encoding.ASCII.GetBytes: each UTF-16 unit outside ASCII becomes '?'.
+std::string dotnet_ascii(std::string_view utf8) {
+    std::string out;
+    for (std::size_t i = 0; i < utf8.size();) {
+        const auto c = static_cast<unsigned char>(utf8[i]);
+        if (c < 0x80) {
+            out += static_cast<char>(c);
+            ++i;
+        } else {
+            const std::size_t n = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : 2;
+            out += n == 4 ? "??" : "?";
+            i += n;
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+bool is_prospero_target(std::string_view path) {
+    std::size_t slash = path.rfind('/');
+    std::string_view name = slash == std::string_view::npos ? path : path.substr(slash + 1);
+    return unicode::ascii_iequals(name, "eboot.bin") || ends_with_icase(name, ".elf") || ends_with_icase(name, ".prx") ||
+           ends_with_icase(name, ".sprx");
+}
+
+Result<std::optional<VersionRecord>> sceversion_record(const RandomAccess& image) {
+    ALEMBIC_ASSIGN(std::uint64_t length, image.size());
+    std::uint8_t h[0x20];
+    if (length < 0x20) return std::optional<VersionRecord>{};
+    ALEMBIC_TRY(image.read_at(0, MutableBytes(h, sizeof h)));
+    Range records;
+    if (length >= 0x40 && get_u32(h) == kElfMagic) {
+        ALEMBIC_ASSIGN(std::optional<Range> section, find_section(image, length, ".sceversion"));
+        if (!section) return std::optional<VersionRecord>{};
+        records = *section;
+    } else if (get_u32(h) == kProsperoMagic || get_u32(h) == kOrbisMagic) {
+        const std::uint64_t file_size = get_u64(h + 0x10);
+        if (file_size > length) return std::optional<VersionRecord>{};
+        records = {file_size, length - file_size};
+    } else {
+        return std::optional<VersionRecord>{};
+    }
+    // A record is at most 0xFFFF + 4 bytes long: only that much is read.
+    std::vector<std::uint8_t> head(static_cast<std::size_t>(std::min<std::uint64_t>(records.size, 0x10004)));
+    ALEMBIC_TRY(image.read_at(records.offset, head));
+    return first_record(head, records.size);
+}
+
+Result<std::vector<std::uint8_t>> make_prospero_fself(Bytes elf, const ProsperoOptions& options) {
+    const std::uint64_t length = elf.size();
+    const std::uint8_t* e = elf.data();
+    if (length < 0x40 || get_u32(e) != kElfMagic) return refuse("Input is not an ELF file.");
+    if (e[4] != 2) return refuse("Only 64-bit ELF modules are supported.");
+    const std::uint16_t type = get_u16(e + 0x10);
+    const std::uint64_t phoff = get_u64(e + 0x20);
+    const std::uint64_t phnum = get_u16(e + 0x38);
+    if (phoff != 0x40) return refuse("The ELF program-header table must follow the ELF header at 0x40.");
+    if (get_u16(e + 0x36) != kPhdr) return refuse("Unexpected ELF program-header size.");
+    if (0x40 + phnum * kPhdr > length) return refuse("ELF program headers overrun the file.");
+
+    struct Segment {
+        std::uint64_t index, offset, size;
+    };
+    std::vector<Segment> selected;
+    for (std::uint64_t i = 0; i < phnum; ++i) {
+        const std::uint8_t* p = e + 0x40 + i * kPhdr;
+        const auto offset = static_cast<std::int64_t>(get_u64(p + 8)), size = static_cast<std::int64_t>(get_u64(p + 0x20));
+        if (size <= 0 || offset + size > static_cast<std::int64_t>(length)) continue;
+        if (offset < 0) return refuse("a segment starts before the file");
+        const std::uint32_t t = get_u32(p);
+        if (t == kPtLoad || t == kPtDynlibData || t == kPtRelro || t == kPtComment)
+            selected.push_back({i, static_cast<std::uint64_t>(offset), static_cast<std::uint64_t>(size)});
+    }
+    if (selected.empty()) return refuse("The ELF has no loadable segment content.");
+
+    const std::uint64_t count = selected.size() * 2;
+    const std::uint64_t table_end = 0x20 + count * 0x20;
+    const std::uint64_t embedded = 0x40 + phnum * kPhdr;
+    const std::uint64_t ext = align16(table_end + embedded);
+    const std::uint64_t header_size = ext + 0x40 + 0x30;
+    const std::uint64_t meta_size = count * 0x50 + 0x50 + 0x220;
+    if (header_size > 0xFFFF || meta_size > 0xFFFF) return refuse("The ELF has too many segments to fake-sign.");
+    std::vector<std::uint64_t> digests(selected.size()), offsets(count);
+    std::uint64_t cursor = header_size + meta_size;
+    for (std::size_t i = 0; i < selected.size(); ++i) {
+        digests[i] = div_round_up(selected[i].size, kBlock) * 0x20;
+        offsets[2 * i] = cursor;
+        cursor += digests[i];
+        offsets[2 * i + 1] = cursor;
+        cursor += selected[i].size;
+        if (i + 1 < selected.size()) cursor = align16(cursor);
+    }
+    const std::uint64_t file_size = cursor;
+
+    // The trailer: the module's own .sceversion, else one made for it.
+    MemoryFile file(elf);
+    ALEMBIC_ASSIGN(std::optional<Range> section, find_section(file, length, ".sceversion"));
+    std::vector<std::uint8_t> trailer;
+    if (section && section->size) {
+        trailer.assign(e + section->offset, e + section->offset + section->size);
+    } else if (options.sceversion_record &&
+               options.sceversion_name.find_first_not_of(" \t\n\v\f\r") != std::string::npos) {
+        std::string name = dotnet_ascii(options.sceversion_name);
+        if (name.back() != ':') name += ':';
+        const std::size_t record = 1 + name.size() + 16;
+        if (record > 0xFFFF) return refuse("The synthesized .sceversion module name is too long.");
+        trailer.assign(record + 4, 0);
+        put_u16(trailer.data() + 2, static_cast<std::uint16_t>(record));
+        trailer[4] = 8;
+        std::memcpy(trailer.data() + 5, name.data(), name.size());
+        std::memcpy(trailer.data() + 5 + name.size(), options.sceversion_record->data(), 8);
+        std::memcpy(trailer.data() + 13 + name.size(), options.sceversion_record->data(), 8);
+    }
+
+    std::vector<std::uint8_t> out(static_cast<std::size_t>(file_size + trailer.size()), 0);
+    std::uint8_t* o = out.data();
+    put_u32(o, kProsperoMagic);
+    o[4] = 0x10;
+    o[5] = 0x01;
+    o[6] = 0x01;
+    o[7] = 0x12;
+    put_u32(o + 8, 0x10000101);
+    put_u16(o + 0xC, static_cast<std::uint16_t>(header_size));
+    put_u16(o + 0xE, static_cast<std::uint16_t>(meta_size));
+    put_u64(o + 0x10, file_size);
+    put_u16(o + 0x18, static_cast<std::uint16_t>(count));
+    put_u16(o + 0x1A, 0x32);
+    for (std::size_t i = 0; i < selected.size(); ++i) {
+        auto entry = [&](std::uint64_t at, std::uint64_t flags, std::uint64_t where, std::uint64_t size) {
+            put_u64(o + at, flags);
+            put_u64(o + at + 8, where);
+            put_u64(o + at + 16, size);
+            put_u64(o + at + 24, size);
+        };
+        entry(0x20 + 2 * i * 0x20, ((2 * i + 1) << 20) | 0x10004, offsets[2 * i], digests[i]);
+        entry(0x20 + (2 * i + 1) * 0x20, (selected[i].index << 20) | 0x2804, offsets[2 * i + 1], selected[i].size);
+    }
+    std::memcpy(o + table_end, e, static_cast<std::size_t>(embedded));
+    // DeriveAuthorityId: the executable kinds and the byte at 0x3F00.
+    const bool executable = type == 2 || type == 0xFE00 || type == 0xFE10;
+    const std::uint8_t ex_info = length > 0x3F00 ? e[0x3F00] : 0;
+    const std::uint64_t authority = ex_info == 0x40   ? (executable ? 0x3100000000001101ull : 0x3100000000001102ull)
+                                    : ex_info == 0x80 ? (executable ? 0x3100000000001001ull : 0x3100000000001002ull)
+                                                      : (executable ? 0x3100000000000001ull : 0x3100000000000002ull);
+    put_u64(o + ext, authority);
+    put_u64(o + ext + 8, 1);
+    const Sha256::Digest digest = [&] {
+        Sha256 h;
+        h.update(elf);
+        return h.finish();
+    }();
+    std::memcpy(o + ext + 0x20, digest.data(), digest.size());
+    put_u64(o + ext + 0x40, 3);
+    put_u32(o + header_size + count * 0x50 + 0x30, 0x10000);
+    for (std::size_t i = 0; i < selected.size(); ++i)
+        std::memcpy(o + offsets[2 * i + 1], e + selected[i].offset, static_cast<std::size_t>(selected[i].size));
+    if (!trailer.empty()) std::memcpy(o + file_size, trailer.data(), trailer.size());
+    return out;
 }
 
 } // namespace alembic::fself

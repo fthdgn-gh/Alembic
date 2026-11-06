@@ -1357,9 +1357,7 @@ public:
                                                      px, yy + 0.5f * R, pw, 0.88f * R, 0.88f * 1.45f * R, warn);
                 if (const long long n = static_cast<long long>(plan["unsigned_executables"].number()); n > 0)
                     yy += 0.5f * R + draw::paragraph(ui, Face::regular,
-                                                     target == "fpkg"
-                                                         ? plural(n, "This game has {n} unsigned executable: packages cannot be made from unsigned executables yet.", "This game has {n} unsigned executables: packages cannot be made from unsigned executables yet.")
-                                                         : plural(n, "This game has {n} unsigned executable, so it would not start: it is fake-signed on the way.", "This game has {n} unsigned executables, so it would not start: they are fake-signed on the way."),
+                                                     plural(n, "This game has {n} unsigned executable, so it would not start: it is fake-signed on the way.", "This game has {n} unsigned executables, so it would not start: they are fake-signed on the way."),
                                                      px, yy + 0.5f * R, pw, 0.88f * R, 0.88f * 1.45f * R, warn);
                 std::string needs;
                 for (const auto& d : plan["needs"].items())
@@ -1472,7 +1470,7 @@ public:
                                              px, yy + 0.5f * R, pw, 0.88f * R, 0.88f * 1.45f * R, warn);
         if (any_unsigned)
             yy += 0.5f * R + draw::paragraph(ui, Face::regular,
-                                             target == "fpkg" ? t("Some of these games have unsigned executables: packages cannot be made from unsigned executables yet.") : t("Some of these games have unsigned executables, so they would not start: they are fake-signed on the way."),
+                                             t("Some of these games have unsigned executables, so they would not start: they are fake-signed on the way."),
                                              px, yy + 0.5f * R, pw, 0.88f * R, 0.88f * 1.45f * R, warn);
         std::string needs;
         std::vector<std::string> ids;

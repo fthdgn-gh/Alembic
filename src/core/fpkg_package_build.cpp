@@ -15,6 +15,7 @@
 
 #include "alembic/bytes.hpp"
 #include "alembic/fpkg.hpp"
+#include "alembic/fself.hpp"
 #include "alembic/json.hpp"
 #include "alembic/thread_pool.hpp"
 
@@ -512,15 +513,58 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
     auto has_file = [&](const char* path) {
         return std::any_of(files.begin(), files.end(), [&](const InnerFile& f) { return f.path == path; });
     };
-    // Modules the console maps must be SELFs: ProsperoPkgTool fake-signs raw ELFs; not ported yet.
-    for (const InnerFile& f : files) {
-        bool module = f.path == "/eboot.bin" || f.path.rfind("/sce_module/", 0) == 0 || f.path.rfind("/sce_sys/about/", 0) == 0;
-        if (!module || f.length() < 4) continue;
+    // Raw ELF modules become fake-SELFs, as img_create's FakeSignInnerModules
+    // makes them (fself::make_prospero_fself): eboot.bin, *.elf, *.prx and
+    // *.sprx anywhere; a stripped library takes eboot.bin's .sceversion
+    // record. One that cannot be signed is packed unchanged.
+    std::vector<std::size_t> elves;
+    for (std::size_t i = 0; i < files.size() && options.fake_sign; ++i) {
+        const InnerFile& f = files[i];
+        if (!f.node || f.length() < 0x40 || !fself::is_prospero_target(f.path)) continue;
         ALEMBIC_ASSIGN(std::shared_ptr<const RandomAccess> in, source.open(*f.node));
         std::uint8_t magic[4];
         ALEMBIC_TRY(in->read_at(0, MutableBytes(magic, 4)));
-        if (get_u32(magic) == 0x464C457F)
-            return make_error(Errc::unsupported, f.path.substr(1) + " is a raw ELF; packages need signed (SELF) modules, and fake-signing is not supported yet");
+        if (get_u32(magic) == 0x464C457F) elves.push_back(i);
+    }
+    if (!elves.empty()) {
+        std::optional<fself::VersionRecord> app_record;
+        for (const InnerFile& f : files)
+            if (f.path == "/eboot.bin" && f.node) {
+                ALEMBIC_ASSIGN(std::shared_ptr<const RandomAccess> in, source.open(*f.node));
+                auto r = fself::sceversion_record(*in);
+                if (r.ok()) app_record = *r;
+                else result.warnings.push_back("could not read the eboot sceversion record (" + r.error().message + ")");
+            }
+        for (std::size_t i : elves) {
+            InnerFile& f = files[i];
+            ALEMBIC_ASSIGN(std::shared_ptr<const RandomAccess> in, source.open(*f.node));
+            std::vector<std::uint8_t> elf(static_cast<std::size_t>(f.length()));
+            ALEMBIC_TRY(in->read_at(0, elf));
+            auto sign = [&]() -> Result<std::vector<std::uint8_t>> {
+                fself::ProsperoOptions o;
+                if (f.path != "/eboot.bin" && app_record) {
+                    ALEMBIC_ASSIGN(std::optional<fself::VersionRecord> own, fself::sceversion_record(*in));
+                    if (!own) {
+                        std::string name = f.path.substr(f.path.rfind('/') + 1);
+                        if (std::size_t dot = name.rfind('.'); dot != std::string::npos) name.resize(dot);
+                        o.sceversion_name = name;
+                        o.sceversion_record = app_record;
+                    }
+                }
+                return fself::make_prospero_fself(elf, o);
+            };
+            auto self = sign();
+            if (!self.ok()) {
+                if (self.error().code != Errc::unsupported) return self.error();
+                result.warnings.push_back("could not fake-sign " + f.path.substr(1) + ": " + self.error().message +
+                                          "; packing it unchanged");
+                continue;
+            }
+            f.data = std::move(*self);
+            f.node = nullptr;
+            f.source = nullptr;
+            result.fake_signed.push_back(f.path.substr(1));
+        }
     }
     if (!has_file("/sce_sys/pfs-version.dat")) {
         InnerFile f;
