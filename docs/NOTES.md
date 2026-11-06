@@ -3310,8 +3310,9 @@ What changed its zstd bytes, now ported:
 
 `check_pack.py` now expects no store-only file; the fixture gained
 system files in other letter cases. 118 tests pass, `compare.sh --no-cargo`
-passes (17 files packed). **The cargo comparison against v0.5.4 is the
-owner's to run.**
+passes (17 files packed), and so does the full comparison against v0.5.4
+(cargo build; levels 1, 3, 5, 19 byte-identical, same loose files, each
+reads the other's packs). The agent can run it here now (2026-11-06).
 
 Not ported (their own policy or new features): pack profiles for zstd
 (`--pack-profile`, with `include_from`/`exclude_from` files, also new for
