@@ -3370,7 +3370,8 @@ fake-signed SELFs, byte for byte what `make_fself.py --ptype fake` writes:
   which files are found, the index records, conversions on and off.
   The stand-in engine (`tools/screenshots/mock.mjs`) gives Quiet Orbit 3
   unsigned executables; app pictures of Convert to FFPFSC and to FPKG looked
-  at. **Not yet:** a fake-signed game started on a console (owner).
+  at. **Not tried on a console:** the owner can't test it; it ships as
+  is and users' reports decide (owner, 2026-11-06).
 - **Then FPKG output** (same day, below).
 
 ### 2026-11-06: fake-signing in packages
@@ -3405,7 +3406,7 @@ with `fself::make_prospero_fself`, ported from ProsperoPkgTool's
   `ProsperoPkgTool fself` on every ELF of both fixture sets (or both
   refuse). `tests/test_fself.cpp` pins four of its outputs. Convert's note
   no longer says packages can't be made; app picture looked at.
-  **Not yet:** a package with fake-signed modules installed on a console.
+  **Not tried on a console:** left to users' reports, as above.
 
 ## Next session
 
