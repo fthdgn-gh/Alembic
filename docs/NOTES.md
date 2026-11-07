@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (2026-11-06, release 0.5.2)
+## Where we are (2026-11-07, release 0.5.3)
 
 ### What works
 
@@ -80,6 +80,9 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   main and wait for CI before tagging. Catalog PR from the fork branch
   update-alembic-0.5.0: darkxex/ps5-homebrew-catalog#1084 (opened by the
   owner: auto mode refuses it).
+- **In 0.5.3 (2026-11-07):** Hungarian (Magyar, by isty1974 from
+  issue 4) on the page, in the app and in the engine's notifications; the
+  app's queue badges upper-case accented letters.
 - **In 0.5.2 (2026-11-06):** fake-signing. Unsigned PS5 executables
   (plain ELF) become fake-signed SELFs in every conversion: images and
   folders as ampr-emu-ng's make_fself.py makes them, packages as
