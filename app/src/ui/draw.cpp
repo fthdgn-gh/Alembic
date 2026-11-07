@@ -111,9 +111,7 @@ float paragraph_height(Ui& ui, Face face, std::string_view s, float width, float
     return static_cast<float>(std::min(count, max_lines)) * line_height;
 }
 
-float caps(Ui& ui, std::string_view s, float x, float baseline, float size, Color color) {
-    // Upper case as the page's CSS makes it, accented and Cyrillic letters
-    // included ("Aplicación" is "APLICACIÓN", "ß" is "SS", "Места" is "МЕСТА").
+std::string upper(std::string_view s) {
     std::string upper;
     upper.reserve(s.size());
     for (std::size_t i = 0; i < s.size(); ++i) {
@@ -159,7 +157,11 @@ float caps(Ui& ui, std::string_view s, float x, float baseline, float size, Colo
         }
         upper += static_cast<char>(c);
     }
-    return text(ui, Face::semibold, upper, x, baseline, size, color, Align::left, size * 0.14f);
+    return upper;
+}
+
+float caps(Ui& ui, std::string_view s, float x, float baseline, float size, Color color) {
+    return text(ui, Face::semibold, upper(s), x, baseline, size, color, Align::left, size * 0.14f);
 }
 
 namespace {
@@ -339,13 +341,14 @@ float state_pill(Ui& ui, std::string_view state, std::string_view label, float r
         fill = bad.with_alpha(0.14f);
         ink = bad;
     }
-    std::string upper;
-    for (char c : label) upper += (c >= 'a' && c <= 'z') ? static_cast<char>(c - 32) : c;
+    const std::string caps = upper(label);
+    std::size_t letters = 0;  // the spacing is per letter, not per UTF-8 byte
+    for (char c : caps) letters += (static_cast<unsigned char>(c) & 0xC0) != 0x80;
     const float size = 0.7f * R;
-    const float tw = measure(ui, Face::semibold, upper, size) + size * 0.06f * static_cast<float>(upper.size());
+    const float tw = measure(ui, Face::semibold, caps, size) + size * 0.06f * static_cast<float>(letters);
     const float w = tw + 1.2f * R, h = size + 0.5f * R;
     ui.list->rounded_rect({right - w, cy - h * 0.5f, w, h}, h * 0.5f, fill);
-    text(ui, Face::semibold, upper, right - w + 0.6f * R, baseline(cy, size), size, ink, Align::left, size * 0.06f);
+    text(ui, Face::semibold, caps, right - w + 0.6f * R, baseline(cy, size), size, ink, Align::left, size * 0.06f);
     return w;
 }
 

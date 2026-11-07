@@ -314,6 +314,7 @@ std::string system_language() {
     case 4: return "de";
     case 8: return "ru";
     case 19: return "tr";
+    case 24: return "hu";
     default: return "en";
     }
 }

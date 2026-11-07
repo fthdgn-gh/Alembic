@@ -34,6 +34,9 @@ float paragraph(Ui& ui, Face face, std::string_view text, float x, float top, fl
 float paragraph_height(Ui& ui, Face face, std::string_view text, float width, float size, float line_height,
                        int max_lines = 99);
 // Small capitals with tracking (.sect, .lbl): "DRIVES".
+// Upper case as the page's CSS makes it, accented and Cyrillic letters
+// included ("Aplicación" is "APLICACIÓN", "ß" is "SS", "Места" is "МЕСТА").
+std::string upper(std::string_view text);
 float caps(Ui& ui, std::string_view text, float x, float baseline, float size, Color color);
 
 enum class Icon { folder, drive, usb, server, place, clock, file };

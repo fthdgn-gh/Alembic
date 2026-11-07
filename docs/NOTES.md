@@ -3419,6 +3419,22 @@ with `fself::make_prospero_fself`, ported from ProsperoPkgTool's
   no longer says packages can't be made; app picture looked at.
   **Not tried on a console:** left to users' reports, as above.
 
+### 2026-11-07: Hungarian
+
+- **Hungarian** (`i18n.hu.json`, all 871 texts), translated by isty1974,
+  who offered it in issue 4. Line endings made Unix; otherwise as sent.
+  Listed as Magyar between Français and Русский (page, app, README).
+  Two plural forms (nouns after a number stay singular in Hungarian, the
+  translation handles that). Numbers as the page's `toLocaleString("hu")`:
+  no separator for four digits, a no-break space from five. The console's
+  language 24 is "hu" (the public PS4 numbering the other cases follow;
+  not checked on a console). Fonts already had ő/ű and „.
+- **Fix found on the way:** the app's queue status badges upper-cased
+  only a–z ("KéSZ", and French "TERMINé" likewise); they now use the
+  same `draw::upper()` as the headings, and their width counts letters
+  instead of UTF-8 bytes. Page and app pictures in Hungarian against the
+  stand-in engine looked at.
+
 ## Next session
 
 **Settled (owner, 2026-10-22):**
