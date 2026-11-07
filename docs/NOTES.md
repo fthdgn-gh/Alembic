@@ -82,7 +82,10 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   owner: auto mode refuses it).
 - **In 0.5.3 (2026-11-07):** Hungarian (Magyar, by isty1974 from
   issue 4) on the page, in the app and in the engine's notifications; the
-  app's queue badges upper-case accented letters.
+  app's queue badges upper-case accented letters. Main's CI green before
+  the tag; published 2026-11-07, every job green. Catalog PR from the fork
+  branch update-alembic-0.5.3: darkxex/ps5-homebrew-catalog#1174 (opened
+  by the owner: auto mode refuses it).
 - **In 0.5.2 (2026-11-06):** fake-signing. Unsigned PS5 executables
   (plain ELF) become fake-signed SELFs in every conversion: images and
   folders as ampr-emu-ng's make_fself.py makes them, packages as
