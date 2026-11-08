@@ -15,13 +15,12 @@ struct SceSslData {
 };
 
 // The payload links these weakly (its loader fills them, or leaves them
-// empty) and can load the modules by path when needed; the app imports them
-// (ALEMBIC_HTTPS_IMPORTED). ALEMBIC_HTTPS_DYNAMIC: no imports, by path only.
-#ifndef ALEMBIC_HTTPS_DYNAMIC
+// empty, and then it loads the modules by path); the app imports them
+// (ALEMBIC_HTTPS_IMPORTED).
 // ALEMBIC_HTTPS_IMPORTED (the app): plain imports, which the console's loader
 // fills when the title starts, as for any game. A game process cannot load
 // these modules by path (no /system in its sandbox: 0x80020002, Probe
-// Bench, 2026-11-08), so the app's run-time loading never worked there.
+// Bench, 2026-11-08); imported, the bench reached GitHub.
 #if defined(ALEMBIC_HTTPS_IMPORTED)
 #define ALEMBIC_HTTPS_LINK
 #else
@@ -56,7 +55,6 @@ int sceHttpSetConnectTimeOut(int id, std::uint32_t us) ALEMBIC_HTTPS_LINK;
 int sceHttpSetSendTimeOut(int id, std::uint32_t us) ALEMBIC_HTTPS_LINK;
 int sceHttpSetRecvTimeOut(int id, std::uint32_t us) ALEMBIC_HTTPS_LINK;
 }
-#endif
 
 extern "C" {
 int sceKernelLoadStartModule(const char* path, std::size_t args, const void* argp, std::uint32_t flags, void* opt, int* res);
@@ -140,7 +138,6 @@ const Api* api(std::string* why) {
         return ok ? &a : nullptr;
     }
     tried = true;
-#ifndef ALEMBIC_HTTPS_DYNAMIC
 #if defined(ALEMBIC_HTTPS_IMPORTED)
     {  // imported: the loader filled them or the title did not start
 #else
@@ -173,7 +170,6 @@ const Api* api(std::string* why) {
         ok = true;
         return &a;
     }
-#endif
     auto load = [&](const char* name) {
         const std::string path = std::string("/system/common/lib/") + name;
         int h = sceKernelLoadStartModule(path.c_str(), 0, nullptr, 0, nullptr, nullptr);

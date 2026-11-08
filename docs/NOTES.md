@@ -3137,6 +3137,12 @@ release: see "components follow their latest releases" below.)
   ALEMBIC_HTTPS_DYNAMIC until the bench starts on the console and its
   `network.https_github` says ok. Risk being tested: a title whose imports
   the console cannot provide does not start at all.
+- **Step 2 (2026-11-08):** the bench built that way started on the console
+  and `network.https_github` was ok (0.18 s). The app now imports them too
+  (same NEEDED list as the bench); ALEMBIC_HTTPS_DYNAMIC is gone. Not yet
+  tried end to end: an app with no engine inside
+  (`ALEMBIC_ENGINE_ELF=none`) downloading its engine from GitHub; that also
+  needs its version to be a published release.
 - **Known going in:** the app's malloc is the UI kit's fixed 128 MiB heap
   (`app_heap.c`), so an engine inside the app would need its own heap; the
   bench shows that as `largest_malloc_mb`.
