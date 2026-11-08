@@ -10,6 +10,28 @@
 
 namespace alembic::app {
 
+// The grid view (tiles.cpp, components/Tile.tsx): columns of tiles at
+// least 10.5 rem wide.
+struct Grid {
+    float x = 0, w = 0, h = 0, gap = 0;
+    int cols = 1;
+    Rect cell(int i, float top) const {
+        return {x + static_cast<float>(i % cols) * (w + gap), top + static_cast<float>(i / cols) * (h + gap), w, h};
+    }
+    float height(int n) const { return n ? static_cast<float>((n + cols - 1) / cols) * (h + gap) - gap : 0.0f; }
+};
+Grid grid_of(float x, float w);
+struct TileInfo {
+    Entry entry;
+    const Meta* meta = nullptr;
+    std::string badge_state, badge;  // a state pill on the icon ("" for none)
+    bool selecting = false, ticked = false, hidden = false, dim = false;
+};
+// One tile; true when ✕ was pressed on it.
+bool tile(Ui& ui, App& app, Id id, const Rect& r, const TileInfo& info);
+// The list and grid buttons ending at `right`; returns their width.
+float view_switch(Ui& ui, App& app, const std::string& which, float right, float y, float h);
+
 class FilesPage {
 public:
     void build(Ui& ui, App& app, const Rect& area);

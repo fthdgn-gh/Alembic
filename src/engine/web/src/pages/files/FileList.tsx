@@ -2,7 +2,8 @@
 // The folder's contents: a row per entry, with game info once it has loaded.
 import { useRef } from "preact/hooks";
 import type { Entry } from "../../api/types";
-import { cwd, listing, focusEntry } from "../../state/view";
+import { cwd, listing, focusEntry, viewModes } from "../../state/view";
+import { Tile } from "../../components/Tile";
 import { rootOf, serverOf, serverAddress, driveName, offlinePeer, shownPath } from "../../state/paths";
 import { isConvertible, KIND_LABEL } from "../../lib/kinds";
 import { base, bytes, date } from "../../lib/format";
@@ -57,11 +58,31 @@ function Row(props: { e: Entry; top: boolean }) {
   );
 }
 
+// A tile of the grid view: the same entry, its icon large.
+function Cell(props: { e: Entry }) {
+  const { e } = props;
+  const ref = useRef<HTMLDivElement>(null);
+  const m = useMeta(isConvertible(e) ? e : null, ref);
+  const sel = selecting.value, ticked = sel && isSelected(e);
+  return (
+    <Tile tileRef={ref} dataKey={e.path} icon={<EntryIco entry={e} meta={m} />} title={m && m.title ? m.title : e.name} tip={e.name}
+      selecting={sel} ticked={ticked} onClick={() => (sel ? toggleSelected(e) : openEntry(e))} onFocus={() => { focusEntry.value = e; }}
+      onMore={() => openActions(e)}
+      pills={[m ? <PlatformPill meta={m} /> : null,
+        <span class={"fmt " + (e.game ? "folder" : e.kind)}>{e.game ? t("FOLDER") : KIND_LABEL[e.kind] || (e.kind === "folder" ? t("FOLDER") : "")}</span>,
+        m && (m.packs === "lz4" || m.packs === "zstd") ? <span class="fmt packs">{m.packs.toUpperCase()}</span> : null,
+        e.kind !== "folder" ? bytes(e.size) : ""]} />
+  );
+}
+
 export function FileList() {
   const data = listing.value;
+  // The drives stay a list; a folder's contents follow the switch.
+  const grid = viewModes.value.files === "grid" && !!data && data.path !== "/";
   return (
-    <div class="list scroll" id="list" data-zone="list" data-column>
+    <div class={"list scroll" + (grid ? " grid" : "")} id="list" data-zone="list" data-column={grid ? undefined : true}>
       {!data ? null : !data.entries.length ? <div class="empty">{t("This folder is empty.")}</div>
+        : grid ? data.entries.map((e) => <Cell key={e.path} e={e} />)
         : data.entries.map((e) => <Row key={e.path} e={e} top={data.path === "/"} />)}
     </div>
   );

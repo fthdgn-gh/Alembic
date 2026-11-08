@@ -7,7 +7,9 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { signal } from "@preact/signals";
 import type { ImageItem } from "../../api/types";
-import { tab } from "../../state/view";
+import { tab, viewModes } from "../../state/view";
+import { Tile } from "../../components/Tile";
+import { ViewSwitch } from "../../components/ViewSwitch";
 import { images, loadImages } from "../../state/images";
 import { jobs, isActive } from "../../state/jobs";
 import { shownPath } from "../../state/paths";
@@ -80,6 +82,26 @@ function Row(props: { i: ImageItem }) {
   );
 }
 
+// A tile of the grid view (the default): the icon with the AMPR pill on it.
+function Cell(props: { i: ImageItem }) {
+  const { i } = props;
+  const ref = useRef<HTMLDivElement>(null);
+  const m = useMeta(i, ref);
+  const queued = amprPending.value.indexOf(i.path) >= 0;
+  const st = queued ? ["queued", "queued"] : i.ampr ? IMAGE_STATE[i.ampr.status] : undefined;
+  const sel = selecting.value, ticked = sel && isSelected(i);
+  return (
+    <Tile tileRef={ref} dataKey={"img:" + i.path} icon={<EntryIco entry={i} meta={m} />} title={m && m.title ? m.title : i.name}
+      tip={i.path + (amprText(i) ? "\n" + amprText(i) : "")} dim={i.hidden} selecting={sel} ticked={ticked}
+      badge={st ? <span class={"state " + st[0]}>{t(st[1])}</span> : null}
+      onClick={() => openImage(i)} onFocus={() => { focusImage.value = i; }} onMore={() => openActions(i, i)}
+      pills={[<PlatformPill meta={m} />,
+        <span class={"fmt " + (i.game ? "folder" : i.kind)}>{i.game ? t("FOLDER") : KIND_LABEL[i.kind] || ""}</span>,
+        m && (m.packs === "lz4" || m.packs === "zstd") ? <span class="fmt packs">{m.packs.toUpperCase()}</span> : null,
+        i.hidden ? <span class="fmt">{t("HIDDEN")}</span> : null]} />
+  );
+}
+
 export function ImagesPage(props: { hidden: boolean }) {
   const data = images.value;
   const [busy, setBusy] = useState(false);
@@ -109,6 +131,7 @@ export function ImagesPage(props: { hidden: boolean }) {
   const list = data ? data.images.slice().sort((a, b) => a.folder.localeCompare(b.folder) || a.name.replace(/^\./, "").localeCompare(b.name.replace(/^\./, ""))) : [];
   const todo = list.filter(amprUpdatable).length;
   async function again() { setBusy(true); await loadImages(true); setBusy(false); }
+  const grid = viewModes.value.images === "grid";
   const rows: any[] = [];
   let folder = "";
   for (const i of list) {
@@ -116,7 +139,7 @@ export function ImagesPage(props: { hidden: boolean }) {
       folder = i.folder;
       rows.push(<div class="sect" style="margin:1rem .3rem .3rem">{shownPath(folder)}</div>);
     }
-    rows.push(<Row key={i.path} i={i} />);
+    rows.push(grid ? <Cell key={i.path} i={i} /> : <Row key={i.path} i={i} />);
   }
   return (
     <section class="view scroll" id="view-images" hidden={props.hidden}>
@@ -131,8 +154,9 @@ export function ImagesPage(props: { hidden: boolean }) {
           </span>
           <button class="btn sm" data-key="images:again" disabled={busy || !data || data.refreshing} onClick={again}>{t("Check again")}</button>
           <button class="btn sm primary" data-key="images:all" disabled={!todo} onClick={updateAll}>{todo ? t("Update AMPR emulators ({n})", { n: todo }) : t("Update AMPR emulators")}</button>
+          <ViewSwitch which="images" />
         </div>
-        <div class="list" data-column>
+        <div class={"list" + (grid ? " grid" : "")} data-column={grid ? undefined : true}>
           {data && !list.length && !data.refreshing ? <div class="empty">{t("No images, game folders or packages in ShadowMount+'s folders.")}</div> : rows}
         </div>
         {data && data.dirs.length ? <p class="muted" style="margin:1rem .2rem">{t("Folders searched: {list}", { list: data.dirs.map(shownPath).join(", ") })}</p> : null}

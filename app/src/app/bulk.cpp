@@ -148,7 +148,8 @@ public:
                 if (app.overlay_alive(k)) app.close(this);
                 if (tally->ok) {
                     app.stop_selecting();
-                    app.refresh_listing();
+                    if (app.tab == Tab::images) app.refresh_images();
+                    else app.refresh_listing();
                 }
                 return;
             }
@@ -266,7 +267,7 @@ void App::open_bulk_actions() {
         images.push_back(e);
         (is_hidden_name(e.name) ? hidden : visible).push_back(e);
     }
-    // In Images: the same, less Copy, Move, renaming and plain Hide, plus the
+    // In Images: the same, less Copy, Move and plain Hide, plus the
     // update of the AMPR emulator of the ticked ones with a newer build.
     const bool lib = tab == Tab::images;
     auto done = [this, lib] {
@@ -428,7 +429,7 @@ void App::open_bulk_actions() {
     if (!plain_hidden.empty() && !lib)
         add(t("Unhide"), some(plain_hidden.size(), t("Renames them back without the leading dot")), false,
             [hide_many, plain_hidden] { hide_many(plain_hidden, false, false); });
-    if (!games.empty() && !lib)
+    if (!games.empty())
         add(t("Rename with a format\xE2\x80\xA6"), some(games.size(), t("Names from each game's title, title ID, version and format")),
             false, [this, games] {
                 get("/api/names", [this, games](const Reply& r) {

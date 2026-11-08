@@ -224,7 +224,7 @@ void ImagesPage::build(Ui& ui, App& app, const Rect& area) {
     }
     const float w = std::min(62.0f * R, area.w - 2.0f * page_pad);
     const float x = area.x + (area.w - w) * 0.5f;
-    ui.begin_zone("images", false, false);
+    ui.begin_zone("images", false, true);
     const float offset = ui.begin_scroll("images", area);
     float y = area.y - offset + 0.3f * R;
     y += draw::paragraph(ui, Face::regular,
@@ -248,12 +248,13 @@ void ImagesPage::build(Ui& ui, App& app, const Rect& area) {
     {
         const float bh = 0.7f * R + 0.9f * R * 1.45f + 2.0f;
         const bool refreshing = data_["refreshing"].boolean();
+        const float vw = view_switch(ui, app, "images", x + w, y, bh) + 0.5f * R;
         const std::string all = todo ? t("Update AMPR emulators ({n})", {{"n", std::to_string(todo)}}) : t("Update AMPR emulators");
         const float aw = draw::button_width(ui, all, true);
-        if (draw::button(ui, "images:all", {x + w - aw, y, aw, bh}, all, draw::Button::primary, true, todo == 0)) update_all(app);
+        if (draw::button(ui, "images:all", {x + w - vw - aw, y, aw, bh}, all, draw::Button::primary, true, todo == 0)) update_all(app);
         const std::string again = t("Check again");
         const float gw = draw::button_width(ui, again, true);
-        if (draw::button(ui, "images:again", {x + w - aw - 0.5f * R - gw, y, gw, bh}, again, draw::Button::normal, true,
+        if (draw::button(ui, "images:again", {x + w - vw - aw - 0.5f * R - gw, y, gw, bh}, again, draw::Button::normal, true,
                          data_.is_null() || refreshing))
             load(app, true);
         std::string summary;
@@ -267,7 +268,7 @@ void ImagesPage::build(Ui& ui, App& app, const Rect& area) {
             if (refreshing) summary += " \xC2\xB7 " + t("Reading the games\xE2\x80\xA6");
         }
         draw::text_fit(ui, Face::regular, summary, x + 0.2f * R, draw::baseline(y + bh * 0.5f, 1.0f * R), 1.0f * R,
-                       w - aw - gw - 1.5f * R, muted);
+                       w - vw - aw - gw - 1.5f * R, muted);
         y += bh + 0.4f * R;
     }
     DrawList& l = *ui.list;
@@ -278,7 +279,56 @@ void ImagesPage::build(Ui& ui, App& app, const Rect& area) {
     }
     std::string folder;
     bool any_focused = false;
-    for (const JsonValue& i : list) {
+    const bool grid = app.view_mode("images") == "grid";
+    if (grid) {
+        // Folder by folder: its heading, then its tiles.
+        const Grid g = grid_of(x, w);
+        for (std::size_t a = 0; a < list.size();) {
+            std::size_t b = a;
+            while (b < list.size() && list[b]["folder"].str() == list[a]["folder"].str()) ++b;
+            y += section(ui, app.shown_path(list[a]["folder"].str()), x + 0.3f * R, y) + 0.3f * R;
+            for (std::size_t k = a; k < b; ++k) {
+                const JsonValue& i = list[k];
+                const Rect r = g.cell(static_cast<int>(k - a), y);
+                const Id id = Id("img") / i["path"].str();
+                TileInfo info;
+                info.entry = entry_from(i);
+                info.meta = ui.visible(r) ? app.meta(info.entry.path, info.entry.mtime, info.entry.size) : nullptr;
+                info.selecting = app.selecting;
+                info.ticked = app.selecting && app.is_selected(info.entry.path);
+                info.hidden = info.dim = i["hidden"].boolean();
+                const std::string status = i["ampr"]["status"].str();
+                if (is_pending(info.entry.path)) {
+                    info.badge_state = "queued";
+                    info.badge = "queued";
+                } else if (status == "update") {
+                    info.badge_state = "running";
+                    info.badge = "update available";
+                } else if (status == "missing") {
+                    info.badge_state = "failed";
+                    info.badge = "no emulator";
+                } else if (status == "unknown") {
+                    info.badge_state = "queued";
+                    info.badge = "unknown build";
+                } else if (status == "not_downloaded") {
+                    info.badge_state = "queued";
+                    info.badge = "not downloaded here";
+                }
+                if (tile(ui, app, id, r, info)) {
+                    if (app.selecting) app.toggle_selected(info.entry.path);
+                    else app.open_convert(info.entry);
+                }
+                if (ui.focused(id)) {
+                    focused_ = info.entry.path;
+                    any_focused = true;
+                }
+            }
+            y += g.height(static_cast<int>(b - a)) + 0.4f * R;
+            a = b;
+        }
+    }
+    const std::vector<JsonValue> none;
+    for (const JsonValue& i : grid ? none : list) {
         const Entry e = entry_from(i);
         if (i["folder"].str() != folder) {
             folder = i["folder"].str();

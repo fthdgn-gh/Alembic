@@ -1,4 +1,6 @@
 {
+ "List": "Список",
+ "Grid": "Сетка",
  "Every image, game folder and package in the folders ShadowMount+ scans. For games that read their files through the console's APR, the AMPR emulator each one runs with: an update keeps the game's emulator and puts its newest build in place.": "Все образы, папки игр и пакеты в папках, которые сканирует ShadowMount+. Для игр, читающих свои файлы через APR консоли, — эмулятор AMPR, с которым работает каждая: обновление сохраняет эмулятор игры и ставит его самую новую сборку.",
  "Folders searched: {list}": "Просмотренные папки: {list}",
  "HIDDEN": "СКРЫТ",

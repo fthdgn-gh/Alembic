@@ -25,7 +25,7 @@ import { browse } from "./browse";
 
 type Item = { label: string; sub?: string; danger?: boolean; value: () => void };
 
-// In Images: the same, less Copy, Move, renaming and plain Hide, plus the
+// In Images: the same, less Copy, Move and plain Hide, plus the
 // update of the AMPR emulator of the ticked ones that have a newer build.
 export async function openBulkActions() {
   const all = selectedEntries.value, n = all.length;
@@ -51,7 +51,7 @@ export async function openBulkActions() {
   const plainShown = plain.filter((e) => !isHiddenName(e.name)), plainHidden = plain.filter((e) => isHiddenName(e.name));
   if (plainShown.length && !lib) items.push({ label: t("Hide"), sub: some(plainShown.length, t("Renames them to .name")), value: () => hideMany(plainShown, true, false) });
   if (plainHidden.length && !lib) items.push({ label: t("Unhide"), sub: some(plainHidden.length, t("Renames them back without the leading dot")), value: () => hideMany(plainHidden, false, false) });
-  if (games.length && !lib) items.push({ label: t("Rename with a format…"), sub: some(games.length, t("Names from each game's title, title ID, version and format")), value: () => renameMany(games) });
+  if (games.length) items.push({ label: t("Rename with a format…"), sub: some(games.length, t("Names from each game's title, title ID, version and format")), value: () => renameMany(games) });
   const local = all.filter((e) => !e.shared);
   const peerPlace = locations.value.find((l) => !!l.peer) || peerDrives.value.map((d) => ({ path: d.root, label: d.engine }))[0];
   if (n) {

@@ -3087,6 +3087,17 @@ release: see "components follow their latest releases" below.)
   on the current tab's rows. ✕ Convert, □ Options, as in Files. The list
   reads its folders again when a job ends. README screenshot
   `docs/screenshots/images.png` from the stand-in engine (mock.mjs).
+- **Then (owner, same day):** Rename is back in Images (one, and Rename
+  with a format for several); only moving and copying to folders stay out
+  (Send to another engine stays). **Show in Files** opens the item's folder
+  in Files with it focused. **Grid view:** Files and Images each have a list
+  and a grid (tiles with the game's icon, the AMPR pill on it), switched by
+  two buttons above the content (`components/ViewSwitch.tsx`, app
+  `view_switch` in `tiles.cpp`); remembered per browser (`view.files`,
+  `view.images` in localStorage) and in the app's prefs.json (`view`).
+  Images starts as a grid, Files as a list; Files' drive list stays a list.
+  Tiles are square by padding (the PS5 browser has no aspect-ratio); a grid
+  is not a focus "column", so up from its top row reaches the buttons above.
 - **Not tried on a console yet.**
 
 ### 2026-11-08: Probe Bench, the engine's checks in a game process

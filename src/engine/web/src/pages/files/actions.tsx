@@ -16,14 +16,16 @@ import { openConvert } from "../../dialogs/ConvertDialog";
 import { openDest } from "../../dialogs/FolderPicker";
 import { getNeeds } from "../../dialogs/getNeeds";
 import { browse } from "./browse";
+import { showTab } from "../../input/history";
 import { startSelecting } from "../../state/selection";
 import { loadImages } from "../../state/images";
 import { updateAmpr } from "../images/ampr";
 import type { ImageItem } from "../../api/types";
 
-// In Images (`lib`, the tab's item): the same, less what moves or renames
-// files (Open, Places, Copy, Move, Rename, plain Hide), plus the update of
-// the game's AMPR emulator when a newer build is out.
+// In Images (`lib`, the tab's item): the same, less what moves or copies
+// files (Open, Places, Copy, Move; Send to another engine stays) and plain
+// Hide, plus the update of the game's AMPR emulator when a newer build is
+// out, and Show in Files.
 export async function openActions(e: Entry, lib?: ImageItem) {
   if (!lib && cwd.value === "/") return;
   const conv = isConvertible(e);
@@ -53,8 +55,10 @@ export async function openActions(e: Entry, lib?: ImageItem) {
   // A paired engine's usual destination (Settings > Other engines), for a copy without converting.
   const peerPlace = locations.value.find((l) => !!l.peer) || peerDrives.value.map((d) => ({ path: d.root, label: d.engine }))[0];
   if (peerPlace && !e.shared) items.push({ label: t("Send to another engine…"), sub: t("A copy as it is, without converting"), value: () => openDest(e, "copy", peerPlace.path) });
-  if (!lib) items.push({ label: t("Copy to…"), value: () => openDest(e, "copy") }, { label: t("Move to…"), value: () => openDest(e, "move") },
-    { label: t("Rename…"), value: () => renameEntry(e) });
+  if (!lib) items.push({ label: t("Copy to…"), value: () => openDest(e, "copy") }, { label: t("Move to…"), value: () => openDest(e, "move") });
+  items.push({ label: t("Rename…"), value: () => renameEntry(e) });
+  // Images: the folder it is in, opened in Files with it focused.
+  if (lib) items.push({ label: t("Show in Files"), sub: shownPath(dir(e.path)), value: () => { showTab("files"); browse(dir(e.path), true, e.path); } });
   // Not the folder you are in (its ⋯ button): a row of the list.
   if (lib || e.path !== cwd.value) items.push({ label: t("Select…"), sub: t("Tick several files to act on them together"), value: () => startSelecting(e) });
   items.push({ label: t("Delete…"), danger: true, value: () => deleteEntry(e) });
@@ -215,7 +219,7 @@ async function renameEntry(e: Entry) {
     catch (err) { warning = ""; } // an engine before rename formats
     if (warning && !await ask({ title: t("Too long for ShadowMount+"), body: <p>{tMsg(warning)}</p>, ok: t("Rename anyway") })) return;
   }
-  try { await api("POST", "/api/fs/rename", { path: e.path, name }); toast(t("Renamed to {name}", { name }), "ok"); browse(cwd.value!, false, dir(e.path) + "/" + name); }
+  try { await api("POST", "/api/fs/rename", { path: e.path, name }); toast(t("Renamed to {name}", { name }), "ok"); if (tab.value === "images") loadImages(true); else browse(cwd.value!, false, dir(e.path) + "/" + name); }
   catch (err: any) { toast(tMsg(err.message), "bad"); }
 }
 

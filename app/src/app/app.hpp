@@ -178,6 +178,10 @@ public:
     std::vector<Entry> image_entries;  // the Images tab's rows (ImagesPage fills it)
     // The rows a selection is made from: the folder's in Files, the list's in Images.
     const std::vector<Entry>& rows() const { return tab == Tab::images ? image_entries : entries; }
+    // "list" or "grid" for "files" or "images" (prefs.json; Files starts as
+    // a list, Images as a grid).
+    std::string view_mode(const std::string& which) const;
+    void set_view_mode(const std::string& which, const std::string& mode);
     // Reads the Images tab's folders again (after a change made from it).
     void refresh_images();
     bool listing_loaded = false;

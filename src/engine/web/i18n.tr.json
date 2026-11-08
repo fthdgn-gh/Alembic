@@ -1,4 +1,6 @@
 {
+ "List": "Liste",
+ "Grid": "Izgara",
  "Every image, game folder and package in the folders ShadowMount+ scans. For games that read their files through the console's APR, the AMPR emulator each one runs with: an update keeps the game's emulator and puts its newest build in place.": "ShadowMount+'ın taradığı klasörlerdeki tüm imajlar, oyun klasörleri ve paketler. Dosyalarını konsolun APR'si üzerinden okuyan oyunlar için her birinin çalıştığı AMPR öykünücüsü de gösterilir: güncelleme, oyunun öykünücüsünü korur ve onun en yeni derlemesini yerine koyar.",
  "Folders searched: {list}": "Aranan klasörler: {list}",
  "HIDDEN": "GİZLİ",

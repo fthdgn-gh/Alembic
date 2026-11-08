@@ -11,6 +11,7 @@ import { t, plural, tMsg } from "../../lib/i18n";
 import { ask } from "../../components/Dialogs";
 import { toast } from "../../components/Toasts";
 import { Crumbs } from "../../components/Crumbs";
+import { ViewSwitch } from "../../components/ViewSwitch";
 import { openConvert } from "../../dialogs/ConvertDialog";
 import { browse, refresh } from "./browse";
 import { Rail } from "./Rail";
@@ -66,6 +67,7 @@ export function FilesPage(props: { hidden: boolean }) {
               onClick={() => { if (cwd.value && cwd.value !== "/") openActions({ path: cwd.value, name: base(cwd.value), kind: "folder" }); }}>⋯</button>
             <button class="btn sm" id="btn-mkdir" disabled={atTop} onClick={newFolder}>{t("New folder")}</button>
             <button class="btn sm ghost" id="btn-refresh" title={t("Refresh")} onClick={refresh}>{t("Refresh")}</button>
+            <ViewSwitch which="files" />
           </div>
         </div>
         <div class="note sharebar" id="sharebar" hidden={!shown.length}>

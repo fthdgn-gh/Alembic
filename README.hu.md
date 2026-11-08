@@ -249,17 +249,20 @@ Az oldalon még:
   források pedig átalakítás után elrejthetők előle.
 - **Image-ek:** a ShadowMount+ által átvizsgált mappák összes image-e,
   játékmappája és csomagja (a rejtettek is), mappák szerint csoportosítva,
-  mindazzal, amit a Fájlok kínál, kivéve az áthelyezést és az átnevezést:
-  Konvertálás, Telepítés, az AMPR-emulátor, Elrejtés a ShadowMount+ elől,
-  Küldés másik motorra, Törlés és Kijelölés többhöz egyszerre. Az APR-t
-  használó játékoknál megmutatja, melyik AMPR-emulátorral fut mindegyik (a
-  játékban vagy a backportjában), és hogy megjelent-e újabb build; az
+  játékikonok rácsaként vagy listaként (a fölötte lévő kapcsolóval; a
+  Fájlokban is ugyanez van, és listaként indul). Mindent kínál, amit a
+  Fájlok, kivéve a mappákba áthelyezést és másolást: Konvertálás, Telepítés,
+  Átnevezés, az AMPR-emulátor, Elrejtés a ShadowMount+ elől, Küldés másik
+  motorra, Törlés, Kijelölés többhöz egyszerre, és **Megjelenítés a
+  Fájlokban**, amely megnyitja a mappát, amelyben van. Az APR-t használó
+  játékoknál megmutatja, melyik AMPR-emulátorral fut mindegyik (a játékban
+  vagy a backportjában), és hogy megjelent-e újabb build; az
   **AMPR-emulátorok frissítése** minden játék saját emulátorának legújabb
   buildjét teszi a helyére, az emulátor nélküli játékokba pedig a
   használatban lévőt. Mindkét emulátor minden hivatalos buildjét a GitHub
   által közzétett SHA-256 alapján ismeri fel.
 
-  ![Image-ek: a ShadowMount+ mappáiban lévő játékok, két frissítendő AMPR-emulátor, egy emulátor nélküli játék és egy olyan, amelynek a buildjét az Alembic nem ismeri](docs/screenshots/images.png)
+  ![Image-ek: a ShadowMount+ mappáiban lévő játékok rácsban, két frissítendő AMPR-emulátor, egy emulátor nélküli játék és egy olyan, amelynek a buildjét az Alembic nem ismeri](docs/screenshots/images.png)
 - **Komponensek:** azokat a külső fájlokat, amelyekre az Alembicnek szüksége
   van, de nem tartalmazza (az ampr_emu és ampr-emu-ng AMPR-emulátorok, a
   ProsperoPkgTool FPKG-kulcsfájljai, a LibOrbisPkg licenc- és

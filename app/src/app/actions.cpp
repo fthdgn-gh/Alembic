@@ -240,8 +240,14 @@ void App::open_actions(const Entry& e, const JsonValue* lib) {
     if (!lib) {
         add(t("Copy to\xE2\x80\xA6"), "", false, [this, e] { open_dest(&e, "copy", ""); });
         add(t("Move to\xE2\x80\xA6"), "", false, [this, e] { open_dest(&e, "move", ""); });
-        add(t("Rename\xE2\x80\xA6"), "", false, [this, e] { rename_entry(e); });
     }
+    add(t("Rename\xE2\x80\xA6"), "", false, [this, e] { rename_entry(e); });
+    // Images: the folder it is in, opened in Files with it focused.
+    if (lib)
+        add(t("Show in Files"), shown_path(dir(e.path)), false, [this, e] {
+            show_tab(Tab::files);
+            browse(dir(e.path), e.path);
+        });
     // A row of the list (not the folder you are in, its ⋯ button).
     if (lib || e.path != cwd)
         add(t("Select\xE2\x80\xA6"), t("Tick several files to act on them together"), false, [this, e] { start_selecting(e); });
@@ -281,7 +287,8 @@ void App::rename_entry(const Entry& e) {
             auto rename = [this, e, name, body] {
                 post("/api/fs/rename", body, or_toast([this, e, name](const Reply&) {
                     toast(t("Renamed to {name}", {{"name", name}}), Toast::ok);
-                    browse(cwd, dir(e.path) + "/" + name);
+                    if (tab == Tab::images) refresh_images();
+                    else browse(cwd, dir(e.path) + "/" + name);
                 }));
             };
             if (e.kind == "folder") return rename();

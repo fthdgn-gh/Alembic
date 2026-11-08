@@ -1,4 +1,6 @@
 {
+ "List": "Lista",
+ "Grid": "Rács",
  "Every image, game folder and package in the folders ShadowMount+ scans. For games that read their files through the console's APR, the AMPR emulator each one runs with: an update keeps the game's emulator and puts its newest build in place.": "A ShadowMount+ által átvizsgált mappák összes image-e, játékmappája és csomagja. Azoknál a játékoknál, amelyek a konzol APR-jén keresztül olvassák a fájljaikat, az is látszik, melyik AMPR-emulátorral futnak: a frissítés megtartja a játék emulátorát, és annak legújabb buildjét teszi a helyére.",
  "Folders searched: {list}": "Átvizsgált mappák: {list}",
  "HIDDEN": "REJTETT",

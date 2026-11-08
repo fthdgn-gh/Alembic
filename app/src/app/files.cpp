@@ -208,6 +208,7 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
             right -= w + 0.5f * R;
             return draw::button(ui, Id("tool") / id, r, label, kind, true, disabled);
         };
+        right -= view_switch(ui, app, "files", right, by, bh) + 0.5f * R;
         if (tool("refresh", t("Refresh"), draw::Button::ghost, false)) app.refresh_listing();
         if (tool("mkdir", t("New folder"), draw::Button::normal, top)) {
             const std::string where = app.cwd;
@@ -321,7 +322,9 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
     y += 1.0f;
     // ---- the rows ----
     const Rect view{area.x - 0.6f * R, y, area.w + 1.2f * R, area.y + area.h - y};
-    ui.begin_zone("list", true, true);
+    // The drives stay a list; a folder's contents follow the switch.
+    const bool grid = !top && app.view_mode("files") == "grid";
+    ui.begin_zone("list", !grid, true);
     // A new listing: the focus goes to the row asked for, or the first.
     if (app.focus_list && app.listing_loaded) {
         ui.scroll_to_top("list");
@@ -342,7 +345,36 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
         ry += 6.0f * R + 1.45f * R;
     }
     in_list_ = false;
-    for (const Entry& e : app.entries) {
+    if (grid) {
+        const Grid g = grid_of(rx, rw);
+        int k = 0;
+        for (const Entry& e : app.entries) {
+            const Rect r = g.cell(k++, ry);
+            const Id id = Id("row") / e.path;
+            TileInfo info;
+            info.entry = e;
+            info.selecting = app.selecting;
+            info.ticked = app.selecting && app.is_selected(e.path);
+            info.meta = ui.visible(r) && is_convertible(e) ? app.meta(e.path, e.mtime, e.size) : nullptr;
+            if (tile(ui, app, id, r, info)) {
+                if (app.selecting)
+                    app.toggle_selected(e.path);
+                else if (e.kind == "folder" && !e.game)
+                    app.browse(e.path);
+                else if (is_convertible(e))
+                    app.open_convert(e);
+                else
+                    app.open_actions(e);
+            }
+            if (ui.focused(id)) {
+                focused_path = e.path;
+                in_list_ = true;
+            }
+        }
+        ry += g.height(k);
+    }
+    const std::vector<Entry> none;
+    for (const Entry& e : grid ? none : app.entries) {
         const float h = 0.55f * R * 2.0f + 3.4f * R;
         ry += 0.15f * R;
         const Rect r{rx, ry, rw, h};

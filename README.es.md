@@ -240,16 +240,19 @@ También en la página:
   originales se le pueden ocultar una vez convertidos.
 - **Imágenes:** todas las imágenes, carpetas de juego y paquetes de las
   carpetas que escanea ShadowMount+ (también las ocultas), agrupadas por
-  carpeta, con todo lo que ofrece Archivos salvo mover y renombrar:
-  Convertir, Instalar, el emulador AMPR, Ocultar a ShadowMount+, Enviar a
-  otro motor, Eliminar y Seleccionar varias a la vez. En los juegos que usan
-  el APR muestra el emulador AMPR con el que funciona cada uno (en el juego
-  o en su backport) y si hay una versión más reciente; **Actualizar
-  emuladores AMPR** pone la versión más reciente del emulador propio de cada
-  juego, o el que está en uso donde un juego no tiene ninguno. Toda versión
-  oficial de ambos emuladores se reconoce por el SHA-256 que publica GitHub.
+  carpeta, como cuadrícula de iconos de juegos o como lista (el selector de
+  arriba; Archivos tiene el mismo y empieza como lista). Ofrece lo mismo que
+  Archivos salvo mover y copiar a carpetas: Convertir, Instalar, Renombrar, el
+  emulador AMPR, Ocultar a ShadowMount+, Enviar a otro motor, Eliminar,
+  Seleccionar varias a la vez y **Mostrar en Archivos**, que abre la carpeta
+  en la que está. En los juegos que usan el APR muestra el emulador AMPR con
+  el que funciona cada uno (en el juego o en su backport) y si hay una
+  versión más reciente; **Actualizar emuladores AMPR** pone la versión más
+  reciente del emulador propio de cada juego, o el que está en uso donde un
+  juego no tiene ninguno. Toda versión oficial de ambos emuladores se
+  reconoce por el SHA-256 que publica GitHub.
 
-  ![Imágenes: los juegos de las carpetas de ShadowMount+, dos emuladores AMPR por actualizar, un juego sin emulador y otro con una versión que Alembic no conoce](docs/screenshots/images.png)
+  ![Imágenes: los juegos de las carpetas de ShadowMount+ en cuadrícula, dos emuladores AMPR por actualizar, un juego sin emulador y otro con una versión que Alembic no conoce](docs/screenshots/images.png)
 - **Componentes:** los archivos de terceros que Alembic necesita pero no
   incluye (los emuladores AMPR ampr_emu y ampr-emu-ng, los archivos de claves
   FPKG de ProsperoPkgTool, la licencia y las claves de paquetes de PS4 de

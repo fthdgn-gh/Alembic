@@ -243,18 +243,21 @@ Aussi sur la page :
 - **ShadowMount+ :** les nouvelles images peuvent être prises en compte sans
   redémarrage, et les sources peuvent lui être masquées une fois converties.
 - **Images :** toutes les images, dossiers de jeu et paquets des dossiers
-  analysés par ShadowMount+ (les masqués aussi), groupés par dossier, avec
-  tout ce que propose Fichiers sauf déplacer et renommer : Convertir,
-  Installer, l'émulateur AMPR, Masquer à ShadowMount+, Envoyer à un autre
-  moteur, Supprimer, et Sélectionner pour en traiter plusieurs. Pour les jeux
-  qui utilisent l'APR, l'onglet montre l'émulateur AMPR avec lequel chacun
-  fonctionne (dans le jeu ou dans son backport) et si une version plus
-  récente est sortie ; **Mettre à jour les émulateurs AMPR** installe la
-  version la plus récente de l'émulateur de chaque jeu, ou celui qui est
-  utilisé là où un jeu n'en a pas. Chaque version officielle des deux
-  émulateurs est reconnue au SHA-256 que GitHub publie pour elle.
+  analysés par ShadowMount+ (les masqués aussi), groupés par dossier, en
+  grille d'icônes de jeux ou en liste (le sélecteur au-dessus ; Fichiers a le
+  même et commence en liste). L'onglet propose ce que propose Fichiers sauf
+  déplacer et copier vers des dossiers : Convertir, Installer, Renommer,
+  l'émulateur AMPR, Masquer à ShadowMount+, Envoyer à un autre moteur,
+  Supprimer, Sélectionner pour en traiter plusieurs, et **Afficher dans
+  Fichiers**, qui ouvre le dossier où il se trouve. Pour les jeux qui
+  utilisent l'APR, il montre l'émulateur AMPR avec lequel chacun fonctionne
+  (dans le jeu ou dans son backport) et si une version plus récente est
+  sortie ; **Mettre à jour les émulateurs AMPR** installe la version la plus
+  récente de l'émulateur de chaque jeu, ou celui qui est utilisé là où un
+  jeu n'en a pas. Chaque version officielle des deux émulateurs est reconnue
+  au SHA-256 que GitHub publie pour elle.
 
-  ![Images : les jeux des dossiers de ShadowMount+, deux émulateurs AMPR à mettre à jour, un jeu sans émulateur et un autre avec une version qu'Alembic ne connaît pas](docs/screenshots/images.png)
+  ![Images : les jeux des dossiers de ShadowMount+ en grille, deux émulateurs AMPR à mettre à jour, un jeu sans émulateur et un autre avec une version qu'Alembic ne connaît pas](docs/screenshots/images.png)
 - **Composants :** les fichiers tiers dont Alembic a besoin mais qu'il ne
   fournit pas (les émulateurs AMPR ampr_emu et ampr-emu-ng, les fichiers de clés
   FPKG de ProsperoPkgTool, les clés de licence et de paquets PS4 de
