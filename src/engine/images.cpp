@@ -268,6 +268,7 @@ std::optional<AmprState> state_from(const JsonValue& v) {
     a.title_id = v["title_id"].str();
     a.zstd_packs = v["zstd"].boolean();
     a.lz4_packs = v["lz4"].boolean();
+    if (is_alembic_title(a.title_id)) a.imports = false; // kept by 0.6.0 as an APR user
     return a;
 }
 
@@ -317,7 +318,8 @@ JsonValue Index::snapshot(std::int64_t max_age_s) {
     }
     JsonValue v = JsonValue::object();
     JsonValue rows = JsonValue::array();
-    for (const JsonValue& e : images_) rows.push(e);
+    for (std::size_t i = 0; i < images_.size(); ++i)
+        if (i >= dropped_.size() || !dropped_[i]) rows.push(images_[i]);
     v.set("images", std::move(rows));
     v.set("dirs", dirs_);
     v.set("smp", smp_);
@@ -369,6 +371,10 @@ void Index::refresh() {
     JsonValue list = JsonValue::array();
     std::vector<std::size_t> todo;
     std::vector<std::string> keys(found.size());
+    // Alembic's own app (and its Probe Bench) is not one of the games: left
+    // out of the list once its title ID is known (adding the AMPR emulator to
+    // it kept it from starting, 0.6.0).
+    std::vector<char> dropped(found.size(), 0);
     for (std::size_t i = 0; i < found.size(); ++i) {
         const Found& f = found[i];
         JsonValue e = entry_json_base(f, config_);
@@ -378,6 +384,7 @@ void Index::refresh() {
             keys[i] = state_key(f);
             const JsonValue& c = cache[f.path];
             if (c.is_object() && c["key"].str() == keys[i]) {
+                if (is_alembic_title(c["title_id"].str())) dropped[i] = 1;
                 e.set("ampr", ampr_from_state(f, state_from(c), ctx));
             } else {
                 JsonValue pending = JsonValue::object();
@@ -395,6 +402,7 @@ void Index::refresh() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         images_ = list.items();
+        dropped_ = dropped;
         dirs_ = std::move(dirs_json);
         smp_ = smp;
         smp_update_emulators_ = update_emulators;
@@ -415,6 +423,7 @@ void Index::refresh() {
             }
             std::lock_guard<std::mutex> lock(mutex_);
             if (i < images_.size()) images_[i].set("ampr", std::move(ampr)); // only this refresh changes the rows
+            if (state && is_alembic_title(state->title_id) && i < dropped_.size()) dropped_[i] = 1;
         }
     };
     std::vector<std::thread> pool;

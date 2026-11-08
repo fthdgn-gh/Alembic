@@ -7,6 +7,7 @@
 #include "game_meta.hpp"
 #include "platform.hpp"
 #include "smp.hpp"
+#include "update.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -735,6 +736,10 @@ std::string file_sha256(const std::string& path) {
     return file.ok() ? sha256_of(*file) : "";
 }
 
+bool is_alembic_title(const std::string& title_id) {
+    return title_id == update::kAppTitleId || title_id == "PPSA99595"; // the app, and the Probe Bench
+}
+
 std::optional<AmprState> ampr_state(const std::string& path, const std::string& passcode) {
     PathStat st = stat_path(path);
     if (st.kind == PathKind::missing && !convert::is_provided(path)) return std::nullopt;
@@ -769,6 +774,9 @@ std::optional<AmprState> ampr_state(const std::string& path, const std::string& 
                     if (auto file = input->tree->open(*own); file.ok()) a.ships_sha256 = sha256_of(**file);
             }
             a.title_id = ffpfsc::read_title_id(*input->tree, input->tree->root()).value_or("");
+            // Alembic's own app (and its bench) names libSceAmpr in its texts,
+            // which the check takes for an import; it does not use the APR.
+            if (is_alembic_title(a.title_id)) a.imports = false;
             const tree::Node* zstd = tree::find_child_icase(input->tree->root(), "ampr_zstd.index");
             a.zstd_packs = zstd && !zstd->is_directory;
             const tree::Node* lz4 = tree::find_child_icase(input->tree->root(), "ampr_assets.index");
@@ -864,6 +872,13 @@ Result<JsonValue> run_ampr_emu(const JobSpec& spec, const EngineConfig& config, 
         if (state && state->zstd_packs && spec.emulator != "ampr_runtime_ng" && (!in_use || in_use->dep->id != "ampr_runtime_ng"))
             return make_error(Errc::invalid_argument,
                               "this game has zstd packs, which only ampr-emu-ng reads; choose it in Components first");
+    }
+    // Never into Alembic's own app: it does not use the APR, and changing its
+    // files while it runs brought it down (0.6.0, owner).
+    {
+        const std::string passcode = spec.passcode.empty() ? std::string(32, '0') : spec.passcode;
+        if (auto state = ampr_state(input, passcode); state && is_alembic_title(state->title_id))
+            return make_error(Errc::invalid_argument, "this is Alembic's own app: it does not use the console's APR");
     }
     ampr_emu::AttachResult result;
     if (is_directory(input)) {

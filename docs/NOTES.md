@@ -3150,6 +3150,22 @@ release: see "components follow their latest releases" below.)
   first picture, the list in the Images section, Files beside Convert.
 - **Not tried on a console yet.**
 
+### 2026-11-08: Alembic's own app and the AMPR emulator (after 0.6.0)
+
+- **Owner:** adding the AMPR emulator to Alembic's app from Images made it
+  crash at its next start (not while running). The APR check is a text
+  search for "libSceAmpr" in eboot.bin, and the app names it in its texts
+  (the Components page), so Images listed the app as a game with no
+  emulator. The job then put `libSceAmpr.sprx` and `ampr_emu.index` in the
+  app's fakelib or a `backports/PPSA99594` folder, which ShadowMount+ laid
+  over the app at its next start.
+- **Fixed:** `is_alembic_title` (PPSA99594, and the Probe Bench PPSA99595):
+  never an APR user (`ampr_state`, and results 0.6.0 cached), an
+  "ampr_emu" job on it is refused, and Images does not list it at all
+  (owner). To recover by hand: delete `/data/homebrew/backports/PPSA99594`
+  (image installs), or `fakelib/libSceAmpr.sprx` and `ampr_emu.index` in
+  the app's folder (folder installs).
+
 ### 2026-11-08: Probe Bench, the engine's checks in a game process
 
 - **Why (owner):** do the ELF payload's process and a game process differ,

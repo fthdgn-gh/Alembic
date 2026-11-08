@@ -106,3 +106,22 @@ TEST_CASE(images_downloads_are_searched_for_packages_only) {
     CHECK(has(found, root + "/app/deep/er/game.PKG"));
     for (const auto& f : found) CHECK(f.kind == "fpkg");
 }
+
+TEST_CASE(images_alembic_app_is_not_an_apr_user) {
+    // The app's texts name libSceAmpr; the check must not take it for a game.
+    const std::string root = test::make_temp_dir();
+    EngineConfig config;
+    config.state_dir = root + "/state";
+    config.roots = {root};
+    test::make_dir(config.state_dir);
+    make_game(root + "/PPSA99594", "PPSA99594", true);
+    make_game(root + "/PPSA99595", "PPSA99595", true);
+    CHECK(images::ampr_of({root + "/PPSA99594", "folder", root, 0, 0, ""}, config)["status"].str() == "none");
+    CHECK(images::ampr_of({root + "/PPSA99595", "folder", root, 0, 0, ""}, config)["status"].str() == "none");
+    // An "ampr_emu" job on it is refused.
+    JobSpec spec;
+    spec.kind = "ampr_emu";
+    spec.input = root + "/PPSA99594";
+    auto r = run_job(spec, config, {});
+    CHECK(!r.ok());
+}

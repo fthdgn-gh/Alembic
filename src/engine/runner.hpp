@@ -124,6 +124,9 @@ struct AmprState {
     bool needed() const { return imports && !ships; }
 };
 std::optional<AmprState> ampr_state(const std::string& path, const std::string& passcode);
+// Alembic's own app or its Probe Bench: never an APR user (their texts name
+// libSceAmpr, which the import check would take for an import).
+bool is_alembic_title(const std::string& title_id);
 // SHA-256 of the libSceAmpr.sprx the game runs with: an image's backport
 // folder's, when it has one (it replaces the game's whole fakelib), else the
 // game's own; "" when there is none.
