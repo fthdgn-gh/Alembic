@@ -3098,6 +3098,18 @@ release: see "components follow their latest releases" below.)
   Images starts as a grid, Files as a list; Files' drive list stays a list.
   Tiles are square by padding (the PS5 browser has no aspect-ratio); a grid
   is not a focus "column", so up from its top row reaches the buttons above.
+- **Then (owner):** the drive list follows the grid switch too (drive
+  tiles: symbol, name, room and meter). Images opened slowly: the list now
+  comes at once and each game's AMPR state fills in as it is read (three at
+  a time; "checking" until then), and what reading eboot.bin gave is kept in
+  `<state>/images_cache.json` by path with size and time (for a folder its
+  fakelib emulators too), so unchanged games are not opened again after a
+  restart; the emulators here are hashed once per refresh, not per game.
+  Ten real samples on the Mac: list after 0.13 s cold, 0.11 s cached. The
+  page no longer opens with AMPR text: a Files-style bar (title "Images",
+  summary; Update AMPR emulators only when there are some, Refresh, the
+  switch), folder headings by drive name ("Internal · homebrew"), the first
+  game focused.
 - **Not tried on a console yet.**
 
 ### 2026-11-08: Probe Bench, the engine's checks in a game process

@@ -112,4 +112,27 @@ bool tile(Ui& ui, App& app, Id id, const Rect& r, const TileInfo& info) {
     return pressed;
 }
 
+bool drive_tile(Ui& ui, Id id, const Rect& r, draw::Icon icon, const std::string& title, const std::string& room, float used) {
+    const bool pressed = ui.item(id, r, 0, 0.9f * R);
+    if (!ui.visible(r)) return pressed;
+    DrawList& l = *ui.list;
+    if (ui.focused(id)) l.rounded_rect(r, 0.9f * R, accent.with_alpha(0.12f));
+    const float pad = 0.55f * R;
+    const Rect art{r.x + pad, r.y + pad, r.w - 2.0f * pad, r.w - 2.0f * pad};
+    Color fill, ink;
+    draw::kind_colors("folder", &fill, &ink);
+    l.rounded_rect(art, 0.8f * R, fill);
+    draw::icon(ui, icon, art.inset(art.w * 0.3f), ink);
+    float y = art.y + art.h + 0.55f * R;
+    const float ts = 0.98f * R;
+    draw::paragraph(ui, Face::regular, title, art.x, y, art.w, ts, ts * 1.3f, style::text, 2);
+    y += ts * 1.3f * 2.0f + 0.3f * R;
+    if (used >= 0.0f) {
+        draw::meter(ui, {art.x, y + 0.1f * R, art.w, 0.28f * R}, used, used > 0.9f);
+        y += 0.65f * R;
+    }
+    draw::text_fit(ui, Face::regular, room, art.x, draw::baseline(y + 0.4f * R, 0.78f * R), 0.78f * R, art.w, muted);
+    return pressed;
+}
+
 }  // namespace alembic::app

@@ -31,11 +31,34 @@ JsonValue spec_of(const JsonValue& i) {
     return job;
 }
 
+// A folder as a heading: its drive's name, then the folders below it
+// ("Internal · homebrew"; state/paths.ts folderLabel).
+std::string folder_label(App& app, const std::string& dir) {
+    const JsonValue* r = app.root_of(dir);
+    if (!r) return app.shown_path(dir);
+    const std::string root = (*r)["root"].str();
+    std::string rest = dir.size() > root.size() ? dir.substr(root.size()) : "";
+    while (!rest.empty() && rest[0] == '/') rest.erase(0, 1);
+    std::string shown;
+    for (std::size_t at = 0; at <= rest.size();) {
+        std::size_t slash = rest.find('/', at);
+        if (slash == std::string::npos) slash = rest.size();
+        if (slash > at) shown += (shown.empty() ? "" : " \xE2\x80\xBA ") + rest.substr(at, slash - at);
+        at = slash + 1;
+    }
+    return app.drive_name(root) + (shown.empty() ? "" : " \xC2\xB7 " + shown);
+}
+
 std::string sort_name(const std::string& name) { return !name.empty() && name[0] == '.' ? name.substr(1) : name; }
 
 }  // namespace
 
 void App::refresh_images() { images_->load(*this, true); }
+
+void ImagesPage::opened(App& app) {
+    focus_first_ = true;
+    load(app, false);
+}
 
 void ImagesPage::load(App& app, bool refresh) {
     app.get(refresh ? "/api/images?refresh=1" : "/api/images", [this, &app](const Reply& r) {
@@ -224,39 +247,33 @@ void ImagesPage::build(Ui& ui, App& app, const Rect& area) {
     }
     const float w = std::min(62.0f * R, area.w - 2.0f * page_pad);
     const float x = area.x + (area.w - w) * 0.5f;
-    ui.begin_zone("images", false, true);
-    const float offset = ui.begin_scroll("images", area);
-    float y = area.y - offset + 0.3f * R;
-    y += draw::paragraph(ui, Face::regular,
-                         t("Every image, game folder and package in the folders ShadowMount+ scans. For games that read their "
-                           "files through the console's APR, the AMPR emulator each one runs with: an update keeps the game's "
-                           "emulator and puts its newest build in place."),
-                         x + 0.2f * R, y, w - 0.4f * R, 1.0f * R, 1.45f * R, muted);
-    y += 1.0f * R;
-    if (data_["smp_update_emulators"].boolean()) {
-        const std::string note = t("ShadowMount+'s “update emulators” is on: when a game starts, it puts its own copy in place of a "
-                                   "matching emulator. Turn it off in ShadowMount+ for games that should keep the one shown here.");
-        const float nh = draw::paragraph_height(ui, Face::regular, note, w - 2.0f * R, 1.0f * R, 1.45f * R) + 1.6f * R;
-        ui.list->bordered_rect({x, y, w, nh}, radius, warn.with_alpha(0.08f), 1.0f, warn.with_alpha(0.35f));
-        draw::paragraph(ui, Face::regular, note, x + 1.0f * R, y + 0.8f * R, w - 2.0f * R, 1.0f * R, 1.45f * R, style::text);
-        y += nh + 1.0f * R;
-    }
     const std::vector<JsonValue>& list = data_["images"].items();
     int todo = 0;
     for (const auto& i : list) todo += updatable(i) ? 1 : 0;
-    // The summary, then Check again and Update AMPR emulators.
+    const bool refreshing = data_["refreshing"].boolean();
+    // ---- the bar, as Files': title and summary, the tools on the right ----
+    float y = area.y + 0.2f * R;
+    const float cs = 1.35f * R, ss = 0.85f * R;
     {
-        const float bh = 0.7f * R + 0.9f * R * 1.45f + 2.0f;
-        const bool refreshing = data_["refreshing"].boolean();
-        const float vw = view_switch(ui, app, "images", x + w, y, bh) + 0.5f * R;
-        const std::string all = todo ? t("Update AMPR emulators ({n})", {{"n", std::to_string(todo)}}) : t("Update AMPR emulators");
-        const float aw = draw::button_width(ui, all, true);
-        if (draw::button(ui, "images:all", {x + w - vw - aw, y, aw, bh}, all, draw::Button::primary, true, todo == 0)) update_all(app);
-        const std::string again = t("Check again");
+        const float bh = 0.35f * R * 2.0f + 0.9f * R * 1.45f + 2.0f;
+        const float by = y + (cs * 1.45f + 0.2f * R + ss * 1.45f) - bh;
+        ui.begin_zone("images-tools", false, false);
+        float right = x + w;
+        right -= view_switch(ui, app, "images", right, by, bh) + 0.5f * R;
+        const std::string again = t("Refresh");
         const float gw = draw::button_width(ui, again, true);
-        if (draw::button(ui, "images:again", {x + w - vw - aw - 0.5f * R - gw, y, gw, bh}, again, draw::Button::normal, true,
-                         data_.is_null() || refreshing))
+        if (draw::button(ui, "images:again", {right - gw, by, gw, bh}, again, draw::Button::ghost, true, data_.is_null() || refreshing))
             load(app, true);
+        right -= gw + 0.5f * R;
+        if (todo) {
+            const std::string all = t("Update AMPR emulators ({n})", {{"n", std::to_string(todo)}});
+            const float aw = draw::button_width(ui, all, true);
+            if (draw::button(ui, "images:all", {right - aw, by, aw, bh}, all, draw::Button::normal, true)) update_all(app);
+            right -= aw + 0.5f * R;
+        }
+        ui.end_zone();
+        draw::text_fit(ui, Face::semibold, t("Images"), x + 0.35f * R, draw::baseline(y + cs * 0.725f, cs), cs, right - x, style::text);
+        y += cs * 1.45f + 0.2f * R;
         std::string summary;
         if (data_.is_null()) {
             summary = t("Looking for images\xE2\x80\xA6");
@@ -264,12 +281,30 @@ void ImagesPage::build(Ui& ui, App& app, const Rect& area) {
             summary = t("Reading the games\xE2\x80\xA6");
         } else {
             summary = plural(static_cast<long long>(list.size()), "{n} item", "{n} items");
-            if (todo) summary += " \xC2\xB7 " + plural(todo, "{n} AMPR emulator to update", "{n} AMPR emulators to update");
-            if (refreshing) summary += " \xC2\xB7 " + t("Reading the games\xE2\x80\xA6");
+            if (todo) summary += "  \xC2\xB7  " + plural(todo, "{n} AMPR emulator to update", "{n} AMPR emulators to update");
+            if (refreshing) summary += "  \xC2\xB7  " + t("Reading the games\xE2\x80\xA6");
         }
-        draw::text_fit(ui, Face::regular, summary, x + 0.2f * R, draw::baseline(y + bh * 0.5f, 1.0f * R), 1.0f * R,
-                       w - vw - aw - gw - 1.5f * R, muted);
-        y += bh + 0.4f * R;
+        draw::text_fit(ui, Face::regular, summary, x + 0.35f * R, draw::baseline(y + ss * 0.725f, ss), ss, right - x, muted);
+        y += ss * 1.45f + 0.8f * R;
+    }
+    draw::hline(ui, x, y, w, line);
+    y += 1.0f;
+    // ---- the list ----
+    const Rect view{area.x, y, area.w, area.y + area.h - y};
+    ui.begin_zone("images", false, true);
+    if (focus_first_ && !list.empty()) {
+        ui.set_focus(Id("img") / list.front()["path"].str());
+        focus_first_ = false;
+    }
+    const float offset = ui.begin_scroll("images", view);
+    y = view.y + 0.5f * R - offset;
+    if (data_["smp_update_emulators"].boolean() && todo) {
+        const std::string note = t("ShadowMount+'s “update emulators” is on: when a game starts, it puts its own copy in place of a "
+                                   "matching emulator. Turn it off in ShadowMount+ for games that should keep the one shown here.");
+        const float nh = draw::paragraph_height(ui, Face::regular, note, w - 2.0f * R, 1.0f * R, 1.45f * R) + 1.6f * R;
+        ui.list->bordered_rect({x, y, w, nh}, radius, warn.with_alpha(0.08f), 1.0f, warn.with_alpha(0.35f));
+        draw::paragraph(ui, Face::regular, note, x + 1.0f * R, y + 0.8f * R, w - 2.0f * R, 1.0f * R, 1.45f * R, style::text);
+        y += nh + 0.5f * R;
     }
     DrawList& l = *ui.list;
     if (!data_.is_null() && list.empty() && !data_["refreshing"].boolean()) {
@@ -286,7 +321,7 @@ void ImagesPage::build(Ui& ui, App& app, const Rect& area) {
         for (std::size_t a = 0; a < list.size();) {
             std::size_t b = a;
             while (b < list.size() && list[b]["folder"].str() == list[a]["folder"].str()) ++b;
-            y += section(ui, app.shown_path(list[a]["folder"].str()), x + 0.3f * R, y) + 0.3f * R;
+            y += section(ui, folder_label(app, list[a]["folder"].str()), x + 0.3f * R, y) + 0.3f * R;
             for (std::size_t k = a; k < b; ++k) {
                 const JsonValue& i = list[k];
                 const Rect r = g.cell(static_cast<int>(k - a), y);
@@ -332,7 +367,7 @@ void ImagesPage::build(Ui& ui, App& app, const Rect& area) {
         const Entry e = entry_from(i);
         if (i["folder"].str() != folder) {
             folder = i["folder"].str();
-            y += section(ui, app.shown_path(folder), x + 0.3f * R, y);
+            y += section(ui, folder_label(app, folder), x + 0.3f * R, y);
         }
         const float h = 0.55f * R * 2.0f + 3.4f * R;
         y += 0.15f * R;
@@ -439,7 +474,7 @@ void ImagesPage::build(Ui& ui, App& app, const Rect& area) {
                              0.9f * R, 1.4f * R, muted);
     }
     y += 2.0f * R;
-    ui.end_scroll(y + offset - area.y);
+    ui.end_scroll(y + offset - view.y);
     ui.end_zone();
 }
 

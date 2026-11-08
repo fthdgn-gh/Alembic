@@ -322,8 +322,7 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
     y += 1.0f;
     // ---- the rows ----
     const Rect view{area.x - 0.6f * R, y, area.w + 1.2f * R, area.y + area.h - y};
-    // The drives stay a list; a folder's contents follow the switch.
-    const bool grid = !top && app.view_mode("files") == "grid";
+    const bool grid = app.view_mode("files") == "grid";
     ui.begin_zone("list", !grid, true);
     // A new listing: the focus goes to the row asked for, or the first.
     if (app.focus_list && app.listing_loaded) {
@@ -351,6 +350,29 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
         for (const Entry& e : app.entries) {
             const Rect r = g.cell(k++, ry);
             const Id id = Id("row") / e.path;
+            if (top) {  // the drives: symbol, name and room
+                const JsonValue* fs = app.server_of(e.path);
+                const JsonValue* rt = app.root_of(e.path);
+                const JsonValue* gone = app.offline_peer(e.path);
+                const bool usb = e.path.find("usb") != std::string::npos || e.path.find("ext") != std::string::npos;
+                std::string room;
+                float used = -1.0f;
+                if (rt) {
+                    const double total = (*rt)["total"].number(), free = (*rt)["free"].number();
+                    room = t("{free} free of {total}", {{"free", bytes(free)}, {"total", bytes(total)}});
+                    if (total > 0) used = static_cast<float>(std::max(0.0, std::min(1.0, 1.0 - free / total)));
+                } else {
+                    room = fs ? App::server_address(*fs, true) : gone ? t("offline") : app.shown_path(e.path);
+                }
+                const std::string title = gone ? (*gone)["name"].str() + " \xC2\xB7 " + base(e.path) : app.drive_name(e.path);
+                if (drive_tile(ui, id, r, fs ? draw::Icon::server : usb ? draw::Icon::usb : draw::Icon::drive, title, room, used))
+                    app.browse(e.path);
+                if (ui.focused(id)) {
+                    focused_path = e.path;
+                    in_list_ = true;
+                }
+                continue;
+            }
             TileInfo info;
             info.entry = e;
             info.selecting = app.selecting;

@@ -76,7 +76,7 @@ private:
     std::thread worker_;
     bool running_ = false;
     std::int64_t updated_ = 0;
-    JsonValue images_ = JsonValue::array();
+    std::vector<JsonValue> images_;  // the rows, filled in while a refresh reads the games
     JsonValue dirs_ = JsonValue::array();
     bool smp_ = false;
     JsonValue smp_update_emulators_;

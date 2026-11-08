@@ -58,6 +58,19 @@ function Row(props: { e: Entry; top: boolean }) {
   );
 }
 
+// A drive, server or other engine's drive as a tile: its symbol, name and room.
+function DriveCell(props: { e: Entry }) {
+  const { e } = props;
+  const fs = serverOf(e.path), r = rootOf(e.path), gone = offlinePeer(e.path);
+  const room = r ? t("{free} free of {total}", { free: bytes(r.free), total: bytes(r.total as number) }) : fs ? serverAddress(fs, true) : gone ? t("offline") : shownPath(e.path);
+  const used = r && r.total ? Math.max(0, Math.min(1, 1 - r.free / (r.total as number))) : -1;
+  return (
+    <Tile dataKey={e.path} icon={<div class="ico folder">{fs ? ICONS.server() : /usb|ext/.test(e.path) ? ICONS.usb() : ICONS.drive()}</div>}
+      title={gone ? gone.name + " · " + base(e.path) : driveName(e.path)} onClick={() => browse(e.path)} onFocus={() => { focusEntry.value = e; }}
+      pills={[used >= 0 ? <div class={"meter" + (used > 0.9 ? " low" : "")} style="margin:.1rem 0 .35rem"><div style={"width:" + Math.round(used * 100) + "%"} /></div> : null, room]} />
+  );
+}
+
 // A tile of the grid view: the same entry, its icon large.
 function Cell(props: { e: Entry }) {
   const { e } = props;
@@ -77,12 +90,12 @@ function Cell(props: { e: Entry }) {
 
 export function FileList() {
   const data = listing.value;
-  // The drives stay a list; a folder's contents follow the switch.
-  const grid = viewModes.value.files === "grid" && !!data && data.path !== "/";
+  const grid = viewModes.value.files === "grid" && !!data;
+  const top = !!data && data.path === "/";
   return (
     <div class={"list scroll" + (grid ? " grid" : "")} id="list" data-zone="list" data-column={grid ? undefined : true}>
       {!data ? null : !data.entries.length ? <div class="empty">{t("This folder is empty.")}</div>
-        : grid ? data.entries.map((e) => <Cell key={e.path} e={e} />)
+        : grid ? data.entries.map((e) => (top ? <DriveCell key={e.path} e={e} /> : <Cell key={e.path} e={e} />))
         : data.entries.map((e) => <Row key={e.path} e={e} top={data.path === "/"} />)}
     </div>
   );

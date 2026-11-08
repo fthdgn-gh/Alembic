@@ -636,7 +636,7 @@ void App::show_tab(Tab next) {
     if (selecting) stop_selecting();  // a selection is one list's
     tab = next;
     if (next == Tab::deps) deps_->load(*this);
-    if (next == Tab::images) images_->load(*this, false);
+    if (next == Tab::images) images_->opened(*this);
     if (next == Tab::settings) settings_->opened(*this);
 }
 

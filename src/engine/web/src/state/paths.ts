@@ -64,6 +64,15 @@ export function driveName(root: string): string {
   return base(root) || root;
 }
 
+// A folder as a heading: its drive's name, then the folders below it
+// ("Internal · homebrew", "USB 0 · games › ps5").
+export function folderLabel(dir: string): string {
+  const r: any = rootOf(dir);
+  if (!r || !r.root) return shownPath(dir);
+  const rest = dir.slice(r.root.length).replace(/^\/+/, "");
+  return driveName(r.root) + (rest ? " · " + rest.split("/").join(" › ") : "");
+}
+
 // A path as people read it: another engine's "/peer/<id>/data/x" is
 // "PS5: /data/x" (paths keep their real form everywhere else).
 export function shownPath(p: string): string;

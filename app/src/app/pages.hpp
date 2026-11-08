@@ -29,6 +29,9 @@ struct TileInfo {
 };
 // One tile; true when ✕ was pressed on it.
 bool tile(Ui& ui, App& app, Id id, const Rect& r, const TileInfo& info);
+// A drive, server or other engine's drive as a tile: symbol, name, room
+// (`used` 0..1 draws a meter; < 0 none). True when ✕ was pressed on it.
+bool drive_tile(Ui& ui, Id id, const Rect& r, draw::Icon icon, const std::string& title, const std::string& room, float used);
 // The list and grid buttons ending at `right`; returns their width.
 float view_switch(Ui& ui, App& app, const std::string& which, float right, float y, float h);
 
@@ -49,6 +52,8 @@ class ImagesPage {
 public:
     void build(Ui& ui, App& app, const Rect& area);
     void load(App& app, bool refresh);
+    // The tab was opened: read the list, and focus its first game.
+    void opened(App& app);
     std::vector<Hint> hints(App& app);
     // □: the focused row's Options, or while selecting the ticked ones' actions.
     void square(App& app);
@@ -72,6 +77,7 @@ private:
     std::vector<std::string> pending_;  // paths with an AMPR job queued from here
     float poll_at_ = 0.0f;
     std::size_t active_before_ = 0;     // jobs running last frame: one ending reads the folders again
+    bool focus_first_ = true;           // the first game takes the focus once the list is there
 };
 
 class QueuePage {

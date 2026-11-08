@@ -12,7 +12,7 @@ import { Tile } from "../../components/Tile";
 import { ViewSwitch } from "../../components/ViewSwitch";
 import { images, loadImages } from "../../state/images";
 import { jobs, isActive } from "../../state/jobs";
-import { shownPath } from "../../state/paths";
+import { shownPath, folderLabel } from "../../state/paths";
 import { selecting, isSelected, toggleSelected } from "../../state/selection";
 import { bytes, date } from "../../lib/format";
 import { KIND_LABEL } from "../../lib/kinds";
@@ -137,26 +137,32 @@ export function ImagesPage(props: { hidden: boolean }) {
   for (const i of list) {
     if (i.folder !== folder) {
       folder = i.folder;
-      rows.push(<div class="sect" style="margin:1rem .3rem .3rem">{shownPath(folder)}</div>);
+      rows.push(<div class="sect" style="margin:1rem .3rem .3rem">{folderLabel(folder)}</div>);
     }
     rows.push(grid ? <Cell key={i.path} i={i} /> : <Row key={i.path} i={i} />);
   }
   return (
     <section class="view scroll" id="view-images" hidden={props.hidden}>
-      <div class="page" data-zone="images">
-        <p class="muted" style="margin:.3rem .2rem 1rem">{t("Every image, game folder and package in the folders ShadowMount+ scans. For games that read their files through the console's APR, the AMPR emulator each one runs with: an update keeps the game's emulator and puts its newest build in place.")}</p>
-        {data && data.smp_update_emulators ? <div class="note" style="margin-bottom:1rem">{t("ShadowMount+'s “update emulators” is on: when a game starts, it puts its own copy in place of a matching emulator. Turn it off in ShadowMount+ for games that should keep the one shown here.")}</div> : null}
-        <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.4rem">
-          <span class="muted" style="flex:1">
-            {!data ? t("Looking for images…") : data.refreshing && !list.length ? t("Reading the games…")
-              : [plural(list.length, "{n} item", "{n} items"), todo ? plural(todo, "{n} AMPR emulator to update", "{n} AMPR emulators to update") : "",
-                data.refreshing ? t("Reading the games…") : ""].filter(Boolean).join(" · ")}
-          </span>
-          <button class="btn sm" data-key="images:again" disabled={busy || !data || data.refreshing} onClick={again}>{t("Check again")}</button>
-          <button class="btn sm primary" data-key="images:all" disabled={!todo} onClick={updateAll}>{todo ? t("Update AMPR emulators ({n})", { n: todo }) : t("Update AMPR emulators")}</button>
-          <ViewSwitch which="images" />
+      <div class="page">
+        {/* As Files' bar: what is here on the left, the tools on the right
+            (a zone of their own: the tab opens on the first game). */}
+        <div class="bar1" data-zone="images-tools">
+          <div class="where">
+            <div class="crumbs"><span style="padding:.1rem .35rem">{t("Images")}</span></div>
+            <div class="summary">
+              {!data ? t("Looking for images…") : data.refreshing && !list.length ? t("Reading the games…")
+                : [plural(list.length, "{n} item", "{n} items"), todo ? plural(todo, "{n} AMPR emulator to update", "{n} AMPR emulators to update") : "",
+                  data.refreshing ? t("Reading the games…") : ""].filter(Boolean).join("  ·  ")}
+            </div>
+          </div>
+          <div class="tools">
+            {todo ? <button class="btn sm" data-key="images:all" onClick={updateAll}>{t("Update AMPR emulators ({n})", { n: todo })}</button> : null}
+            <button class="btn sm ghost" data-key="images:again" disabled={busy || !data || data.refreshing} onClick={again}>{t("Refresh")}</button>
+            <ViewSwitch which="images" />
+          </div>
         </div>
-        <div class={"list" + (grid ? " grid" : "")} data-column={grid ? undefined : true}>
+        {data && data.smp_update_emulators && todo ? <div class="note" style="margin:.8rem 0 0">{t("ShadowMount+'s “update emulators” is on: when a game starts, it puts its own copy in place of a matching emulator. Turn it off in ShadowMount+ for games that should keep the one shown here.")}</div> : null}
+        <div class={"list" + (grid ? " grid" : "")} data-zone="images" data-column={grid ? undefined : true}>
           {data && !list.length && !data.refreshing ? <div class="empty">{t("No images, game folders or packages in ShadowMount+'s folders.")}</div> : rows}
         </div>
         {data && data.dirs.length ? <p class="muted" style="margin:1rem .2rem">{t("Folders searched: {list}", { list: data.dirs.map(shownPath).join(", ") })}</p> : null}

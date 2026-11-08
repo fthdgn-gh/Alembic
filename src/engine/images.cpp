@@ -10,6 +10,9 @@
 #include "alembic/io.hpp"
 
 #include <algorithm>
+#include <optional>
+#include <map>
+#include <atomic>
 #include <cctype>
 #include <cstring>
 
@@ -127,10 +130,24 @@ std::vector<Found> scan(const std::vector<std::string>& dirs) {
     return out;
 }
 
-JsonValue ampr_of(const Found& found, const EngineConfig& config) {
+namespace {
+
+// What a refresh works out once: the SHA-256 of each emulator downloaded here.
+struct Context {
+    const EngineConfig& config;
+    std::map<std::string, std::string> ours; // component id -> SHA-256 ("" when not downloaded)
+    explicit Context(const EngineConfig& c) : config(c) {
+        for (const Dependency& d : dependencies()) {
+            if (d.group != kAmprRuntimeGroup) continue;
+            const std::string path = c.emulator_path(d.id);
+            ours[d.id] = is_regular_file(path) ? file_sha256(path) : "";
+        }
+    }
+};
+
+JsonValue ampr_from_state(const Found& found, const std::optional<AmprState>& state, const Context& ctx) {
+    const EngineConfig& config = ctx.config;
     JsonValue v = JsonValue::object();
-    if (found.kind == "fpkg") return JsonValue(); // installed, it uses the console's APR
-    auto state = ampr_state(found.path, std::string(32, '0'));
     if (!state) {
         v.set("status", "unreadable");
         return v;
@@ -168,8 +185,8 @@ JsonValue ampr_of(const Found& found, const EngineConfig& config) {
     } else if (!known) {
         status = "unknown";
     } else {
-        const std::string ours_path = config.emulator_path(target);
-        const std::string ours = is_regular_file(ours_path) ? file_sha256(ours_path) : "";
+        const auto it = ctx.ours.find(target);
+        const std::string ours = it == ctx.ours.end() ? "" : it->second;
         const auto ours_known = ampr_runtime_by_hash(ours, config.state_dir);
         if (ours.empty()) status = "not_downloaded";
         else if (ours == sha) status = "current";
@@ -191,7 +208,56 @@ JsonValue ampr_of(const Found& found, const EngineConfig& config) {
     return v;
 }
 
-JsonValue entry_json(const Found& found, const EngineConfig& config) {
+// What reading a game's eboot.bin gave, kept in <state>/images_cache.json
+// by path, with what it was read from (size and time; for a folder its
+// fakelib emulators too), so an unchanged game is not opened again.
+std::string state_key(const Found& f) {
+    std::string key = std::to_string(f.size) + "|" + std::to_string(f.mtime);
+    if (f.kind == "folder")
+        for (const char* dir : {"/fakelib/", "/fakelib2/"}) {
+            const PathStat st = stat_path(f.path + dir + ampr_emu::kFileName);
+            key += "|" + std::to_string(st.size) + "|" + std::to_string(st.mtime);
+        }
+    return key;
+}
+
+JsonValue state_json(const std::optional<AmprState>& a) {
+    JsonValue v = JsonValue::object();
+    v.set("ok", a.has_value());
+    if (!a) return v;
+    v.set("imports", a->imports);
+    v.set("ships", a->ships);
+    v.set("ships_sha256", a->ships_sha256);
+    v.set("title_id", a->title_id);
+    v.set("zstd", a->zstd_packs);
+    v.set("lz4", a->lz4_packs);
+    return v;
+}
+
+std::optional<AmprState> state_from(const JsonValue& v) {
+    if (!v["ok"].boolean()) return std::nullopt;
+    AmprState a;
+    a.imports = v["imports"].boolean();
+    a.ships = v["ships"].boolean();
+    a.ships_sha256 = v["ships_sha256"].str();
+    a.title_id = v["title_id"].str();
+    a.zstd_packs = v["zstd"].boolean();
+    a.lz4_packs = v["lz4"].boolean();
+    return a;
+}
+
+std::string cache_file(const EngineConfig& config) { return config.state_dir + "/images_cache.json"; }
+
+} // namespace
+
+JsonValue ampr_of(const Found& found, const EngineConfig& config) {
+    if (found.kind == "fpkg") return JsonValue(); // installed, it uses the console's APR
+    return ampr_from_state(found, ampr_state(found.path, std::string(32, '0')), Context(config));
+}
+
+namespace {
+// Files' fields and where it is, without the AMPR state.
+JsonValue entry_json_base(const Found& found, const EngineConfig& config) {
     JsonValue v = JsonValue::object();
     const std::string name = base_name(found.path);
     v.set("name", name);
@@ -203,6 +269,12 @@ JsonValue entry_json(const Found& found, const EngineConfig& config) {
     v.set("folder", found.folder);
     v.set("hidden", !name.empty() && name[0] == '.');
     v.set("allowed", path_allowed(found.path, config.available_roots()));
+    return v;
+}
+} // namespace
+
+JsonValue entry_json(const Found& found, const EngineConfig& config) {
+    JsonValue v = entry_json_base(found, config);
     v.set("ampr", ampr_of(found, config));
     return v;
 }
@@ -219,7 +291,9 @@ JsonValue Index::snapshot(std::int64_t max_age_s) {
         worker_ = std::thread([this] { refresh(); });
     }
     JsonValue v = JsonValue::object();
-    v.set("images", images_);
+    JsonValue rows = JsonValue::array();
+    for (const JsonValue& e : images_) rows.push(e);
+    v.set("images", std::move(rows));
     v.set("dirs", dirs_);
     v.set("smp", smp_);
     v.set("refreshing", running_);
@@ -250,20 +324,74 @@ void Index::refresh() {
     }
     const std::vector<std::string> dirs = scan_dirs(config_, custom);
     std::vector<Found> found = scan(dirs);
-    JsonValue list = JsonValue::array();
-    for (Found& f : found) {
+    for (Found& f : found)
         for (const auto& [path, backport] : backports)
             if (path == f.path) f.backport = backport;
-        list.push(entry_json(f, config_));
+    // First the list as the folders hold it, with what is known already:
+    // shown at once, the rest filled in as each game is read.
+    const Context ctx(config_);
+    JsonValue cache = JsonValue::object();
+    if (auto text = read_text(cache_file(config_), 16u << 20); text.ok())
+        if (auto parsed = parse_json(*text); parsed.ok() && parsed->is_object()) cache = std::move(*parsed);
+    JsonValue list = JsonValue::array();
+    std::vector<std::size_t> todo;
+    std::vector<std::string> keys(found.size());
+    for (std::size_t i = 0; i < found.size(); ++i) {
+        const Found& f = found[i];
+        JsonValue e = entry_json_base(f, config_);
+        if (f.kind == "fpkg") {
+            e.set("ampr", JsonValue());
+        } else {
+            keys[i] = state_key(f);
+            const JsonValue& c = cache[f.path];
+            if (c.is_object() && c["key"].str() == keys[i]) {
+                e.set("ampr", ampr_from_state(f, state_from(c), ctx));
+            } else {
+                JsonValue pending = JsonValue::object();
+                pending.set("status", "checking");
+                e.set("ampr", std::move(pending));
+                todo.push_back(i);
+            }
+        }
+        list.push(std::move(e));
     }
     JsonValue dirs_json = JsonValue::array();
     for (const std::string& d : dirs)
         if (is_directory(d)) dirs_json.push(d);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        images_ = list.items();
+        dirs_ = std::move(dirs_json);
+        smp_ = smp;
+        smp_update_emulators_ = update_emulators;
+    }
+    // The games not read before, a few at a time (each opens an image).
+    std::atomic<std::size_t> next{0};
+    std::mutex cache_mutex;
+    auto work = [&] {
+        for (std::size_t n; (n = next++) < todo.size();) {
+            const std::size_t i = todo[n];
+            const std::optional<AmprState> state = ampr_state(found[i].path, std::string(32, '0'));
+            JsonValue ampr = ampr_from_state(found[i], state, ctx);
+            {
+                std::lock_guard<std::mutex> lock(cache_mutex);
+                JsonValue c = state_json(state);
+                c.set("key", keys[i]);
+                cache.set(found[i].path, std::move(c));
+            }
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (i < images_.size()) images_[i].set("ampr", std::move(ampr)); // only this refresh changes the rows
+        }
+    };
+    std::vector<std::thread> pool;
+    for (int t = 0; t < 3; ++t) pool.emplace_back(work);
+    for (std::thread& t : pool) t.join();
+    // Only the games still there are kept.
+    JsonValue kept = JsonValue::object();
+    for (const Found& f : found)
+        if (cache[f.path].is_object()) kept.set(f.path, cache[f.path]);
+    (void)write_text(cache_file(config_), kept.dump());
     std::lock_guard<std::mutex> lock(mutex_);
-    images_ = std::move(list);
-    dirs_ = std::move(dirs_json);
-    smp_ = smp;
-    smp_update_emulators_ = update_emulators;
     updated_ = unix_now();
     running_ = false;
 }
