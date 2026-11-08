@@ -19,8 +19,11 @@ struct Options {
     bool io = true;            // write and read 256 MB where it can
     bool https = true;         // reach api.github.com
     std::uint64_t mem_cap_mb = 2048;  // stop the mapping test there
-    // Called before each section ("cpu", "files", ...), for a status line.
+    // Called before each check ("cpu.thread", "files /data", ...): a status
+    // line, and the bench's note of where a crash happened.
     std::function<void(const std::string&)> step;
+    // True for a check to leave out (the bench: it crashed there last time).
+    std::function<bool(const std::string&)> skip;
 };
 
 JsonValue run(const Options& options);

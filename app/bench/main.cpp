@@ -10,6 +10,8 @@
 // no engine answers it sends that one to the ELF loader; when the running one
 // has no /api/probe, □ sends it (on the console a new engine takes over the
 // port from the old one, whatever their versions).
+// After a crash the next start shows the check that crashed and skips it
+// (breadcrumbs in /download0/alembic-bench; OPTIONS forgets them).
 // △ runs it again, □ replaces an old engine, ○ closes it; ↑ ↓ (L1 R1 by pages) scroll.
 
 #include "app_version.h"
@@ -123,8 +125,25 @@ std::vector<Row> compare(const JsonValue& engine, const JsonValue& app) {
     return rows;
 }
 
+// Breadcrumbs, in the title's own save area: step.txt holds the check under
+// way (empty once a run ends), crashed.txt every check a run never came
+// back from. A run skips those, so each crash moves the bench one step on.
+constexpr const char* kCrumbs = "/download0/alembic-bench";
+
+std::vector<std::string> lines(const std::string& text) {
+    std::vector<std::string> out;
+    for (std::size_t at = 0; at < text.size();) {
+        std::size_t end = text.find('\n', at);
+        if (end == std::string::npos) end = text.size();
+        if (end > at) out.push_back(text.substr(at, end - at));
+        at = end + 1;
+    }
+    return out;
+}
+
 struct Bench {
     std::mutex mutex;
+    std::vector<std::string> crashed;  // checks to skip
     std::string status = "Starting";
     std::vector<Row> rows;
     std::string saved;
@@ -136,6 +155,27 @@ struct Bench {
         std::lock_guard<std::mutex> lock(mutex);
         status = s;
         hui::sys::log("[BENCH] %s", s.c_str());
+    }
+
+    // Called once at start: the last run's unfinished check joins the list.
+    void load_crumbs() {
+        hui::save::ensure_directory(kCrumbs);
+        std::string text, step;
+        (void)hui::save::read_file(std::string(kCrumbs) + "/crashed.txt", &text);
+        if (hui::save::read_file(std::string(kCrumbs) + "/step.txt", &step) && !step.empty()) {
+            text += step + "\n";
+            (void)hui::save::write_atomic(std::string(kCrumbs) + "/crashed.txt", text);
+            (void)hui::save::write_atomic(std::string(kCrumbs) + "/step.txt", "");
+        }
+        std::lock_guard<std::mutex> lock(mutex);
+        crashed = lines(text);
+    }
+
+    void clear_crumbs() {
+        if (running) return;
+        (void)hui::save::write_atomic(std::string(kCrumbs) + "/crashed.txt", "");
+        std::lock_guard<std::mutex> lock(mutex);
+        crashed.clear();
     }
 
     void start(bool replace = false) {
@@ -153,8 +193,23 @@ struct Bench {
         }
         alembic::engine::probe::Options o;
         o.process = "app";
-        o.step = [this](const std::string& s) { set_status("This app: " + s + "\xE2\x80\xA6"); };
-        const JsonValue app = alembic::engine::probe::run(o);
+        o.step = [this](const std::string& s) {
+            set_status("This app: " + s + "\xE2\x80\xA6");
+            (void)hui::save::write_atomic(std::string(kCrumbs) + "/step.txt", s);
+        };
+        std::vector<std::string> skip;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            skip = crashed;
+        }
+        o.skip = [skip](const std::string& s) { return std::find(skip.begin(), skip.end(), s) != skip.end(); };
+        JsonValue app = alembic::engine::probe::run(o);
+        (void)hui::save::write_atomic(std::string(kCrumbs) + "/step.txt", "");
+        if (!skip.empty()) {
+            std::string list;
+            for (const std::string& c : skip) list += (list.empty() ? "" : ", ") + c;
+            app.set("crashed_before", list);
+        }
         const std::string app_json = app.dump();
         set_status("The engine: running its checks (up to a minute)\xE2\x80\xA6");
         JsonValue engine = JsonValue::object();
@@ -232,7 +287,7 @@ int main() {
 
     alembic::app::set_user_agent(std::string("Alembic-bench/") + ALEMBIC_APP_VERSION);
     Bench bench;
-    bench.start();
+    bench.load_crumbs();
 
     alembic::app::Ui ui;
     ui.fonts = &fonts;
@@ -255,19 +310,23 @@ int main() {
         const std::size_t count = pad.read(samples);
         const InputFrame input = tracker.update(std::span<const PadSample>(samples, count), static_cast<std::uint64_t>(now));
 
-        std::string status, saved;
+        std::string status, saved, crashed;
         std::vector<Row> rows;
         {
             std::lock_guard<std::mutex> lock(bench.mutex);
             status = bench.status;
             saved = bench.saved;
             rows = bench.rows;
+            for (const std::string& c : bench.crashed) crashed += (crashed.empty() ? "" : ", ") + c;
         }
+        // The checks start once the screen is up.
+        if (frames == 2) bench.start();
         if (input.is_pressed(Action::back)) {
             pad.close();
             sys::quit();
         }
         if (input.is_pressed(Action::north)) bench.start();
+        if (input.is_pressed(Action::menu)) bench.clear_crumbs();
         if (input.is_pressed(Action::west) && bench.old_engine) bench.start(true);
         if (input.nav == Direction::down) ++scroll;
         if (input.nav == Direction::up) --scroll;
@@ -284,6 +343,10 @@ int main() {
                    status + (saved.empty() ? "" : " \xC2\xB7 " + saved) + "   \xE2\x96\xB3 again  " +
                        (bench.old_engine ? "\xE2\x96\xA1 replace the engine  " : "") + "\xE2\x97\x8B close", 60,
                    110, 22, style::muted);
+        if (!crashed.empty())
+            draw::text_fit(ui, draw::Face::regular,
+                           "Crashed here before, skipped: " + crashed + "   (OPTIONS forgets them)", 1000, 70, 22, 860,
+                           style::bad);
         constexpr float kKey = 60, kEngine = 720, kApp = 1320, kWidth = 560;
         draw::caps(ui, "Check", kKey, kTop - 8, 18, style::dim);
         draw::caps(ui, "Engine (payload)", kEngine, kTop - 8, 18, style::dim);

@@ -102,6 +102,8 @@ for source in "${sources[@]}"; do
     # downloads, not imported (a title that cannot load them still starts).
     args=("$standard" -O2 -Wall -Wextra -ffunction-sections -fdata-sections -DGL_GLEXT_PROTOTYPES=1 -DALEMBIC_HTTPS_DYNAMIC=1)
     [[ $source == *.c ]] || args+=(-fno-exceptions -fno-rtti)
+    # probe.cpp in the app: libkernel functions looked up, not imported.
+    [[ $source != */probe.cpp ]] || args+=(-DALEMBIC_PROBE_DYNAMIC=1)
     # Vendored upstream code is built as published.
     [[ $source != "$kit/src/third_party/"* ]] || args+=(-w)
     ninja_inputs=("$source" "$wrapper" "$target_compiler")

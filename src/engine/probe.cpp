@@ -2,6 +2,12 @@
 // See probe.hpp. On the console this file calls libc and libkernel directly
 // (files, sockets, memory), like platform_ps5.cpp: it measures exactly what
 // those calls allow in the process it runs in.
+//
+// A game process's libraries export less than the payload's: a function the
+// SDK's stubs offer may not be there, and calling it jumps nowhere (SIGSEGV,
+// "read instruction, page not present"; the bench, 2026-11-08). So in the
+// app (ALEMBIC_PROBE_DYNAMIC) every function the app does not already import
+// is looked up at run time with sceKernelDlsym and reported missing instead.
 #include "probe.hpp"
 
 #include "alembic/sha256.hpp"
@@ -74,87 +80,61 @@ std::string cpu_list(std::uint64_t mask) {
     return out;
 }
 
-int current_cpu() {
-#if defined(__PROSPERO__)
-    return sceKernelGetCurrentCpu();
-#else
-    return -1;
-#endif
+// Runs `name` unless the caller skips it (it crashed the bench last time);
+// says so in `into[key]` when skipped.
+bool enter(const Options& o, const std::string& name, JsonValue& into, const std::string& key) {
+    if (o.skip && o.skip(name)) {
+        into.set(key, "skipped: " + name + " crashed this process last time");
+        return false;
+    }
+    if (o.step) o.step(name);
+    return true;
 }
 
-// SHA-256 of 16 MB in 256 KB blocks spread over n threads (no allocation,
-// no locks: how much CPU the process gets), and the CPUs its threads ran on.
-JsonValue cpu_section() {
-    JsonValue v = JsonValue::object();
-    const unsigned cores = std::max(1u, std::thread::hardware_concurrency());
-    v.set("hardware_concurrency", static_cast<std::int64_t>(cores));
 #if defined(__PROSPERO__)
-    {
-        std::uint64_t mask = 0;
-        int prio = -1;
-        void* self = scePthreadSelf();
-        const int a = scePthreadGetaffinity(self, &mask);
-        const int p = scePthreadGetprio(self, &prio);
-        v.set("thread_mask", hex(mask) + (a ? " (rc " + hex(static_cast<std::uint32_t>(a)) + ")" : ""));
-        v.set("thread_cpus", cpu_list(mask));
-        v.set("thread_prio", static_cast<std::int64_t>(prio));
-        if (p) v.set("thread_prio_rc", hex(static_cast<std::uint32_t>(p)));
-        cpuset_t set;
-        CPU_ZERO(&set);
-        if (cpuset_getaffinity(CPU_LEVEL_WHICH, CPU_WHICH_PID, -1, sizeof set, &set) == 0) {
-            std::uint64_t m = 0;
-            for (int c = 0; c < 64; ++c)
-                if (CPU_ISSET(c, &set)) m |= 1ull << c;
-            v.set("process_cpus", cpu_list(m));
-        } else {
-            v.set("process_cpus", std::string("cpuset_getaffinity: ") + std::strerror(errno));
+
+// The libkernel handle sceKernelDlsym takes, found by asking candidates for
+// a function every libkernel has; -1 when none answers.
+[[maybe_unused]] int kernel_handle(std::string* how) {
+    static int handle = -2;
+    static std::string note;
+    if (handle == -2) {
+        handle = -1;
+        note = "no libkernel handle answered";
+        std::vector<int> candidates = {0x2001, 0x1, 0x2};
+        const int loaded = sceKernelLoadStartModule("/system/common/lib/libkernel.sprx", 0, nullptr, 0, nullptr, nullptr);
+        if (loaded > 0) candidates.insert(candidates.begin(), loaded);
+        for (int h : candidates) {
+            void* a = nullptr;
+            if (sceKernelDlsym(h, "sceKernelGetDirectMemorySize", &a) == 0 && a) {
+                handle = h;
+                note = "libkernel handle " + hex(static_cast<std::uint32_t>(h));
+                break;
+            }
         }
     }
-#endif
-    constexpr std::size_t kBlock = 0x40000, kTotal = 16u << 20, kBlocks = kTotal / kBlock;
-    std::vector<std::uint8_t> data(kTotal);
-    std::uint32_t x = 2463534242u;
-    for (auto& b : data) {
-        x ^= x << 13;
-        x ^= x >> 17;
-        x ^= x << 5;
-        b = static_cast<std::uint8_t>(x);
-    }
-    std::atomic<std::uint64_t> seen{0};
-    JsonValue by = JsonValue::object();
-    for (unsigned t = 1;; t *= 2) {
-        const unsigned n = std::min(t, std::max(cores, 16u));
-        const auto t0 = Clock::now();
-        std::vector<std::thread> pool;
-        for (unsigned i = 0; i < n; ++i)
-            pool.emplace_back([&, i] {
-                // 4 passes, so a thread lives long enough to be moved around.
-                for (int pass = 0; pass < 4; ++pass)
-                    for (std::size_t b = i; b < kBlocks; b += n) {
-                        const int c = current_cpu();
-                        if (c >= 0 && c < 64) seen.fetch_or(1ull << c, std::memory_order_relaxed);
-                        Sha256 h;
-                        h.update(Bytes(data.data() + b * kBlock, kBlock));
-                        (void)h.finish();
-                    }
-            });
-        for (std::thread& th : pool) th.join();
-        const double s = seconds_since(t0);
-        by.set(std::to_string(n), s > 0 ? 4.0 * kTotal / 1e6 / s : 0.0);
-        if (n >= 16 || n >= std::max(cores, 16u)) break;
-    }
-    v.set("sha256_mb_s_by_threads", std::move(by));
-    if (seen.load()) v.set("cpus_used", cpu_list(seen.load()));
-    return v;
+    if (how) *how = note;
+    return handle;
 }
 
-#if defined(__PROSPERO__)
+#if defined(ALEMBIC_PROBE_DYNAMIC)
+void* kernel_symbol(const char* name) {
+    const int h = kernel_handle(nullptr);
+    void* a = nullptr;
+    if (h < 0 || sceKernelDlsym(h, name, &a) != 0) return nullptr;
+    return a;
+}
+// A function of libkernel, or nullptr when this process's has none.
+#define KFN(name) reinterpret_cast<decltype(&::name)>(kernel_symbol(#name))
+#else
+#define KFN(name) (&::name)
+#endif
 
 std::string err(const char* what) { return std::string(what) + ": " + std::strerror(errno); }
+std::string missing(const char* what) { return std::string("not in this process: ") + what; }
 
-// statfs is in libkernel_sys only, which a game process does not load: linked
-// directly, the app jumped to an unresolved import (SIGSEGV, 2026-11-08). So
-// it is looked up at run time; `why` says how that went.
+// statfs is in libkernel_sys only, which a game process does not have: looked
+// up at run time in both processes; `why` says how that went.
 using StatfsFn = int (*)(const char*, struct statfs*);
 StatfsFn statfs_fn(std::string* why) {
     static StatfsFn fn = nullptr;
@@ -175,26 +155,134 @@ StatfsFn statfs_fn(std::string* why) {
     return fn;
 }
 
+#endif
+
+using CpuFn = int (*)(void);
+
+// SHA-256 of 16 MB in 256 KB blocks spread over n threads (no allocation,
+// no locks: how much CPU the process gets), and the CPUs its threads ran on.
+JsonValue cpu_section(const Options& o) {
+    JsonValue v = JsonValue::object();
+    const unsigned cores = std::max(1u, std::thread::hardware_concurrency());
+    v.set("hardware_concurrency", static_cast<std::int64_t>(cores));
+    CpuFn current_cpu = nullptr;
+#if defined(__PROSPERO__)
+    if (enter(o, "cpu.thread", v, "thread")) {
+        const auto self_fn = KFN(scePthreadSelf);
+        const auto aff_fn = KFN(scePthreadGetaffinity);
+        const auto prio_fn = KFN(scePthreadGetprio);
+        if (!self_fn) {
+            v.set("thread", missing("scePthreadSelf"));
+        } else {
+            void* self = self_fn();
+            std::uint64_t mask = 0;
+            int prio = -1;
+            if (!aff_fn) v.set("thread_mask", missing("scePthreadGetaffinity"));
+            else if (const int a = aff_fn(self, &mask); a) v.set("thread_mask", "rc " + hex(static_cast<std::uint32_t>(a)));
+            else {
+                v.set("thread_mask", hex(mask));
+                v.set("thread_cpus", cpu_list(mask));
+            }
+            if (!prio_fn) v.set("thread_prio", missing("scePthreadGetprio"));
+            else if (const int p = prio_fn(self, &prio); p) v.set("thread_prio", "rc " + hex(static_cast<std::uint32_t>(p)));
+            else v.set("thread_prio", static_cast<std::int64_t>(prio));
+        }
+    }
+    if (enter(o, "cpu.cpuset", v, "process_cpus")) {
+        const auto fn = KFN(cpuset_getaffinity);
+        cpuset_t set;
+        CPU_ZERO(&set);
+        if (!fn) {
+            v.set("process_cpus", missing("cpuset_getaffinity"));
+        } else if (fn(CPU_LEVEL_WHICH, CPU_WHICH_PID, -1, sizeof set, &set) == 0) {
+            std::uint64_t m = 0;
+            for (int c = 0; c < 64; ++c)
+                if (CPU_ISSET(c, &set)) m |= 1ull << c;
+            v.set("process_cpus", cpu_list(m));
+        } else {
+            v.set("process_cpus", err("cpuset_getaffinity"));
+        }
+    }
+    {
+        JsonValue scratch = JsonValue::object();
+        if (enter(o, "cpu.current_cpu", scratch, "x")) {
+            current_cpu = KFN(sceKernelGetCurrentCpu);
+            if (current_cpu) (void)current_cpu();
+            else v.set("cpus_used", missing("sceKernelGetCurrentCpu"));
+        } else {
+            v.set("cpus_used", scratch["x"]);
+        }
+    }
+#endif
+    if (!enter(o, "cpu.sha256", v, "sha256_mb_s_by_threads")) return v;
+    constexpr std::size_t kBlock = 0x40000, kTotal = 16u << 20, kBlocks = kTotal / kBlock;
+    std::vector<std::uint8_t> data(kTotal);
+    std::uint32_t x = 2463534242u;
+    for (auto& b : data) {
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        b = static_cast<std::uint8_t>(x);
+    }
+    std::atomic<std::uint64_t> seen{0};
+    JsonValue by = JsonValue::object();
+    for (unsigned n = 1; n <= 16; n *= 2) {
+        const auto t0 = Clock::now();
+        std::vector<std::thread> pool;
+        for (unsigned i = 0; i < n; ++i)
+            pool.emplace_back([&, i] {
+                // 4 passes, so a thread lives long enough to be moved around.
+                for (int pass = 0; pass < 4; ++pass)
+                    for (std::size_t b = i; b < kBlocks; b += n) {
+                        if (current_cpu) {
+                            const int c = current_cpu();
+                            if (c >= 0 && c < 64) seen.fetch_or(1ull << c, std::memory_order_relaxed);
+                        }
+                        Sha256 h;
+                        h.update(Bytes(data.data() + b * kBlock, kBlock));
+                        (void)h.finish();
+                    }
+            });
+        for (std::thread& th : pool) th.join();
+        const double s = seconds_since(t0);
+        by.set(std::to_string(n), s > 0 ? 4.0 * kTotal / 1e6 / s : 0.0);
+    }
+    v.set("sha256_mb_s_by_threads", std::move(by));
+    if (seen.load()) v.set("cpus_used", cpu_list(seen.load()));
+    return v;
+}
+
+#if defined(__PROSPERO__)
+
 JsonValue process_section(const Options& o) {
     JsonValue v = JsonValue::object();
-    v.set("pid", static_cast<std::int64_t>(getpid()));
-    v.set("ppid", static_cast<std::int64_t>(getppid()));
-    v.set("uid", static_cast<std::int64_t>(getuid()));
-    v.set("euid", static_cast<std::int64_t>(geteuid()));
-    v.set("gid", static_cast<std::int64_t>(getgid()));
-    char cwd[512] = {};
-    v.set("cwd", getcwd(cwd, sizeof cwd) ? std::string(cwd) : err("getcwd"));
-    int jailed = -1;
-    std::size_t len = sizeof jailed;
-    if (sysctlbyname("security.jail.jailed", &jailed, &len, nullptr, 0) == 0) v.set("jailed", jailed != 0);
-    else v.set("jailed", err("sysctl"));
-    int ncpu = 0;
-    len = sizeof ncpu;
-    if (sysctlbyname("hw.ncpu", &ncpu, &len, nullptr, 0) == 0) v.set("hw_ncpu", static_cast<std::int64_t>(ncpu));
-    v.set("cpumode", static_cast<std::int64_t>(sceKernelGetCpumode()));
-    v.set("neo_mode", static_cast<std::int64_t>(sceKernelIsNeoMode()));
-    v.set("direct_memory_mb", static_cast<std::int64_t>(sceKernelGetDirectMemorySize() >> 20));
-    (void)o;
+    if (enter(o, "process.ids", v, "pid")) {
+        v.set("pid", static_cast<std::int64_t>(getpid()));
+        v.set("uid", static_cast<std::int64_t>(getuid()));
+        v.set("euid", static_cast<std::int64_t>(geteuid()));
+        v.set("gid", static_cast<std::int64_t>(getgid()));
+    }
+    if (enter(o, "process.libkernel", v, "libkernel")) {
+        std::string how;
+        (void)kernel_handle(&how);
+        v.set("libkernel", how);
+    }
+    if (enter(o, "process.sysctl", v, "jailed")) {
+        int jailed = -1;
+        std::size_t len = sizeof jailed;
+        if (sysctlbyname("security.jail.jailed", &jailed, &len, nullptr, 0) == 0) v.set("jailed", jailed != 0);
+        else v.set("jailed", err("sysctl"));
+        int ncpu = 0;
+        len = sizeof ncpu;
+        if (sysctlbyname("hw.ncpu", &ncpu, &len, nullptr, 0) == 0) v.set("hw_ncpu", static_cast<std::int64_t>(ncpu));
+    }
+    if (enter(o, "process.kernel", v, "cpumode")) {
+        const auto cpumode = KFN(sceKernelGetCpumode);
+        const auto neo = KFN(sceKernelIsNeoMode);
+        v.set("cpumode", cpumode ? JsonValue(static_cast<std::int64_t>(cpumode())) : JsonValue(missing("sceKernelGetCpumode")));
+        v.set("neo_mode", neo ? JsonValue(static_cast<std::int64_t>(neo())) : JsonValue(missing("sceKernelIsNeoMode")));
+        v.set("direct_memory_mb", static_cast<std::int64_t>(sceKernelGetDirectMemorySize() >> 20));
+    }
     return v;
 }
 
@@ -202,35 +290,39 @@ JsonValue process_section(const Options& o) {
 // can be mapped and touched in 64 MB pieces up to the cap (all released).
 JsonValue memory_section(const Options& o) {
     JsonValue v = JsonValue::object();
-    std::uint64_t lo = 0, hi = 4096;  // MB
-    while (lo < hi) {
-        const std::uint64_t mid = (lo + hi + 1) / 2;
-        void* p = std::malloc(static_cast<std::size_t>(mid) << 20);
-        if (p) {
-            std::free(p);
-            lo = mid;
-        } else {
-            hi = mid - 1;
+    if (enter(o, "memory.malloc", v, "largest_malloc_mb")) {
+        std::uint64_t lo = 0, hi = 4096;  // MB
+        while (lo < hi) {
+            const std::uint64_t mid = (lo + hi + 1) / 2;
+            void* p = std::malloc(static_cast<std::size_t>(mid) << 20);
+            if (p) {
+                std::free(p);
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
         }
+        v.set("largest_malloc_mb", static_cast<std::int64_t>(lo));
     }
-    v.set("largest_malloc_mb", static_cast<std::int64_t>(lo));
-    constexpr std::size_t kPiece = 64u << 20;
-    std::vector<void*> pieces;
-    const auto t0 = Clock::now();
-    std::string stop = "cap reached";
-    while (pieces.size() * 64 < o.mem_cap_mb) {
-        void* p = mmap(nullptr, kPiece, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
-        if (p == MAP_FAILED) {
-            stop = err("mmap");
-            break;
+    if (enter(o, "memory.mmap", v, "mapped_touched_mb")) {
+        constexpr std::size_t kPiece = 64u << 20;
+        std::vector<void*> pieces;
+        const auto t0 = Clock::now();
+        std::string stop = "cap reached";
+        while (pieces.size() * 64 < o.mem_cap_mb) {
+            void* p = mmap(nullptr, kPiece, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+            if (p == MAP_FAILED) {
+                stop = err("mmap");
+                break;
+            }
+            for (std::size_t at = 0; at < kPiece; at += 0x4000) static_cast<volatile std::uint8_t*>(p)[at] = 1;
+            pieces.push_back(p);
         }
-        for (std::size_t at = 0; at < kPiece; at += 0x4000) static_cast<volatile std::uint8_t*>(p)[at] = 1;
-        pieces.push_back(p);
+        v.set("mapped_touched_mb", static_cast<std::int64_t>(pieces.size() * 64));
+        v.set("mapped_stop", stop);
+        v.set("mapped_seconds", seconds_since(t0));
+        for (void* p : pieces) munmap(p, kPiece);
     }
-    v.set("mapped_touched_mb", static_cast<std::int64_t>(pieces.size() * 64));
-    v.set("mapped_stop", stop);
-    v.set("mapped_seconds", seconds_since(t0));
-    for (void* p : pieces) munmap(p, kPiece);
     return v;
 }
 
@@ -265,11 +357,15 @@ bool try_write(const std::string& dir, std::string* why) {
 
 JsonValue files_section(const Options& o, std::vector<std::string>* writable) {
     JsonValue v = JsonValue::object();
-    std::string statfs_note;
-    const StatfsFn statfs_call = statfs_fn(&statfs_note);
-    v.set("statfs", statfs_note);
+    StatfsFn statfs_call = nullptr;
+    if (enter(o, "files.statfs", v, "statfs")) {
+        std::string note;
+        statfs_call = statfs_fn(&note);
+        v.set("statfs", note);
+    }
     for (const PathCheck& pc : kPaths) {
-        if (o.step) o.step(std::string("files ") + pc.path);
+        const std::string name = std::string("files ") + pc.path;
+        if (!enter(o, name, v, pc.path)) continue;
         JsonValue e = JsonValue::object();
         struct stat st {};
         if (stat(pc.path, &st) != 0) {
@@ -355,6 +451,11 @@ JsonValue io_one(const std::string& dir) {
 }
 
 std::string tcp_listen(std::uint16_t port, std::uint16_t* bound) {
+    const auto bind_fn = KFN(bind);
+    const auto listen_fn = KFN(listen);
+    const auto name_fn = KFN(getsockname);
+    if (!bind_fn) return missing("bind");
+    if (!listen_fn) return missing("listen");
     const int s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) return err("socket");
     int one = 1;
@@ -364,11 +465,11 @@ std::string tcp_listen(std::uint16_t port, std::uint16_t* bound) {
     a.sin_port = htons(port);
     a.sin_addr.s_addr = htonl(INADDR_ANY);
     std::string out = "ok";
-    if (bind(s, reinterpret_cast<sockaddr*>(&a), sizeof a) != 0) out = err("bind");
-    else if (listen(s, 4) != 0) out = err("listen");
-    else if (bound) {
+    if (bind_fn(s, reinterpret_cast<sockaddr*>(&a), sizeof a) != 0) out = err("bind");
+    else if (listen_fn(s, 4) != 0) out = err("listen");
+    else if (bound && name_fn) {
         socklen_t len = sizeof a;
-        getsockname(s, reinterpret_cast<sockaddr*>(&a), &len);
+        name_fn(s, reinterpret_cast<sockaddr*>(&a), &len);
         *bound = ntohs(a.sin_port);
     }
     close(s);
@@ -389,20 +490,26 @@ std::string tcp_connect_local(std::uint16_t port) {
 
 JsonValue network_section(const Options& o) {
     JsonValue v = JsonValue::object();
-    std::uint16_t port = 0;
-    std::string r = tcp_listen(0, &port);
-    v.set("listen_any_port", r == "ok" ? "ok, got " + std::to_string(port) : r);
-    v.set("listen_5949", tcp_listen(5949, nullptr));
+    if (enter(o, "network.listen", v, "listen_any_port")) {
+        std::uint16_t port = 0;
+        const std::string r = tcp_listen(0, &port);
+        v.set("listen_any_port", r == "ok" ? "ok, got " + std::to_string(port) : r);
+        v.set("listen_5949", tcp_listen(5949, nullptr));
+    }
     // The engine's port (the ELF loader's is left alone: it would take the
     // empty connection for a payload).
-    v.set("connect_engine_5940", tcp_connect_local(5940));
-    const int u = socket(AF_INET, SOCK_DGRAM, 0);
-    if (u >= 0) {
-        int one = 1;
-        v.set("udp_broadcast", setsockopt(u, SOL_SOCKET, SO_BROADCAST, &one, sizeof one) == 0 ? "ok" : err("setsockopt"));
-        close(u);
+    if (enter(o, "network.connect", v, "connect_engine_5940")) v.set("connect_engine_5940", tcp_connect_local(5940));
+    if (enter(o, "network.udp", v, "udp_broadcast")) {
+        const int u = socket(AF_INET, SOCK_DGRAM, 0);
+        if (u >= 0) {
+            int one = 1;
+            v.set("udp_broadcast", setsockopt(u, SOL_SOCKET, SO_BROADCAST, &one, sizeof one) == 0 ? "ok" : err("setsockopt"));
+            close(u);
+        } else {
+            v.set("udp_broadcast", err("socket"));
+        }
     }
-    if (o.https) {
+    if (o.https && enter(o, "network.https", v, "https_github")) {
         const auto t0 = Clock::now();
         auto got = https_get("https://api.github.com/zen", 4096);
         v.set("https_github", got.ok() ? "ok" : got.error().message);
@@ -411,12 +518,14 @@ JsonValue network_section(const Options& o) {
     return v;
 }
 
-JsonValue modules_section() {
+JsonValue modules_section(const Options& o) {
     JsonValue v = JsonValue::object();
     for (const char* path : {"/system/common/lib/libSceAppInstUtil.sprx", "/system/common/lib/libSceBgft.sprx",
                              "/system/common/lib/libSceSystemService.sprx"}) {
+        const std::string name = std::strrchr(path, '/') + 1;
+        if (!enter(o, "modules " + name, v, name)) continue;
         const int rc = sceKernelLoadStartModule(path, 0, nullptr, 0, nullptr, nullptr);
-        v.set(std::strrchr(path, '/') + 1, rc >= 0 ? "handle " + std::to_string(rc) : "rc " + hex(static_cast<std::uint32_t>(rc)));
+        v.set(name, rc >= 0 ? "handle " + std::to_string(rc) : "rc " + hex(static_cast<std::uint32_t>(rc)));
     }
     return v;
 }
@@ -426,25 +535,22 @@ JsonValue modules_section() {
 } // namespace
 
 JsonValue run(const Options& o) {
-    auto step = [&](const char* name) {
-        if (o.step) o.step(name);
-    };
     JsonValue v = JsonValue::object();
     v.set("process", o.process);
     const auto t0 = Clock::now();
 #if defined(__PROSPERO__)
     v.set("platform", "ps5");
-    step("process");
+#if defined(ALEMBIC_PROBE_DYNAMIC)
+    v.set("imports", "looked up at run time");
+#else
+    v.set("imports", "linked");
+#endif
     v.set("identity", process_section(o));
-    step("cpu");
-    v.set("cpu", cpu_section());
-    step("memory");
+    v.set("cpu", cpu_section(o));
     v.set("memory", memory_section(o));
-    step("files");
     std::vector<std::string> writable;
     v.set("files", files_section(o, &writable));
     if (o.io) {
-        step("io");
         JsonValue io = JsonValue::object();
         // /data and the first USB or extended drive that took a test file.
         bool drive = false;
@@ -452,19 +558,16 @@ JsonValue run(const Options& o) {
             const bool is_drive = d.rfind("/mnt/", 0) == 0;
             if (d != "/data" && !(is_drive && !drive)) continue;
             drive = drive || is_drive;
-            io.set(d, io_one(d));
+            if (enter(o, "io " + d, io, d)) io.set(d, io_one(d));
         }
         v.set("io", std::move(io));
     }
-    step("network");
     v.set("network", network_section(o));
-    step("modules");
-    v.set("modules", modules_section());
+    v.set("modules", modules_section(o));
 #else
     v.set("platform", "pc");
     v.set("note", "only CPU is measured off the console");
-    step("cpu");
-    v.set("cpu", cpu_section());
+    v.set("cpu", cpu_section(o));
 #endif
     v.set("seconds", seconds_since(t0));
     return v;
