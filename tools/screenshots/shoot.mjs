@@ -57,7 +57,12 @@ await shot("convert");
 await run(`__alembic.closeOverlay(null)`);
 await sleep(500);
 
-// 3. Queue: give the speed estimate a few seconds of samples.
+// 3. Images: every image in ShadowMount+'s folders, AMPR emulators to update.
+await run(`__alembic.showTab("images")`);
+await sleep(1500);
+await shot("images");
+
+// 3b. Queue: give the speed estimate a few seconds of samples.
 await run(`__alembic.showTab("queue")`);
 await sleep(6000);
 await shot("queue");

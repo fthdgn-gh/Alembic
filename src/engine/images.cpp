@@ -17,14 +17,16 @@ namespace alembic::engine::images {
 
 namespace {
 
-bool has_image_extension(const std::string& name) {
+// The kind of a file Images lists, by extension; "" for any other file.
+std::string kind_of_file(const std::string& name) {
     std::string lower = name;
     for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    for (const char* ext : {".exfat", ".ffpfsc", ".ffpkg", ".ffpfs"}) {
-        const std::size_t n = std::strlen(ext);
-        if (lower.size() > n && lower.compare(lower.size() - n, n, ext) == 0) return true;
+    for (const char* ext : {"exfat", "ffpfsc", "ffpkg", "ffpfs", "pkg"}) {
+        const std::size_t n = std::strlen(ext) + 1;
+        if (lower.size() > n && lower[lower.size() - n] == '.' && lower.compare(lower.size() - n + 1, n - 1, ext) == 0)
+            return std::strcmp(ext, "pkg") == 0 ? "fpkg" : ext;
     }
-    return false;
+    return "";
 }
 
 bool is_game_folder(const std::string& path) {
@@ -35,19 +37,20 @@ void scan_dir(const std::string& dir, int depth, std::vector<Found>& out, std::v
     auto entries = list_directory_entries(dir);
     if (!entries.ok()) return;
     for (const DirEntry& e : *entries) {
-        if (e.name.empty() || e.name[0] == '.' || e.name == "backports") continue;
+        if (e.name.empty() || e.name == "." || e.name == ".." || e.name == "backports") continue;
+        const bool hidden = e.name[0] == '.';
         const std::string path = join_path(dir, e.name);
         if (std::find(seen.begin(), seen.end(), path) != seen.end()) continue;
         if (e.stat.kind == PathKind::directory) {
             if (is_game_folder(path)) {
                 seen.push_back(path);
-                out.push_back({path, ""});
-            } else if (depth > 0) {
+                out.push_back({path, "folder", dir, 0, e.stat.mtime, ""});
+            } else if (depth > 0 && !hidden) { // a hidden folder is not searched (.Trashes, say)
                 scan_dir(path, depth - 1, out, seen);
             }
-        } else if (has_image_extension(e.name)) {
+        } else if (const std::string kind = kind_of_file(e.name); !kind.empty()) {
             seen.push_back(path);
-            out.push_back({path, ""});
+            out.push_back({path, kind, dir, e.stat.size, e.stat.mtime, ""});
         }
     }
 }
@@ -86,8 +89,11 @@ JsonValue emulators_json(const EngineConfig& config) {
 
 } // namespace
 
-std::vector<std::string> scan_dirs(const EngineConfig& config) {
+std::vector<std::string> scan_dirs(const EngineConfig& config, const std::vector<std::string>& custom) {
     std::vector<std::string> dirs;
+    for (const std::string& d : custom)
+        if (!d.empty()) dirs.push_back(without_trailing_slashes(d));
+    if (!dirs.empty()) return dirs;
     if (!config.shadowmount_config.empty())
         if (auto text = read_text(config.shadowmount_config, 1u << 20); text.ok())
             for (std::size_t at = 0; at < text->size();) {
@@ -121,15 +127,19 @@ std::vector<Found> scan(const std::vector<std::string>& dirs) {
     return out;
 }
 
-std::optional<JsonValue> evaluate(const Found& found, const EngineConfig& config, bool* unreadable) {
-    if (unreadable) *unreadable = false;
+JsonValue ampr_of(const Found& found, const EngineConfig& config) {
+    JsonValue v = JsonValue::object();
+    if (found.kind == "fpkg") return JsonValue(); // installed, it uses the console's APR
     auto state = ampr_state(found.path, std::string(32, '0'));
     if (!state) {
-        if (unreadable) *unreadable = true;
-        return std::nullopt;
+        v.set("status", "unreadable");
+        return v;
     }
-    if (!state->imports) return std::nullopt;
-    const bool folder = is_directory(found.path);
+    v.set("zstd_packs", state->zstd_packs);
+    if (!state->imports) {
+        v.set("status", "none");
+        return v;
+    }
     // Which emulator it runs with: ShadowMount+'s backport when it named one,
     // else the one Alembic would find (backports_root_for), else the game's.
     std::string sha, where;
@@ -166,10 +176,7 @@ std::optional<JsonValue> evaluate(const Found& found, const EngineConfig& config
         else if (ours_known && update::compare_versions(ours_known->version, known->version) > 0) status = "update";
         else status = "current"; // the game's build is as new as ours, or newer
     }
-    JsonValue v = JsonValue::object();
-    v.set("path", found.path);
-    v.set("title_id", state->title_id);
-    v.set("kind", folder ? "folder" : "image");
+    v.set("status", status);
     v.set("where", where);
     if (known) {
         JsonValue e = JsonValue::object();
@@ -180,10 +187,23 @@ std::optional<JsonValue> evaluate(const Found& found, const EngineConfig& config
     } else {
         v.set("emulator", JsonValue());
     }
-    v.set("status", status);
     v.set("target", target);
-    v.set("zstd_packs", state->zstd_packs);
+    return v;
+}
+
+JsonValue entry_json(const Found& found, const EngineConfig& config) {
+    JsonValue v = JsonValue::object();
+    const std::string name = base_name(found.path);
+    v.set("name", name);
+    v.set("path", found.path);
+    v.set("kind", found.kind);
+    if (found.kind == "folder") v.set("game", true);
+    else v.set("size", found.size);
+    v.set("mtime", found.mtime);
+    v.set("folder", found.folder);
+    v.set("hidden", !name.empty() && name[0] == '.');
     v.set("allowed", path_allowed(found.path, config.available_roots()));
+    v.set("ampr", ampr_of(found, config));
     return v;
 }
 
@@ -200,49 +220,49 @@ JsonValue Index::snapshot(std::int64_t max_age_s) {
     }
     JsonValue v = JsonValue::object();
     v.set("images", images_);
-    v.set("source", source_);
+    v.set("dirs", dirs_);
+    v.set("smp", smp_);
     v.set("refreshing", running_);
     v.set("updated", updated_);
-    v.set("others", others_);
-    v.set("unreadable", unreadable_);
     v.set("smp_update_emulators", smp_update_emulators_);
     v.set("emulators", emulators_json(config_));
     return v;
 }
 
 void Index::refresh() {
-    std::vector<Found> found;
-    std::string source = "scan";
+    std::vector<std::string> custom;
+    std::vector<std::pair<std::string, std::string>> backports; // path -> backport, from ShadowMount+
     JsonValue update_emulators;
+    bool smp = false;
     const smp::Endpoint endpoint = shadowmount_endpoint(config_);
     if (endpoint.enabled) {
-        if (auto reply = smp::post(endpoint, "/api/v1/games", JsonValue::object(), 8000); reply.ok()) {
-            source = "shadowmount";
-            for (const JsonValue& g : (*reply)["games"].items()) {
-                const std::string type = g["source_type"].str();
-                if (type != "folder" && type != "image") continue; // installed packages use the console's APR
-                const std::string path = without_trailing_slashes(g["path"].str());
-                if (path.empty() || !path_exists(path)) continue;
-                found.push_back({path, g["backport_path"].str()});
-            }
-        }
-        if (auto s = smp::post(endpoint, "/api/v1/settings", JsonValue::object()); s.ok())
+        if (auto s = smp::post(endpoint, "/api/v1/settings", JsonValue::object()); s.ok()) {
+            smp = true;
             if ((*s)["update_emulators"].type() == JsonValue::Type::boolean) update_emulators = (*s)["update_emulators"];
+            for (const JsonValue& d : (*s)["scan_paths"].items()) custom.push_back(d.str());
+        }
+        if (auto reply = smp::post(endpoint, "/api/v1/games", JsonValue::object(), 8000); reply.ok()) {
+            smp = true;
+            for (const JsonValue& g : (*reply)["games"].items())
+                if (!g["backport_path"].str().empty())
+                    backports.emplace_back(without_trailing_slashes(g["path"].str()), g["backport_path"].str());
+        }
     }
-    if (source == "scan") found = scan(scan_dirs(config_));
+    const std::vector<std::string> dirs = scan_dirs(config_, custom);
+    std::vector<Found> found = scan(dirs);
     JsonValue list = JsonValue::array();
-    std::int64_t others = 0, unreadable = 0;
-    for (const Found& f : found) {
-        bool bad = false;
-        if (auto v = evaluate(f, config_, &bad)) list.push(std::move(*v));
-        else if (bad) ++unreadable;
-        else ++others;
+    for (Found& f : found) {
+        for (const auto& [path, backport] : backports)
+            if (path == f.path) f.backport = backport;
+        list.push(entry_json(f, config_));
     }
+    JsonValue dirs_json = JsonValue::array();
+    for (const std::string& d : dirs)
+        if (is_directory(d)) dirs_json.push(d);
     std::lock_guard<std::mutex> lock(mutex_);
     images_ = std::move(list);
-    source_ = source;
-    others_ = others;
-    unreadable_ = unreadable;
+    dirs_ = std::move(dirs_json);
+    smp_ = smp;
     smp_update_emulators_ = update_emulators;
     updated_ = unix_now();
     running_ = false;

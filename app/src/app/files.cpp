@@ -12,8 +12,6 @@ using namespace style;
 using draw::Face;
 using hui::gfx::Align;
 
-namespace {
-
 const char* kind_label(const std::string& kind) {
     if (kind == "fpkg") return "PKG";
     if (kind == "exfat") return "EXFAT";
@@ -24,8 +22,6 @@ const char* kind_label(const std::string& kind) {
     if (kind == "file") return "FILE";
     return "";
 }
-
-}  // namespace
 
 bool is_convertible(const Entry& e) {
     return e.kind == "fpkg" || e.kind == "exfat" || e.kind == "ffpfsc" || e.kind == "ffpkg" || e.kind == "ffpfs" ||

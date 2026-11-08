@@ -3,7 +3,7 @@
 # made-up games, a paired PC and live jobs, captured as the PS5 browser shows
 # it (1600x900 at 2x) by a headless Chromium-based browser.
 #
-#   tools/screenshots/shoot.sh [name]     # files, convert, queue, engines; default: all
+#   tools/screenshots/shoot.sh [name]     # files, convert, images, queue, engines; default: all
 #
 # Needs Node 22+, a build (build/alembic-engine) and Chrome, or another
 # Chromium browser named by BROWSER=/path/to/binary. Writes docs/screenshots/.

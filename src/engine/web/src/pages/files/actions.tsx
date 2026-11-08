@@ -17,27 +17,35 @@ import { openDest } from "../../dialogs/FolderPicker";
 import { getNeeds } from "../../dialogs/getNeeds";
 import { browse } from "./browse";
 import { startSelecting } from "../../state/selection";
+import { loadImages } from "../../state/images";
+import { updateAmpr } from "../images/ampr";
+import type { ImageItem } from "../../api/types";
 
-export async function openActions(e: Entry) {
-  if (cwd.value === "/") return;
+// In Images (`lib`, the tab's item): the same, less what moves or renames
+// files (Open, Places, Copy, Move, Rename, plain Hide), plus the update of
+// the game's AMPR emulator when a newer build is out.
+export async function openActions(e: Entry, lib?: ImageItem) {
+  if (!lib && cwd.value === "/") return;
   const conv = isConvertible(e);
   const items: { label: string; sub?: string; danger?: boolean; value: () => void }[] = [];
-  if (e.kind === "folder" && e.path !== cwd.value) items.push({ label: t("Open"), value: () => browse(e.path) });
+  if (!lib && e.kind === "folder" && e.path !== cwd.value) items.push({ label: t("Open"), value: () => browse(e.path) });
   if (conv) items.push({ label: t("Convert…"), sub: t("To FFPFSC, FFPKG, exFAT or a folder"), value: () => openConvert(e) });
   // An image or folder installed like a package: converted, installed, the package deleted.
   if (conv && e.kind !== "fpkg" && info.value && info.value.platform === "ps5")
     items.push({ label: t("Install…"), sub: t("Converts it to a package, installs it, then deletes the package"), value: () => openConvert(e, true) });
   if (e.kind === "fpkg") items.push({ label: t("Install"), sub: t("Hand it to the console's installer"), value: () => installPkg(e) });
+  const amprUpdate = lib && lib.ampr && (lib.ampr.status === "update" || lib.ampr.status === "not_downloaded") ? lib : null;
+  if (amprUpdate) items.push({ label: t("Update the AMPR emulator"), sub: t("{old} → the newest build of its kind", { old: amprUpdate.ampr!.emulator ? amprUpdate.ampr!.emulator.name : "" }), value: () => updateAmpr([amprUpdate]) });
   if (conv && e.kind !== "fpkg") items.push({ label: t("Add the AMPR emulator…"), sub: t("For games that stop at start from an image or folder"), value: () => addAmpr(e) });
   if (conv && e.kind !== "fpkg") items.push(isHiddenName(e.name)
     ? { label: t("Show to ShadowMount+ again"), sub: t("Renames it back to {name}", { name: e.name.slice(1) }), value: () => toggleHidden(e.path) }
     : { label: t("Hide from ShadowMount+"), sub: t("Renames it to .{name}, so ShadowMount+ uses another copy of this game", { name: e.name }), value: () => toggleHidden(e.path) });
   // Any other file or folder (a package, say): hidden by its leading dot alone.
-  else items.push(isHiddenName(e.name)
+  else if (!lib) items.push(isHiddenName(e.name)
     ? { label: t("Unhide"), sub: t("Renames it back to {name}", { name: e.name.slice(1) }), value: () => toggleHidden(e.path, false, false) }
     : { label: t("Hide"), sub: t("Renames it to .{name}", { name: e.name }), value: () => toggleHidden(e.path, false, false) });
   // Places (this engine's or a paired one's): shared with every paired engine.
-  if (e.kind === "folder" && cwd.value !== "/") {
+  if (!lib && e.kind === "folder" && cwd.value !== "/") {
     const isPlace = locations.value.some((l) => l.custom && l.path === e.path);
     items.push(isPlace ? { label: t("Remove from Places"), value: () => setPlace(e.path, false) }
       : { label: t("Add to Places"), sub: t("Shows it in Places and Save to, here and on paired engines"), value: () => setPlace(e.path, true) });
@@ -45,10 +53,10 @@ export async function openActions(e: Entry) {
   // A paired engine's usual destination (Settings > Other engines), for a copy without converting.
   const peerPlace = locations.value.find((l) => !!l.peer) || peerDrives.value.map((d) => ({ path: d.root, label: d.engine }))[0];
   if (peerPlace && !e.shared) items.push({ label: t("Send to another engine…"), sub: t("A copy as it is, without converting"), value: () => openDest(e, "copy", peerPlace.path) });
-  items.push({ label: t("Copy to…"), value: () => openDest(e, "copy") }, { label: t("Move to…"), value: () => openDest(e, "move") },
+  if (!lib) items.push({ label: t("Copy to…"), value: () => openDest(e, "copy") }, { label: t("Move to…"), value: () => openDest(e, "move") },
     { label: t("Rename…"), value: () => renameEntry(e) });
   // Not the folder you are in (its ⋯ button): a row of the list.
-  if (e.path !== cwd.value) items.push({ label: t("Select…"), sub: t("Tick several files to act on them together"), value: () => startSelecting(e) });
+  if (lib || e.path !== cwd.value) items.push({ label: t("Select…"), sub: t("Tick several files to act on them together"), value: () => startSelecting(e) });
   items.push({ label: t("Delete…"), danger: true, value: () => deleteEntry(e) });
   const fn = await choose(e.name, items);
   if (fn) fn();
@@ -87,6 +95,7 @@ export async function toggleHidden(path: string, quiet?: boolean, smp = true) {
     if (!smp) {
       if (!quiet) toast(t("Renamed to {name}", { name }), "ok");
       if (tab.value === "files" && cwd.value === dir(path)) browse(cwd.value, false, dir(path) + "/" + name);
+      if (tab.value === "images") loadImages(true);
       return true;
     }
     let scanned = true;
@@ -94,6 +103,7 @@ export async function toggleHidden(path: string, quiet?: boolean, smp = true) {
     if (!quiet) toast(isHiddenName(name) ? (scanned ? t("Hidden from ShadowMount+; it is rescanning") : t("Hidden from ShadowMount+"))
       : (scanned ? t("Visible to ShadowMount+ again; it is rescanning") : t("Visible to ShadowMount+ again")), "ok");
     if (tab.value === "files" && cwd.value === dir(path)) browse(cwd.value, false, dir(path) + "/" + name);
+    if (tab.value === "images") loadImages(true);
     return true;
   } catch (err: any) { toast(tMsg(err.message), "bad"); return false; }
 }
@@ -219,6 +229,6 @@ async function deleteEntry(e: Entry) {
     <p class="muted">{t("This can't be undone.")}</p>
   </div>;
   if (!await ask({ title: t("Delete"), body, ok: t("Delete"), danger: true })) return;
-  try { await api("POST", "/api/fs/delete", { path: e.path }); toast(t("Deleted {name}", { name: e.name }), "ok"); browse(cwd.value!, false); loadInfo().catch(() => {}); }
+  try { await api("POST", "/api/fs/delete", { path: e.path }); toast(t("Deleted {name}", { name: e.name }), "ok"); if (tab.value === "images") loadImages(true); else browse(cwd.value!, false); loadInfo().catch(() => {}); }
   catch (err: any) { toast(tMsg(err.message), "bad"); }
 }

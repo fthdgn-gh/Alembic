@@ -20,7 +20,7 @@ kit="$repo/third_party/ps5-homebrew-ui"
 app="$repo/app"
 work="$repo/build-app"
 out=${1:-$work/preview}
-script=${2:-"shot:files r1 wait:1 shot:queue r1 wait:1 shot:deps r1 wait:1 shot:settings"}
+script=${2:-"shot:files r1 wait:1 shot:images r1 wait:1 shot:queue r1 wait:1 shot:deps r1 wait:1 shot:settings"}
 mkdir -p "$work" "$out"
 export PS5_CLANG=${PS5_CLANG:-$(command -v clang-18 || command -v clang || echo clang)}
 source "$app/tools/host_env.sh"

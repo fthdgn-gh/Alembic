@@ -84,8 +84,8 @@ void switch_ampr(App& app, const Entry& e, const JsonValue& plan) {
 
 // ---------------------------------------------------------------- Options
 
-void App::open_actions(const Entry& e) {
-    if (cwd == "/") return;
+void App::open_actions(const Entry& e, const JsonValue* lib) {
+    if (!lib && cwd == "/") return;
     const bool conv = is_convertible(e);
     std::vector<Choice> items;
     auto add = [&](std::string label, std::string sub, bool danger, std::function<void()> act) {
@@ -96,7 +96,7 @@ void App::open_actions(const Entry& e) {
         c.act = std::move(act);
         items.push_back(std::move(c));
     };
-    if (e.kind == "folder" && e.path != cwd) add(t("Open"), "", false, [this, e] { browse(e.path); });
+    if (!lib && e.kind == "folder" && e.path != cwd) add(t("Open"), "", false, [this, e] { browse(e.path); });
     if (conv) add(t("Convert\xE2\x80\xA6"), t("To FFPFSC, FFPKG, exFAT or a folder"), false, [this, e] { open_convert(e); });
     // An image or folder installed like a package: converted, installed, the package deleted.
     if (conv && e.kind != "fpkg" && is_ps5())
@@ -130,6 +130,12 @@ void App::open_actions(const Entry& e) {
                 });
         };
         add(t("Install"), t("Hand it to the console's installer"), false, [install] { install(); });
+    }
+    if (lib && ((*lib)["ampr"]["status"].str() == "update" || (*lib)["ampr"]["status"].str() == "not_downloaded")) {
+        const JsonValue item = *lib;
+        add(t("Update the AMPR emulator"),
+            t("{old} \xE2\x86\x92 the newest build of its kind", {{"old", item["ampr"]["emulator"]["name"].str()}}), false,
+            [this, item] { images_->update_ampr(*this, {item}); });
     }
     if (conv && e.kind != "fpkg")
         add(t("Add the AMPR emulator\xE2\x80\xA6"), t("For games that stop at start from an image or folder"), false, [this, e] {
@@ -204,6 +210,8 @@ void App::open_actions(const Entry& e) {
             add(t("Hide from ShadowMount+"),
                 t("Renames it to .{name}, so ShadowMount+ uses another copy of this game", {{"name", e.name}}), false,
                 [this, e] { toggle_hidden(e.path); });
+    } else if (lib) {
+        // Images: packages are not hidden from ShadowMount+ (it does not run them).
     } else if (is_hidden_name(e.name)) {
         // Any other file or folder (a package, say): hidden by its leading dot alone.
         add(t("Unhide"), t("Renames it back to {name}", {{"name", e.name.substr(1)}}), false,
@@ -212,7 +220,7 @@ void App::open_actions(const Entry& e) {
         add(t("Hide"), t("Renames it to .{name}", {{"name", e.name}}), false, [this, e] { toggle_hidden(e.path, false, false); });
     }
     // Places (this engine's or a paired one's): shared with every paired engine.
-    if (e.kind == "folder") {
+    if (!lib && e.kind == "folder") {
         bool is_place = false;
         for (const auto& l : locations.items()) is_place = is_place || (l["custom"].boolean() && l["path"].str() == e.path);
         if (is_place)
@@ -229,11 +237,13 @@ void App::open_actions(const Entry& e) {
     if (!peer_place.empty() && !e.shared)
         add(t("Send to another engine\xE2\x80\xA6"), t("A copy as it is, without converting"), false,
             [this, e, peer_place] { open_dest(&e, "copy", peer_place); });
-    add(t("Copy to\xE2\x80\xA6"), "", false, [this, e] { open_dest(&e, "copy", ""); });
-    add(t("Move to\xE2\x80\xA6"), "", false, [this, e] { open_dest(&e, "move", ""); });
-    add(t("Rename\xE2\x80\xA6"), "", false, [this, e] { rename_entry(e); });
+    if (!lib) {
+        add(t("Copy to\xE2\x80\xA6"), "", false, [this, e] { open_dest(&e, "copy", ""); });
+        add(t("Move to\xE2\x80\xA6"), "", false, [this, e] { open_dest(&e, "move", ""); });
+        add(t("Rename\xE2\x80\xA6"), "", false, [this, e] { rename_entry(e); });
+    }
     // A row of the list (not the folder you are in, its ⋯ button).
-    if (e.path != cwd)
+    if (lib || e.path != cwd)
         add(t("Select\xE2\x80\xA6"), t("Tick several files to act on them together"), false, [this, e] { start_selecting(e); });
     add(t("Delete\xE2\x80\xA6"), "", true, [this, e] {
         std::string body = "!" + std::string(e.kind == "folder" ? t("Delete this folder and everything in it?")
@@ -246,7 +256,8 @@ void App::open_actions(const Entry& e) {
             req.set("path", e.path);
             api("POST", "/api/fs/delete", req, or_toast([this, e](const Reply&) {
                     toast(t("Deleted {name}", {{"name", e.name}}), Toast::ok);
-                    browse(cwd);
+                    if (tab == Tab::images) refresh_images();
+                    else browse(cwd);
                     load_info();
                 }),
                 0, 120000);
@@ -323,6 +334,7 @@ void App::toggle_hidden(const std::string& path, bool quiet, bool smp) {
         if (!smp) {
             if (!quiet) toast(t("Renamed to {name}", {{"name", name}}), Toast::ok);
             if (tab == Tab::files && cwd == dir(path)) browse(cwd, dir(path) + "/" + name);
+            if (tab == Tab::images) refresh_images();
             return;
         }
         post("/api/smp/scan", JsonValue::object(), [this, path, name, quiet](const Reply& r) {
@@ -336,6 +348,7 @@ void App::toggle_hidden(const std::string& path, bool quiet, bool smp) {
                           Toast::ok);
             }
             if (tab == Tab::files && cwd == dir(path)) browse(cwd, dir(path) + "/" + name);
+            if (tab == Tab::images) refresh_images();
         });
     }));
 }

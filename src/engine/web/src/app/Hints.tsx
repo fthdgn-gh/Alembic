@@ -10,13 +10,14 @@ import { goBack, cycleTab, leaveAll } from "../input/history";
 import { openActions } from "../pages/files/actions";
 import { openBulkActions } from "../pages/files/bulk";
 import { selecting, isSelected } from "../state/selection";
+import { focusImage } from "../pages/images/ImagesPage";
 
 // Hints come from the screen on top: the open overlay, else the current tab.
 export function Hints() {
   const top = topOverlay();
   let list: Hint[];
   if (top) list = top.hints || [["x", t("Choose")], ["o", t("Back"), goBack]];
-  else if (tab.value === "files" && selecting.value) {
+  else if ((tab.value === "files" || tab.value === "images") && selecting.value) {
     // Selecting: ✕ ticks, □ acts on the ticked ones, ○ ends it.
     const e = focusEntry.value;
     list = [["x", e && isSelected(e) ? t("Untick") : t("Tick")], ["s", t("Actions"), openBulkActions], ["o", t("Done"), goBack]];
@@ -26,6 +27,12 @@ export function Hints() {
     if (c && c !== "/") list.push(["o", t("Back"), goBack]);
     if (e && c !== "/") list.push(["s", t("Options"), () => openActions(e)]);
     list.push(["lr", t("Sections"), () => cycleTab(1)]);
+  } else if (tab.value === "images") {
+    // As in Files: ✕ converts, □ the focused one's options.
+    const i = focusImage.value;
+    list = [["x", i ? t("Convert") : t("Choose")]];
+    if (i) list.push(["s", t("Options"), () => openActions(i, i)]);
+    list.push(["o", t("Back"), goBack], ["lr", t("Sections"), () => cycleTab(1)]);
   } else list = [["x", t("Choose")], ["o", t("Back"), goBack], ["lr", t("Sections"), () => cycleTab(1)]];
   // Leaving is for the console's own browser (one more ○ then closes it).
   if (!top && IS_PS5) list.push(["l2r2", t("Leave"), leaveAll]);

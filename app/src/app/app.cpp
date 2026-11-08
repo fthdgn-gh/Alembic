@@ -61,6 +61,7 @@ App::App(Engine& e, Platform p) : engine(e), platform(std::move(p)) {
     files_ = std::make_unique<FilesPage>();
     queue_ = std::make_unique<QueuePage>();
     deps_ = std::make_unique<DepsPage>();
+    images_ = std::make_unique<ImagesPage>();
     settings_ = std::make_unique<SettingsPage>();
     prefs = JsonValue::object();
     std::string saved;
@@ -632,8 +633,10 @@ void App::refresh_listing() {
 
 void App::show_tab(Tab next) {
     if (tab == next) return;
+    if (selecting) stop_selecting();  // a selection is one list's
     tab = next;
     if (next == Tab::deps) deps_->load(*this);
+    if (next == Tab::images) images_->load(*this, false);
     if (next == Tab::settings) settings_->opened(*this);
 }
 
@@ -843,6 +846,7 @@ void App::frame(Ui& ui) {
         case Tab::files: files_->build(ui, *this, area); break;
         case Tab::queue: queue_->build(ui, *this, area); break;
         case Tab::deps: deps_->build(ui, *this, area); break;
+        case Tab::images: images_->build(ui, *this, area); break;
         case Tab::settings: settings_->build(ui, *this, area); break;
         }
     }
@@ -877,15 +881,22 @@ void App::frame(Ui& ui) {
 
 void App::handle_global(Ui& ui) {
     if (ui.pressed(Action::page_prev) || ui.pressed(Action::page_next)) {
-        static const Tab order[] = {Tab::files, Tab::queue, Tab::deps, Tab::settings};
+        static const Tab order[] = {Tab::files, Tab::images, Tab::queue, Tab::deps, Tab::settings};
         int i = 0;
         while (order[i] != tab) ++i;
-        i = (i + (ui.pressed(Action::page_next) ? 1 : 3)) % 4;
+        i = (i + (ui.pressed(Action::page_next) ? 1 : 4)) % 5;
         show_tab(order[i]);
         ui.play(hui::audio::Cue::tab);
         return;
     }
     if (!answered) return;
+    if (tab == Tab::images) {
+        if (ui.pressed(Action::west)) images_->square(*this);
+        if (ui.pressed(Action::back) && selecting) {  // ○ ends selecting
+            ui.play(hui::audio::Cue::back);
+            stop_selecting();
+        }
+    }
     if (tab == Tab::files) {
         if (ui.pressed(Action::west)) files_->square(*this);
         if (ui.pressed(Action::back) && selecting) {  // ○ ends selecting, in the same folder
@@ -906,6 +917,8 @@ std::vector<Hint> App::page_hints() {
     std::vector<Hint> list;
     if (tab == Tab::files) {
         list = files_->hints(*this);
+    } else if (tab == Tab::images) {
+        list = images_->hints(*this);
     } else {
         list = {{Glyph::cross, t("Choose")}};
     }
@@ -940,7 +953,7 @@ void App::draw_header(Ui& ui) {
         Tab id;
         std::string label;
     };
-    const TabDef tabs[] = {{Tab::files, t("Files")}, {Tab::queue, t("Queue")}, {Tab::deps, t("Components")},
+    const TabDef tabs[] = {{Tab::files, t("Files")}, {Tab::images, t("Images")}, {Tab::queue, t("Queue")}, {Tab::deps, t("Components")},
                            {Tab::settings, t("Settings")}};
     for (const auto& td : tabs) {
         const float s = 1.05f * R;

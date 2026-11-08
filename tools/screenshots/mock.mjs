@@ -62,6 +62,23 @@ const DIRS = {
 const PACKS = { "/data/homebrew/Echoes of Arden.exfat": "zstd", "/data/homebrew/Neon Harbor.ffpkg": "lz4" };
 // A decrypted dump whose executables are plain ELF: conversions fake-sign them.
 const UNSIGNED = { "/data/homebrew/Quiet Orbit": 3 };
+// The Images tab: what ShadowMount+'s folders hold, with the made-up games'
+// AMPR emulators (one of each state; PS4 games and packages have none to show).
+const EMU = { ampr_emu: { id: "ampr_runtime", name: "ampr_emu" }, ng: { id: "ampr_runtime_ng", name: "ampr-emu-ng" } };
+const AMPR = {
+  "Echoes of Arden.exfat": { status: "update", emulator: { ...EMU.ng, name: "ampr-emu-ng 0.3.2", version: "0.3.2" }, where: "backport", target: "ampr_runtime_ng", zstd_packs: true },
+  "Paper Kingdoms.ffpfsc": { status: "update", emulator: { ...EMU.ampr_emu, name: "ampr_emu 0.3.6.6-test", version: "0.3.6.6-test" }, where: "backport", target: "ampr_runtime" },
+  "Quiet Orbit": { status: "missing", emulator: null, where: "", target: "ampr_runtime" },
+  "Starlight Drift.ffpfs": { status: "unknown", emulator: null, where: "game", target: "ampr_runtime" },
+  "Neon Harbor.ffpkg": { status: "current", emulator: { ...EMU.ampr_emu, name: "ampr_emu 0.4.2.1", version: "0.4.2.1" }, where: "game", target: "ampr_runtime" },
+};
+const IMAGES = {
+  images: ["/data/homebrew", "/mnt/usb0/homebrew"].flatMap((dir) => DIRS[dir].map((e) => ({ ...e, folder: dir, hidden: false, allowed: true,
+    ampr: e.kind === "fpkg" ? null : AMPR[e.name] || { status: "none", zstd_packs: false } }))),
+  dirs: ["/data/homebrew", "/mnt/usb0/homebrew"], smp: true, refreshing: false, updated: mt, smp_update_emulators: false,
+  emulators: [{ id: "ampr_runtime", label: "AMPR emulator (ampr_emu)", name: "ampr_emu", version: "0.4.2.1", latest: "0.4.2.1", downloaded: true, in_use: true },
+    { id: "ampr_runtime_ng", label: "AMPR emulator (ampr-emu-ng)", name: "ampr-emu-ng", version: "0.3.3", latest: "0.3.3", downloaded: true, in_use: false }],
+};
 DIRS["/peer/" + PC + "/D:"] = [{ name: "Games", path: PCROOT, kind: "folder", mtime: mt }];
 
 const SPACE = [{ root: "/data", total: 825 * GB, free: 312 * GB }, { root: "/mnt/usb0", total: 2000 * GB, free: 1460 * GB }];
@@ -207,6 +224,7 @@ http.createServer((req, res) => {
     if (p === "/api/peer-drives") return send(res, 200, PEER_DRIVES);
     if (p === "/api/peers") return send(res, 200, PEERS);
     if (p === "/api/deps") return send(res, 200, DEPS);
+    if (p === "/api/images") return send(res, 200, IMAGES);
     if (p === "/api/pair/incoming") return send(res, 200, {});
     if (p === "/api/lang") return send(res, 200, {});
     if (p === "/api/jobs" && !T0) T0 = now();

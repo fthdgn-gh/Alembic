@@ -5,7 +5,7 @@ import type { Entry, Listing } from "../api/types";
 import { info } from "./engine";
 import { IS_PS5 } from "../lib/env";
 
-export const TABS = ["files", "queue", "deps", "settings"] as const;
+export const TABS = ["files", "images", "queue", "deps", "settings"] as const;
 export type Tab = (typeof TABS)[number];
 
 export const tab = signal<Tab>("files");

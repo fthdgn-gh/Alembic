@@ -1,0 +1,396 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Images (pages/images/ImagesPage.tsx): every image, game folder and package
+// in the folders ShadowMount+ scans (hidden ones too), grouped by folder,
+// with what Files offers for them except moving and renaming (open_actions
+// and the bulk actions with `lib`), and each game's AMPR emulator: an update
+// when a newer build of it is out, keeping the game's emulator.
+#include "app/dialogs.hpp"
+#include "app/pages.hpp"
+
+#include <algorithm>
+#include <memory>
+
+namespace alembic::app {
+
+using namespace style;
+using draw::Face;
+using hui::gfx::Align;
+
+namespace {
+
+bool uses_apr(const std::string& s) {
+    return s == "current" || s == "update" || s == "missing" || s == "unknown" || s == "not_downloaded";
+}
+
+JsonValue spec_of(const JsonValue& i) {
+    JsonValue job = JsonValue::object();
+    job.set("kind", "ampr_emu");
+    job.set("input", i["path"].str());
+    job.set("ampr_emu", i["ampr"]["status"].str() == "missing" ? "auto" : "replace");
+    job.set("emulator", i["ampr"]["target"].str());
+    return job;
+}
+
+std::string sort_name(const std::string& name) { return !name.empty() && name[0] == '.' ? name.substr(1) : name; }
+
+}  // namespace
+
+void App::refresh_images() { images_->load(*this, true); }
+
+void ImagesPage::load(App& app, bool refresh) {
+    app.get(refresh ? "/api/images?refresh=1" : "/api/images", [this, &app](const Reply& r) {
+        if (!r.ok()) {
+            app.toast(t_msg(r.error()), App::Toast::bad);
+            return;
+        }
+        data_ = r.json;
+        loaded = true;
+        // The rows, in the order they are drawn: by folder, then by name.
+        std::vector<JsonValue> list = data_["images"].items();
+        std::stable_sort(list.begin(), list.end(), [](const JsonValue& a, const JsonValue& b) {
+            const std::string fa = a["folder"].str(), fb = b["folder"].str();
+            return fa != fb ? fa < fb : sort_name(a["name"].str()) < sort_name(b["name"].str());
+        });
+        JsonValue sorted = JsonValue::array();
+        app.image_entries.clear();
+        for (auto& i : list) {
+            app.image_entries.push_back(entry_from(i));
+            sorted.push(std::move(i));
+        }
+        data_.set("images", std::move(sorted));
+    });
+}
+
+const JsonValue* ImagesPage::item(const std::string& path) const {
+    for (const auto& i : data_["images"].items())
+        if (i["path"].str() == path) return &i;
+    return nullptr;
+}
+
+bool ImagesPage::is_pending(const std::string& path) const {
+    return std::find(pending_.begin(), pending_.end(), path) != pending_.end();
+}
+
+bool ImagesPage::updatable(const JsonValue& i) const {
+    const std::string s = i["ampr"]["status"].str();
+    return i["allowed"].boolean() && !is_pending(i["path"].str()) && (s == "update" || s == "missing" || s == "not_downloaded");
+}
+
+std::string ImagesPage::target_name(const JsonValue& i) const {
+    const std::string id = i["ampr"]["target"].str();
+    for (const auto& e : data_["emulators"].items())
+        if (e["id"].str() == id) return e["version"].str().empty() ? e["name"].str() : e["name"].str() + " " + e["version"].str();
+    return id;
+}
+
+// Emulators not downloaded yet are asked for once, for all of them; then a
+// job each.
+void ImagesPage::queue(App& app, std::vector<JsonValue> list, std::function<void(int)> done) {
+    struct State {
+        std::vector<JsonValue> list;
+        JsonValue needs = JsonValue::array();
+        std::size_t asked = 0;
+    };
+    auto st = std::make_shared<State>();
+    st->list = std::move(list);
+    auto run_jobs = [this, &app, st, done](bool ok) {
+        if (!ok) return;
+        auto queued = std::make_shared<int>(0);
+        auto left = std::make_shared<std::size_t>(st->list.size());
+        for (const JsonValue& i : st->list) {
+            const std::string path = i["path"].str();
+            app.post("/api/jobs", spec_of(i), [this, &app, path, queued, left, done](const Reply& r) {
+                if (r.ok()) {
+                    ++*queued;
+                    pending_.push_back(path);
+                } else {
+                    app.toast(base(path) + ": " + t_msg(r.error()), App::Toast::bad);
+                }
+                if (--*left == 0) {
+                    if (*queued) app.refresh_jobs();
+                    done(*queued);
+                }
+            });
+        }
+    };
+    if (st->list.empty()) return done(0);
+    for (const JsonValue& i : st->list) {
+        app.api("POST", "/api/plan", spec_of(i), [&app, st, run_jobs](const Reply& r) {
+            if (r.ok())
+                for (const auto& d : r.json["needs"].items()) {
+                    bool seen = false;
+                    for (const auto& y : st->needs.items()) seen = seen || y["id"].str() == d["id"].str();
+                    if (!seen) st->needs.push(d);
+                }
+            if (++st->asked < st->list.size()) return;
+            JsonValue plan = JsonValue::object();
+            plan.set("output", "");
+            plan.set("needs", st->needs);
+            app.get_needs(plan, "This needs {name}, which isn't downloaded yet.", run_jobs);
+        }, 1, 120000);
+    }
+}
+
+void ImagesPage::update_ampr(App& app, std::vector<JsonValue> list, std::function<void()> after) {
+    std::vector<JsonValue> todo;
+    for (const auto& i : list)
+        if (updatable(i) || (i["ampr"]["status"].str() == "unknown" && i["allowed"].boolean())) todo.push_back(i);
+    if (todo.empty()) {
+        app.toast(t("Every image is up to date"), App::Toast::ok);
+        return;
+    }
+    if (todo.size() == 1) {
+        const JsonValue i = todo.front();
+        const std::string path = i["path"].str();
+        auto go = [this, &app, i, path, after] {
+            queue(app, {i}, [&app, path, after](int n) {
+                if (n) app.toast(t("Queued: {name}", {{"name", base(path)}}), App::Toast::ok);
+                if (n && after) after();
+            });
+        };
+        if (i["ampr"]["status"].str() != "unknown") return go();
+        std::string body = "@" + app.shown_path(path) + "\n\n";
+        body += t("This game has a libSceAmpr.sprx that is not an official build of either AMPR emulator. Replace it with {new}?",
+                  {{"new", target_name(i)}});
+        ask(app, t("Replace the AMPR emulator?"), text_body(body), t("Replace"), false, go);
+        return;
+    }
+    // Several: custom builds only one at a time.
+    todo.erase(std::remove_if(todo.begin(), todo.end(), [](const JsonValue& i) { return i["ampr"]["status"].str() == "unknown"; }),
+               todo.end());
+    long long add = 0;
+    std::string names;
+    for (std::size_t k = 0; k < todo.size(); ++k) {
+        if (todo[k]["ampr"]["status"].str() == "missing") ++add;
+        if (k < 6) names += (k ? "\n" : "@") + base(todo[k]["path"].str());
+    }
+    if (todo.size() > 6) names += "\n" + t("and {n} more", {{"n", std::to_string(todo.size() - 6)}});
+    std::string body = names + "\n\n~" +
+                       t("Each keeps its emulator (ampr_emu or ampr-emu-ng) and gets that one's newest build; a game without one gets the one in use.");
+    if (add) body += "\n\n~" + plural(add, "{n} of them has no emulator yet.", "{n} of them have no emulator yet.");
+    body += "\n\n~" + t("Game folders are changed in place; images are not changed: ShadowMount+ gets a backport folder for each.");
+    const long long n = static_cast<long long>(todo.size());
+    ask(app, plural(n, "Update {n} image?", "Update {n} images?"), text_body(body), t("Update"), false, [this, &app, todo, after] {
+        queue(app, todo, [&app, after](int queued) {
+            if (queued) app.toast(plural(queued, "{n} job queued", "{n} jobs queued"), App::Toast::ok);
+            if (queued && after) after();
+        });
+    });
+}
+
+void ImagesPage::update_all(App& app) {
+    std::vector<JsonValue> list;
+    for (const auto& i : data_["images"].items())
+        if (updatable(i)) list.push_back(i);
+    update_ampr(app, list);
+}
+
+void ImagesPage::square(App& app) {
+    if (app.selecting) return app.open_bulk_actions();
+    if (const JsonValue* i = item(focused_)) app.open_actions(entry_from(*i), i);
+}
+
+std::vector<Hint> ImagesPage::hints(App& app) {
+    if (app.selecting)
+        return {{Glyph::cross, app.is_selected(focused_) ? t("Untick") : t("Tick")}, {Glyph::square, t("Actions")},
+                {Glyph::circle, t("Done")}};
+    if (!item(focused_)) return {{Glyph::cross, t("Choose")}};
+    return {{Glyph::cross, t("Convert")}, {Glyph::square, t("Options")}};
+}
+
+void ImagesPage::build(Ui& ui, App& app, const Rect& area) {
+    if (!loaded && data_.is_null()) {
+        loaded = true;  // asked once per opening (show_tab asks again)
+        load(app, false);
+    }
+    // While the engine reads the folders, look again every second and a half.
+    if (data_["refreshing"].boolean() && ui.time > poll_at_) {
+        poll_at_ = ui.time + 1.5f;
+        load(app, false);
+    }
+    // A job ended (a conversion's output, an emulator put in place): read the
+    // folders again; AMPR jobs queued from here stop showing "queued" then.
+    {
+        std::size_t active = 0;
+        bool waiting = false;
+        for (const auto& j : app.jobs) {
+            if (!App::is_active(j)) continue;
+            ++active;
+            if (j["spec"]["kind"].str() == "ampr_emu" && is_pending(j["spec"]["input"].str())) waiting = true;
+        }
+        if (!pending_.empty() && !waiting) pending_.clear();
+        if (active < active_before_) load(app, true);
+        active_before_ = active;
+    }
+    const float w = std::min(62.0f * R, area.w - 2.0f * page_pad);
+    const float x = area.x + (area.w - w) * 0.5f;
+    ui.begin_zone("images", false, false);
+    const float offset = ui.begin_scroll("images", area);
+    float y = area.y - offset + 0.3f * R;
+    y += draw::paragraph(ui, Face::regular,
+                         t("Every image, game folder and package in the folders ShadowMount+ scans. For games that read their "
+                           "files through the console's APR, the AMPR emulator each one runs with: an update keeps the game's "
+                           "emulator and puts its newest build in place."),
+                         x + 0.2f * R, y, w - 0.4f * R, 1.0f * R, 1.45f * R, muted);
+    y += 1.0f * R;
+    if (data_["smp_update_emulators"].boolean()) {
+        const std::string note = t("ShadowMount+'s “update emulators” is on: when a game starts, it puts its own copy in place of a "
+                                   "matching emulator. Turn it off in ShadowMount+ for games that should keep the one shown here.");
+        const float nh = draw::paragraph_height(ui, Face::regular, note, w - 2.0f * R, 1.0f * R, 1.45f * R) + 1.6f * R;
+        ui.list->bordered_rect({x, y, w, nh}, radius, warn.with_alpha(0.08f), 1.0f, warn.with_alpha(0.35f));
+        draw::paragraph(ui, Face::regular, note, x + 1.0f * R, y + 0.8f * R, w - 2.0f * R, 1.0f * R, 1.45f * R, style::text);
+        y += nh + 1.0f * R;
+    }
+    const std::vector<JsonValue>& list = data_["images"].items();
+    int todo = 0;
+    for (const auto& i : list) todo += updatable(i) ? 1 : 0;
+    // The summary, then Check again and Update AMPR emulators.
+    {
+        const float bh = 0.7f * R + 0.9f * R * 1.45f + 2.0f;
+        const bool refreshing = data_["refreshing"].boolean();
+        const std::string all = todo ? t("Update AMPR emulators ({n})", {{"n", std::to_string(todo)}}) : t("Update AMPR emulators");
+        const float aw = draw::button_width(ui, all, true);
+        if (draw::button(ui, "images:all", {x + w - aw, y, aw, bh}, all, draw::Button::primary, true, todo == 0)) update_all(app);
+        const std::string again = t("Check again");
+        const float gw = draw::button_width(ui, again, true);
+        if (draw::button(ui, "images:again", {x + w - aw - 0.5f * R - gw, y, gw, bh}, again, draw::Button::normal, true,
+                         data_.is_null() || refreshing))
+            load(app, true);
+        std::string summary;
+        if (data_.is_null()) {
+            summary = t("Looking for images\xE2\x80\xA6");
+        } else if (refreshing && list.empty()) {
+            summary = t("Reading the games\xE2\x80\xA6");
+        } else {
+            summary = plural(static_cast<long long>(list.size()), "{n} item", "{n} items");
+            if (todo) summary += " \xC2\xB7 " + plural(todo, "{n} AMPR emulator to update", "{n} AMPR emulators to update");
+            if (refreshing) summary += " \xC2\xB7 " + t("Reading the games\xE2\x80\xA6");
+        }
+        draw::text_fit(ui, Face::regular, summary, x + 0.2f * R, draw::baseline(y + bh * 0.5f, 1.0f * R), 1.0f * R,
+                       w - aw - gw - 1.5f * R, muted);
+        y += bh + 0.4f * R;
+    }
+    DrawList& l = *ui.list;
+    if (!data_.is_null() && list.empty() && !data_["refreshing"].boolean()) {
+        draw::text(ui, Face::regular, t("No images, game folders or packages in ShadowMount+'s folders."), x + w * 0.5f,
+                   draw::baseline(y + 3.0f * R, 1.0f * R), 1.0f * R, muted, Align::center);
+        y += 6.0f * R;
+    }
+    std::string folder;
+    bool any_focused = false;
+    for (const JsonValue& i : list) {
+        const Entry e = entry_from(i);
+        if (i["folder"].str() != folder) {
+            folder = i["folder"].str();
+            y += section(ui, app.shown_path(folder), x + 0.3f * R, y);
+        }
+        const float h = 0.55f * R * 2.0f + 3.4f * R;
+        y += 0.15f * R;
+        const Rect r{x, y, w, h};
+        const Id id = Id("img") / e.path;
+        if (ui.item(id, r, 0, 0.7f * R)) {
+            if (app.selecting) app.toggle_selected(e.path);
+            else app.open_convert(e);
+        }
+        const bool f = ui.focused(id);
+        if (f) {
+            focused_ = e.path;
+            any_focused = true;
+        }
+        const bool ticked = app.selecting && app.is_selected(e.path);
+        if (ui.visible(r)) {
+            const Meta* m = app.meta(e.path, e.mtime, e.size);
+            const float alpha = i["hidden"].boolean() ? 0.6f : 1.0f;
+            if (ticked) l.rounded_rect(r, 0.7f * R, accent.with_alpha(0.08f));
+            if (f) l.rounded_rect(r, 0.7f * R, accent.with_alpha(0.12f));
+            const Rect icon{r.x + 0.75f * R, r.y + 0.55f * R, 3.4f * R, 3.4f * R};
+            const std::uint32_t tex = m && m->icon ? app.icon(e.path, e.mtime) : 0;
+            draw::ico(ui, icon, e.game ? "game" : e.kind, e.game ? t("GAME") : kind_label(e.kind), tex);
+            if (app.selecting) {  // the tick on the icon's corner (.row .tick)
+                const Rect tk{icon.x - 0.35f * R, icon.y - 0.35f * R, 1.3f * R, 1.3f * R};
+                l.rounded_rect(tk, tk.w * 0.5f, ticked ? accent : panel2);
+                if (ticked)
+                    draw::text(ui, Face::semibold, "\xE2\x9C\x93", tk.cx(), draw::baseline(tk.cy(), 0.9f * R), 0.9f * R, bg,
+                               Align::center);
+            }
+            const float text_x = icon.x + icon.w + 1.0f * R;
+            // ⋯ (Options), then the AMPR pill or the size.
+            float right_x = r.x + r.w - 0.75f * R;
+            const float ms = 1.35f * R;
+            draw::dots(ui, right_x - 0.75f * R - ms * 0.4f, r.cy(), ms, dim);
+            right_x -= 0.75f * R * 2.0f + ms * 0.8f + 1.0f * R;
+            const std::string status = i["ampr"]["status"].str();
+            std::string pill_state, pill;
+            if (is_pending(e.path)) {
+                pill_state = "queued";
+                pill = "queued";
+            } else if (status == "update") {
+                pill_state = "running";
+                pill = "update available";
+            } else if (status == "missing") {
+                pill_state = "failed";
+                pill = "no emulator";
+            } else if (status == "unknown") {
+                pill_state = "queued";
+                pill = "unknown build";
+            } else if (status == "not_downloaded") {
+                pill_state = "queued";
+                pill = "not downloaded here";
+            }
+            if (!pill.empty()) {
+                right_x -= draw::state_pill(ui, pill_state, t(pill), right_x, r.cy()) + 1.0f * R;
+            } else if (e.kind != "folder") {
+                const std::string sz = bytes(e.size);
+                const float zs = 0.9f * R;
+                draw::text(ui, Face::regular, sz, right_x, draw::baseline(r.cy(), zs), zs, muted, Align::right);
+                right_x -= draw::measure(ui, Face::regular, sz, zs) + 1.0f * R;
+            }
+            const float tw = right_x - text_x;
+            const float ts = 1.05f * R, ss = 0.82f * R;
+            const float t_cy = r.cy() - 0.5f * ss * 1.45f;
+            const float s_cy = r.cy() + 0.5f * ts * 1.45f - 0.05f * R;
+            draw::text_fit(ui, Face::regular, m && !m->title.empty() ? m->title : e.name, text_x, draw::baseline(t_cy, ts), ts, tw,
+                           style::text.with_alpha(alpha));
+            float pw = m ? draw::platform_pill(ui, m->platform, text_x, s_cy) : 0.0f;
+            if (pw) pw += 0.45f * R;
+            pw += draw::fmt_pill(ui, e.game ? "folder" : e.kind, e.game ? t("FOLDER") : kind_label(e.kind), text_x + pw, s_cy);
+            if (m && (m->packs == "lz4" || m->packs == "zstd"))
+                pw += 0.45f * R + draw::fmt_pill(ui, "packs", m->packs == "zstd" ? "ZSTD" : "LZ4", text_x + pw + 0.45f * R, s_cy);
+            if (i["hidden"].boolean()) pw += 0.45f * R + draw::fmt_pill(ui, "file", t("HIDDEN"), text_x + pw + 0.45f * R, s_cy);
+            std::string sub;
+            if (uses_apr(status)) {
+                if (i["ampr"]["emulator"].is_object()) {
+                    sub = i["ampr"]["emulator"]["name"].str() + " \xC2\xB7 " +
+                          (i["ampr"]["where"].str() == "backport" ? t("in its backport") : t("in the game"));
+                    if (status == "update" || status == "not_downloaded") sub += " \xE2\x86\x92 " + target_name(i);
+                } else {
+                    sub = status == "unknown" ? t("a libSceAmpr.sprx Alembic doesn't know") : t("no AMPR emulator");
+                }
+            } else {
+                std::vector<std::string> bits;
+                if (m && !m->title.empty()) bits.push_back(e.name);
+                if (m && !m->version.empty()) bits.push_back("v" + version_text(m->version));
+                if (m && !m->title_id.empty()) bits.push_back(m->title_id);
+                if (!m) bits.push_back(date(e.mtime));
+                for (std::size_t k = 0; k < bits.size(); ++k) sub += (k ? "  \xC2\xB7  " : "") + bits[k];
+            }
+            draw::text_fit(ui, Face::regular, sub, text_x + pw + 0.45f * R, draw::baseline(s_cy, ss), ss, tw - pw - 0.45f * R,
+                           muted);
+        }
+        y += h;
+    }
+    if (!any_focused) focused_.clear();
+    const JsonValue& dirs = data_["dirs"];
+    if (!dirs.items().empty()) {
+        std::string text;
+        for (const auto& d : dirs.items()) text += (text.empty() ? "" : ", ") + app.shown_path(d.str());
+        y += 1.0f * R;
+        y += draw::paragraph(ui, Face::regular, t("Folders searched: {list}", {{"list", text}}), x + 0.2f * R, y, w - 0.4f * R,
+                             0.9f * R, 1.4f * R, muted);
+    }
+    y += 2.0f * R;
+    ui.end_scroll(y + offset - area.y);
+    ui.end_zone();
+}
+
+}  // namespace alembic::app

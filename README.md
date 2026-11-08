@@ -218,6 +218,18 @@ Also on the page:
   file from that PC for the console to convert.
 - **ShadowMount+:** new images can be picked up without a restart, and
   sources can be hidden from it once converted.
+- **Images:** every image, game folder and package in the folders
+  ShadowMount+ scans (hidden ones too), grouped by folder, with what Files
+  offers for them except moving and renaming: Convert, Install, the AMPR
+  emulator, Hide from ShadowMount+, Send to another engine, Delete, and
+  Select for several at once. For games that use the APR it shows the
+  AMPR emulator each one runs with (in the game or its backport) and whether
+  a newer build is out; **Update AMPR emulators** puts the newest build of
+  each game's own emulator in place, or the one in use where a game has
+  none. Every official build of both emulators is recognised by the
+  SHA-256 GitHub publishes for it.
+
+  ![Images: the games in ShadowMount+'s folders, two AMPR emulators to update, one game without one and one with a build Alembic doesn't know](docs/screenshots/images.png)
 - **Components:** third-party files Alembic needs but doesn't ship (the AMPR
   emulators ampr_emu and ampr-emu-ng, ProsperoPkgTool's FPKG key files,
   LibOrbisPkg's licence and PS4 package keys) are downloaded on request from

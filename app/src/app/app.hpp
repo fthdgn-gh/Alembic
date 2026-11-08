@@ -51,6 +51,8 @@ struct Entry {
 };
 Entry entry_from(const JsonValue& v);
 bool is_convertible(const Entry& e);
+// "EXFAT", "FOLDER", ... for a kind (lib/kinds.ts KIND_LABEL); "" when unknown.
+const char* kind_label(const std::string& kind);
 
 struct Meta {
     std::string title, title_id, content_id, version;
@@ -59,7 +61,7 @@ struct Meta {
     bool icon = false;
 };
 
-enum class Tab { files, queue, deps, settings };
+enum class Tab { files, images, queue, deps, settings };
 
 enum class Glyph { cross, circle, square, triangle, l1r1, l2r2, dpad, options };
 struct Hint {
@@ -88,6 +90,7 @@ public:
 class FilesPage;
 class QueuePage;
 class DepsPage;
+class ImagesPage;
 class SettingsPage;
 
 class App {
@@ -172,6 +175,11 @@ public:
     // ---- Files (pages/files/browse.ts) ----
     std::string cwd;
     std::vector<Entry> entries;
+    std::vector<Entry> image_entries;  // the Images tab's rows (ImagesPage fills it)
+    // The rows a selection is made from: the folder's in Files, the list's in Images.
+    const std::vector<Entry>& rows() const { return tab == Tab::images ? image_entries : entries; }
+    // Reads the Images tab's folders again (after a change made from it).
+    void refresh_images();
     bool listing_loaded = false;
     std::string listing_path;
     std::string focus_after;  // the row to focus when the listing arrives
@@ -206,7 +214,9 @@ public:
     void remember_folder(const std::string& path);
 
     // ---- actions shared by pages and dialogs ----
-    void open_actions(const Entry& e);
+    // In Images (`lib`, the tab's item): the same, less what moves or renames
+    // files, plus the update of the game's AMPR emulator.
+    void open_actions(const Entry& e, const JsonValue* lib = nullptr);
     void open_convert(const Entry& e, bool install = false); // install: as "Install…" (FPKG, installed when done)
     void open_convert(const std::vector<Entry>& list, bool install = false); // several games, a job each
     void open_dest(const Entry* e, const std::string& kind, const std::string& start,
@@ -313,11 +323,13 @@ private:
     std::unique_ptr<FilesPage> files_;
     std::unique_ptr<QueuePage> queue_;
     std::unique_ptr<DepsPage> deps_;
+    std::unique_ptr<ImagesPage> images_;
     std::unique_ptr<SettingsPage> settings_;
 
     friend class FilesPage;
     friend class QueuePage;
     friend class DepsPage;
+    friend class ImagesPage;
     friend class SettingsPage;
 };
 

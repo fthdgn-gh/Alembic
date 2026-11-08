@@ -5,6 +5,7 @@ import { Overlays } from "../components/Overlay";
 import { Toasts } from "../components/Toasts";
 import { FilesPage } from "../pages/files/FilesPage";
 import { QueuePage } from "../pages/queue/QueuePage";
+import { ImagesPage } from "../pages/images/ImagesPage";
 import { DepsPage } from "../pages/deps/DepsPage";
 import { SettingsPage } from "../pages/settings/SettingsPage";
 import { Header } from "./Header";
@@ -16,6 +17,7 @@ export function App() {
     <>
       <Header />
       <FilesPage hidden={current !== "files"} />
+      <ImagesPage hidden={current !== "images"} />
       <QueuePage hidden={current !== "queue"} />
       <DepsPage hidden={current !== "deps"} />
       <SettingsPage hidden={current !== "settings"} />

@@ -61,7 +61,7 @@ function preferred(): HTMLElement | null {
 export function focusFirst() {
   const s = scope();
   if (s === document.body) {
-    const zone = ({ files: "list", queue: "queue", deps: "deps", settings: "settings" } as Record<string, string>)[tab.value];
+    const zone = ({ files: "list", images: "images", queue: "queue", deps: "deps", settings: "settings" } as Record<string, string>)[tab.value];
     const last = zoneLast[zone];
     if (last && last.isConnected && visible(last)) return focusEl(last);
     const inZone = candidates().filter((c) => zoneOf(c) === zone);

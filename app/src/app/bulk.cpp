@@ -229,7 +229,7 @@ void App::stop_selecting() {
 }
 std::vector<Entry> App::selected_entries() const {
     std::vector<Entry> out;
-    for (const auto& e : entries)
+    for (const auto& e : rows())
         if (is_selected(e.path)) out.push_back(e);
     return out;
 }
@@ -266,9 +266,13 @@ void App::open_bulk_actions() {
         images.push_back(e);
         (is_hidden_name(e.name) ? hidden : visible).push_back(e);
     }
-    auto done = [this] {
+    // In Images: the same, less Copy, Move, renaming and plain Hide, plus the
+    // update of the AMPR emulator of the ticked ones with a newer build.
+    const bool lib = tab == Tab::images;
+    auto done = [this, lib] {
         stop_selecting();
-        refresh_listing();
+        if (lib) refresh_images();
+        else refresh_listing();
     };
     if (!games.empty())
         add(t("Convert\xE2\x80\xA6"), some(games.size(), t("To FFPFSC, FFPKG, exFAT or a folder")), false,
@@ -301,6 +305,14 @@ void App::open_bulk_actions() {
                          });
                 });
         });
+    if (lib) {
+        std::vector<JsonValue> updatable;
+        for (const auto& e : all)
+            if (const JsonValue* item = images_->item(e.path); item && images_->updatable(*item)) updatable.push_back(*item);
+        if (!updatable.empty())
+            add(t("Update the AMPR emulator"), some(updatable.size(), t("The newest build of each one's emulator")), false,
+                [this, updatable, done] { images_->update_ampr(*this, updatable, done); });
+    }
     if (!images.empty())
         add(t("Add the AMPR emulator\xE2\x80\xA6"), some(images.size(), t("For games that stop at start from an image or folder")), false,
             [this, images, done] {
@@ -410,13 +422,13 @@ void App::open_bulk_actions() {
         if (std::any_of(images.begin(), images.end(), [&](const Entry& i) { return i.path == e.path; })) continue;
         (is_hidden_name(e.name) ? plain_hidden : plain_shown).push_back(e);
     }
-    if (!plain_shown.empty())
+    if (!plain_shown.empty() && !lib)
         add(t("Hide"), some(plain_shown.size(), t("Renames them to .name")), false,
             [hide_many, plain_shown] { hide_many(plain_shown, true, false); });
-    if (!plain_hidden.empty())
+    if (!plain_hidden.empty() && !lib)
         add(t("Unhide"), some(plain_hidden.size(), t("Renames them back without the leading dot")), false,
             [hide_many, plain_hidden] { hide_many(plain_hidden, false, false); });
-    if (!games.empty())
+    if (!games.empty() && !lib)
         add(t("Rename with a format\xE2\x80\xA6"), some(games.size(), t("Names from each game's title, title ID, version and format")),
             false, [this, games] {
                 get("/api/names", [this, games](const Reply& r) {
@@ -439,8 +451,10 @@ void App::open_bulk_actions() {
                 [this, local, peer_place, done] { open_dest_many(local, "copy", peer_place, done); });
         if (!local.empty()) {
             const std::string from = dir(local.front().path);
-            add(t("Copy to\xE2\x80\xA6"), some(local.size(), ""), false, [this, local, from, done] { open_dest_many(local, "copy", from, done); });
-            add(t("Move to\xE2\x80\xA6"), some(local.size(), ""), false, [this, local, from, done] { open_dest_many(local, "move", from, done); });
+            if (!lib) {
+                add(t("Copy to\xE2\x80\xA6"), some(local.size(), ""), false, [this, local, from, done] { open_dest_many(local, "copy", from, done); });
+                add(t("Move to\xE2\x80\xA6"), some(local.size(), ""), false, [this, local, from, done] { open_dest_many(local, "move", from, done); });
+            }
             add(t("Delete\xE2\x80\xA6"), some(local.size(), ""), true, [this, local, done] {
                 double size = 0;
                 bool folders = false;
@@ -473,10 +487,10 @@ void App::open_bulk_actions() {
             });
         }
     }
-    if (n < entries.size())
+    if (n < rows().size())
         add(t("Select all"), "", false, [this] {
             selected.clear();
-            for (const auto& e : entries) selected.push_back(e.path);
+            for (const auto& e : rows()) selected.push_back(e.path);
         });
     if (n) add(t("Clear the selection"), "", false, [this] { selected.clear(); });
     choose(*this, n ? plural(static_cast<long long>(n), "{n} selected", "{n} selected") : t("Nothing selected"), std::move(items));

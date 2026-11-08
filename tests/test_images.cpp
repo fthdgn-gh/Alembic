@@ -30,27 +30,37 @@ bool has(const std::vector<images::Found>& found, const std::string& path) {
 
 } // namespace
 
-TEST_CASE(images_scan_finds_folders_and_images) {
+TEST_CASE(images_scan_finds_folders_images_and_packages) {
     const std::string root = test::make_temp_dir();
     make_game(root + "/A", "PPSA00001", true);
     test::make_dir(root + "/group");
     make_game(root + "/group/B", "PPSA00002", true);  // one level down
-    make_game(root + "/.hidden", "PPSA00003", true);  // ShadowMount+ skips '.'
+    make_game(root + "/.hidden", "PPSA00003", true);  // hidden from ShadowMount+: listed
+    test::make_dir(root + "/.Trashes");
+    make_game(root + "/.Trashes/C", "PPSA00005", true); // inside a hidden folder: not searched
     test::make_dir(root + "/backports");
     make_game(root + "/backports/PPSA00004", "PPSA00004", true); // not a game source
     test::write_file(root + "/game.ffpfsc", std::vector<std::uint8_t>(16, 0));
+    test::write_file(root + "/game.PKG", std::vector<std::uint8_t>(16, 0));
     test::write_file(root + "/notes.txt", std::vector<std::uint8_t>(4, 0));
     const auto found = images::scan({root});
     CHECK(has(found, root + "/A"));
     CHECK(has(found, root + "/group/B"));
+    CHECK(has(found, root + "/.hidden"));
     CHECK(has(found, root + "/game.ffpfsc"));
-    CHECK(!has(found, root + "/.hidden"));
+    CHECK(has(found, root + "/game.PKG"));
+    CHECK(!has(found, root + "/.Trashes/C"));
     CHECK(!has(found, root + "/backports/PPSA00004"));
     CHECK(!has(found, root + "/notes.txt"));
-    CHECK(found.size() == 3);
+    CHECK(found.size() == 5);
+    for (const auto& f : found) {
+        if (f.path == root + "/game.PKG") CHECK(f.kind == "fpkg");
+        if (f.path == root + "/game.ffpfsc") CHECK(f.kind == "ffpfsc" && f.size == 16);
+        if (f.path == root + "/group/B") CHECK(f.kind == "folder" && f.folder == root + "/group");
+    }
 }
 
-TEST_CASE(images_evaluate_missing_unknown_and_no_apr) {
+TEST_CASE(images_entries_carry_the_ampr_state) {
     const std::string root = test::make_temp_dir();
     EngineConfig config;
     config.state_dir = root + "/state";
@@ -62,22 +72,19 @@ TEST_CASE(images_evaluate_missing_unknown_and_no_apr) {
     test::make_dir(root + "/custom/fakelib");
     test::write_file(root + "/custom/fakelib/libSceAmpr.sprx", std::vector<std::uint8_t>(64, 7));
 
-    auto needs = images::evaluate({root + "/needs", ""}, config);
-    CHECK(needs.has_value());
-    if (!needs) return;
-    CHECK((*needs)["status"].str() == "missing");
-    CHECK((*needs)["target"].str() == "ampr_runtime"); // nothing downloaded: ampr_emu
-    CHECK((*needs)["title_id"].str() == "PPSA00001");
-    CHECK((*needs)["allowed"].boolean());
+    auto needs = images::entry_json({root + "/needs", "folder", root, 0, 0, ""}, config);
+    CHECK(needs["name"].str() == "needs");
+    CHECK(needs["game"].boolean());
+    CHECK(!needs["hidden"].boolean());
+    CHECK(needs["allowed"].boolean());
+    CHECK(needs["ampr"]["status"].str() == "missing");
+    CHECK(needs["ampr"]["target"].str() == "ampr_runtime"); // nothing downloaded: ampr_emu
 
-    bool unreadable = true;
-    CHECK(!images::evaluate({root + "/plain", ""}, config, &unreadable).has_value());
-    CHECK(!unreadable);
+    CHECK(images::ampr_of({root + "/plain", "folder", root, 0, 0, ""}, config)["status"].str() == "none");
+    CHECK(images::ampr_of({root + "/x.pkg", "fpkg", root, 0, 0, ""}, config).is_null());
 
-    auto custom = images::evaluate({root + "/custom", ""}, config);
-    CHECK(custom.has_value());
-    if (!custom) return;
-    CHECK((*custom)["status"].str() == "unknown");
-    CHECK((*custom)["where"].str() == "game");
-    CHECK((*custom)["emulator"].is_null());
+    auto custom = images::ampr_of({root + "/custom", "folder", root, 0, 0, ""}, config);
+    CHECK(custom["status"].str() == "unknown");
+    CHECK(custom["where"].str() == "game");
+    CHECK(custom["emulator"].is_null());
 }

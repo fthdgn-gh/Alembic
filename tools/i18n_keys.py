@@ -21,6 +21,8 @@ keys |= set(re.findall(r'hint: "([^"]+)"', page))                            # F
 keys |= set(re.findall(r'\{ value: [0-9.]+, label: "([^"]+)" \}', page))     # SCALES
 dep_state = page[page.index("const DEP_STATE"):]
 keys |= {m for pair in re.findall(r'\["(\w+)", "([^"]+)"\]', dep_state[:dep_state.index(";")]) for m in pair[1:]}
+image_state = page[page.index("const IMAGE_STATE"):]                         # the Images tab's pills
+keys |= {m for pair in re.findall(r'\["(\w+)", "([^"]+)"\]', image_state[:image_state.index(";")]) for m in pair[1:]}
 ENGINE = [
     # job states and stages
     "queued", "running", "done", "failed", "cancelled", "interrupted", "paused",

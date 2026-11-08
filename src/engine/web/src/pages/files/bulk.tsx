@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// What can be done to the ticked entries at once (Files > □ > Select, then □).
+// What can be done to the ticked entries at once (Files or Images > □ > Select, then □).
 // Each action takes the entries it applies to and says so when that is not all.
 import { useEffect, useState } from "preact/hooks";
-import type { Entry, NameFormat, Plan, Dep } from "../../api/types";
+import type { Entry, NameFormat, Plan, Dep, ImageItem } from "../../api/types";
 import { api } from "../../api/client";
-import { cwd, listing } from "../../state/view";
+import { cwd, listing, tab } from "../../state/view";
+import { loadImages } from "../../state/images";
+import { amprUpdatable, updateAmpr } from "../images/ampr";
 import { info, locations, peerDrives, loadInfo } from "../../state/engine";
 import { refreshJobs } from "../../state/jobs";
-import { selectedEntries, selectAll, clearSelected, stopSelecting } from "../../state/selection";
+import { selectedEntries, selectAll, selectableCount, clearSelected, stopSelecting } from "../../state/selection";
 import { isConvertible, isHiddenName } from "../../lib/kinds";
 import { bytes, dir } from "../../lib/format";
 import { t, tMsg, plural } from "../../lib/i18n";
@@ -23,9 +25,12 @@ import { browse } from "./browse";
 
 type Item = { label: string; sub?: string; danger?: boolean; value: () => void };
 
+// In Images: the same, less Copy, Move, renaming and plain Hide, plus the
+// update of the AMPR emulator of the ticked ones that have a newer build.
 export async function openBulkActions() {
   const all = selectedEntries.value, n = all.length;
-  const total = listing.value ? listing.value.entries.length : 0;
+  const lib = tab.value === "images";
+  const total = selectableCount();
   const items: Item[] = [];
   // "3 of 5": an action that applies to only some of the ticked entries.
   const some = (k: number, sub?: string) => (k < n ? t("{n} of {total} selected", { n: k, total: n }) + (sub ? " · " + sub : "") : sub);
@@ -35,6 +40,8 @@ export async function openBulkActions() {
   if (games.length) items.push({ label: t("Convert…"), sub: some(games.length, t("To FFPFSC, FFPKG, exFAT or a folder")), value: () => openConvert(games) });
   if (images.length && onPs5) items.push({ label: t("Install…"), sub: some(images.length, t("Converts them to packages, installs them, then deletes the packages")), value: () => openConvert(images, true) });
   if (packages.length) items.push({ label: t("Install"), sub: some(packages.length, t("Hand them to the console's installer")), value: () => installMany(packages) });
+  const updatable = lib ? (all as ImageItem[]).filter(amprUpdatable) : [];
+  if (updatable.length) items.push({ label: t("Update the AMPR emulator"), sub: some(updatable.length, t("The newest build of each one's emulator")), value: () => updateAmpr(updatable).then(done) });
   if (images.length) items.push({ label: t("Add the AMPR emulator…"), sub: some(images.length, t("For games that stop at start from an image or folder")), value: () => amprMany(images) });
   const visible = images.filter((e) => !isHiddenName(e.name)), hidden = images.filter((e) => isHiddenName(e.name));
   if (visible.length) items.push({ label: t("Hide from ShadowMount+"), sub: some(visible.length, t("Renames them to .name, so ShadowMount+ uses other copies of these games")), value: () => hideMany(visible, true) });
@@ -42,16 +49,16 @@ export async function openBulkActions() {
   // Any other file or folder (packages too): hidden by the leading dot alone.
   const plain = all.filter((e) => !e.shared && images.indexOf(e) < 0);
   const plainShown = plain.filter((e) => !isHiddenName(e.name)), plainHidden = plain.filter((e) => isHiddenName(e.name));
-  if (plainShown.length) items.push({ label: t("Hide"), sub: some(plainShown.length, t("Renames them to .name")), value: () => hideMany(plainShown, true, false) });
-  if (plainHidden.length) items.push({ label: t("Unhide"), sub: some(plainHidden.length, t("Renames them back without the leading dot")), value: () => hideMany(plainHidden, false, false) });
-  if (games.length) items.push({ label: t("Rename with a format…"), sub: some(games.length, t("Names from each game's title, title ID, version and format")), value: () => renameMany(games) });
+  if (plainShown.length && !lib) items.push({ label: t("Hide"), sub: some(plainShown.length, t("Renames them to .name")), value: () => hideMany(plainShown, true, false) });
+  if (plainHidden.length && !lib) items.push({ label: t("Unhide"), sub: some(plainHidden.length, t("Renames them back without the leading dot")), value: () => hideMany(plainHidden, false, false) });
+  if (games.length && !lib) items.push({ label: t("Rename with a format…"), sub: some(games.length, t("Names from each game's title, title ID, version and format")), value: () => renameMany(games) });
   const local = all.filter((e) => !e.shared);
   const peerPlace = locations.value.find((l) => !!l.peer) || peerDrives.value.map((d) => ({ path: d.root, label: d.engine }))[0];
   if (n) {
     if (peerPlace && local.length) items.push({ label: t("Send to another engine…"), sub: some(local.length, t("Copies as they are, without converting")), value: () => copyMany(local, "copy", peerPlace.path) });
-    items.push({ label: t("Copy to…"), sub: some(local.length), value: () => copyMany(local, "copy") },
-      { label: t("Move to…"), sub: some(local.length), value: () => copyMany(local, "move") },
-      { label: t("Delete…"), danger: true, sub: some(local.length), value: () => deleteMany(local) });
+    if (!lib) items.push({ label: t("Copy to…"), sub: some(local.length), value: () => copyMany(local, "copy") },
+      { label: t("Move to…"), sub: some(local.length), value: () => copyMany(local, "move") });
+    items.push({ label: t("Delete…"), danger: true, sub: some(local.length), value: () => deleteMany(local) });
   }
   if (n < total) items.push({ label: t("Select all"), value: selectAll });
   if (n) items.push({ label: t("Clear the selection"), value: clearSelected });
@@ -64,7 +71,7 @@ function names(list: Entry[], max = 6) {
   const shown = list.slice(0, max).map((e) => e.name).join("\n");
   return list.length > max ? shown + "\n" + t("and {n} more", { n: list.length - max }) : shown;
 }
-function done() { stopSelecting(); if (cwd.value) browse(cwd.value, false); }
+function done() { stopSelecting(); if (tab.value === "images") loadImages(true); else if (cwd.value) browse(cwd.value, false); }
 function failures(failed: string[]) {
   if (failed.length) toast(failed.length > 1 ? t("{first} (and {n} more)", { first: failed[0], n: failed.length - 1 }) : failed[0], "bad");
 }

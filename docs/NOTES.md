@@ -3051,6 +3051,44 @@ release: see "components follow their latest releases" below.)
   HTTP: the lock is gone. The installer read it as it read the other
   package (probes, SI, SC, then the PFS in 18 MiB ranges in order).
 
+### 2026-11-08: the Images tab
+
+- **Why (owner):** games carrying an AMPR emulator (in the image or a
+  backport) need it updated now and then; first a tab for that, then
+  (owner, same day) a library: every image, game folder and package in
+  ShadowMount+'s folders with Files' actions except moving and renaming.
+  Owner's picks: tab named Images; it lists games that need an emulator too;
+  an update keeps each game's emulator kind; Hide from ShadowMount+, Select
+  several, Send to another engine (not Copy to a folder), Delete; packages
+  listed.
+- **Engine (`src/engine/images.cpp`, `GET /api/images`, `?refresh=1`):**
+  scans ShadowMount+'s scan paths (its API's `scan_paths`, else config.ini's
+  `scanpath`, else its defaults; on a PC `<state>/homebrew`) two levels
+  deep: game folders, `.exfat/.ffpfsc/.ffpkg/.ffpfs/.pkg`, hidden `.name`
+  ones too (not inside hidden folders, not `backports`). Each entry has
+  Files' fields plus folder, hidden, allowed and `ampr` {status (current,
+  update, missing, unknown, not_downloaded, none, unreadable), emulator,
+  where, target, zstd_packs}; null for packages. ShadowMount+'s
+  `/api/v1/games` only supplies `backport_path`; its `update_emulators`
+  setting is shown as a note. Built on its own thread, cached 10 min.
+- **Naming builds:** the components check now also reads each emulator
+  repo's last 100 releases and keeps every `libSceAmpr.sprx*` asset's
+  GitHub digest in components.json `known` (ampr_emu's older releases name
+  them `libSceAmpr.sprx-0.3.6.1-test-debug` and so on: version
+  "0.3.6.1-test-debug"); 22 builds of both at the time.
+- **Updating:** "ampr_emu" jobs as before (`replace` with the game's kind,
+  `auto` with the one in use where there is none, ampr-emu-ng for zstd
+  packs); emulators not downloaded are asked for once
+  (`pages/images/ampr.tsx`, app `images.cpp`). An unknown build is replaced
+  only one at a time, after a question.
+- **Page and app:** Files' Options and bulk menus take a library mode
+  (`openActions(e, item)`, bulk with `tab === "images"`; app
+  `open_actions(e, &item)`, bulk with `tab == Tab::images`); selection works
+  on the current tab's rows. ✕ Convert, □ Options, as in Files. The list
+  reads its folders again when a job ends. README screenshot
+  `docs/screenshots/images.png` from the stand-in engine (mock.mjs).
+- **Not tried on a console yet.**
+
 ### 2026-11-08: Probe Bench, the engine's checks in a game process
 
 - **Why (owner):** do the ELF payload's process and a game process differ,

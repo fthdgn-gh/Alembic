@@ -227,3 +227,30 @@ export type Spaces = "keep" | "none" | "_" | "." | "-";
 export type Letters = "keep" | "upper" | "lower";
 export interface NameFormat { pattern: string; spaces: Spaces; letters: Letters; sample?: string; warning?: string }
 export interface NameSuggestion { name: string; pattern: string; warning: string; shortened?: boolean }
+
+// GET /api/images (0.5.5): every image, game folder and package in
+// ShadowMount+'s folders, as Files lists them, with each game's AMPR emulator.
+export type AmprStatus = "current" | "update" | "missing" | "unknown" | "not_downloaded" | "none" | "unreadable";
+export interface ImageAmpr {
+  status: AmprStatus;
+  emulator?: { id: string; name: string; version: string } | null;
+  where?: "game" | "backport" | "";
+  target?: string; // the emulator (component id) an Update or Add uses
+  zstd_packs?: boolean;
+}
+export interface ImageItem extends Entry {
+  folder: string;  // the folder it is in (the list groups by it)
+  hidden: boolean; // ".name": ShadowMount+ skips it
+  allowed: boolean; // inside the engine's folders (jobs can reach it)
+  ampr: ImageAmpr | null; // null for packages
+}
+export interface ImagesEmulator { id: string; label: string; name: string; version: string; latest: string; downloaded: boolean; in_use: boolean }
+export interface ImagesList {
+  images: ImageItem[];
+  dirs: string[]; // the folders searched (those that exist)
+  smp: boolean;   // ShadowMount+'s API answered
+  refreshing: boolean;
+  updated: number;
+  smp_update_emulators: boolean | null;
+  emulators: ImagesEmulator[];
+}

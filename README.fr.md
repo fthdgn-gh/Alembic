@@ -242,6 +242,19 @@ Aussi sur la page :
   partager un fichier de ce PC pour que la console le convertisse.
 - **ShadowMount+ :** les nouvelles images peuvent être prises en compte sans
   redémarrage, et les sources peuvent lui être masquées une fois converties.
+- **Images :** toutes les images, dossiers de jeu et paquets des dossiers
+  analysés par ShadowMount+ (les masqués aussi), groupés par dossier, avec
+  tout ce que propose Fichiers sauf déplacer et renommer : Convertir,
+  Installer, l'émulateur AMPR, Masquer à ShadowMount+, Envoyer à un autre
+  moteur, Supprimer, et Sélectionner pour en traiter plusieurs. Pour les jeux
+  qui utilisent l'APR, l'onglet montre l'émulateur AMPR avec lequel chacun
+  fonctionne (dans le jeu ou dans son backport) et si une version plus
+  récente est sortie ; **Mettre à jour les émulateurs AMPR** installe la
+  version la plus récente de l'émulateur de chaque jeu, ou celui qui est
+  utilisé là où un jeu n'en a pas. Chaque version officielle des deux
+  émulateurs est reconnue au SHA-256 que GitHub publie pour elle.
+
+  ![Images : les jeux des dossiers de ShadowMount+, deux émulateurs AMPR à mettre à jour, un jeu sans émulateur et un autre avec une version qu'Alembic ne connaît pas](docs/screenshots/images.png)
 - **Composants :** les fichiers tiers dont Alembic a besoin mais qu'il ne
   fournit pas (les émulateurs AMPR ampr_emu et ampr-emu-ng, les fichiers de clés
   FPKG de ProsperoPkgTool, les clés de licence et de paquets PS4 de

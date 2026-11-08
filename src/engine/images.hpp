@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The Images tab (GET /api/images): the images and game folders ShadowMount+
-// runs, those whose game uses the console's APR, which AMPR emulator each
-// runs with (in the game or its backport), and whether a newer build of that
-// emulator is out. Updating one is an "ampr_emu" job (runner.hpp): "replace"
-// with the game's own emulator kind, or adding the one in use.
+// The Images tab (GET /api/images): every image, game folder and package in
+// the folders ShadowMount+ scans, hidden ones (".name") included, listed as
+// Files lists them, with the AMPR emulator each game runs with (in the game
+// or its backport) and whether a newer build of that emulator is out.
+// Updating one is an "ampr_emu" job (runner.hpp): "replace" with the game's
+// own emulator kind, or adding the one in use.
 //
-// The list comes from ShadowMount+'s API (/api/v1/games) when it answers,
-// else from its scan folders (config.ini's scanpath lines, else its
-// defaults), one level deep. Reading every game's eboot.bin takes a while,
-// so the list is built on a thread of its own and served as it stands.
+// The folders are ShadowMount+'s scan paths (its API's settings, else
+// config.ini's scanpath lines, else its defaults), searched two levels deep;
+// ShadowMount+'s game list, when its API answers, names each game's
+// backport. Reading every game's eboot.bin takes a while, so the list is
+// built on a thread of its own and served as it stands.
 #pragma once
 
 #include "json_value.hpp"
@@ -16,46 +18,55 @@
 
 #include <cstdint>
 #include <mutex>
-#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
 
 namespace alembic::engine::images {
 
-// An image or game folder found by ShadowMount+ or in a scan folder.
+// An image, game folder or package found in a scan folder.
 struct Found {
     std::string path;
+    std::string kind;     // folder (a game folder), exfat, ffpfsc, ffpkg, ffpfs or fpkg
+    std::string folder;   // the folder it is in (the list groups by it)
+    std::uint64_t size = 0;
+    std::int64_t mtime = 0;
     std::string backport; // ShadowMount+'s resolved backport folder, "" when none or unknown
 };
 
-// ShadowMount+'s scan folders: config.ini's scanpath lines, else its defaults
-// (on a PC, <state>/homebrew stands in).
-std::vector<std::string> scan_dirs(const EngineConfig& config);
-// What those folders hold, one level deep: folders with eboot.bin and images
-// by extension (.exfat, .ffpfsc, .ffpkg, .ffpfs); not "backports" nor names
-// starting with '.' (ShadowMount+ skips both).
+// ShadowMount+'s scan folders: `custom` (its API's scan_paths) when given,
+// else config.ini's scanpath lines, else its defaults (on a PC,
+// <state>/homebrew stands in).
+std::vector<std::string> scan_dirs(const EngineConfig& config, const std::vector<std::string>& custom = {});
+// What those folders hold, two levels deep: game folders (eboot.bin or
+// sce_sys/param.json), images by extension (.exfat, .ffpfsc, .ffpkg, .ffpfs)
+// and packages (.pkg). Names starting with '.' (hidden from ShadowMount+)
+// count; "backports" folders do not.
 std::vector<Found> scan(const std::vector<std::string>& dirs);
 
-// One entry as GET /api/images lists it: {path, title_id, kind (folder or
-// image), where (game, backport or ""), emulator {id, name, version} or
-// null, status, target, zstd_packs, allowed}. status: "current", "update"
-// (a newer build of its kind is downloaded here), "missing" (uses the APR,
-// has none), "unknown" (a build Alembic does not know), "not_downloaded"
-// (its kind is not downloaded here to compare with). target: the emulator
-// (component id) an Update or Add puts there. nullopt: the game does not use
-// the APR, or cannot be read (`unreadable` set).
-std::optional<JsonValue> evaluate(const Found& found, const EngineConfig& config, bool* unreadable = nullptr);
+// The AMPR emulator of one game: {status, emulator {id, name, version} or
+// null, where (game, backport or ""), target, zstd_packs}. status:
+// "current", "update" (a newer build of its kind is downloaded here),
+// "missing" (uses the APR, has none), "unknown" (a build Alembic does not
+// know), "not_downloaded" (its kind is not downloaded here to compare with),
+// "none" (the game does not use the APR), "unreadable". target: the emulator
+// (component id) an Update or Add puts there. Null for packages: installed,
+// they use the console's own APR.
+JsonValue ampr_of(const Found& found, const EngineConfig& config);
+
+// One entry as GET /api/images lists it: Files' fields (name, path, kind,
+// game, size, mtime) plus folder, hidden, allowed and ampr (ampr_of).
+JsonValue entry_json(const Found& found, const EngineConfig& config);
 
 class Index {
 public:
     explicit Index(const EngineConfig& config) : config_(config) {}
     ~Index();
-    // {images, source (shadowmount or scan), refreshing, updated, others
-    // (images whose game does not use the APR), unreadable,
-    // smp_update_emulators (bool, or null when ShadowMount+ does not say),
-    // emulators [{id, label, name, downloaded, in_use}]}. Starts a refresh
-    // when the list is older than `max_age_s` (0: always) and none runs.
+    // {images, dirs (the folders searched), smp (ShadowMount+'s API answered),
+    // refreshing, updated, smp_update_emulators (bool, or null when
+    // ShadowMount+ does not say), emulators [{id, label, name, version,
+    // latest, downloaded, in_use}]}. Starts a refresh when the list is older
+    // than `max_age_s` (0: always) and none runs.
     JsonValue snapshot(std::int64_t max_age_s);
 
 private:
@@ -66,8 +77,8 @@ private:
     bool running_ = false;
     std::int64_t updated_ = 0;
     JsonValue images_ = JsonValue::array();
-    std::string source_;
-    std::int64_t others_ = 0, unreadable_ = 0;
+    JsonValue dirs_ = JsonValue::array();
+    bool smp_ = false;
     JsonValue smp_update_emulators_;
 };
 

@@ -235,6 +235,18 @@ Sayfada ayrıca:
   dosyayı konsolun dönüştürmesi için paylaşabilir.
 - **ShadowMount+:** yeni imajlar yeniden başlatma gerekmeden algılatılabilir,
   kaynaklar da dönüştürüldükten sonra ondan gizlenebilir.
+- **İmajlar:** ShadowMount+'ın taradığı klasörlerdeki tüm imajlar, oyun
+  klasörleri ve paketler (gizliler de), klasöre göre gruplanmış hâlde;
+  Dosyalar'ın sunduklarının taşıma ve yeniden adlandırma dışındaki hepsiyle:
+  Dönüştür, Kur, AMPR öykünücüsü, ShadowMount+'tan gizle, Başka bir motora
+  gönder, Sil ve birden çoğu için Seç. APR kullanan oyunlarda her birinin
+  çalıştığı AMPR öykünücüsünü (oyunun içinde ya da backport klasöründe) ve
+  daha yeni bir derlemenin çıkıp çıkmadığını gösterir; **AMPR öykünücülerini
+  güncelle**, her oyunun kendi öykünücüsünün en yeni derlemesini, öykünücüsü
+  olmayan oyunlaraysa kullanımdakini koyar. İki öykünücünün de tüm resmî
+  derlemeleri, GitHub'ın yayımladığı SHA-256 ile tanınır.
+
+  ![İmajlar: ShadowMount+ klasörlerindeki oyunlar, güncellenecek iki AMPR öykünücüsü, öykünücüsü olmayan bir oyun ve Alembic'in tanımadığı bir derlemeye sahip bir oyun](docs/screenshots/images.png)
 - **Bileşenler:** Alembic'in ihtiyaç duyduğu ama kendisiyle gelmeyen üçüncü
   taraf dosyalar (AMPR öykünücüleri ampr_emu ve ampr-emu-ng,
   ProsperoPkgTool'un FPKG anahtar dosyaları, LibOrbisPkg'nin lisans ve PS4
