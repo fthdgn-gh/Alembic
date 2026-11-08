@@ -318,7 +318,8 @@ void App::open_bulk_actions() {
     if (lib)
         images.erase(std::remove_if(images.begin(), images.end(), [this](const Entry& e) {
                          const JsonValue* item = images_->item(e.path);
-                         return !item || !(*item)["ampr"].is_object();
+                         const std::string s = item ? (*item)["ampr"]["status"].str() : "";
+                         return !item || !(*item)["ampr"].is_object() || s == "none" || s == "unreadable";
                      }),
                      images.end());
     // Never Alembic's own app or its bench (adding it kept the app from starting, 0.6.0).
@@ -348,9 +349,15 @@ void App::open_bulk_actions() {
                          std::vector<Entry> todo;
                          JsonValue needs = JsonValue::array();
                          std::vector<std::string> ids;
+                         long long unused = 0;
                          for (const auto& e : images) {
                              auto it = plans->find(e.path);
                              if (it == plans->end() || it->second["ships_emulator"].boolean()) continue;
+                             // Not the games that do not use the APR: they have no use for it.
+                             if (it->second.has("imports_ampr") && !it->second["imports_ampr"].boolean()) {
+                                 ++unused;
+                                 continue;
+                             }
                              todo.push_back(e);
                              for (const auto& dep : it->second["needs"].items())
                                  if (std::find(ids.begin(), ids.end(), dep["id"].str()) == ids.end()) {
@@ -359,7 +366,11 @@ void App::open_bulk_actions() {
                                  }
                          }
                          if (!failed.empty()) toast(failures_text(failed), Toast::bad);
-                         const std::size_t have = plans->size() - todo.size();
+                         if (unused)
+                             toast(plural(unused, "{n} game does not use the console's APR: left as it is",
+                                          "{n} games do not use the console's APR: left as they are"),
+                                   Toast::ok);
+                         const std::size_t have = plans->size() - todo.size() - static_cast<std::size_t>(unused);
                          if (todo.empty()) {
                              if (have) toast(t("These games already have the AMPR emulator"), Toast::ok);
                              return;

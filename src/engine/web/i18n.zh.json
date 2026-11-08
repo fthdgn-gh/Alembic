@@ -1,4 +1,7 @@
 {
+ "This game does not use the console's APR, so it does not need the AMPR emulator": "此游戏不使用主机的 APR，因此不需要 AMPR 模拟器",
+ "{n} game does not use the console's APR: left as it is": "{n} 款游戏不使用主机的 APR：保持原样",
+ "{n} games do not use the console's APR: left as they are": "{n} 款游戏不使用主机的 APR：保持原样",
  "Update {engine} to see its images here": "更新 {engine} 才能在此看到它的镜像",
  "{engine} did not answer": "{engine} 没有响应",
  "List": "列表",
@@ -552,7 +555,6 @@
  "the other engine speaks engine protocol {theirs} and this one {ours}: update Alembic on the older one": "另一个引擎使用引擎协议 {theirs}，此引擎为 {ours}：请更新较旧那一个的 Alembic",
  "This folder is empty.": "此文件夹为空。",
  "This game already has the AMPR emulator": "此游戏已有 AMPR 模拟器",
- "This game does not seem to use the console's APR, so it may not need the emulator. It does no harm to add it.": "此游戏似乎没有使用主机的 APR，因此可能不需要模拟器。添加它也没有坏处。",
  "This game is already LZ4-packed.": "此游戏已用 LZ4 打包。",
  "This game reads its files through the console's APR, which doesn't work when it runs from an image or folder. ampr_emu's libSceAmpr.sprx stands in for it.": "此游戏通过主机的 APR 读取文件，而从镜像或文件夹运行时 APR 无法工作。ampr_emu 的 libSceAmpr.sprx 可以代替它。",
  "This game uses the console's APR and ships no emulator: ampr_emu goes into its fakelib.": "此游戏使用主机的 APR，且未自带模拟器：ampr_emu 会放入其 fakelib。",

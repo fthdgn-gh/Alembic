@@ -1,4 +1,7 @@
 {
+ "This game does not use the console's APR, so it does not need the AMPR emulator": "Bu oyun konsolun APR'sini kullanmıyor, bu yüzden AMPR öykünücüsüne ihtiyacı yok",
+ "{n} game does not use the console's APR: left as it is": "{n} oyun konsolun APR'sini kullanmıyor: olduğu gibi bırakıldı",
+ "{n} games do not use the console's APR: left as they are": "{n} oyun konsolun APR'sini kullanmıyor: olduğu gibi bırakıldı",
  "Update {engine} to see its images here": "İmajlarını burada görmek için {engine} motorunu güncelleyin",
  "{engine} did not answer": "{engine} yanıt vermedi",
  "List": "Liste",
@@ -552,7 +555,6 @@
  "the other engine speaks engine protocol {theirs} and this one {ours}: update Alembic on the older one": "diğer motor {theirs} numaralı motor protokolünü, bu motor {ours} numaralıyı kullanıyor: eski olanda Alembic'i güncelleyin",
  "This folder is empty.": "Bu klasör boş.",
  "This game already has the AMPR emulator": "Bu oyunda AMPR öykünücüsü zaten var",
- "This game does not seem to use the console's APR, so it may not need the emulator. It does no harm to add it.": "Bu oyun konsolun APR'ını kullanmıyor gibi görünüyor, öykünücüye ihtiyacı olmayabilir. Eklemenin bir zararı yok.",
  "This game is already LZ4-packed.": "Bu oyun zaten LZ4 ile paketlenmiş.",
  "This game reads its files through the console's APR, which doesn't work when it runs from an image or folder. ampr_emu's libSceAmpr.sprx stands in for it.": "Bu oyun dosyalarını konsolun APR'ı üzerinden okur; bu, oyun imajdan veya klasörden çalışırken işlemez. ampr_emu'nun libSceAmpr.sprx dosyası onun yerini tutar.",
  "This game uses the console's APR and ships no emulator: ampr_emu goes into its fakelib.": "Bu oyun konsolun APR'ını kullanıyor ve öykünücü içermiyor: ampr_emu, fakelib'ine eklenecek.",

@@ -141,7 +141,10 @@ void App::open_actions(const Entry& e, const JsonValue* lib) {
     // Never Alembic's own app or its bench (adding it kept the app from starting, 0.6.0).
     const Meta* own = conv ? meta(e.path, e.mtime, e.size) : nullptr;
     const bool alembic = own && (own->title_id == "PPSA99594" || own->title_id == "PPSA99595");
-    if (conv && e.kind != "fpkg" && !alembic && (!lib || (*lib)["ampr"].is_object()))
+    // In Images, only for a game that uses the APR (on a PS5 engine).
+    const std::string lib_status = lib ? (*lib)["ampr"]["status"].str() : "";
+    const bool lib_ampr = !lib || ((*lib)["ampr"].is_object() && lib_status != "none" && lib_status != "unreadable");
+    if (conv && e.kind != "fpkg" && !alembic && lib_ampr)
         add(t("Add the AMPR emulator\xE2\x80\xA6"), t("For games that stop at start from an image or folder"), false, [this, e] {
             JsonValue req = JsonValue::object();
             req.set("kind", "ampr_emu");
@@ -184,10 +187,14 @@ void App::open_actions(const Entry& e, const JsonValue* lib) {
                         });
                         return;
                     }
+                    // A title that does not use the APR has no use for it (and
+                    // Alembic's own app no longer started with it, 0.6.0).
+                    if (plan.has("imports_ampr") && !plan["imports_ampr"].boolean()) {
+                        toast(t("This game does not use the console's APR, so it does not need the AMPR emulator"), Toast::ok);
+                        return;
+                    }
                     std::string body = "@" + shown_path(e.path) + "\n\n";
-                    body += plan.has("imports_ampr") && !plan["imports_ampr"].boolean()
-                                ? t("This game does not seem to use the console's APR, so it may not need the emulator. It does no harm to add it.")
-                                : t("This game reads its files through the console's APR, which doesn't work when it runs from an image or folder. ampr_emu's libSceAmpr.sprx stands in for it.");
+                    body += t("This game reads its files through the console's APR, which doesn't work when it runs from an image or folder. ampr_emu's libSceAmpr.sprx stands in for it.");
                     body += "\n\n~";
                     body += folder ? t("It goes into the game folder's fakelib (and ampr_emu.index, if the game has none).")
                                    : t("The image is not changed: ShadowMount+ gets a backport folder for this title (the game's fakelib files plus the emulator), which it lays over the game when it starts.");

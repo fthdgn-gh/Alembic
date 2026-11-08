@@ -1,4 +1,7 @@
 {
+ "This game does not use the console's APR, so it does not need the AMPR emulator": "Ez a játék nem használja a konzol APR-jét, így nincs szüksége AMPR-emulátorra",
+ "{n} game does not use the console's APR: left as it is": "{n} játék nem használja a konzol APR-jét: változatlan maradt",
+ "{n} games do not use the console's APR: left as they are": "{n} játék nem használja a konzol APR-jét: változatlanok maradtak",
  "Update {engine} to see its images here": "Frissítsd ezt: {engine}, hogy itt lásd az image-eit",
  "{engine} did not answer": "{engine} nem válaszolt",
  "List": "Lista",
@@ -552,7 +555,6 @@
  "the other engine speaks engine protocol {theirs} and this one {ours}: update Alembic on the older one": "A másik motor protokollverziója {theirs}, ennek a motoré {ours}; frissítsd az Alembicet a régebbi motoron",
  "This folder is empty.": "Ez a mappa üres.",
  "This game already has the AMPR emulator": "Ez a játék már tartalmazza az AMPR-emulátort",
- "This game does not seem to use the console's APR, so it may not need the emulator. It does no harm to add it.": "Úgy tűnik, ez a játék nem használja a konzol APR-rendszerét, ezért lehet, hogy nincs szüksége az emulátorra. A hozzáadása nem okoz problémát.",
  "This game is already LZ4-packed.": "Ez a játék már LZ4-gyel van tömörítve.",
  "This game reads its files through the console's APR, which doesn't work when it runs from an image or folder. ampr_emu's libSceAmpr.sprx stands in for it.": "Ez a játék a konzol APR-rendszerén keresztül olvassa be a fájljait, ami image-ből vagy mappából történő indításkor nem működik. Ezt helyettesíti az ampr_emu libSceAmpr.sprx fájlja.",
  "This game uses the console's APR and ships no emulator: ampr_emu goes into its fakelib.": "Ez a játék használja a konzol APR-rendszerét, de nem tartalmaz emulátort: az ampr_emu a játék fakelib mappájába kerül.",

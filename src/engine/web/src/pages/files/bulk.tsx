@@ -44,7 +44,7 @@ export async function openBulkActions() {
   const updatable = lib ? (all as ImageItem[]).filter(amprUpdatable) : [];
   if (updatable.length) items.push({ label: t("Update the AMPR emulator"), sub: some(updatable.length, t("The newest build of each one's emulator")), value: () => updateAmpr(updatable).then(done) });
   // In Images, only where the engine reads games for it (a PS5's own ones).
-  const amprable = (lib ? images.filter((e) => !!(e as ImageItem).ampr) : images).filter((e) => { const m = cachedMeta(e); return !(m && isAlembicTitle(m.title_id)); });
+  const amprable = (lib ? images.filter((e) => { const a = (e as ImageItem).ampr; return !!a && a.status !== "none" && a.status !== "unreadable"; }) : images).filter((e) => { const m = cachedMeta(e); return !(m && isAlembicTitle(m.title_id)); });
   if (amprable.length) items.push({ label: t("Add the AMPR emulator…"), sub: some(amprable.length, t("For games that stop at start from an image or folder")), value: () => amprMany(amprable) });
   const visible = images.filter((e) => !isHiddenName(e.name)), hidden = images.filter((e) => isHiddenName(e.name));
   if (visible.length) items.push({ label: t("Hide from ShadowMount+"), sub: some(visible.length, t("Renames them to .name, so ShadowMount+ uses other copies of these games")), value: () => hideMany(visible, true) });
@@ -107,7 +107,10 @@ async function amprMany(list: Entry[]) {
     try { plans.push({ e, p: await api<Plan>("POST", "/api/plan", { kind: "ampr_emu", input: e.path }) }); }
     catch (err: any) { failed.push(e.name + ": " + tMsg(err.message)); }
   }
-  const todo = plans.filter((x) => !x.p.ships_emulator), have = plans.length - todo.length;
+  // Not the games that do not use the APR: they have no use for it.
+  const unused = plans.filter((x) => !x.p.ships_emulator && x.p.imports_ampr === false).length;
+  const todo = plans.filter((x) => !x.p.ships_emulator && x.p.imports_ampr !== false), have = plans.length - todo.length - unused;
+  if (unused) toast(plural(unused, "{n} game does not use the console's APR: left as it is", "{n} games do not use the console's APR: left as they are"), "ok");
   if (!todo.length) { failures(failed); if (have) toast(t("These games already have the AMPR emulator"), "ok"); return; }
   const body = <div><div class="mono" style="white-space:pre-line">{names(todo.map((x) => x.e))}</div>
     <p class="muted">{t("Game folders get it in their fakelib; images are not changed: ShadowMount+ gets a backport folder for each.")}</p>

@@ -3185,6 +3185,13 @@ release: see "components follow their latest releases" below.)
   Alembic's own app either (page `isAlembicTitle` from the game's cached
   info, app the same; one and several). 0.6.1's engine already refused the
   job; this hides the option. For the next release.
+- **No emulator for titles that do not use the APR (owner):** it has no use
+  there, and on Alembic's app it broke the start. The engine refuses an
+  "ampr_emu" job on a title whose eboot.bin does not use the APR, unless an
+  emulator is already in place (switching stays possible); Files' "Add"
+  says so instead of "It does no harm to add it", the bulk "Add" skips
+  those games and says how many, and Images offers "Add" only for games
+  that use the APR. Conversions only ever added it when the game uses it.
 
 ### 2026-11-08: Probe Bench, the engine's checks in a game process
 

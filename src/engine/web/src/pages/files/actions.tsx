@@ -41,7 +41,9 @@ export async function openActions(e: Entry, lib?: ImageItem) {
   if (amprUpdate) items.push({ label: t("Update the AMPR emulator"), sub: t("{old} → the newest build of its kind", { old: amprUpdate.ampr!.emulator ? amprUpdate.ampr!.emulator.name : "" }), value: () => updateAmpr([amprUpdate]) });
   // In Images, only where the engine reads games for it (a PS5's own ones).
   const own = cachedMeta(e);
-  if (conv && e.kind !== "fpkg" && (!lib || lib.ampr) && !(own && isAlembicTitle(own.title_id))) items.push({ label: t("Add the AMPR emulator…"), sub: t("For games that stop at start from an image or folder"), value: () => addAmpr(e) });
+  // In Images, only for a game that uses the APR (on a PS5 engine).
+  const libAmpr = !lib || (!!lib.ampr && lib.ampr.status !== "none" && lib.ampr.status !== "unreadable");
+  if (conv && e.kind !== "fpkg" && libAmpr && !(own && isAlembicTitle(own.title_id))) items.push({ label: t("Add the AMPR emulator…"), sub: t("For games that stop at start from an image or folder"), value: () => addAmpr(e) });
   if (conv && e.kind !== "fpkg") items.push(isHiddenName(e.name)
     ? { label: t("Show to ShadowMount+ again"), sub: t("Renames it back to {name}", { name: e.name.slice(1) }), value: () => toggleHidden(e.path) }
     : { label: t("Hide from ShadowMount+"), sub: t("Renames it to .{name}, so ShadowMount+ uses another copy of this game", { name: e.name }), value: () => toggleHidden(e.path) });
@@ -127,10 +129,12 @@ async function addAmpr(e: Entry) {
     if (plan.emulator_current || !plan.runtime_name) { toast(t("This game already has the AMPR emulator"), "ok"); return; }
     return replaceAmpr(e, plan);
   }
+  // A title that does not use the APR has no use for it (and Alembic's own
+  // app no longer started with it, 0.6.0).
+  if (plan.imports_ampr === false) { toast(t("This game does not use the console's APR, so it does not need the AMPR emulator"), "ok"); return; }
   const body = <div>
     <div class="mono">{shownPath(e.path)}</div>
-    <p>{plan.imports_ampr === false ? t("This game does not seem to use the console's APR, so it may not need the emulator. It does no harm to add it.")
-      : t("This game reads its files through the console's APR, which doesn't work when it runs from an image or folder. ampr_emu's libSceAmpr.sprx stands in for it.")}</p>
+    <p>{t("This game reads its files through the console's APR, which doesn't work when it runs from an image or folder. ampr_emu's libSceAmpr.sprx stands in for it.")}</p>
     <p class="muted">{isFolder ? t("It goes into the game folder's fakelib (and ampr_emu.index, if the game has none).")
       : t("The image is not changed: ShadowMount+ gets a backport folder for this title (the game's fakelib files plus the emulator), which it lays over the game when it starts.")}</p>
   </div>;

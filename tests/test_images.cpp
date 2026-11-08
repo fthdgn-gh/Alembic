@@ -164,3 +164,26 @@ TEST_CASE(images_repair_alembic_app_removes_only_what_the_job_wrote) {
     CHECK(is_regular_file(scan + "/Alembic/eboot.bin"));
     CHECK(!removed.empty());
 }
+
+TEST_CASE(ampr_emu_job_refuses_titles_that_do_not_use_the_apr) {
+    const std::string root = test::make_temp_dir();
+    EngineConfig config;
+    config.state_dir = root + "/state";
+    config.roots = {root};
+    test::make_dir(config.state_dir);
+    test::make_dir(config.state_dir + "/runtime");
+    test::write_file(config.state_dir + "/runtime/libSceAmpr.sprx", std::vector<std::uint8_t>(32, 9)); // an emulator to add
+    make_game(root + "/plain", "PPSA00002", false);
+    JobSpec spec;
+    spec.kind = "ampr_emu";
+    spec.input = root + "/plain";
+    auto r = run_job(spec, config, {});
+    CHECK(!r.ok());
+    if (!r.ok()) CHECK(r.error().message.find("does not use the console's APR") != std::string::npos);
+    CHECK(!path_exists(root + "/plain/fakelib"));
+    // A game that uses it still gets it.
+    make_game(root + "/needs", "PPSA00001", true);
+    spec.input = root + "/needs";
+    CHECK(run_job(spec, config, {}).ok());
+    CHECK(is_regular_file(root + "/needs/fakelib/libSceAmpr.sprx"));
+}

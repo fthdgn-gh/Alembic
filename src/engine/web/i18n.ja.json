@@ -1,4 +1,7 @@
 {
+ "This game does not use the console's APR, so it does not need the AMPR emulator": "このゲームはコンソールの APR を使わないため、AMPR エミュレーターは必要ありません",
+ "{n} game does not use the console's APR: left as it is": "{n} 本のゲームはコンソールの APR を使わないため、そのままにしました",
+ "{n} games do not use the console's APR: left as they are": "{n} 本のゲームはコンソールの APR を使わないため、そのままにしました",
  "Update {engine} to see its images here": "ここにイメージを表示するには {engine} をアップデートしてください",
  "{engine} did not answer": "{engine} から応答がありません",
  "List": "リスト",
@@ -552,7 +555,6 @@
  "the other engine speaks engine protocol {theirs} and this one {ours}: update Alembic on the older one": "相手のエンジンはエンジンプロトコル {theirs}、こちらは {ours} です: 古い方の Alembic を更新してください",
  "This folder is empty.": "このフォルダーは空です。",
  "This game already has the AMPR emulator": "このゲームにはすでに AMPR エミュレーターがあります",
- "This game does not seem to use the console's APR, so it may not need the emulator. It does no harm to add it.": "このゲームは本体の APR を使っていないようなので、エミュレーターは不要かもしれません。追加しても問題はありません。",
  "This game is already LZ4-packed.": "このゲームはすでに LZ4 でパックされています。",
  "This game reads its files through the console's APR, which doesn't work when it runs from an image or folder. ampr_emu's libSceAmpr.sprx stands in for it.": "このゲームは本体の APR でファイルを読み込みますが、イメージやフォルダーから起動するとこれが動きません。ampr_emu の libSceAmpr.sprx がその代わりをします。",
  "This game uses the console's APR and ships no emulator: ampr_emu goes into its fakelib.": "このゲームは本体の APR を使い、エミュレーターを含んでいません。ampr_emu を fakelib に追加します。",

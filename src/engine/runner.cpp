@@ -877,8 +877,14 @@ Result<JsonValue> run_ampr_emu(const JobSpec& spec, const EngineConfig& config, 
     // files while it runs brought it down (0.6.0, owner).
     {
         const std::string passcode = spec.passcode.empty() ? std::string(32, '0') : spec.passcode;
-        if (auto state = ampr_state(input, passcode); state && is_alembic_title(state->title_id))
+        auto state = ampr_state(input, passcode);
+        if (state && is_alembic_title(state->title_id))
             return make_error(Errc::invalid_argument, "this is Alembic's own app: it does not use the console's APR");
+        // Only games that use the APR get it: on a title that does not, it
+        // has no use, and on Alembic's app it kept the app from starting.
+        // Switching a game's emulator (one is already there) stays possible.
+        if (state && !state->imports && emulator_in_place(input, *state, config).empty())
+            return make_error(Errc::invalid_argument, "this game does not use the console's APR, so it does not need the AMPR emulator");
     }
     ampr_emu::AttachResult result;
     if (is_directory(input)) {
