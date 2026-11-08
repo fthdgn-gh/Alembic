@@ -3192,6 +3192,17 @@ release: see "components follow their latest releases" below.)
   says so instead of "It does no harm to add it", the bulk "Add" skips
   those games and says how many, and Images offers "Add" only for games
   that use the APR. Conversions only ever added it when the game uses it.
+- **An exact APR check (owner):** `ampr_emu::check` reads eboot.bin's
+  import table instead of searching it for "libSceAmpr": the dynamic table
+  (PT_DYNAMIC; in a SELF, through each segment's data block, flag 0x800,
+  stored unpacked), DT_NEEDED and the SCE needed-module / import-library
+  tags (PS4 0x6100000F / 0x61000015 with DT_SCE_STRTAB in
+  PT_SCE_DYNLIBDATA; PS5 0x61000045 / 0x61000049 with DT_STRTAB at an
+  address), a name `libSceAmpr` or `libSceAmpr.<ext>`. An executable it
+  cannot read that way (encrypted) falls back to the text search. On the
+  owner's samples (nine games and Alembic's app): every game the same as
+  before (six import it, three do not), the app no longer (its texts name
+  it); check_samples.sh all "same". Unit test with two built ELFs.
 
 ### 2026-11-08: Probe Bench, the engine's checks in a game process
 

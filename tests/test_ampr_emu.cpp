@@ -284,3 +284,56 @@ TEST_CASE(ampr_emu_replace_in_an_image) {
     CHECK(test::read_file(bp + "/fakelib/libSceAgc.sprx") == filler(5000, 2));
     CHECK(!path_exists(bp + "/ampr_emu.index")); // the game has its own
 }
+
+namespace {
+
+// A plain ELF64 with a loadable segment holding the string table, and a
+// dynamic table naming `needed` (DT_NEEDED) and the PS5 module tag; `text`
+// is put in the segment too, outside the import table.
+std::vector<std::uint8_t> elf_importing(const char* needed, const char* text) {
+    std::vector<std::uint8_t> f(0x400, 0);
+    auto put16 = [&](std::size_t at, std::uint16_t v) { f[at] = v & 0xFF; f[at + 1] = v >> 8; };
+    auto put32 = [&](std::size_t at, std::uint32_t v) { for (int i = 0; i < 4; ++i) f[at + i] = (v >> (8 * i)) & 0xFF; };
+    auto put64 = [&](std::size_t at, std::uint64_t v) { for (int i = 0; i < 8; ++i) f[at + i] = (v >> (8 * i)) & 0xFF; };
+    std::memcpy(f.data(), "\x7F" "ELF", 4);
+    f[4] = 2; f[5] = 1; f[6] = 1;
+    put16(16, 2); put16(18, 62); put64(32, 64); put16(54, 56); put16(56, 2);
+    // String table at file 0x100 (address 0x1100): "\0<needed>\0libkernel\0", then the text.
+    const std::size_t strings = 0x100;
+    std::memcpy(&f[strings + 1], needed, std::strlen(needed));
+    const std::size_t kernel = 1 + std::strlen(needed) + 1;
+    std::memcpy(&f[strings + kernel], "libkernel", 9);
+    const std::size_t strsz = kernel + 10;
+    std::memcpy(&f[0x180], text, std::strlen(text));
+    // PT_LOAD over 0x100..0x200, PT_DYNAMIC at 0x300.
+    put32(64, 1); put64(64 + 8, 0x100); put64(64 + 16, 0x1100); put64(64 + 32, 0x100); put64(64 + 40, 0x100);
+    put32(120, 2); put64(120 + 8, 0x300); put64(120 + 16, 0x2300); put64(120 + 32, 0x60);
+    std::size_t d = 0x300;
+    auto entry = [&](std::uint64_t tag, std::uint64_t value) { put64(d, tag); put64(d + 8, value); d += 16; };
+    entry(1, 1);                                  // DT_NEEDED: the first name
+    entry(0x61000045, (1ull << 48) | kernel);     // DT_SCE_NEEDED_MODULE (PS5): libkernel
+    entry(5, 0x1100);                             // DT_STRTAB
+    entry(10, strsz);                             // DT_STRSZ
+    entry(0, 0);
+    return f;
+}
+
+bool check_eboot(const std::vector<std::uint8_t>& eboot) {
+    const std::string dir = test::make_temp_dir();
+    test::write_file(dir + "/eboot.bin", eboot);
+    auto tree = tree::open_folder(dir);
+    if (!tree.ok()) return false;
+    auto c = ampr_emu::check(**tree);
+    return c.ok() && c->imports_ampr;
+}
+
+} // namespace
+
+TEST_CASE(ampr_emu_check_reads_the_import_table) {
+    // Imported: by DT_NEEDED.
+    CHECK(check_eboot(elf_importing("libSceAmpr.prx", "")));
+    // Only named in a text (as Alembic's own app does): not an import.
+    CHECK(!check_eboot(elf_importing("libSceNet.prx", "copy libSceAmpr.sprx to fakelib")));
+    // Not an executable it can read: the name anywhere still counts.
+    CHECK(check_eboot(filler(5000, 1)) == false);
+}

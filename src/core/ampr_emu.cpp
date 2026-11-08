@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstring>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace alembic::ampr_emu {
@@ -38,6 +39,113 @@ Result<bool> contains(const RandomAccess& file, std::string_view needle, const P
         if (progress && !progress({"Checking eboot.bin", at, size})) return make_error(Errc::cancelled, "cancelled");
     }
     return false;
+}
+
+std::uint16_t le16(const std::uint8_t* p) { return static_cast<std::uint16_t>(p[0] | p[1] << 8); }
+std::uint32_t le32(const std::uint8_t* p) { return le16(p) | static_cast<std::uint32_t>(le16(p + 2)) << 16; }
+std::uint64_t le64(const std::uint8_t* p) { return le32(p) | static_cast<std::uint64_t>(le32(p + 4)) << 32; }
+
+// The libraries an executable imports, from its dynamic table: DT_NEEDED and
+// the SCE module and library tags (PS4 numbers, string table in
+// PT_SCE_DYNLIBDATA; PS5 numbers, DT_STRTAB at an address). A plain ELF or a
+// SELF whose segments are stored as they are (fake-signed, dumped); nullopt
+// when the file cannot be read that way (an encrypted SELF, say).
+std::optional<std::vector<std::string>> imported_names(const RandomAccess& file) {
+    auto size = file.size();
+    if (!size.ok() || *size < 64) return std::nullopt;
+    std::vector<std::uint8_t> head(static_cast<std::size_t>(std::min<std::uint64_t>(*size, 1u << 16)));
+    if (!file.read_at(0, head).ok()) return std::nullopt;
+    const std::uint32_t magic = le32(head.data());
+    const bool self = magic == 0x1D3D154Fu || magic == 0xEEF51454u;
+    const std::size_t blocks = self ? le16(&head[24]) : 0;
+    const std::size_t elf = self ? 32 + blocks * 32 : 0;
+    if (blocks > 256 || elf + 64 > head.size() || std::memcmp(&head[elf], "\x7F" "ELF", 4) != 0 || head[elf + 4] != 2) return std::nullopt;
+    const std::uint64_t phoff = le64(&head[elf + 32]);
+    const std::size_t count = le16(&head[elf + 56]);
+    if (le16(&head[elf + 54]) != 56 || count == 0 || count > 64 || phoff > head.size() || elf + phoff + count * 56 > head.size())
+        return std::nullopt;
+    struct Ph { std::uint32_t type; std::uint64_t offset, vaddr, filesz; };
+    std::vector<Ph> ph(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        const std::uint8_t* e = &head[elf + phoff + i * 56];
+        ph[i] = {le32(e), le64(e + 8), le64(e + 16), le64(e + 32)};
+    }
+    // An ELF file range, where it is in this file (a SELF keeps each segment
+    // in a data block of its own, flagged 0x800, stored unpacked).
+    auto locate = [&](std::uint64_t offset, std::uint64_t length) -> std::optional<std::uint64_t> {
+        if (!self) return offset + length <= *size ? std::optional<std::uint64_t>(offset) : std::nullopt;
+        for (std::size_t i = 0; i < count; ++i) {
+            if (offset < ph[i].offset || offset + length > ph[i].offset + ph[i].filesz) continue;
+            for (std::size_t b = 0; b < blocks; ++b) {
+                const std::uint8_t* e = &head[32 + b * 32];
+                const std::uint64_t flags = le64(e), physical = le64(e + 8), stored = le64(e + 16), unpacked = le64(e + 24);
+                if ((flags >> 20) != i || !(flags & 0x800u) || (flags & 0xAu) || stored != unpacked) continue;
+                const std::uint64_t at = physical + (offset - ph[i].offset);
+                if (at + length <= *size && offset - ph[i].offset + length <= stored) return at;
+            }
+        }
+        return std::nullopt;
+    };
+    auto read = [&](std::uint64_t offset, std::uint64_t length, std::vector<std::uint8_t>& out) {
+        if (length > (16u << 20)) return false;
+        auto at = locate(offset, length);
+        out.resize(static_cast<std::size_t>(length));
+        return at && file.read_at(*at, out).ok();
+    };
+    const Ph* dynamic = nullptr;
+    const Ph* dynlib = nullptr;
+    for (const Ph& p : ph) {
+        if (p.type == 2) dynamic = &p;
+        if (p.type == 0x61000000u) dynlib = &p;
+    }
+    if (!dynamic) return std::nullopt;
+    std::vector<std::uint8_t> table;
+    if (!read(dynamic->offset, dynamic->filesz, table)) return std::nullopt;
+    std::uint64_t strtab = 0, strsz = 0, sce_strtab = 0, sce_strsz = 0;
+    bool have_strtab = false, have_sce = false;
+    std::vector<std::uint64_t> names;
+    for (std::size_t e = 0; e + 16 <= table.size(); e += 16) {
+        const std::uint64_t tag = le64(&table[e]), value = le64(&table[e + 8]);
+        if (tag == 0) break;
+        if (tag == 5) { strtab = value; have_strtab = true; }        // DT_STRTAB
+        else if (tag == 10) strsz = value;                           // DT_STRSZ
+        else if (tag == 0x61000035u) { sce_strtab = value; have_sce = true; } // DT_SCE_STRTAB
+        else if (tag == 0x61000037u) sce_strsz = value;              // DT_SCE_STRSZ
+        else if (tag == 1) names.push_back(value);                   // DT_NEEDED
+        else if (tag == 0x6100000Fu || tag == 0x61000015u || tag == 0x61000045u || tag == 0x61000049u)
+            names.push_back(value & 0xFFFFFFFFu);                    // SCE needed module / import lib
+    }
+    // The string table: PS4's inside PT_SCE_DYNLIBDATA, PS5's at an address
+    // in a loadable segment.
+    std::vector<std::uint8_t> strings;
+    if (have_sce && dynlib && sce_strsz) {
+        if (!read(dynlib->offset + sce_strtab, sce_strsz, strings)) return std::nullopt;
+    } else if (have_strtab && strsz) {
+        std::optional<std::uint64_t> offset;
+        for (const Ph& p : ph)
+            if (p.type == 1 && strtab >= p.vaddr && strtab + strsz <= p.vaddr + p.filesz) offset = p.offset + (strtab - p.vaddr);
+        if (!offset || !read(*offset, strsz, strings)) return std::nullopt;
+    } else {
+        return std::nullopt;
+    }
+    std::vector<std::string> out;
+    for (std::uint64_t at : names) {
+        if (at >= strings.size()) continue;
+        const auto* begin = reinterpret_cast<const char*>(strings.data() + at);
+        out.emplace_back(begin, strnlen(begin, strings.size() - static_cast<std::size_t>(at)));
+    }
+    return out;
+}
+
+// Whether eboot.bin imports libSceAmpr: by its import table when it can be
+// read, else (an encrypted executable, say) by the name appearing in it.
+Result<bool> imports_ampr(const RandomAccess& file, const ProgressFn& progress) {
+    if (auto names = imported_names(file)) {
+        for (const std::string& name : *names)
+            if (name == "libSceAmpr" || name.rfind("libSceAmpr.", 0) == 0) return true;
+        return false;
+    }
+    return contains(file, "libSceAmpr", progress);
 }
 
 class Memory final : public RandomAccess {
@@ -161,10 +269,10 @@ Result<Check> check(const tree::Source& source, const ProgressFn& progress) {
     }
     const tree::Node* eboot = tree::find_child_icase(root, "eboot.bin");
     if (eboot && !eboot->is_directory) {
-        // The library name sits in the executable's dynamic string table,
-        // which neither a fake-signed SELF nor a plain ELF encrypts.
+        // By the executable's import table: a text that merely names
+        // libSceAmpr (Alembic's own app has some) is not an import.
         ALEMBIC_ASSIGN(auto file, source.open(*eboot));
-        ALEMBIC_ASSIGN(result.imports_ampr, contains(*file, "libSceAmpr", progress));
+        ALEMBIC_ASSIGN(result.imports_ampr, imports_ampr(*file, progress));
     }
     return result;
 }
