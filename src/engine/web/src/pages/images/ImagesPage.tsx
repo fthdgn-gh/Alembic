@@ -73,7 +73,7 @@ function Row(props: { i: ImageItem }) {
           <span class={"fmt " + (i.game ? "folder" : i.kind)}>{i.game ? t("FOLDER") : KIND_LABEL[i.kind] || ""}</span>
           {m && (m.packs === "lz4" || m.packs === "zstd") ? <span class="fmt packs">{m.packs.toUpperCase()}</span> : null}
           {i.hidden ? <span class="fmt">{t("HIDDEN")}</span> : null}
-          {ampr || [m && m.title ? i.name : "", m && m.version ? "v" + m.version.replace(/^0+(?=\d)/, "") : "", m ? m.title_id : date(i.mtime)].filter(Boolean).join("  ·  ")}
+          {[m && m.title ? i.name : "", ampr || [m && m.version ? "v" + m.version.replace(/^0+(?=\d)/, "") : "", m ? m.title_id : date(i.mtime)].filter(Boolean).join("  ·  ")].filter(Boolean).join("  ·  ")}
         </div>
       </div>
       <div class="sz">{st ? <span class={"state " + st[0]}>{t(st[1])}</span> : i.kind !== "folder" ? bytes(i.size) : ""}</div>
@@ -91,7 +91,7 @@ function Cell(props: { i: ImageItem }) {
   const st = queued ? ["queued", "queued"] : i.ampr ? IMAGE_STATE[i.ampr.status] : undefined;
   const sel = selecting.value, ticked = sel && isSelected(i);
   return (
-    <Tile tileRef={ref} dataKey={"img:" + i.path} icon={<EntryIco entry={i} meta={m} />} title={m && m.title ? m.title : i.name}
+    <Tile tileRef={ref} dataKey={"img:" + i.path} icon={<EntryIco entry={i} meta={m} />} title={m && m.title ? m.title : i.name} name={i.name}
       tip={i.path + (amprText(i) ? "\n" + amprText(i) : "")} dim={i.hidden} selecting={sel} ticked={ticked}
       badge={st ? <span class={"state " + st[0]}>{t(st[1])}</span> : null}
       onClick={() => openImage(i)} onFocus={() => { focusImage.value = i; }} onMore={() => openActions(i, i)}

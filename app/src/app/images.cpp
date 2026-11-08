@@ -442,17 +442,20 @@ void ImagesPage::build(Ui& ui, App& app, const Rect& area) {
             if (m && (m->packs == "lz4" || m->packs == "zstd"))
                 pw += 0.45f * R + draw::fmt_pill(ui, "packs", m->packs == "zstd" ? "ZSTD" : "LZ4", text_x + pw + 0.45f * R, s_cy);
             if (i["hidden"].boolean()) pw += 0.45f * R + draw::fmt_pill(ui, "file", t("HIDDEN"), text_x + pw + 0.45f * R, s_cy);
-            std::string sub;
+            // The file's name first when the title is the game's (what Rename changes).
+            std::string sub = m && !m->title.empty() ? e.name : "";
             if (uses_apr(status)) {
+                if (!sub.empty()) sub += "  \xC2\xB7  ";
                 if (i["ampr"]["emulator"].is_object()) {
-                    sub = i["ampr"]["emulator"]["name"].str() + " \xC2\xB7 " +
+                    sub += i["ampr"]["emulator"]["name"].str() + " \xC2\xB7 " +
                           (i["ampr"]["where"].str() == "backport" ? t("in its backport") : t("in the game"));
                     if (status == "update" || status == "not_downloaded") sub += " \xE2\x86\x92 " + target_name(i);
                 } else {
-                    sub = status == "unknown" ? t("a libSceAmpr.sprx Alembic doesn't know") : t("no AMPR emulator");
+                    sub += status == "unknown" ? t("a libSceAmpr.sprx Alembic doesn't know") : t("no AMPR emulator");
                 }
             } else {
                 std::vector<std::string> bits;
+                sub.clear();
                 if (m && !m->title.empty()) bits.push_back(e.name);
                 if (m && !m->version.empty()) bits.push_back("v" + version_text(m->version));
                 if (m && !m->title_id.empty()) bits.push_back(m->title_id);

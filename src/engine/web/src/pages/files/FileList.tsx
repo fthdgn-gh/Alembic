@@ -78,7 +78,7 @@ function Cell(props: { e: Entry }) {
   const m = useMeta(isConvertible(e) ? e : null, ref);
   const sel = selecting.value, ticked = sel && isSelected(e);
   return (
-    <Tile tileRef={ref} dataKey={e.path} icon={<EntryIco entry={e} meta={m} />} title={m && m.title ? m.title : e.name} tip={e.name}
+    <Tile tileRef={ref} dataKey={e.path} icon={<EntryIco entry={e} meta={m} />} title={m && m.title ? m.title : e.name} name={e.name} tip={e.name}
       selecting={sel} ticked={ticked} onClick={() => (sel ? toggleSelected(e) : openEntry(e))} onFocus={() => { focusEntry.value = e; }}
       onMore={() => openActions(e)}
       pills={[m ? <PlatformPill meta={m} /> : null,

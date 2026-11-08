@@ -60,7 +60,7 @@ Grid grid_of(float x, float w) {
     g.cols = std::max(1, static_cast<int>(std::floor((w + g.gap) / (10.5f * R + g.gap))));
     g.w = (w - g.gap * static_cast<float>(g.cols - 1)) / static_cast<float>(g.cols);
     const float pad = 0.55f * R;
-    g.h = pad + (g.w - 2.0f * pad) + 0.55f * R + 0.98f * R * 1.3f * 2.0f + 0.3f * R + 1.2f * R + pad;
+    g.h = pad + (g.w - 2.0f * pad) + 0.55f * R + 0.98f * R * 1.3f * 2.0f + 0.15f * R + 0.8f * R * 1.4f + 0.3f * R + 1.2f * R + pad;
     return g;
 }
 
@@ -97,7 +97,11 @@ bool tile(Ui& ui, App& app, Id id, const Rect& r, const TileInfo& info) {
     const float ts = 0.98f * R;
     draw::paragraph(ui, Face::regular, m && !m->title.empty() ? m->title : e.name, art.x, y, art.w, ts, ts * 1.3f,
                     style::text.with_alpha(info.dim ? 0.6f : 1.0f), 2);
-    y += ts * 1.3f * 2.0f + 0.3f * R;
+    y += ts * 1.3f * 2.0f + 0.15f * R;
+    // The file's name, when the title is the game's (what Rename changes).
+    if (m && !m->title.empty() && m->title != e.name)
+        draw::text_fit(ui, Face::regular, e.name, art.x, draw::baseline(y + 0.8f * R * 0.7f, 0.8f * R), 0.8f * R, art.w, muted);
+    y += 0.8f * R * 1.4f + 0.3f * R;
     const float cy = y + 0.6f * R;
     float pw = m ? draw::platform_pill(ui, m->platform, art.x, cy) : 0.0f;
     if (pw) pw += 0.45f * R;
@@ -126,7 +130,7 @@ bool drive_tile(Ui& ui, Id id, const Rect& r, draw::Icon icon, const std::string
     float y = art.y + art.h + 0.55f * R;
     const float ts = 0.98f * R;
     draw::paragraph(ui, Face::regular, title, art.x, y, art.w, ts, ts * 1.3f, style::text, 2);
-    y += ts * 1.3f * 2.0f + 0.3f * R;
+    y += ts * 1.3f * 2.0f + 0.15f * R + 0.8f * R * 1.4f + 0.3f * R;
     if (used >= 0.0f) {
         draw::meter(ui, {art.x, y + 0.1f * R, art.w, 0.28f * R}, used, used > 0.9f);
         y += 0.65f * R;

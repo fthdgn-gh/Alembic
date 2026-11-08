@@ -61,6 +61,7 @@
 .tile .art .tbadge { position: absolute; right: .35rem; bottom: .35rem; left: .35rem; text-align: right; }
 .tile .art .tbadge .state { margin-left: 0; background: #141a26; box-shadow: 0 1px 6px rgba(0,0,0,.45); }
 .tile .t { font-size: .98rem; font-weight: 500; line-height: 1.3; height: 2.6em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
+.tile .n { font-size: .8rem; color: var(--muted); margin-top: .15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile .s { font-size: .78rem; color: var(--muted); margin-top: .3rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile .tick { position: absolute; left: .2rem; top: .2rem; width: 1.5rem; height: 1.5rem; border-radius: 50%; border: 2px solid var(--muted); background: var(--bg); color: #fff; font-size: .9rem; font-weight: 700; line-height: 1.25rem; text-align: center; z-index: 1; }
 .tile .tick.on { background: var(--accent); border-color: var(--accent); }
