@@ -85,7 +85,10 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   app imports libSceNet/Ssl/Http, so an app without an engine inside can
   download one (by path, as before, it could not in a game process: found
   with the Probe Bench, a development title never released; the engine's
-  `GET /api/probe` diagnostic came with it).
+  `GET /api/probe` diagnostic came with it). Main's CI green before the
+  tag; published 2026-11-08, every job green. Catalog PR from the fork
+  branch update-alembic-0.5.4: darkxex/ps5-homebrew-catalog#1200 (opened
+  by the owner: auto mode refuses it).
 - **In 0.5.3 (2026-11-07):** Hungarian (Magyar, by isty1974 from
   issue 4) on the page, in the app and in the engine's notifications; the
   app's queue badges upper-case accented letters. Main's CI green before
