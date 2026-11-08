@@ -41,6 +41,7 @@ int sceKernelIsNeoMode(void);
 std::size_t sceKernelGetDirectMemorySize(void);
 int sceKernelLoadStartModule(const char* path, std::size_t argc, const void* argv, std::uint32_t flags, void* opt,
                              int* result);
+int sceKernelDlsym(int handle, const char* symbol, void** address);
 }
 #endif
 
@@ -151,6 +152,29 @@ JsonValue cpu_section() {
 
 std::string err(const char* what) { return std::string(what) + ": " + std::strerror(errno); }
 
+// statfs is in libkernel_sys only, which a game process does not load: linked
+// directly, the app jumped to an unresolved import (SIGSEGV, 2026-11-08). So
+// it is looked up at run time; `why` says how that went.
+using StatfsFn = int (*)(const char*, struct statfs*);
+StatfsFn statfs_fn(std::string* why) {
+    static StatfsFn fn = nullptr;
+    static std::string note;
+    static bool done = false;
+    if (!done) {
+        done = true;
+        const int h = sceKernelLoadStartModule("/system/common/lib/libkernel_sys.sprx", 0, nullptr, 0, nullptr, nullptr);
+        void* a = nullptr;
+        if (h < 0) note = "libkernel_sys.sprx did not load: rc " + hex(static_cast<std::uint32_t>(h));
+        else if (const int rc = sceKernelDlsym(h, "statfs", &a); rc != 0 || !a) note = "no statfs in libkernel_sys: rc " + hex(static_cast<std::uint32_t>(rc));
+        else {
+            fn = reinterpret_cast<StatfsFn>(a);
+            note = "libkernel_sys handle " + std::to_string(h);
+        }
+    }
+    *why = note;
+    return fn;
+}
+
 JsonValue process_section(const Options& o) {
     JsonValue v = JsonValue::object();
     v.set("pid", static_cast<std::int64_t>(getpid()));
@@ -239,9 +263,13 @@ bool try_write(const std::string& dir, std::string* why) {
     return ok;
 }
 
-JsonValue files_section(std::vector<std::string>* writable) {
+JsonValue files_section(const Options& o, std::vector<std::string>* writable) {
     JsonValue v = JsonValue::object();
+    std::string statfs_note;
+    const StatfsFn statfs_call = statfs_fn(&statfs_note);
+    v.set("statfs", statfs_note);
     for (const PathCheck& pc : kPaths) {
+        if (o.step) o.step(std::string("files ") + pc.path);
         JsonValue e = JsonValue::object();
         struct stat st {};
         if (stat(pc.path, &st) != 0) {
@@ -271,7 +299,7 @@ JsonValue files_section(std::vector<std::string>* writable) {
                 e.set("entries", err("opendir"));
             }
             struct statfs fs {};
-            if (statfs(pc.path, &fs) == 0) {
+            if (statfs_call && statfs_call(pc.path, &fs) == 0) {
                 e.set("fs", std::string(fs.f_fstypename));
                 e.set("mounted_on", std::string(fs.f_mntonname));
                 e.set("free_gb", static_cast<double>(fs.f_bavail) * fs.f_bsize / 1e9);
@@ -414,7 +442,7 @@ JsonValue run(const Options& o) {
     v.set("memory", memory_section(o));
     step("files");
     std::vector<std::string> writable;
-    v.set("files", files_section(&writable));
+    v.set("files", files_section(o, &writable));
     if (o.io) {
         step("io");
         JsonValue io = JsonValue::object();

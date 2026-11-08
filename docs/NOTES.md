@@ -3071,6 +3071,13 @@ release: see "components follow their latest releases" below.)
   checks, then the engine's, shows both (differences coloured), posts its
   report to the engine and saves both JSONs in /data/alembic-bench (else
   /download0/alembic-bench). △ again, ○ close. Not drawn by preview.sh.
+- **First console run (owner, 2026-11-08): SIGSEGV** ("user read
+  instruction, page not present"). `statfs` exists only in libkernel_sys,
+  which the bench linked as a NEEDED library; a game process does not have
+  it, so the call jumped to an unresolved import. Now looked up at run time
+  (load libkernel_sys, `sceKernelDlsym`; `files.statfs` says how it went),
+  and each checked folder is logged as a step. Lesson for any engine code in
+  the app: check `llvm-readelf -d` for NEEDED libraries beyond the app's.
 - **Known going in:** the app's malloc is the UI kit's fixed 128 MiB heap
   (`app_heap.c`), so an engine inside the app would need its own heap; the
   bench shows that as `largest_malloc_mb`.
