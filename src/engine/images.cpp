@@ -2,6 +2,7 @@
 #include "images.hpp"
 
 #include "deps.hpp"
+#include "platform.hpp"
 #include "smp.hpp"
 #include "text_file.hpp"
 #include "update.hpp"
@@ -121,9 +122,7 @@ std::vector<std::string> scan_dirs(const EngineConfig& config, const std::vector
     return dirs;
 }
 
-std::string downloads_dir(const EngineConfig& config) {
-    return config.shadowmount_config.empty() ? config.state_dir + "/downloads" : "/data/downloads";
-}
+std::string downloads_dir(const EngineConfig&) { return platform::downloads_folder(); }
 
 namespace {
 void scan_packages_in(const std::string& dir, int depth, std::vector<Found>& out) {

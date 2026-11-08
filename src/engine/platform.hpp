@@ -69,6 +69,10 @@ std::string cpu_affinity();
 // experiments; "" on PCs.
 std::string thread_cpu();
 std::string set_thread_cpu(std::uint64_t mask, int prio);
+// Where apps and browsers download files (the Images tab lists the packages
+// there): /data/downloads on the PS5; on a PC the system's own Downloads
+// folder (Windows' known folder, Linux's XDG_DOWNLOAD_DIR, ~/Downloads).
+std::string downloads_folder();
 // Where the engine keeps its queue and log.
 std::string default_state_dir();
 

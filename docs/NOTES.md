@@ -3112,8 +3112,11 @@ release: see "components follow their latest releases" below.)
   game focused.
 - **Downloads (owner):** apps download packages to `/data/downloads`; the
   Images tab searches it too, every folder below it (16 deep, not hidden
-  ones), for `.pkg` files only (`images::scan_packages`; on a PC
-  `<state>/downloads`).
+  ones), for `.pkg` files only (`images::scan_packages`). On a PC
+  (owner): the system's Downloads folder (`platform::downloads_folder`:
+  Windows' FOLDERID_Downloads through SHGetKnownFolderPath, so shell32 and
+  ole32 are linked; Linux's XDG_DOWNLOAD_DIR in user-dirs.dirs; macOS
+  ~/Downloads).
 - **Not tried on a console yet.**
 
 ### 2026-11-08: Probe Bench, the engine's checks in a game process

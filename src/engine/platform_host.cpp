@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "platform.hpp"
 #include "net.hpp"
+#include "text_file.hpp"
 #include <thread>
 
 #include "alembic/io.hpp"
@@ -12,6 +13,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <bcrypt.h>
+#include <shlobj.h>
 #define popen _popen
 #define pclose _pclose
 #else
@@ -101,6 +103,44 @@ std::string system_language() {
 }
 
 std::vector<std::string> default_roots() { return {home_folder()}; }
+
+std::string downloads_folder() {
+#ifdef _WIN32
+    // The Downloads known folder, wherever the user moved it.
+    static const GUID kDownloads = {0x374de290, 0x123f, 0x4565, {0x91, 0x64, 0x39, 0xc4, 0x92, 0x5e, 0x46, 0x7b}};
+    PWSTR wide = nullptr;
+    std::string path;
+    if (SUCCEEDED(SHGetKnownFolderPath(kDownloads, 0, nullptr, &wide)) && wide) {
+        const int n = WideCharToMultiByte(CP_UTF8, 0, wide, -1, nullptr, 0, nullptr, nullptr);
+        if (n > 1) {
+            path.resize(static_cast<std::size_t>(n - 1));
+            WideCharToMultiByte(CP_UTF8, 0, wide, -1, path.data(), n, nullptr, nullptr);
+        }
+    }
+    CoTaskMemFree(wide);
+    return path.empty() ? home_folder() + "/Downloads" : portable_path(path);
+#elif defined(__APPLE__)
+    return home_folder() + "/Downloads";
+#else
+    // XDG_DOWNLOAD_DIR="$HOME/Downloads" in user-dirs.dirs (it may be localised).
+    std::string config = environment("XDG_CONFIG_HOME");
+    if (config.empty()) config = home_folder() + "/.config";
+    if (auto text = read_text(config + "/user-dirs.dirs", 64u << 10); text.ok()) {
+        for (std::size_t at = 0; at < text->size();) {
+            std::size_t end = text->find('\n', at);
+            if (end == std::string::npos) end = text->size();
+            std::string line = text->substr(at, end - at);
+            at = end + 1;
+            if (line.rfind("XDG_DOWNLOAD_DIR=", 0) != 0) continue;
+            std::string v = line.substr(17);
+            if (v.size() >= 2 && v.front() == '"' && v.back() == '"') v = v.substr(1, v.size() - 2);
+            if (v.rfind("$HOME", 0) == 0) v = home_folder() + v.substr(5);
+            if (!v.empty() && v[0] == '/') return without_trailing_slashes(v);
+        }
+    }
+    return home_folder() + "/Downloads";
+#endif
+}
 
 bool root_available(const std::string& root) { return is_directory(root); }
 

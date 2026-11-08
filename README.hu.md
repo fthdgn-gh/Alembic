@@ -262,7 +262,8 @@ Az oldalon még:
   használatban lévőt. Mindkét emulátor minden hivatalos buildjét a GitHub
   által közzétett SHA-256 alapján ismeri fel.
   Az alkalmazások által a `/data/downloads` mappába (bármelyik
-  almappájába) letöltött csomagok is megjelennek.
+  almappájába) letöltött csomagok is megjelennek; számítógépen a rendszer
+  Letöltések mappájában lévők.
 
   ![Image-ek: a ShadowMount+ mappáiban lévő játékok rácsban, két frissítendő AMPR-emulátor, egy emulátor nélküli játék és egy olyan, amelynek a buildjét az Alembic nem ismeri](docs/screenshots/images.png)
 - **Komponensek:** azokat a külső fájlokat, amelyekre az Alembicnek szüksége

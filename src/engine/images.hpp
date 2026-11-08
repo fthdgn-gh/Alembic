@@ -44,7 +44,8 @@ std::vector<std::string> scan_dirs(const EngineConfig& config, const std::vector
 // count; "backports" folders do not.
 std::vector<Found> scan(const std::vector<std::string>& dirs);
 
-// Where apps download packages (/data/downloads; on a PC <state>/downloads),
+// Where apps download packages (platform::downloads_folder: /data/downloads
+// on the PS5, the system's Downloads folder on a PC),
 // searched through every folder below it (not hidden ones) for .pkg files
 // only: the Images tab lists those too.
 std::string downloads_dir(const EngineConfig& config);

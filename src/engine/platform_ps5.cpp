@@ -143,6 +143,8 @@ void keep_awake() {
     if (sceSystemServicePowerTick) sceSystemServicePowerTick();
 }
 
+std::string downloads_folder() { return "/data/downloads"; }
+
 std::vector<std::string> default_roots() {
     std::vector<std::string> roots{"/data"};
     for (int i = 0; i < 8; ++i) roots.push_back("/mnt/usb" + std::to_string(i));

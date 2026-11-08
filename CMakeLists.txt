@@ -263,7 +263,7 @@ if(ALEMBIC_BUILD_ENGINE)
     target_compile_options(alembic_engine_lib PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
     target_link_libraries(alembic_engine_lib PUBLIC alembic_core PRIVATE alembic_mbedtls)
     if(WIN32)
-        target_link_libraries(alembic_engine_lib PUBLIC ws2_32 iphlpapi bcrypt)
+        target_link_libraries(alembic_engine_lib PUBLIC ws2_32 iphlpapi bcrypt shell32 ole32) # shell32/ole32: the Downloads known folder
     endif()
     if(PS5)
         target_link_libraries(alembic_engine_lib PUBLIC SceRandom) # platform::secure_random

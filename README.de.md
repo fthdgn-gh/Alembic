@@ -258,7 +258,8 @@ Außerdem auf der Seite:
   bei Spielen ohne Emulator den verwendeten. Jeder offizielle Build beider
   Emulatoren wird an dem SHA-256 erkannt, den GitHub für ihn veröffentlicht.
   Pakete, die Apps nach `/data/downloads` laden (in beliebige Ordner
-  darunter), werden ebenfalls aufgeführt.
+  darunter), werden ebenfalls aufgeführt; auf einem PC die im
+  Downloads-Ordner des Systems.
 
   ![Images: die Spiele in den Ordnern von ShadowMount+ als Raster, zwei AMPR-Emulatoren zu aktualisieren, ein Spiel ohne Emulator und eines mit einem Build, den Alembic nicht kennt](docs/screenshots/images.png)
 - **Komponenten:** Dateien von Dritten, die Alembic braucht, aber nicht
