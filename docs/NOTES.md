@@ -2875,7 +2875,13 @@ release: see "components follow their latest releases" below.)
    mismatch, so CI's app job fails without it: 0.3.3's first tag did) and
    the "Where we are" heading above ("Version X.Y.Z" commit). Run
    `app/build.sh` once before tagging.
-3. Tag `vX.Y.Z` with the release notes as its message, **`git tag -a
+3. Write the release notes **cumulatively** (owner, 2026-11-08): a patch
+   release keeps the minor release's notes whole and adds its own changes
+   on top ("Fixes in 0.6.2", then "Fixes in 0.6.1", then 0.6.0's notes);
+   after a major release, its notes stay and minors and patches are added on
+   top the same way, summarized each time. Start from the previous tag's
+   message (`git tag -l --format='%(contents)' vX.Y.Z`).
+   Tag `vX.Y.Z` with the release notes as its message, **`git tag -a
    --cleanup=verbatim`** (otherwise git drops the `###` heading lines as
    comments; 0.3.2 lost them and the release body was fixed with `gh release
    edit --notes-file`), and push the tag: CI builds and publishes the
