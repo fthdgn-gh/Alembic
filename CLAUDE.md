@@ -34,7 +34,10 @@ counterpart and an app change its page counterpart, in the same commit.
 The engine's web page is `src/engine/web` (Preact + TypeScript, bundled by
 esbuild into one HTML file that CMake embeds; needs Node.js 20+ and npm).
 After changing it: `cd src/engine/web && npx tsc --noEmit` and
-`python3 tools/i18n_keys.py --check`. `node build.mjs --serve` there rebuilds
+`python3 tools/i18n_keys.py --check`. The README exists in every page
+language (`README.<code>.md`, English is the main one): carry README.md
+changes into all of them and run `python3 tools/readme_check.py`.
+`node build.mjs --serve` there rebuilds
 on every change and sends `/api` to a running engine. It must keep working in
 the PS5's Safari-12-era browser: no regex lookbehind, no APIs newer than that.
 

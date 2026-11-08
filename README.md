@@ -1,5 +1,7 @@
 # Alembic
 
+**English** · [Türkçe](README.tr.md) · [Deutsch](README.de.md) · [Español](README.es.md) · [Français](README.fr.md) · [Magyar](README.hu.md) · [Русский](README.ru.md) · [日本語](README.ja.md) · [简体中文](README.zh.md)
+
 ![Alembic's page in the PS5 browser: a library of games in several formats, with drives, a NAS share, an NFS export, an FTPS server and a paired PC on the left](docs/screenshots/files.png)
 
 Alembic converts PS5 and PS4 games between the formats homebrew loaders use:

@@ -2831,6 +2831,9 @@ release: see "components follow their latest releases" below.)
 
 1. **Update the README first** (owner): new features, limits, options;
    remake the screenshots if the page changed (`tools/screenshots/shoot.sh`).
+   Carry every change into the translated READMEs (`README.<code>.md`, one
+   per page language, English is the main one) and run
+   `python3 tools/readme_check.py` (code blocks, images, links, headings).
 2. Bump the version in `CMakeLists.txt`, `contentVersion` in
    `app/sce_sys/param.json` (`00.00Y.00Z`; `app/build.sh` refuses a
    mismatch, so CI's app job fails without it: 0.3.3's first tag did) and
