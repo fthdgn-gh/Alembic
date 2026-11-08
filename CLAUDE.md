@@ -30,6 +30,10 @@ NOTES.md), `app/preview.sh [dir] [script]` draws it on this computer
 against the README's stand-in engine. Look at the pictures after every UI
 change. It mirrors the web page, both ways: a page change needs its app
 counterpart and an app change its page counterpart, in the same commit.
+`ALEMBIC_APP_VARIANT=bench app/build.sh` builds Alembic Bench (PPSA99595, a
+development title, never released): `src/engine/probe.cpp`'s process checks
+run in a game process beside the engine's `GET /api/probe`;
+`tools/probe/compare.py CONSOLE_IP` prints the differences.
 
 The engine's web page is `src/engine/web` (Preact + TypeScript, bundled by
 esbuild into one HTML file that CMake embeds; needs Node.js 20+ and npm).
@@ -127,8 +131,8 @@ environment in `.refs/mkpfs-venv`).
   (`tools/windows/smoke.sh`) and on the owner's PC. Files and folders go
   through `alembic/io.hpp` (UTF-8 paths with '/', `\\?\` long paths on
   Windows) and sockets through `src/engine/net.hpp`: no direct POSIX
-  file, folder or socket calls (nor `fopen`) outside those and
-  `platform_ps5.cpp`.
+  file, folder or socket calls (nor `fopen`) outside those,
+  `platform_ps5.cpp` and the console part of `probe.cpp`.
 - **Encryption on the network:** SMB 3 encryption (AES-128-GCM/CCM,
   `netcrypto`) when the server or share requires it; FTPS and HTTPS WebDAV
   through `src/engine/tls.hpp` on vendored Mbed TLS 3.6 LTS

@@ -3042,6 +3042,37 @@ release: see "components follow their latest releases" below.)
   HTTP: the lock is gone. The installer read it as it read the other
   package (probes, SI, SC, then the PFS in 18 MiB ranges in order).
 
+### 2026-11-08: Alembic Bench, the engine's checks in a game process
+
+- **Why (owner):** do the ELF payload's process and a game process differ,
+  and how? A bench to compare them before any engine work moves into the app.
+- **`src/engine/probe.cpp`** (libc and libkernel only, none of the payload's
+  kernel helpers, so the app links it): identity (pid, uid, jailed, CPU mode,
+  direct memory), CPU (thread mask and priority, process cpuset, SHA-256 MB/s
+  on 1-16 threads and the CPUs they ran on), memory (largest malloc; anonymous
+  memory mapped and touched in 64 MB pieces up to 2 GB), files (stat, listing,
+  file system, free space of system and storage paths; a test file only in
+  /data, /download0 and drives; names listed only for system folders),
+  256 MB write/read speed on /data and the first drive, network (listen,
+  loopback to 5940, UDP broadcast, HTTPS to api.github.com; 9021 left alone),
+  loading three system modules. Off the console: CPU only.
+- **Engine:** `GET /api/probe` (`?io=0`, `?https=0`, `?mem=MB`); `POST
+  /api/probe/app` keeps the bench's report (`<state>/probe_app.json`), `GET
+  /api/probe/app` returns it. Diagnostic only: no page or app counterpart,
+  no peer protocol change.
+- **The title:** `ALEMBIC_APP_VARIANT=bench app/build.sh` ->
+  `build-app/dist/PPSA99595{,.zip,.ffpkg}` ("Alembic Bench"; the app's
+  param.json with its IDs swapped; no engine payload inside). It runs its
+  checks, then the engine's, shows both (differences coloured), posts its
+  report to the engine and saves both JSONs in /data/alembic-bench (else
+  /download0/alembic-bench). △ again, ○ close. Not drawn by preview.sh.
+- **Known going in:** the app's malloc is the UI kit's fixed 128 MiB heap
+  (`app_heap.c`), so an engine inside the app would need its own heap; the
+  bench shows that as `largest_malloc_mb`.
+- **To do (owner, on the console):** install the bench image beside the
+  engine (new build of the engine for `/api/probe`), run it, then
+  `tools/probe/compare.py CONSOLE_IP`. Not run on a console yet.
+
 ### 2026-10-31: why conversions crawl on the console (/api/bench)
 
 - Kraken conversions ran at 7.8 MB/s on the console (95 MB/s on one Mac

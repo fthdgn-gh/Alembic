@@ -93,6 +93,8 @@
 #include "platform.hpp"
 #include "netfs.hpp"
 #include "pkg_sources.hpp"
+#include "probe.hpp"
+#include "text_file.hpp"
 #include "tls.hpp"
 #include "remote.hpp"
 #include "runner.hpp"
@@ -504,6 +506,35 @@ private:
             if (auto it = r.query.find("affinity"); it != r.query.end()) mask = std::strtoull(it->second.c_str(), nullptr, 16);
             if (auto it = r.query.find("prio"); it != r.query.end()) prio = std::atoi(it->second.c_str());
             return json(200, kraken_bench(mask, prio));
+        }
+        // What this process may do (probe.hpp), and the same report from a
+        // game process (the Alembic Bench title posts it), for comparing them.
+        // ?io=0, ?https=0 skip those; ?mem=<MB> caps the mapping test.
+        if (r.path == "/api/probe" && r.method == "GET") {
+            probe::Options o;
+            o.process = "engine";
+            if (auto it = r.query.find("io"); it != r.query.end()) o.io = it->second != "0";
+            if (auto it = r.query.find("https"); it != r.query.end()) o.https = it->second != "0";
+            if (auto it = r.query.find("mem"); it != r.query.end()) o.mem_cap_mb = std::strtoull(it->second.c_str(), nullptr, 10);
+            return json(200, probe::run(o));
+        }
+        if (r.path == "/api/probe/app" && r.method == "POST") {
+            auto body = parse_json(r.body);
+            if (!body.ok()) return error(400, "not JSON");
+            std::lock_guard<std::mutex> lock(probe_mutex_);
+            probe_app_ = r.body;
+            (void)write_text(config_.state_dir + "/probe_app.json", r.body);
+            return json(200, JsonValue::object());
+        }
+        if (r.path == "/api/probe/app" && r.method == "GET") {
+            std::lock_guard<std::mutex> lock(probe_mutex_);
+            if (probe_app_.empty()) {
+                if (auto kept = read_text(config_.state_dir + "/probe_app.json", 1u << 20); kept.ok()) probe_app_ = *kept;
+            }
+            if (probe_app_.empty()) return error(404, "no report from the Alembic Bench app yet");
+            HttpResponse resp = json(200, JsonValue());
+            resp.body = probe_app_;
+            return resp;
         }
         if (r.path == "/api/info" && r.method == "GET") return info();
         if (r.path == "/api/browse" && r.method == "GET") return browse(r);
@@ -2325,6 +2356,8 @@ private:
     JobQueue queue_;
     HttpServer server_;
     std::mutex deps_mutex_;
+    std::mutex probe_mutex_;
+    std::string probe_app_;  // the Alembic Bench app's last report (JSON)
     std::mutex launcher_mutex_;
     std::string launcher_status_ = "not tried";
     std::mutex quit_mutex_;

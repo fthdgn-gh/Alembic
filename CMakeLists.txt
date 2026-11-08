@@ -246,6 +246,7 @@ if(ALEMBIC_BUILD_ENGINE)
         src/engine/peer_fs.cpp
         src/engine/peers.cpp
         src/engine/places.cpp
+        src/engine/probe.cpp
         src/engine/remote.cpp
         src/engine/runner.cpp
         src/engine/smb.cpp

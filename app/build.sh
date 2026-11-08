@@ -18,6 +18,9 @@
 # it to the ELF loader when no engine answers (default: build-ps5/alembic.elf
 # when it exists; "none" for an app without one, which downloads its
 # version's payload from GitHub the first time instead).
+# ALEMBIC_APP_VARIANT=bench builds the Alembic Bench development title
+# instead (PPSA99595, app/bench/main.cpp): the engine's process checks run in
+# a game process, beside the engine's own (see NOTES.md). Never released.
 set -euo pipefail
 
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -32,6 +35,12 @@ source "$app/tools/host_env.sh"
 param="$app/sce_sys/param.json"
 title_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["titleId"])' "$param")
 [[ $title_id =~ ^[A-Z]{4}[0-9]{5}$ ]] || { echo "bad titleId in $param" >&2; exit 2; }
+variant=${ALEMBIC_APP_VARIANT:-app}
+case $variant in
+    app) main_source="$app/src/main.cpp" ;;
+    bench) main_source="$app/bench/main.cpp"; title_id=PPSA99595 ;;
+    *) echo "ALEMBIC_APP_VARIANT is app or bench, not '$variant'" >&2; exit 2 ;;
+esac
 
 # Loader and container constants the kit validated on firmware 6.02 and 12.70.
 module_sdk=0x02000009
@@ -56,6 +65,7 @@ bash "$kit/tools/prepare-opengl.sh" >/dev/null
 sdk_root="$HUI_WORK/.deps/native/ps5-payload-sdk"
 opengl="$HUI_WORK/.deps/ps5-opengl/current"
 build="$work/build"
+[[ $variant == app ]] || build="$work/build-$variant"
 tool="$HUI_WORK/build/host/ps5-native-tool"
 [[ -f $HUI_WORK/runtime/libc.prx ]] || bash "$kit/tools/rebuild-libc.sh" >/dev/null
 bash "$kit/tools/build-host-tools.sh"
@@ -74,8 +84,9 @@ wrapper="$kit/tooling/prospero-clang18"
 sources=()
 while IFS= read -r -d '' source; do sources+=("$source"); done < <(
     find "$kit/src" "$app/src" -type f \( -name '*.c' -o -name '*.cpp' \) \
-        ! -path "$app/src/host/*" -print0 | sort -z)
-sources+=("$repo/src/engine/json_value.cpp")
+        ! -path "$app/src/host/*" ! -path "$app/src/main.cpp" -print0 | sort -z)
+sources+=("$main_source" "$repo/src/engine/json_value.cpp")
+[[ $variant != bench ]] || sources+=("$repo/src/engine/probe.cpp")
 # HTTPS with the console's libraries and SHA-256: the app downloads its engine
 # when it carries none (shared with the engine payload).
 sources+=("$repo/src/engine/https_ps5.cpp" "$repo/src/core/sha256.cpp")
@@ -150,11 +161,16 @@ fi
 cp "$build/pic0.dds" "$out/sce_sys/pic0.dds"
 cp "$build/pic0.dds" "$out/sce_sys/pic1.dds"
 bash "$kit/tools/validate-assets.sh" "$out/sce_sys"
-python3 - "$param" "$out/sce_sys/param.json" "$content_version" <<'PY'
+python3 - "$param" "$out/sce_sys/param.json" "$content_version" "$variant" <<'PY'
 import re, sys
 text = open(sys.argv[1]).read()
 text, n = re.subn(r'("contentVersion"\s*:\s*")[0-9.]+(")', lambda m: m.group(1) + sys.argv[3] + m.group(2), text)
 assert n == 1, "param.json has no contentVersion"
+if sys.argv[4] == "bench":
+    for old, new in (("PPSA99594", "PPSA99595"), ('"99594"', '"99595"'), ("ALEMBICAPP000000", "ALEMBICBENCH0000"),
+                     ('"titleName": "Alembic"', '"titleName": "Alembic Bench"')):
+        assert old in text, old
+        text = text.replace(old, new)
 open(sys.argv[2], "w").write(text)
 PY
 cp "$fonts"/*.huifont "$out/assets/fonts/"
@@ -171,7 +187,10 @@ cp "$kit/LICENSE" "$kit/THIRD_PARTY_NOTICES.md" "$out/licenses/ps5-homebrew-ui/"
 opengl_release=$(cd -P "$opengl/.." && pwd)
 cp -R "$opengl_release/LICENSE" "$opengl_release/LICENSES" "$opengl_release/THIRD_PARTY_NOTICES.md" "$out/licenses/ps5-opengl/"
 engine_elf=${ALEMBIC_ENGINE_ELF:-$repo/build-ps5/alembic.elf}
-if [[ $engine_elf == none ]]; then
+[[ $variant == app ]] || engine_elf=none
+if [[ $variant != app ]]; then
+    :
+elif [[ $engine_elf == none ]]; then
     echo "note: no engine payload in the app (ALEMBIC_ENGINE_ELF=none); it downloads its version's from GitHub" >&2
 elif [[ -f $engine_elf ]]; then
     cp "$engine_elf" "$out/assets/alembic.elf"
