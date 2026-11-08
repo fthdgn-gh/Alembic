@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (2026-11-08, release 0.6.0)
+## Where we are (2026-11-08, release 0.6.1)
 
 ### What works
 
@@ -80,6 +80,11 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   main and wait for CI before tagging. Catalog PR from the fork branch
   update-alembic-0.5.0: darkxex/ps5-homebrew-catalog#1084 (opened by the
   owner: auto mode refuses it).
+- **In 0.6.1 (2026-11-08):** Alembic's own app is no longer listed in
+  Images nor taken for an APR user (its texts name libSceAmpr); adding the
+  AMPR emulator to it is refused, and a PS5 engine removes at start what
+  0.6.0 added to it (the app then did not start). See "Alembic's own app
+  and the AMPR emulator".
 - **In 0.6.0 (2026-11-08):** the Images tab, first and the PS5's home:
   every image, game folder and package in ShadowMount+'s folders, the
   packages in the downloads folder (`/data/downloads`; on a PC the system's
