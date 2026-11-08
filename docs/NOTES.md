@@ -3078,6 +3078,20 @@ release: see "components follow their latest releases" below.)
   (load libkernel_sys, `sceKernelDlsym`; `files.statfs` says how it went),
   and each checked folder is logged as a step. Lesson for any engine code in
   the app: check `llvm-readelf -d` for NEEDED libraries beyond the app's.
+- **Second run: the same crash.** So the payload SDK's libkernel stubs
+  offer functions a game's libkernel may lack too. Now, in the app
+  (`ALEMBIC_PROBE_DYNAMIC`), every function the app does not already import
+  (scePthread*, cpuset_getaffinity, sceKernelGetCpumode/IsNeoMode/
+  GetCurrentCpu, bind, listen, getsockname) is looked up with sceKernelDlsym
+  on libkernel's handle (found by trying candidates; `identity.libkernel`
+  says which) and reported "not in this process" when missing; getcwd and
+  getppid dropped. The bench's imports are now a subset of the app's (diff
+  of `llvm-readelf --dyn-syms`). Imported is not proven: the app never calls
+  some of them. Hence breadcrumbs: each check is written to
+  /download0/alembic-bench/step.txt first; a run that never ends puts it in
+  crashed.txt, and later runs skip and list those (OPTIONS forgets them).
+  The checks start after the first frames, so a crash before the screen
+  shows is the UI, not the checks.
 - **Known going in:** the app's malloc is the UI kit's fixed 128 MiB heap
   (`app_heap.c`), so an engine inside the app would need its own heap; the
   bench shows that as `largest_malloc_mb`.
