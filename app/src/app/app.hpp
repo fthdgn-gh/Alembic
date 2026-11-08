@@ -61,7 +61,7 @@ struct Meta {
     bool icon = false;
 };
 
-enum class Tab { files, images, queue, deps, settings };
+enum class Tab { images, files, queue, deps, settings };
 
 enum class Glyph { cross, circle, square, triangle, l1r1, l2r2, dpad, options };
 struct Hint {
@@ -203,6 +203,7 @@ public:
 
     // ---- sections, dialogs, toasts ----
     Tab tab = Tab::files;
+    bool home_chosen_ = false;  // the first info said which tab to start on (Images on a PS5 engine)
     void show_tab(Tab t);
     void open(std::unique_ptr<Overlay> overlay);
     void close(Overlay* overlay);

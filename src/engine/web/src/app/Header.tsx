@@ -27,8 +27,8 @@ export function Header() {
       <div class="logo"><img src="/icon.svg" alt="" />Alembic</div>
       <nav class="tabs" id="tabs">
         <span class="shoulder" data-pad hidden={!pad.value}>L1</span>
-        {tabButton("files", t("Files"))}
         {tabButton("images", t("Images"))}
+        {tabButton("files", t("Files"))}
         {tabButton("queue", t("Queue"), <span class="badge" id="qcount" hidden={!n}>{n}</span>)}
         {tabButton("deps", t("Components"))}
         {tabButton("settings", t("Settings"))}

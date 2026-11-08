@@ -3128,6 +3128,14 @@ release: see "components follow their latest releases" below.)
   env var ALEMBIC_IMAGES_AMPR=1 turns it on for tests), and other engines'
   items carry no AMPR state, so Images offers AMPR actions only for a
   PS5's own games. Checked on the Mac with two paired engines (page and app).
+- **Images first (owner):** the tab order is Images, Files, Queue,
+  Components, Settings everywhere; the page and the app open on Images when
+  the engine is a PS5 and on Files when it is a PC's (the page guesses from
+  the console's browser until the engine answers; the app switches once
+  its first info arrives, unless a tab was already chosen). Leaving (L2 +
+  R2) goes back to that tab. A PS5 engine reads the Images list at start,
+  so it is there when the tab first asks. README: the Images grid is the
+  first picture, the list in the Images section, Files beside Convert.
 - **Not tried on a console yet.**
 
 ### 2026-11-08: Probe Bench, the engine's checks in a game process

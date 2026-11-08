@@ -2,7 +2,7 @@
 
 **English** · [Türkçe](README.tr.md) · [Deutsch](README.de.md) · [Español](README.es.md) · [Français](README.fr.md) · [Magyar](README.hu.md) · [Русский](README.ru.md) · [日本語](README.ja.md) · [简体中文](README.zh.md)
 
-![Alembic's page in the PS5 browser: a library of games in several formats, with drives, a NAS share, an NFS export, an FTPS server and a paired PC on the left](docs/screenshots/files.png)
+![Images: the games in ShadowMount+'s folders as a grid, two AMPR emulators to update, one game without one and one with a build Alembic doesn't know](docs/screenshots/images.png)
 
 Alembic converts PS5 and PS4 games between the formats homebrew loaders use:
 packages (PS5 debug FPKG, PS4 fake PKG), dump folders, exFAT images, FFPKG
@@ -122,7 +122,7 @@ screen, or its web page in the console's browser (from a shortcut it adds to
 the Media tab) or in any browser on your network at `http://<console-ip>:5940`.
 The app and the page show the same things and work the same way.
 
-![The Alembic app on the PS5: a homebrew folder with games in several formats, drives, a NAS share, an NFS export and a paired PC on the left](docs/screenshots/app.png)
+![The Alembic app on the PS5: Images, the games in ShadowMount+'s folders as a grid with their AMPR emulator states](docs/screenshots/app.png)
 
 **The app** (`PPSA99594`, from 0.3.0), installed either way:
 
@@ -155,6 +155,8 @@ GitHub release first, checked against `SHA256SUMS`).
 4. Jobs run one at a time in **Queue**: pause, resume (long jobs continue
    from a checkpoint), reorder, cancel. You get a notification when one
    finishes.
+
+![Alembic's page in the PS5 browser: a library of games in several formats, with drives, a NAS share, an NFS export, an FTPS server and a paired PC on the left](docs/screenshots/files.png)
 
 ![The Convert dialog: target formats, compression level, the LZ4 and zstd pack switches, the AMPR emulator switch, and the output path on a paired PC](docs/screenshots/convert.png)
 
@@ -235,8 +237,9 @@ Also on the page:
   Paired engines' images follow, a section per engine (Send, Convert and
   the rest work on them as in Files); AMPR emulators are shown and updated
   only on a PS5, for its own games.
+  On a PS5 the page and the app open on Images; on a PC, on Files.
 
-  ![Images: the games in ShadowMount+'s folders as a grid, two AMPR emulators to update, one game without one and one with a build Alembic doesn't know](docs/screenshots/images.png)
+  ![Images: the games in ShadowMount+'s folders as a list, two AMPR emulators to update, one game without one and one with a build Alembic doesn't know](docs/screenshots/images-list.png)
 - **Components:** third-party files Alembic needs but doesn't ship (the AMPR
   emulators ampr_emu and ampr-emu-ng, ProsperoPkgTool's FPKG key files,
   LibOrbisPkg's licence and PS4 package keys) are downloaded on request from

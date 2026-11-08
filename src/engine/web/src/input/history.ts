@@ -3,7 +3,7 @@
 // dialogs each get a history entry, and going back is history.back().
 import { overlays, popOverlay } from "../components/Overlay";
 import { toast } from "../components/Toasts";
-import { tab, cwd, circleConfirms, TABS, type Tab } from "../state/view";
+import { tab, cwd, circleConfirms, homeTab, TABS, type Tab } from "../state/view";
 import { browse } from "../pages/files/browse";
 import { selecting, endSelecting } from "../state/selection";
 import { t } from "../lib/i18n";
@@ -38,7 +38,7 @@ function stepBack() {
   history.back();
 }
 function afterLeave() {
-  if (tab.value !== "files") showTab("files", false);
+  if (tab.value !== homeTab()) showTab(homeTab(), false);
   if (cwd.value !== "/") browse("/", false);
   toast(t("Press {b} once more to leave Alembic", { b: circleConfirms() ? "✕" : "○" }), "ok");
   try { window.close(); } catch (e) { /* works only where the browser allows it */ }
@@ -61,11 +61,11 @@ window.addEventListener("popstate", (e) => {
     if (!overlays.value.length && history.state && history.state.select && !selecting.value) history.back();
     return;
   }
-  const s: NavState = e.state || { view: "files", path: "/" };
+  const s: NavState = e.state || { view: homeTab(), path: "/" };
   if (s.overlay) { history.back(); return; } // a stale overlay entry
   if (s.select && !selecting.value) { history.back(); return; } // a selection that has ended
   if (selecting.value && !s.select) endSelecting(); // ○ while selecting ends it
-  showTab((s.view || "files") as any, false);
+  showTab((s.view || homeTab()) as any, false);
   if ((s.view || "files") === "files" && s.path && s.path !== cwd.value) browse(s.path, false);
 });
 

@@ -4,7 +4,7 @@
 
 *Bu metin [İngilizce README](README.md)'nin çevirisidir; aralarında fark varsa güncel olan İngilizcesidir.*
 
-![PS5 tarayıcısında Alembic sayfası: çeşitli biçimlerde oyunlardan oluşan bir kitaplık; solda sürücüler, bir NAS paylaşımı, bir NFS dışa aktarımı, bir FTPS sunucusu ve eşleştirilmiş bir PC](docs/screenshots/files.png)
+![İmajlar: ShadowMount+ klasörlerindeki oyunlar ızgara olarak, güncellenecek iki AMPR öykünücüsü, öykünücüsü olmayan bir oyun ve Alembic'in tanımadığı bir derlemeye sahip bir oyun](docs/screenshots/images.png)
 
 Alembic, PS5 ve PS4 oyunlarını homebrew yükleyicilerin kullandığı biçimler
 arasında dönüştürür: paketler (PS5 debug FPKG, PS4 fake PKG), döküm
@@ -133,7 +133,7 @@ eklediği kısayoldan) ya da ağınızdaki herhangi bir tarayıcıda
 `http://<console-ip>:5940` adresinde. Uygulama ve sayfa aynı şeyleri gösterir
 ve aynı şekilde çalışır.
 
-![PS5'te Alembic uygulaması: çeşitli biçimlerde oyunların olduğu bir homebrew klasörü; solda sürücüler, bir NAS paylaşımı, bir NFS dışa aktarımı ve eşleştirilmiş bir PC](docs/screenshots/app.png)
+![PS5'teki Alembic uygulaması: İmajlar, ShadowMount+ klasörlerindeki oyunlar AMPR öykünücü durumlarıyla ızgara olarak](docs/screenshots/app.png)
 
 **Uygulama** (`PPSA99594`, 0.3.0'dan beri) iki yoldan kurulur:
 
@@ -167,6 +167,8 @@ sürümünün motorunu GitHub sürümünden indirir ve `SHA256SUMS` ile denetler
 4. İşler **Kuyruk**'ta teker teker çalışır: duraklatın, sürdürün (uzun işler
    son kayıt noktasından devam eder), sıralarını değiştirin, iptal edin. Bir
    iş bitince bildirim alırsınız.
+
+![PS5 tarayıcısında Alembic sayfası: çeşitli biçimlerde oyunlardan oluşan bir kitaplık; solda sürücüler, bir NAS paylaşımı, bir NFS dışa aktarımı, bir FTPS sunucusu ve eşleştirilmiş bir PC](docs/screenshots/files.png)
 
 ![Dönüştür penceresi: hedef biçimler, sıkıştırma seviyesi, LZ4 ve zstd paket anahtarları, AMPR öykünücüsü anahtarı ve eşleştirilmiş bir PC'deki çıktı yolu](docs/screenshots/convert.png)
 
@@ -255,8 +257,9 @@ Sayfada ayrıca:
   ardından gelir (Gönder, Dönüştür ve diğerleri Dosyalar'daki gibi çalışır);
   AMPR öykünücüleri yalnızca bir PS5'te, kendi oyunları için gösterilir ve
   güncellenir.
+  Bir PS5'te sayfa ve uygulama İmajlar ile açılır; bilgisayarda Dosyalar ile.
 
-  ![İmajlar: ShadowMount+ klasörlerindeki oyunlar ızgara olarak, güncellenecek iki AMPR öykünücüsü, öykünücüsü olmayan bir oyun ve Alembic'in tanımadığı bir derlemeye sahip bir oyun](docs/screenshots/images.png)
+  ![İmajlar: ShadowMount+ klasörlerindeki oyunlar liste olarak, güncellenecek iki AMPR öykünücüsü, öykünücüsü olmayan bir oyun ve Alembic'in tanımadığı bir derlemeye sahip bir oyun](docs/screenshots/images-list.png)
 - **Bileşenler:** Alembic'in ihtiyaç duyduğu ama kendisiyle gelmeyen üçüncü
   taraf dosyalar (AMPR öykünücüleri ampr_emu ve ampr-emu-ng,
   ProsperoPkgTool'un FPKG anahtar dosyaları, LibOrbisPkg'nin lisans ve PS4

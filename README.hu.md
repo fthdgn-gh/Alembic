@@ -4,7 +4,7 @@
 
 *Ez az [angol nyelvű README](README.md) fordítása; ha eltérnek, az angol a mérvadó.*
 
-![Az Alembic oldala a PS5 böngészőjében: többféle formátumú játékok könyvtára, bal oldalon meghajtókkal, egy NAS-megosztással, egy NFS-exporttal, egy FTPS-szerverrel és egy párosított PC-vel](docs/screenshots/files.png)
+![Image-ek: a ShadowMount+ mappáiban lévő játékok rácsban, két frissítendő AMPR-emulátor, egy emulátor nélküli játék és egy olyan, amelynek a buildjét az Alembic nem ismeri](docs/screenshots/images.png)
 
 Az Alembic a PS5- és PS4-játékokat alakítja át a homebrew betöltők által
 használt formátumok között: csomagok (PS5 debug FPKG, PS4 fake PKG), dump
@@ -137,7 +137,7 @@ amelyet a Média lapra tesz) vagy bármely böngészőben a hálózatodon a
 `http://<console-ip>:5940` címen. Az alkalmazás és az oldal ugyanazt mutatja,
 és ugyanúgy működik.
 
-![Az Alembic alkalmazás a PS5-ön: egy homebrew mappa többféle formátumú játékokkal, bal oldalon meghajtókkal, egy NAS-megosztással, egy NFS-exporttal és egy párosított PC-vel](docs/screenshots/app.png)
+![Az Alembic alkalmazás a PS5-ön: Image-ek, a ShadowMount+ mappáiban lévő játékok rácsban, AMPR-emulátoruk állapotával](docs/screenshots/app.png)
 
 **Az alkalmazás** (`PPSA99594`, 0.3.0-tól) kétféleképpen telepíthető:
 
@@ -173,6 +173,8 @@ ellenőrzi).
 4. A feladatok egyenként futnak a **Várólista** részen: szüneteltetés,
    folytatás (a hosszú feladatok egy mentési ponttól folytatódnak),
    átrendezés, megszakítás. Értesítést kapsz, amikor egy befejeződik.
+
+![Az Alembic oldala a PS5 böngészőjében: többféle formátumú játékok könyvtára, bal oldalon meghajtókkal, egy NAS-megosztással, egy NFS-exporttal, egy FTPS-szerverrel és egy párosított PC-vel](docs/screenshots/files.png)
 
 ![Az Átalakítás ablak: célformátumok, tömörítési szint, az LZ4- és zstd-csomagok kapcsolói, az AMPR-emulátor kapcsolója, és a kimeneti útvonal egy párosított PC-n](docs/screenshots/convert.png)
 
@@ -268,8 +270,10 @@ Az oldalon még:
   szakaszban (a Küldés, a Konvertálás és a többi úgy működik, mint a
   Fájlokban); AMPR-emulátorokat csak PS5-ön mutat és frissít, a saját
   játékaihoz.
+  PS5-ön az oldal és az alkalmazás az Image-ekkel nyílik meg, számítógépen a
+  Fájlokkal.
 
-  ![Image-ek: a ShadowMount+ mappáiban lévő játékok rácsban, két frissítendő AMPR-emulátor, egy emulátor nélküli játék és egy olyan, amelynek a buildjét az Alembic nem ismeri](docs/screenshots/images.png)
+  ![Image-ek: a ShadowMount+ mappáiban lévő játékok listában, két frissítendő AMPR-emulátor, egy emulátor nélküli játék és egy olyan, amelynek a buildjét az Alembic nem ismeri](docs/screenshots/images-list.png)
 - **Komponensek:** azokat a külső fájlokat, amelyekre az Alembicnek szüksége
   van, de nem tartalmazza (az ampr_emu és ampr-emu-ng AMPR-emulátorok, a
   ProsperoPkgTool FPKG-kulcsfájljai, a LibOrbisPkg licenc- és

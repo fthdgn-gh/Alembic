@@ -42,13 +42,22 @@ await cdp("Page.enable");
 await cdp("Page.navigate", { url: "http://127.0.0.1:5960/" });
 await sleep(2500);
 
-// 1. Files: the homebrew folder, first game focused.
+// 1. Images, where the page opens on a PS5 engine: the grid, then the list.
+await sleep(1500);
+await shot("images");
+await run(`document.querySelector('[data-key="images:view-list"]').click()`);
+await sleep(800);
+await shot("images-list");
+await run(`document.querySelector('[data-key="images:view-grid"]').click()`);
+
+// 2. Files: the homebrew folder, first game focused.
+await run(`__alembic.showTab("files")`);
 await run(`__alembic.browse("/data/homebrew")`);
 await sleep(1500);
 await down(); await key("ArrowUp", "ArrowUp", 38);
 await shot("files");
 
-// 2. Convert: a package on the paired PC, opened from Files.
+// 2b. Convert: a package on the paired PC, opened from Files.
 await run(`__alembic.browse(${JSON.stringify("/peer/6f3c9a1e24b74d0e8c51a7f2d9e0b318/D:/Games")})`);
 await sleep(1500);
 await run(`__alembic.openConvert(__alembic.state.listing.entries.find((e) => e.name === "Glass Meridian.pkg"))`);
@@ -57,12 +66,7 @@ await shot("convert");
 await run(`__alembic.closeOverlay(null)`);
 await sleep(500);
 
-// 3. Images: every image in ShadowMount+'s folders, AMPR emulators to update.
-await run(`__alembic.showTab("images")`);
-await sleep(1500);
-await shot("images");
-
-// 3b. Queue: give the speed estimate a few seconds of samples.
+// 3. Queue: give the speed estimate a few seconds of samples.
 await run(`__alembic.showTab("queue")`);
 await sleep(6000);
 await shot("queue");

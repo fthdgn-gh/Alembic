@@ -314,6 +314,9 @@ public:
         updater_ = std::make_unique<update::Updater>(std::move(u));
         if (config_.check_updates) updater_->check();
         if (config_.check_updates) check_components(true);
+        // The console's page and app open on Images: its list is read now,
+        // so it is there when they first ask.
+        if (std::string(platform::name()) == "ps5") (void)images_.snapshot(0);
         return {};
     }
 

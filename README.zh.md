@@ -4,7 +4,7 @@
 
 *本文是[英文 README](README.md) 的译文；两者不一致时，以英文版为准。*
 
-![PS5 浏览器中的 Alembic 页面：多种格式的游戏库，左侧是驱动器、一个 NAS 共享、一个 NFS 导出、一个 FTPS 服务器和一台已配对的 PC](docs/screenshots/files.png)
+![镜像：ShadowMount+ 文件夹中的游戏网格，两个可更新的 AMPR 模拟器，一个没有模拟器的游戏，以及一个使用 Alembic 不认识的版本的游戏](docs/screenshots/images.png)
 
 Alembic 在自制加载器所用的各种格式之间转换 PS5 和 PS4 游戏：
 安装包（PS5 debug FPKG、PS4 fake PKG）、转储文件夹、exFAT 镜像、FFPKG
@@ -102,7 +102,7 @@ LZ4 资源包对部分游戏有效，对另一些无效。
 （通过它添加到“媒体”标签页的快捷方式），或在网络中任意浏览器里打开
 `http://<console-ip>:5940`。应用和页面显示的内容相同，用法也相同。
 
-![PS5 上的 Alembic 应用：一个包含多种格式游戏的 homebrew 文件夹，左侧是驱动器、一个 NAS 共享、一个 NFS 导出和一台已配对的 PC](docs/screenshots/app.png)
+![PS5 上的 Alembic 应用：镜像，ShadowMount+ 文件夹中的游戏以网格显示，并附带其 AMPR 模拟器状态](docs/screenshots/app.png)
 
 **应用**（`PPSA99594`，从 0.3.0 起）有两种安装方式：
 
@@ -130,6 +130,8 @@ LZ4 资源包对部分游戏有效，对另一些无效。
    安装包会被删除，除非开启了**保留安装包**，因此在那之前需要留出空间。
 4. 任务在**队列**中逐个运行：可以暂停、继续（长任务从检查点接着进行）、
    调整顺序、取消。任务完成时你会收到通知。
+
+![PS5 浏览器中的 Alembic 页面：多种格式的游戏库，左侧是驱动器、一个 NAS 共享、一个 NFS 导出、一个 FTPS 服务器和一台已配对的 PC](docs/screenshots/files.png)
 
 ![“转换”对话框：目标格式、压缩级别、LZ4 和 zstd 包开关、AMPR 模拟器开关，以及位于已配对 PC 上的输出路径](docs/screenshots/convert.png)
 
@@ -191,8 +193,9 @@ LZ4 资源包对部分游戏有效，对另一些无效。
   系统“下载”文件夹中的软件包。
   之后是已配对引擎的镜像，每个引擎一节（发送、转换等操作与“文件”中相同）；
   AMPR 模拟器只在 PS5 上针对它自己的游戏显示和更新。
+  在 PS5 上，页面和应用会打开“镜像”；在电脑上则打开“文件”。
 
-  ![镜像：ShadowMount+ 文件夹中的游戏网格，两个可更新的 AMPR 模拟器，一个没有模拟器的游戏，以及一个使用 Alembic 不认识的版本的游戏](docs/screenshots/images.png)
+  ![镜像：ShadowMount+ 文件夹中的游戏列表，两个可更新的 AMPR 模拟器，一个没有模拟器的游戏，以及一个使用 Alembic 不认识的版本的游戏](docs/screenshots/images-list.png)
 - **组件：** Alembic 需要但不随附的第三方文件（AMPR 模拟器 ampr_emu 和
   ampr-emu-ng、ProsperoPkgTool 的 FPKG 密钥文件、LibOrbisPkg 的许可证密钥和
   PS4 安装包密钥）会按需从官方来源下载，只有 SHA-256 匹配时才保留。

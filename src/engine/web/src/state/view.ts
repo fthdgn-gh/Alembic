@@ -6,10 +6,16 @@ import { info } from "./engine";
 import { IS_PS5 } from "../lib/env";
 import { store } from "../lib/storage";
 
-export const TABS = ["files", "images", "queue", "deps", "settings"] as const;
+export const TABS = ["images", "files", "queue", "deps", "settings"] as const;
 export type Tab = (typeof TABS)[number];
 
-export const tab = signal<Tab>("files");
+// The tab the page starts on (and leaving returns to): Images on a PS5
+// engine, its library; Files on a PC's, where Images mostly holds Downloads.
+// Before the engine answers, the console's browser is taken for a PS5's.
+export function homeTab(): Tab {
+  return info.value ? (info.value.platform === "ps5" ? "images" : "files") : IS_PS5 ? "images" : "files";
+}
+export const tab = signal<Tab>(homeTab());
 
 // How Files and Images show their entries (the switch above each): a list,
 // or a grid of tiles. Kept per browser; Files starts as a list, Images as a grid.

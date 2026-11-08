@@ -4,7 +4,7 @@
 
 *Esta es una traducción del [README en inglés](README.md); si no coinciden, el inglés es el que está al día.*
 
-![La página de Alembic en el navegador de la PS5: una biblioteca de juegos en varios formatos, con unidades, un recurso compartido de un NAS, una exportación NFS, un servidor FTPS y un PC emparejado a la izquierda](docs/screenshots/files.png)
+![Imágenes: los juegos de las carpetas de ShadowMount+ en cuadrícula, dos emuladores AMPR por actualizar, un juego sin emulador y otro con una versión que Alembic no conoce](docs/screenshots/images.png)
 
 Alembic convierte juegos de PS5 y PS4 entre los formatos que usan los
 cargadores homebrew: paquetes (FPKG debug de PS5, PKG falso de PS4), carpetas
@@ -134,7 +134,7 @@ acceso directo que añade a la pestaña Multimedia) o en cualquier navegador de
 tu red en `http://<console-ip>:5940`. La aplicación y la página muestran lo
 mismo y funcionan igual.
 
-![La aplicación Alembic en la PS5: una carpeta homebrew con juegos en varios formatos, unidades, un recurso compartido de un NAS, una exportación NFS y un PC emparejado a la izquierda](docs/screenshots/app.png)
+![La app Alembic en la PS5: Imágenes, los juegos de las carpetas de ShadowMount+ en cuadrícula con el estado de sus emuladores AMPR](docs/screenshots/app.png)
 
 **La aplicación** (`PPSA99594`, desde la 0.3.0) se instala de una de estas
 formas:
@@ -170,6 +170,8 @@ versión desde la versión publicada en GitHub, comprobado con `SHA256SUMS`).
 4. Las tareas se ejecutan de una en una en **Cola**: pausar, reanudar (las
    tareas largas continúan desde un punto de control), reordenar, cancelar.
    Recibes una notificación cuando termina una.
+
+![La página de Alembic en el navegador de la PS5: una biblioteca de juegos en varios formatos, con unidades, un recurso compartido de un NAS, una exportación NFS, un servidor FTPS y un PC emparejado a la izquierda](docs/screenshots/files.png)
 
 ![El diálogo Convertir: formatos de destino, nivel de compresión, los interruptores de paquetes LZ4 y zstd, el del emulador AMPR y la ruta de salida en un PC emparejado](docs/screenshots/convert.png)
 
@@ -258,8 +260,9 @@ También en la página:
   motor (Enviar, Convertir y lo demás funcionan como en Archivos); los
   emuladores AMPR solo se muestran y actualizan en una PS5, para sus propios
   juegos.
+  En una PS5, la página y la app abren en Imágenes; en un PC, en Archivos.
 
-  ![Imágenes: los juegos de las carpetas de ShadowMount+ en cuadrícula, dos emuladores AMPR por actualizar, un juego sin emulador y otro con una versión que Alembic no conoce](docs/screenshots/images.png)
+  ![Imágenes: los juegos de las carpetas de ShadowMount+ en lista, dos emuladores AMPR por actualizar, un juego sin emulador y otro con una versión que Alembic no conoce](docs/screenshots/images-list.png)
 - **Componentes:** los archivos de terceros que Alembic necesita pero no
   incluye (los emuladores AMPR ampr_emu y ampr-emu-ng, los archivos de claves
   FPKG de ProsperoPkgTool, la licencia y las claves de paquetes de PS4 de

@@ -201,6 +201,13 @@ void App::load_info() {
                     get("/api/peer-drives", [this, i, sp, loc, f](const Reply& pd) {
                         get("/api/peers", [this, i, sp, loc, f, pd](const Reply& p) {
                             info = i;
+                            // Start on the engine's home tab: Images on a PS5 (its library),
+                            // Files on a PC; only when nothing has been chosen yet.
+                            if (!home_chosen_) {
+                                home_chosen_ = true;
+                                if (i["platform"].str() == "ps5" && tab == Tab::files && (cwd.empty() || cwd == "/") && overlays_.empty())
+                                    show_tab(Tab::images);
+                            }
                             if (sp.ok()) space = sp.json;
                             if (loc.ok()) locations = loc.json;
                             if (f.ok()) servers = f.json;
@@ -881,7 +888,7 @@ void App::frame(Ui& ui) {
 
 void App::handle_global(Ui& ui) {
     if (ui.pressed(Action::page_prev) || ui.pressed(Action::page_next)) {
-        static const Tab order[] = {Tab::files, Tab::images, Tab::queue, Tab::deps, Tab::settings};
+        static const Tab order[] = {Tab::images, Tab::files, Tab::queue, Tab::deps, Tab::settings};
         int i = 0;
         while (order[i] != tab) ++i;
         i = (i + (ui.pressed(Action::page_next) ? 1 : 4)) % 5;
@@ -953,7 +960,7 @@ void App::draw_header(Ui& ui) {
         Tab id;
         std::string label;
     };
-    const TabDef tabs[] = {{Tab::files, t("Files")}, {Tab::images, t("Images")}, {Tab::queue, t("Queue")}, {Tab::deps, t("Components")},
+    const TabDef tabs[] = {{Tab::images, t("Images")}, {Tab::files, t("Files")}, {Tab::queue, t("Queue")}, {Tab::deps, t("Components")},
                            {Tab::settings, t("Settings")}};
     for (const auto& td : tabs) {
         const float s = 1.05f * R;
