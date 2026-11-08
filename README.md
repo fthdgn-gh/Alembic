@@ -88,7 +88,7 @@ and the app mark each game with a **PS5** (white) or **PS4** (black) pill.
 - **LZ4 asset packs** for drakmor's [ampr_emu](https://github.com/drakmor/ampr_emu)
   PackedStdio runtime (`--lz4`), byte-identical to its `ampr_pack.py`, with
   game profiles from
-  [PS5-LZ4-Compression](https://github.com/theghostonline/PS5-LZ4-Compression).
+  PS5-LZ4-Compression.
 - **zstd packs** for quer3q's [ampr-emu-ng](https://github.com/quer3q/ampr-emu-ng)
   (`--zstd`, or "Pack into zstd packs" when converting), byte-identical to
   [ps5-dump-forge](https://github.com/quer3q/ps5-dump-forge)'s: smaller than
@@ -328,6 +328,80 @@ The page itself has no password: anyone on your network can open it. Start
 a PC engine with `--listen 127.0.0.1` to keep it to that computer; other
 engines can't reach it then.
 
+## Guide
+
+### Which format to use
+
+| Format | What it is | Size | Runs through | Good for | Keep in mind |
+|---|---|---|---|---|---|
+| **Package** (FPKG / PKG) | The game as the console installs it | Same as the game; smaller with Kraken compression (PS5) | The console's installer: an ordinary installed game | Games you want installed, with no loader and no AMPR emulator | Installing takes the game's full size on internal or extended storage, plus the package until it is installed |
+| **FFPKG** (UFS2) | One image file holding a UFS2 file system | Same as the game | ShadowMount+ | Running games from internal or USB storage: ShadowMount+'s recommended format | Fixed size, like every image; to change a file, convert to a folder and back |
+| **exFAT** | One image file holding an exFAT file system | Same as the game | ShadowMount+ | Titles that only work when handled like external-drive content (wrong or missing sound is a common sign) | ShadowMount+ suggests it only for those. It reads it fastest from directly under `/data` or `/user` with 64 KB clusters, which Alembic always uses |
+| **FFPFSC** | A compressed PFS container holding an exFAT (or other) image | Smaller: how much depends on the game | ShadowMount+ (experimental there) | Saving space on smaller or lighter games | The console decompresses at about 150–250 MB/s while you play: big open-world games can stutter, even from internal storage. Always read-only |
+| **FFPFS** (PFS) | One image file holding the console's own PFS file system | Same as the game | ShadowMount+ (experimental there) | Trying PFS, or matching MkPFS output | Experimental in ShadowMount+ |
+| **Dump folder** | The game's files as they are | Same as the game, plus a little per file | ShadowMount+ | Changing files (mods, backports), and as the source to make any other format. Often loads fastest | Thousands of files: slower to copy and move than one image |
+
+**In short:**
+
+- **To install a game like any other:** convert it to a package, or use
+  **Install…**, which converts, installs and deletes the package for you.
+  Installed games use the console's own APR, so they need no AMPR emulator.
+  (Installing Alembic-made packages has been tried; starting a game
+  installed from one has not yet.)
+- **To run games through ShadowMount+:** **FFPKG** first. **exFAT** if a
+  game misbehaves as FFPKG (wrong sound, for example); keep it directly under
+  `/data` (or `/user`), where ShadowMount+ reads exFAT fastest.
+- **Short on space:** two ways, which can be combined.
+  - **zstd packs** (a switch in Convert) shrink the game's files and keep the
+    image fast to read: a 26 GiB set of game files became 11.1 GiB, about a
+    third smaller than LZ4 packs. The game then needs ampr-emu-ng, and
+    ShadowMount+'s "update emulators" must be off, or it puts ampr_emu back.
+    ampr-emu-ng is young and moves fast: not every game works yet, so check
+    the game starts before deleting the original.
+  - **LZ4 packs** work with either emulator (ampr-emu-ng reads them too), but
+    are larger, and with ampr_emu only some games work.
+  - **FFPFSC** compresses the whole image and needs no emulator, but the
+    console decompresses slowly: fine for smaller games, while big
+    open-world games can stutter. If one does, convert it back to FFPKG or
+    exFAT.
+- **To change a game's files:** keep it as a **folder**, and convert it to an
+  image when you are done.
+
+### How to
+
+- **Turn a package into an image for ShadowMount+:** in Files (or Images),
+  choose the package and **Convert…**, then pick the format you want (FFPKG
+  if unsure, see above). Save it into a folder ShadowMount+ scans (for
+  example `/data/homebrew`); with **Hide the source
+  from ShadowMount+**, ShadowMount+ switches to the new image without
+  uninstalling the game.
+- **Install an image or folder as a package:** **Install…** on it (PS5
+  engine): it is converted to a package, handed to the installer and
+  deleted once installed (**Keep the package** keeps it).
+- **Convert on your PC, save on the console:** pair the engines (**Settings →
+  Other engines**), choose the PC's file in Files on the console, and pick the
+  PC as the engine that converts. The PC's processor does the work and the
+  result is written straight to the console's storage.
+- **Keep the AMPR emulators up to date:** Images shows each game's emulator
+  and a pill when a newer build is out; **Update AMPR emulators** updates
+  them all, each keeping its own kind.
+- **Free up space after converting:** **Delete the source when done**
+  compares the result with the source file by file before deleting it.
+
+### Tips
+
+- **Convert on a PC when you can.** The console gives a payload only part of
+  its processor (about five cores, at low priority): a PC engine converts
+  several times faster, and writes to the console over the network.
+- **Long conversions can stop and start again.** Pause one, update or
+  restart the engine, and it continues from its last checkpoint.
+- **Name images the same way every time** with **Settings → Rename formats**:
+  title, title ID, version and format, as you choose.
+- **Selecting several:** in Files or Images, **Options → Select…**, tick the
+  games, then □ for what to do with all of them at once.
+- **Back up before you delete the original** until you have checked the new
+  image starts on your console.
+
 ## On a PC
 
 Each release has a package per system: `alembic-<version>-linux-x64.tar.gz`,
@@ -471,7 +545,7 @@ Alembic stands on the work of the PS5 homebrew scene. Thank you to:
   packages: the writer Alembic follows, its keys, and the tool it is checked
   against).
 - **theghostonline** for
-  [PS5-LZ4-Compression](https://github.com/theghostonline/PS5-LZ4-Compression)
+  PS5-LZ4-Compression
   (LZ4 pack profiles and the engine-and-page idea).
 - **danthespal** for the LZ4 game profiles posted with
   [MkPFS.CSharp](https://github.com/danthespal/MkPFS.CSharp).

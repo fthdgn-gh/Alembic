@@ -3749,6 +3749,21 @@ with `fself::make_prospero_fself`, ported from ProsperoPkgTool's
   frame). Page and app pictures in Chinese against the stand-in engine
   looked at.
 
+### 2026-11-09: README guide
+
+- README "Guide" (every language): which format when, how-tos, tips. Based
+  on a look at ShadowMount+ 1.7beta12 (2026-11-08) and the AMPR emulators:
+  FFPKG is still SMP's default; exFAT for titles that misbehave (often
+  sound), read fastest directly under /data or /user with 64 KiB clusters;
+  PFS/PFSC still experimental there, PFSC decompresses at ~150-250 MB/s
+  (big open-world games stutter); ampr-emu-ng reads LZ4 and zstd packs and,
+  by its own figures, waits ~8x less per read with ~1/3 the memory of
+  ampr_emu; SMP's "update emulators" puts ampr_emu back over it.
+  Re-check these before changing the guide's advice.
+- theghostonline/PS5-LZ4-Compression is gone (404): the READMEs name it
+  without a link; THIRD_PARTY_NOTICES keeps the URL as the record.
+- Menu paths in the READMEs are written with "→".
+
 ## Next session
 
 **Settled (owner, 2026-10-22):**

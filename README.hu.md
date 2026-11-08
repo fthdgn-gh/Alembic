@@ -97,7 +97,7 @@ PS4 fake PKG. Az oldal és az alkalmazás minden játékot **PS5** (fehér) vagy
 - **LZ4 asset csomagok** drakmor [ampr_emu](https://github.com/drakmor/ampr_emu)
   PackedStdio futtatókörnyezetéhez (`--lz4`), bájtra azonosak az
   `ampr_pack.py` kimenetével, a
-  [PS5-LZ4-Compression](https://github.com/theghostonline/PS5-LZ4-Compression)
+  PS5-LZ4-Compression
   játékprofiljaival.
 - **zstd-csomagok** quer3q [ampr-emu-ng](https://github.com/quer3q/ampr-emu-ng)
   emulátorához (`--zstd`, vagy átalakításkor „Csomagolás zstd-formátumba”),
@@ -376,6 +376,90 @@ Magának az oldalnak nincs jelszava: a hálózatodon bárki megnyithatja. Egy
 PC-s motort a `--listen 127.0.0.1` kapcsolóval indíts, ha csak arra a
 számítógépre akarod korlátozni; ekkor más motorok sem érik el.
 
+## Útmutató
+
+### Melyik formátumot válaszd
+
+| Formátum | Mi ez | Méret | Mi futtatja | Mire jó | Mire figyelj |
+|---|---|---|---|---|---|
+| **Csomag** (FPKG / PKG) | A játék úgy, ahogy a konzol telepíti | Akkora, mint a játék; Kraken-tömörítéssel kisebb (PS5) | A konzol telepítője: egy szokásos telepített játék | Játékok, amelyeket telepíteni akarsz, betöltő és AMPR-emulátor nélkül | A telepítés a játék teljes méretét foglalja a belső vagy a bővített tárhelyen, a telepítés végéig pedig a csomagot is |
+| **FFPKG** (UFS2) | Egyetlen image-fájl UFS2 fájlrendszerrel | Akkora, mint a játék | ShadowMount+ | Játékok futtatása belső tárhelyről vagy USB-ről: a ShadowMount+ által ajánlott formátum | Rögzített méretű, mint minden image; egy fájl módosításához alakítsd mappává, majd vissza |
+| **exFAT** | Egyetlen image-fájl exFAT fájlrendszerrel | Akkora, mint a játék | ShadowMount+ | Címek, amelyek csak külső meghajtós tartalomként kezelve működnek (gyakori jel a hibás vagy hiányzó hang) | A ShadowMount+ csak ezekhez javasolja. Akkor olvassa a leggyorsabban, ha közvetlenül a `/data` vagy a `/user` alatt van, 64 KB-os fürtökkel, amelyeket az Alembic mindig használ |
+| **FFPFSC** | Tömörített PFS-tároló, benne egy exFAT (vagy más) image | Kisebb: hogy mennyivel, az a játéktól függ | ShadowMount+ (ott kísérleti) | Helytakarékosság kisebb vagy könnyebb játékoknál | A konzol játék közben kb. 150–250 MB/s sebességgel tömörít ki: a nagy, nyílt világú játékok akadozhatnak, még belső tárhelyről is. Mindig csak olvasható |
+| **FFPFS** (PFS) | Egyetlen image-fájl a konzol saját PFS fájlrendszerével | Akkora, mint a játék | ShadowMount+ (ott kísérleti) | A PFS kipróbálása, vagy a MkPFS kimenetével egyező eredmény | Kísérleti a ShadowMount+-ban |
+| **Dump mappa** | A játék fájljai, úgy, ahogy vannak | Akkora, mint a játék, plusz fájlonként egy kevés | ShadowMount+ | Fájlok módosítása (modok, backportok), és forrásként bármely más formátumhoz. Gyakran ez tölt be a leggyorsabban | Több ezer fájl: lassabb másolni és áthelyezni, mint egyetlen image-et |
+
+**Röviden:**
+
+- **Ha úgy telepítenél egy játékot, mint bármely mást:** alakítsd csomaggá,
+  vagy használd a **Telepítés…** lehetőséget, amely átalakít, telepít, és
+  törli helyetted a csomagot. A telepített játékok a konzol saját APR-jét
+  használják, így nincs szükségük AMPR-emulátorra. (Az Alembic által
+  készített csomagok telepítését már kipróbálták; egy ilyenből telepített
+  játék indítását még nem.)
+- **Ha a ShadowMount+-szal futtatnál játékokat:** elsőként **FFPKG**.
+  **exFAT**, ha egy játék FFPKG-ként rosszul viselkedik (például hibás a
+  hang); tartsd közvetlenül a `/data` (vagy a `/user`) alatt, ahol a
+  ShadowMount+ a leggyorsabban olvassa az exFAT-ot.
+- **Ha kevés a hely:** két mód van, és kombinálhatók.
+  - A **zstd-csomagok** (egy kapcsoló az Átalakítás ablakban) kisebbre
+    tömörítik a játék fájljait, és az image olvasása gyors marad: egy
+    26 GiB-os játékfájl-készletből 11,1 GiB lett, nagyjából egyharmaddal
+    kisebb, mint LZ4-csomagokkal. A játéknak ezután ampr-emu-ng kell, és a
+    ShadowMount+ "update emulators" beállításának kikapcsolva kell lennie,
+    különben visszarakja az ampr_emu-t. Az ampr-emu-ng fiatal és gyorsan
+    változik: még nem minden játék működik vele, ezért az eredeti törlése
+    előtt ellenőrizd, hogy a játék elindul.
+  - Az **LZ4-csomagok** mindkét emulátorral működnek (az ampr-emu-ng is
+    olvassa őket), de nagyobbak, és ampr_emu-val csak egyes játékok
+    működnek.
+  - Az **FFPFSC** az egész image-et tömöríti, és nem kell hozzá emulátor,
+    de a konzol lassan tömörít ki: kisebb játékokhoz megfelel, a nagy,
+    nyílt világú játékok viszont akadozhatnak. Ha egy akadozik, alakítsd
+    vissza FFPKG-vá vagy exFAT-tá.
+- **Ha egy játék fájljait módosítanád:** tartsd **mappaként**, és ha
+  végeztél, alakítsd image-é.
+
+### Hogyan
+
+- **Csomagból image a ShadowMount+-hoz:** a **Fájlok** (vagy az
+  **Image-ek**) részen válaszd ki a csomagot, majd **Átalakítás…**, és
+  válaszd ki a kívánt formátumot (ha bizonytalan vagy, FFPKG, lásd fent).
+  Mentsd egy olyan mappába, amelyet a ShadowMount+ átnéz (például
+  `/data/homebrew`); **A forrás elrejtése a ShadowMount+ elől** beállítással
+  a ShadowMount+ a játék eltávolítása nélkül vált át az új image-re.
+- **Image vagy mappa telepítése csomagként:** **Telepítés…** rajta (PS5-ös
+  motor): csomaggá alakul, átkerül a telepítőhöz, és a telepítés után
+  törlődik (a **Csomag megtartása** megtartja).
+- **Átalakítás a PC-n, mentés a konzolra:** párosítsd a motorokat
+  (**Beállítások → Egyéb motorok**), a konzolon a **Fájlok** részen válaszd ki
+  a PC-n lévő fájlt, és átalakító motornak a PC-t válaszd. A munkát a PC
+  processzora végzi, az eredmény pedig közvetlenül a konzol tárhelyére
+  íródik.
+- **Az AMPR-emulátorok naprakészen tartása:** az **Image-ek** rész minden
+  játéknál mutatja az emulátort, és egy jelvényt, ha újabb build érhető el;
+  az **AMPR-emulátorok frissítése** mindet frissíti, mindegyiket a saját
+  fajtájával.
+- **Hely felszabadítása átalakítás után:** **A forrásfájl törlése a művelet
+  végén** törlés előtt fájlonként összeveti az eredményt a forrással.
+
+### Tippek
+
+- **Ha teheted, PC-n alakíts át.** A konzol egy payloadnak a processzorának
+  csak egy részét adja (kb. öt magot, alacsony prioritással): egy PC-s motor
+  többszörösen gyorsabban alakít át, és a hálózaton keresztül ír a konzolra.
+- **A hosszú átalakítások leállíthatók és újraindíthatók.** Szüneteltesd,
+  frissítsd vagy indítsd újra a motort, és az utolsó mentési ponttól
+  folytatja.
+- **Nevezd el az image-eket mindig ugyanúgy** a **Beállítások → Átnevezési
+  formátumok** segítségével: cím, címazonosító, verzió és formátum, ahogy
+  szeretnéd.
+- **Több elem kijelölése:** a **Fájlok** vagy az **Image-ek** részen
+  **Beállítások → Kijelölés…**, jelöld be a játékokat, majd a □ gombbal
+  válaszd ki, mi történjen mindegyikkel egyszerre.
+- **Készíts biztonsági másolatot, mielőtt törlöd az eredetit,** amíg nem
+  ellenőrizted, hogy az új image elindul a konzolodon.
+
 ## PC-n
 
 Minden kiadásban rendszerenként van egy csomag:
@@ -532,7 +616,7 @@ Az Alembic a PS5 homebrew közösség munkájára épül. Köszönet:
   csomagok: az író, amelyet az Alembic követ, a kulcsai, és az eszköz,
   amellyel ellenőrizzük) miatt.
 - **theghostonline**-nak a
-  [PS5-LZ4-Compression](https://github.com/theghostonline/PS5-LZ4-Compression)
+  PS5-LZ4-Compression
   (LZ4-csomagprofilok és a motor-plusz-oldal ötlet) miatt.
 - **danthespal**-nak a [MkPFS.CSharp](https://github.com/danthespal/MkPFS.CSharp)
   mellett közzétett LZ4-játékprofilokért.

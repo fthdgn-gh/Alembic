@@ -96,7 +96,7 @@ işaretler.
 - drakmor'un [ampr_emu](https://github.com/drakmor/ampr_emu) PackedStdio
   çalışma zamanı için **LZ4 varlık paketleri** (`--lz4`): `ampr_pack.py` ile
   bayt bayt aynı; oyun profilleri
-  [PS5-LZ4-Compression](https://github.com/theghostonline/PS5-LZ4-Compression)'dan.
+  PS5-LZ4-Compression'dan.
 - quer3q'nun [ampr-emu-ng](https://github.com/quer3q/ampr-emu-ng)'si için
   **zstd paketleri** (`--zstd` ya da dönüştürürken "zstd paketlerine
   paketle"): [ps5-dump-forge](https://github.com/quer3q/ps5-dump-forge)'unkiyle
@@ -353,6 +353,85 @@ Sayfanın kendisinde parola yoktur: ağınızdaki herkes açabilir. Bir PC
 motorunu yalnızca o bilgisayara açık tutmak için `--listen 127.0.0.1` ile
 başlatın; o zaman diğer motorlar ona ulaşamaz.
 
+## Rehber
+
+### Hangi biçim
+
+| Biçim | Nedir | Boyut | Ne ile çalışır | Ne için iyi | Akılda tutun |
+|---|---|---|---|---|---|
+| **Paket** (FPKG / PKG) | Konsolun kurduğu hâliyle oyun | Oyunla aynı; Kraken sıkıştırmasıyla daha küçük (PS5) | Konsolun yükleyicisi: sıradan kurulu bir oyun | Yükleyici ve AMPR öykünücüsü olmadan kurulu olsun istediğiniz oyunlar | Kurulum, dahili ya da genişletilmiş depolamada oyunun tam boyutu kadar, kurulana kadar da paket kadar yer tutar |
+| **FFPKG** (UFS2) | UFS2 dosya sistemi taşıyan tek bir imaj dosyası | Oyunla aynı | ShadowMount+ | Oyunları dahili depolamadan ya da USB'den çalıştırmak: ShadowMount+'ın önerdiği biçim | Her imaj gibi boyutu sabittir; bir dosyayı değiştirmek için klasöre dönüştürüp geri dönüştürün |
+| **exFAT** | exFAT dosya sistemi taşıyan tek bir imaj dosyası | Oyunla aynı | ShadowMount+ | Yalnızca harici sürücü içeriği gibi ele alındığında çalışan oyunlar (yanlış ya da eksik ses sık görülen bir işarettir) | ShadowMount+ onu yalnızca bunlar için önerir. En hızlı, doğrudan `/data` ya da `/user` altından ve 64 KB kümelerle okur; Alembic hep bunu kullanır |
+| **FFPFSC** | exFAT (ya da başka bir) imaj taşıyan sıkıştırılmış bir PFS kabı | Daha küçük: ne kadar olduğu oyuna bağlı | ShadowMount+ (orada deneysel) | Daha küçük ya da daha hafif oyunlarda yer kazanmak | Konsol, siz oynarken yaklaşık 150–250 MB/sn hızla açar: büyük açık dünya oyunları dahili depolamadan bile takılabilir. Her zaman salt okunur |
+| **FFPFS** (PFS) | Konsolun kendi PFS dosya sistemini taşıyan tek bir imaj dosyası | Oyunla aynı | ShadowMount+ (orada deneysel) | PFS'yi denemek ya da MkPFS çıktısıyla eşleşmek | ShadowMount+'ta deneysel |
+| **Döküm klasörü** | Oyunun dosyaları olduğu gibi | Oyunla aynı, artı dosya başına biraz | ShadowMount+ | Dosyaları değiştirmek (modlar, backport'lar) ve başka her biçimi yapmak için kaynak olarak. Çoğu zaman en hızlı yüklenen | Binlerce dosya: kopyalamak ve taşımak tek bir imajdan yavaştır |
+
+**Kısacası:**
+
+- **Bir oyunu diğerleri gibi kurmak için:** pakete dönüştürün ya da
+  **Kur…**'u kullanın; dönüştürür, kurar ve paketi sizin yerinize siler.
+  Kurulu oyunlar konsolun kendi APR'sini kullanır, yani AMPR öykünücüsüne
+  ihtiyaç duymaz. (Alembic'in yaptığı paketleri kurmak denendi; birinden
+  kurulan bir oyunu başlatmak henüz denenmedi.)
+- **Oyunları ShadowMount+ ile çalıştırmak için:** önce **FFPKG**. Bir oyun
+  FFPKG olarak düzgün çalışmazsa (örneğin ses yanlışsa) **exFAT**; onu
+  ShadowMount+'ın exFAT'ı en hızlı okuduğu yerde, doğrudan `/data` (ya da
+  `/user`) altında tutun.
+- **Yer azsa:** birlikte de kullanılabilen iki yol var.
+  - **zstd paketleri** (Dönüştür'de bir anahtar) oyunun dosyalarını küçültür
+    ve imajın okunmasını hızlı tutar: 26 GiB'lık bir oyun dosyası kümesi
+    11,1 GiB oldu, LZ4 paketlerinden yaklaşık üçte bir daha küçük. Oyunun
+    sonra ampr-emu-ng'ye ihtiyacı olur ve ShadowMount+'ın "update emulators"
+    ayarı kapalı olmalıdır, yoksa ampr_emu'yu geri koyar. ampr-emu-ng genç
+    ve hızlı değişiyor: henüz her oyun çalışmıyor, bu yüzden aslını silmeden
+    önce oyunun başladığını denetleyin.
+  - **LZ4 paketleri** iki öykünücüyle de çalışır (ampr-emu-ng de onları
+    okur), ama daha büyüktür ve ampr_emu ile yalnızca bazı oyunlar çalışır.
+  - **FFPFSC** bütün imajı sıkıştırır ve öykünücü gerektirmez, ama konsol
+    yavaş açar: daha küçük oyunlar için iyidir, büyük açık dünya oyunları
+    ise takılabilir. Biri takılırsa onu yeniden FFPKG'ye ya da exFAT'a
+    dönüştürün.
+- **Bir oyunun dosyalarını değiştirmek için:** onu **klasör** olarak tutun,
+  işiniz bitince imaja dönüştürün.
+
+### Nasıl yapılır
+
+- **Bir paketi ShadowMount+ için imaja çevirmek:** Dosyalar'da (ya da
+  İmajlar'da) paketi seçip **Dönüştür…**'e basın, ardından istediğiniz
+  biçimi seçin (emin değilseniz FFPKG, yukarıya bakın). ShadowMount+'ın
+  taradığı bir klasöre kaydedin (örneğin `/data/homebrew`); **Kaynağı
+  ShadowMount+'tan gizle** ile ShadowMount+ oyunu kaldırmadan yeni imaja
+  geçer.
+- **Bir imajı ya da klasörü paket olarak kurmak:** üzerinde **Kur…** (PS5
+  motoru): pakete dönüştürülür, yükleyiciye verilir ve kurulunca silinir
+  (**Paketi sakla** onu saklar).
+- **PC'de dönüştürüp konsola kaydetmek:** motorları eşleştirin (Ayarlar →
+  Diğer motorlar), konsolda Dosyalar'da PC'deki dosyayı seçin ve dönüştüren
+  motor olarak PC'yi seçin. İşi PC'nin işlemcisi yapar, sonuç doğrudan
+  konsolun depolamasına yazılır.
+- **AMPR öykünücülerini güncel tutmak:** İmajlar her oyunun öykünücüsünü
+  gösterir, daha yeni bir derleme çıktığında da bir etiket koyar; **AMPR
+  öykünücülerini güncelle** hepsini günceller, her biri kendi türünü korur.
+- **Dönüştürdükten sonra yer açmak:** **Bitince kaynağı sil**, kaynağı
+  silmeden önce sonucu onunla dosya dosya karşılaştırır.
+
+### İpuçları
+
+- **Elinizden geldiğince PC'de dönüştürün.** Konsol bir payload'a
+  işlemcisinin yalnızca bir kısmını verir (düşük öncelikle, yaklaşık beş
+  çekirdek): bir PC motoru birkaç kat hızlı dönüştürür ve konsola ağ
+  üzerinden yazar.
+- **Uzun dönüştürmeler durup yeniden başlayabilir.** Birini duraklatın,
+  motoru güncelleyin ya da yeniden başlatın; son kayıt noktasından devam
+  eder.
+- **İmajları her seferinde aynı şekilde adlandırın:** Ayarlar → Yeniden
+  adlandırma biçimleri ile başlık, Title ID, sürüm ve biçim, nasıl
+  isterseniz.
+- **Birden çoğunu seçmek:** Dosyalar'da ya da İmajlar'da Seçenekler → Seç…,
+  oyunları işaretleyin, ardından hepsiyle birden ne yapılacağı için □.
+- **Aslını silmeden önce yedekleyin**, yeni imajın konsolunuzda başladığını
+  denetleyene kadar.
+
 ## PC'de
 
 Her sürümde her sistem için bir paket vardır: `alembic-<version>-linux-x64.tar.gz`,
@@ -504,7 +583,7 @@ Alembic, PS5 homebrew topluluğunun emeği üzerine kurulu. Teşekkürler:
   paketleri: Alembic'in izlediği yazıcı, anahtarları ve Alembic'in
   karşılaştırıldığı araç) için.
 - **theghostonline**:
-  [PS5-LZ4-Compression](https://github.com/theghostonline/PS5-LZ4-Compression)
+  PS5-LZ4-Compression
   (LZ4 paket profilleri ve motor-ile-sayfa fikri) için.
 - **danthespal**: [MkPFS.CSharp](https://github.com/danthespal/MkPFS.CSharp)
   ile paylaşılan LZ4 oyun profilleri için.

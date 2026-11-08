@@ -97,7 +97,7 @@ mit einer Plakette **PS5** (weiß) oder **PS4** (schwarz).
 - **LZ4-Asset-Pakete** für die PackedStdio-Laufzeit von drakmors
   [ampr_emu](https://github.com/drakmor/ampr_emu) (`--lz4`), byte-identisch zu
   dessen `ampr_pack.py`, mit Spielprofilen aus
-  [PS5-LZ4-Compression](https://github.com/theghostonline/PS5-LZ4-Compression).
+  PS5-LZ4-Compression.
 - **zstd-Pakete** für quer3qs [ampr-emu-ng](https://github.com/quer3q/ampr-emu-ng)
   (`--zstd`, oder „In zstd-Pakete packen“ beim Umwandeln), byte-identisch zu
   denen von [ps5-dump-forge](https://github.com/quer3q/ps5-dump-forge):
@@ -369,6 +369,86 @@ Die Seite selbst hat kein Passwort: Jeder in deinem Netzwerk kann sie öffnen.
 Starte eine PC-Engine mit `--listen 127.0.0.1`, um sie auf diesen Computer zu
 beschränken; andere Engines erreichen sie dann nicht.
 
+## Leitfaden
+
+### Welches Format
+
+| Format | Was es ist | Größe | Läuft über | Gut für | Zu beachten |
+|---|---|---|---|---|---|
+| **Paket** (FPKG / PKG) | Das Spiel, wie die Konsole es installiert | Wie das Spiel; kleiner mit Kraken-Kompression (PS5) | Den Installer der Konsole: ein normal installiertes Spiel | Spiele, die du installiert haben willst, ohne Loader und ohne AMPR-Emulator | Die Installation braucht die volle Größe des Spiels auf dem internen oder erweiterten Speicher, dazu das Paket, bis es installiert ist |
+| **FFPKG** (UFS2) | Eine Image-Datei mit einem UFS2-Dateisystem | Wie das Spiel | ShadowMount+ | Spiele vom internen oder USB-Speicher starten: das von ShadowMount+ empfohlene Format | Feste Größe, wie jedes Image; um eine Datei zu ändern, in einen Ordner und zurück umwandeln |
+| **exFAT** | Eine Image-Datei mit einem exFAT-Dateisystem | Wie das Spiel | ShadowMount+ | Titel, die nur laufen, wenn sie wie Inhalte eines externen Laufwerks behandelt werden (falscher oder fehlender Ton ist ein häufiges Zeichen) | ShadowMount+ empfiehlt es nur für diese. Am schnellsten liest es sie direkt unter `/data` oder `/user` mit 64-KB-Clustern, die Alembic immer nutzt |
+| **FFPFSC** | Ein komprimierter PFS-Container mit einem exFAT- (oder anderen) Image | Kleiner: wie viel, hängt vom Spiel ab | ShadowMount+ (dort experimentell) | Platz sparen bei kleineren oder leichteren Spielen | Die Konsole entpackt beim Spielen mit etwa 150–250 MB/s: große Open-World-Spiele können ruckeln, auch vom internen Speicher. Immer schreibgeschützt |
+| **FFPFS** (PFS) | Eine Image-Datei mit dem eigenen PFS-Dateisystem der Konsole | Wie das Spiel | ShadowMount+ (dort experimentell) | PFS ausprobieren oder die Ausgabe von MkPFS nachbilden | Experimentell in ShadowMount+ |
+| **Dump-Ordner** | Die Dateien des Spiels, wie sie sind | Wie das Spiel, plus etwas pro Datei | ShadowMount+ | Dateien ändern (Mods, Backports) und als Quelle für jedes andere Format. Lädt oft am schnellsten | Tausende Dateien: langsamer zu kopieren und zu verschieben als ein Image |
+
+**Kurz gesagt:**
+
+- **Ein Spiel wie jedes andere installieren:** Wandle es in ein Paket um, oder
+  nutze **Installieren…**, das umwandelt, installiert und das Paket für dich
+  löscht. Installierte Spiele nutzen das eigene APR der Konsole und brauchen
+  daher keinen AMPR-Emulator. (Das Installieren von Paketen aus Alembic ist
+  erprobt; ein daraus installiertes Spiel zu starten noch nicht.)
+- **Spiele über ShadowMount+ starten:** zuerst **FFPKG**. **exFAT**, wenn
+  sich ein Spiel als FFPKG falsch verhält (zum Beispiel falscher Ton); lege es
+  direkt unter `/data` (oder `/user`) ab, wo ShadowMount+ exFAT am schnellsten
+  liest.
+- **Wenig Platz:** zwei Wege, die sich kombinieren lassen.
+  - **zstd-Pakete** (ein Schalter in Umwandeln) verkleinern die Dateien des
+    Spiels, und das Image bleibt schnell lesbar: 26 GiB Spieldateien wurden
+    zu 11,1 GiB, etwa ein Drittel kleiner als mit LZ4-Paketen. Das Spiel
+    braucht dann ampr-emu-ng, und „update emulators“ von ShadowMount+ muss
+    aus sein, sonst setzt es ampr_emu wieder ein. ampr-emu-ng ist jung und
+    ändert sich schnell: Noch läuft nicht jedes Spiel, also prüfe, ob das
+    Spiel startet, bevor du das Original löschst.
+  - **LZ4-Pakete** funktionieren mit beiden Emulatoren (ampr-emu-ng liest sie
+    auch), sind aber größer, und mit ampr_emu laufen nur manche Spiele.
+  - **FFPFSC** komprimiert das ganze Image und braucht keinen Emulator, aber
+    die Konsole entpackt langsam: gut für kleinere Spiele, große
+    Open-World-Spiele können ruckeln. Ruckelt eines, wandle es zurück in
+    FFPKG oder exFAT um.
+- **Dateien eines Spiels ändern:** Behalte es als **Ordner** und wandle es in
+  ein Image um, wenn du fertig bist.
+
+### So geht's
+
+- **Ein Paket in ein Image für ShadowMount+ umwandeln:** Wähle in Dateien
+  (oder Images) das Paket und **Umwandeln…**, dann das gewünschte Format
+  (FFPKG im Zweifel, siehe oben). Speichere es in einem Ordner, den
+  ShadowMount+ durchsucht (zum Beispiel `/data/homebrew`); mit **Quelle vor
+  ShadowMount+ verbergen** wechselt ShadowMount+ zum neuen Image, ohne das
+  Spiel zu deinstallieren.
+- **Ein Image oder einen Ordner als Paket installieren:** **Installieren…**
+  darauf (PS5-Engine): Es wird in ein Paket umgewandelt, an den Installer
+  übergeben und nach der Installation gelöscht (**Paket behalten** behält
+  es).
+- **Auf dem PC umwandeln, auf der Konsole speichern:** Kopple die Engines
+  (Einstellungen → Andere Engines), wähle die Datei des PCs in Dateien auf
+  der Konsole und den PC als umwandelnde Engine. Der Prozessor des PCs macht
+  die Arbeit, und das Ergebnis wird direkt auf den Speicher der Konsole
+  geschrieben.
+- **Die AMPR-Emulatoren aktuell halten:** Images zeigt den Emulator jedes
+  Spiels und eine Plakette, wenn ein neuerer Build da ist; **AMPR-Emulatoren
+  aktualisieren** aktualisiert sie alle, jeden in seiner eigenen Art.
+- **Nach dem Umwandeln Platz schaffen:** **Quelle danach löschen** vergleicht
+  das Ergebnis Datei für Datei mit der Quelle, bevor es sie löscht.
+
+### Tipps
+
+- **Wandle auf einem PC um, wenn du kannst.** Die Konsole gibt einer Payload
+  nur einen Teil ihres Prozessors (etwa fünf Kerne, mit niedriger
+  Priorität): Eine PC-Engine wandelt um ein Mehrfaches schneller um und
+  schreibt über das Netzwerk auf die Konsole.
+- **Lange Umwandlungen können anhalten und wieder anlaufen.** Pausiere eine,
+  aktualisiere oder starte die Engine neu, und sie macht an ihrem letzten
+  Sicherungspunkt weiter.
+- **Benenne Images immer gleich** mit Einstellungen → Namensformate: Titel,
+  Title-ID, Version und Format, wie du willst.
+- **Mehrere auswählen:** in Dateien oder Images Optionen → Auswählen…, die
+  Spiele ankreuzen, dann □ für das, was mit allen auf einmal geschehen soll.
+- **Mach eine Sicherung, bevor du das Original löschst**, bis du geprüft
+  hast, dass das neue Image auf deiner Konsole startet.
+
 ## Auf einem PC
 
 Jedes Release enthält ein Paket pro System: `alembic-<version>-linux-x64.tar.gz`,
@@ -520,7 +600,7 @@ Alembic baut auf der Arbeit der PS5-Homebrew-Szene auf. Danke an:
   (PS4-Pakete: der Schreiber, dem Alembic folgt, seine Schlüssel und das
   Werkzeug, mit dem es abgeglichen wird).
 - **theghostonline** für
-  [PS5-LZ4-Compression](https://github.com/theghostonline/PS5-LZ4-Compression)
+  PS5-LZ4-Compression
   (LZ4-Paketprofile und die Idee von Engine und Seite).
 - **danthespal** für die LZ4-Spielprofile, veröffentlicht mit
   [MkPFS.CSharp](https://github.com/danthespal/MkPFS.CSharp).
