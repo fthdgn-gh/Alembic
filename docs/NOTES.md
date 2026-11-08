@@ -3165,6 +3165,13 @@ release: see "components follow their latest releases" below.)
   (owner). To recover by hand: delete `/data/homebrew/backports/PPSA99594`
   (image installs), or `fakelib/libSceAmpr.sprx` and `ampr_emu.index` in
   the app's folder (folder installs).
+- **Clean-up at start (owner):** a PS5 engine undoes it when it starts
+  (`images::repair_alembic_app`): a `PPSA99594*` backport in
+  `backports_root` or a scan folder's `backports` (or one folder below) that
+  holds only `fakelib/libSceAmpr.sprx` and `ampr_emu.index` is removed, and
+  in the app's own folder those two files. The engine is a payload, so it
+  gets there even when the app does not start: update it from the page in
+  the console's browser (Settings > Updates) or load `alembic.elf`.
 
 ### 2026-11-08: Probe Bench, the engine's checks in a game process
 

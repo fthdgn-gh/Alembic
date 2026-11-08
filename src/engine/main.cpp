@@ -316,7 +316,14 @@ public:
         if (config_.check_updates) check_components(true);
         // The console's page and app open on Images: its list is read now,
         // so it is there when they first ask.
-        if (std::string(platform::name()) == "ps5") (void)images_.snapshot(0);
+        if (std::string(platform::name()) == "ps5") {
+            // 0.6.0 could add the AMPR emulator to Alembic's own app, which then
+            // no longer started: undo that (a new engine gets here even when the
+            // app does not start).
+            for (const std::string& path : images::repair_alembic_app(config_, images::scan_dirs(config_)))
+                log_line("removed what the AMPR emulator added to Alembic's app: " + path);
+            (void)images_.snapshot(0);
+        }
         return {};
     }
 

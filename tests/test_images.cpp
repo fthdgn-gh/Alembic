@@ -125,3 +125,42 @@ TEST_CASE(images_alembic_app_is_not_an_apr_user) {
     auto r = run_job(spec, config, {});
     CHECK(!r.ok());
 }
+
+TEST_CASE(images_repair_alembic_app_removes_only_what_the_job_wrote) {
+    const std::string root = test::make_temp_dir();
+    EngineConfig config;
+    config.state_dir = root + "/state";
+    config.backports_root = root + "/data-backports";
+    const std::string scan = root + "/homebrew";
+    test::make_dir(scan);
+    // An image install's backport, as the job wrote it: removed.
+    test::make_dir(config.backports_root);
+    test::make_dir(config.backports_root + "/PPSA99594");
+    test::make_dir(config.backports_root + "/PPSA99594/fakelib");
+    test::write_file(config.backports_root + "/PPSA99594/fakelib/libSceAmpr.sprx", std::vector<std::uint8_t>(8, 1));
+    test::write_file(config.backports_root + "/PPSA99594/ampr_emu.index", std::vector<std::uint8_t>(8, 2));
+    // A scan folder's backport with something else in it: left alone.
+    test::make_dir(scan + "/backports");
+    test::make_dir(scan + "/backports/PPSA99594");
+    test::make_dir(scan + "/backports/PPSA99594/fakelib");
+    test::write_file(scan + "/backports/PPSA99594/fakelib/libSceAmpr.sprx", std::vector<std::uint8_t>(8, 1));
+    test::write_file(scan + "/backports/PPSA99594/fakelib/other.sprx", std::vector<std::uint8_t>(8, 3));
+    // A game's backport: never touched.
+    test::make_dir(scan + "/backports/PPSA01234");
+    test::make_dir(scan + "/backports/PPSA01234/fakelib");
+    test::write_file(scan + "/backports/PPSA01234/fakelib/libSceAmpr.sprx", std::vector<std::uint8_t>(8, 1));
+    // The app as a folder, with the two files added: they go, the app stays.
+    make_game(scan + "/Alembic", "PPSA99594", true);
+    test::make_dir(scan + "/Alembic/fakelib");
+    test::write_file(scan + "/Alembic/fakelib/libSceAmpr.sprx", std::vector<std::uint8_t>(8, 1));
+    test::write_file(scan + "/Alembic/ampr_emu.index", std::vector<std::uint8_t>(8, 2));
+
+    const auto removed = images::repair_alembic_app(config, {scan});
+    CHECK(!path_exists(config.backports_root + "/PPSA99594"));
+    CHECK(is_regular_file(scan + "/backports/PPSA99594/fakelib/libSceAmpr.sprx"));
+    CHECK(is_regular_file(scan + "/backports/PPSA01234/fakelib/libSceAmpr.sprx"));
+    CHECK(!path_exists(scan + "/Alembic/fakelib"));
+    CHECK(!path_exists(scan + "/Alembic/ampr_emu.index"));
+    CHECK(is_regular_file(scan + "/Alembic/eboot.bin"));
+    CHECK(!removed.empty());
+}

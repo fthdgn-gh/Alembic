@@ -305,6 +305,80 @@ JsonValue entry_json(const Found& found, const EngineConfig& config) {
     return v;
 }
 
+namespace {
+
+bool is_app_backport_name(const std::string& name) { return name.rfind(update::kAppTitleId, 0) == 0; }
+
+// Whether `dir` holds only what the AMPR job writes for a game without a
+// fakelib of its own: fakelib/libSceAmpr.sprx and ampr_emu.index.
+bool only_emulator_files(const std::string& dir) {
+    auto top = list_directory_entries(dir);
+    if (!top.ok()) return false;
+    bool has_fakelib = false;
+    for (const DirEntry& e : *top) {
+        if (e.name == "ampr_emu.index" && e.stat.kind != PathKind::directory) continue;
+        if (e.name == "fakelib" && e.stat.kind == PathKind::directory) {
+            has_fakelib = true;
+            continue;
+        }
+        return false;
+    }
+    if (!has_fakelib) return false;
+    auto lib = list_directory_entries(dir + "/fakelib");
+    if (!lib.ok()) return false;
+    for (const DirEntry& e : *lib)
+        if (e.name != ampr_emu::kFileName || e.stat.kind == PathKind::directory) return false;
+    return true;
+}
+
+std::string title_of_folder(const std::string& dir) {
+    if (auto text = read_text(dir + "/sce_sys/param.json", 1u << 20); text.ok())
+        if (auto v = parse_json(*text); v.ok()) return (*v)["titleId"].str();
+    return "";
+}
+
+} // namespace
+
+std::vector<std::string> repair_alembic_app(const EngineConfig& config, const std::vector<std::string>& dirs) {
+    std::vector<std::string> removed;
+    auto remove = [&](const std::string& path) {
+        if (remove_file(path).ok()) removed.push_back(path);
+    };
+    // Backport folders the job may have written: config.backports_root, and
+    // backports/ in each scan folder or a folder below one (backports_root_for).
+    std::vector<std::string> roots;
+    if (!config.backports_root.empty()) roots.push_back(config.backports_root);
+    for (const std::string& d : dirs) {
+        roots.push_back(d + "/backports");
+        if (auto sub = list_directory_entries(d); sub.ok())
+            for (const DirEntry& e : *sub)
+                if (e.stat.kind == PathKind::directory && !e.name.empty() && e.name[0] != '.' && e.name != "backports")
+                    roots.push_back(join_path(d, e.name) + "/backports");
+    }
+    for (const std::string& root : roots) {
+        auto entries = list_directory_entries(root);
+        if (!entries.ok()) continue;
+        for (const DirEntry& e : *entries) {
+            if (e.stat.kind != PathKind::directory || !is_app_backport_name(e.name)) continue;
+            const std::string dir = join_path(root, e.name);
+            if (!only_emulator_files(dir)) continue;
+            remove(dir + "/fakelib/" + ampr_emu::kFileName);
+            remove(dir + "/ampr_emu.index");
+            if (remove_directory(dir + "/fakelib").ok() && remove_directory(dir).ok()) removed.push_back(dir);
+        }
+    }
+    // The app as a folder: the two files in it.
+    for (const Found& f : scan(dirs)) {
+        if (f.kind != "folder" || title_of_folder(f.path) != update::kAppTitleId) continue;
+        if (is_regular_file(f.path + "/fakelib/" + ampr_emu::kFileName)) {
+            remove(f.path + "/fakelib/" + ampr_emu::kFileName);
+            (void)remove_directory(f.path + "/fakelib"); // only when nothing else is in it
+        }
+        if (is_regular_file(f.path + "/ampr_emu.index")) remove(f.path + "/ampr_emu.index");
+    }
+    return removed;
+}
+
 Index::~Index() {
     if (worker_.joinable()) worker_.join();
 }

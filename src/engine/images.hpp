@@ -65,6 +65,14 @@ JsonValue ampr_of(const Found& found, const EngineConfig& config);
 // game, size, mtime) plus folder, hidden, allowed and ampr (ampr_of).
 JsonValue entry_json(const Found& found, const EngineConfig& config);
 
+// Undoes what adding the AMPR emulator to Alembic's own app did (0.6.0: the
+// app then no longer started): a PPSA99594 backport holding only
+// fakelib/libSceAmpr.sprx and ampr_emu.index (in config.backports_root or a
+// scan folder's backports, or one level below one), and in the app's own
+// folder those two files (the app ships neither). Anything else is left
+// alone. Returns what was removed, for the log.
+std::vector<std::string> repair_alembic_app(const EngineConfig& config, const std::vector<std::string>& dirs);
+
 class Index {
 public:
     explicit Index(const EngineConfig& config) : config_(config) {}
