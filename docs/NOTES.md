@@ -3125,6 +3125,11 @@ release: see "components follow their latest releases" below.)
   - Engine side: cpuset_getaffinity gives ERANGE (the SDK's cpuset_t size
     is not the kernel's); /mnt/ext0 with no drive in it is a small writable
     mount (ENOSPC).
+- **Owner's decision (2026-11-08):** not pursued. The point was to see
+  whether a game process gets more of the hardware (it does: ~4.7x CPU),
+  but it is far more limited than the engine needs (files, drives,
+  listing, modules); widening its rights is not explored. The engine stays
+  a payload. The bench stays as a development tool.
 - **Known going in:** the app's malloc is the UI kit's fixed 128 MiB heap
   (`app_heap.c`), so an engine inside the app would need its own heap; the
   bench shows that as `largest_malloc_mb`.
