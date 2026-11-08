@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-# The engine payload's process checks beside the Alembic Bench app's (a game
+# The engine payload's process checks beside the Probe Bench app's (a game
 # process): what differs between the two on the console.
 #   tools/probe/compare.py CONSOLE_IP [--fresh] [--all]
 #   tools/probe/compare.py ENGINE.json APP.json [--all]

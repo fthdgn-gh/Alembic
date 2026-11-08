@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Alembic Bench (PPSA99595): a development title, not a release. It runs the
+// Probe Bench (dev) (PPSA99595): a development title, not a release. It runs the
 // engine's process checks (src/engine/probe.hpp) inside a game process, asks
 // the engine payload for the same report (GET /api/probe), and shows the two
 // side by side: what would change if the engine's work moved into the app.
 // It posts its report to the engine (GET /api/probe/app then reads it from a
 // PC) and keeps both under /data/alembic-bench (else /download0).
 //   app/build.sh with ALEMBIC_APP_VARIANT=bench builds it.
-// △ runs it again, ○ closes it; ↑ ↓ (L1 R1 by pages) scroll.
+// It carries the engine payload it was built with (assets/alembic.elf): when
+// no engine answers it sends that one to the ELF loader; when the running one
+// has no /api/probe, □ sends it (on the console a new engine takes over the
+// port from the old one, whatever their versions).
+// △ runs it again, □ replaces an old engine, ○ closes it; ↑ ↓ (L1 R1 by pages) scroll.
 
 #include "app_version.h"
 #include "core/input.hpp"
@@ -27,6 +31,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <functional>
 #include <cstdio>
 #include <mutex>
 #include <span>
@@ -42,6 +48,28 @@ namespace style = alembic::app::style;
 
 constexpr const char* kAssets = "/app0/assets";
 constexpr std::uint16_t kEnginePort = 5940;
+constexpr std::uint16_t kLoaderPort = 9021;
+
+// Sends the bench's engine to the ELF loader and waits until an engine with
+// /api/probe answers; "" when one does, else why not.
+std::string send_engine(const std::function<void(const std::string&)>& status) {
+    std::string elf;
+    if (!hui::save::read_file(std::string(kAssets) + "/alembic.elf", &elf, 64u << 20) || elf.size() < 64)
+        return "this bench carries no engine (assets/alembic.elf)";
+    status("Sending the bench's engine to the ELF loader\xE2\x80\xA6");
+    std::string error;
+    if (!alembic::app::send_bytes("127.0.0.1", kLoaderPort, elf, &error)) return "no ELF loader on 9021: " + error;
+    status("Waiting for the new engine\xE2\x80\xA6");
+    const std::int64_t until = hui::sys::monotonic_us() + 30000000;
+    while (hui::sys::monotonic_us() < until) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(700));
+        // A new engine answers 200 (a kept report) or its own 404 text; an
+        // old one answers its generic 404.
+        const alembic::app::HttpReply r = alembic::app::http_request("127.0.0.1", kEnginePort, "GET", "/api/probe/app", "", 1500);
+        if (r.status == 200 || (r.status == 404 && r.body.find("Bench") != std::string::npos)) return "";
+    }
+    return "the new engine did not answer within 30 s";
+}
 
 struct Row {
     std::string key, engine, app;
@@ -101,6 +129,7 @@ struct Bench {
     std::vector<Row> rows;
     std::string saved;
     std::atomic<bool> running{false};
+    std::atomic<bool> old_engine{false};  // the running engine has no /api/probe
     std::thread worker;
 
     void set_status(const std::string& s) {
@@ -109,13 +138,19 @@ struct Bench {
         hui::sys::log("[BENCH] %s", s.c_str());
     }
 
-    void start() {
+    void start(bool replace = false) {
         if (running.exchange(true)) return;
         if (worker.joinable()) worker.join();
-        worker = std::thread([this] { run(); });
+        worker = std::thread([this, replace] { run(replace); });
     }
 
-    void run() {
+    void run(bool replace) {
+        std::string engine_note;
+        auto status_fn = [this](const std::string& s) { set_status(s); };
+        if (replace) {
+            engine_note = send_engine(status_fn);
+            if (engine_note.empty()) engine_note = "replaced by the bench's engine";
+        }
         alembic::engine::probe::Options o;
         o.process = "app";
         o.step = [this](const std::string& s) { set_status("This app: " + s + "\xE2\x80\xA6"); };
@@ -123,15 +158,26 @@ struct Bench {
         const std::string app_json = app.dump();
         set_status("The engine: running its checks (up to a minute)\xE2\x80\xA6");
         JsonValue engine = JsonValue::object();
-        const alembic::app::HttpReply reply =
+        alembic::app::HttpReply reply =
             alembic::app::http_request("127.0.0.1", kEnginePort, "GET", "/api/probe", "", 180000, 4u << 20);
+        if (reply.status == 0 && !replace) {
+            // No engine at all: start the bench's own.
+            engine_note = send_engine(status_fn);
+            if (engine_note.empty()) {
+                engine_note = "started the bench's engine";
+                set_status("The engine: running its checks (up to a minute)\xE2\x80\xA6");
+                reply = alembic::app::http_request("127.0.0.1", kEnginePort, "GET", "/api/probe", "", 180000, 4u << 20);
+            }
+        }
+        old_engine = reply.status == 404;
         if (reply.status == 200) {
             if (auto parsed = alembic::engine::parse_json(reply.body); parsed.ok()) engine = *parsed;
         } else if (reply.status == 404) {
-            engine.set("error", "this engine has no /api/probe (older than the bench)");
+            engine.set("error", "this engine has no /api/probe (older than the bench): \xE2\x96\xA1 replaces it");
         } else {
             engine.set("error", reply.status ? "HTTP " + std::to_string(reply.status) : "no engine on port 5940: " + reply.body);
         }
+        if (!engine_note.empty()) engine.set("bench_engine", engine_note);
         (void)alembic::app::http_request("127.0.0.1", kEnginePort, "POST", "/api/probe/app", app_json, 5000);
         std::string where;
         for (const char* dir : {"/data/alembic-bench", "/download0/alembic-bench"}) {
@@ -222,6 +268,7 @@ int main() {
             sys::quit();
         }
         if (input.is_pressed(Action::north)) bench.start();
+        if (input.is_pressed(Action::west) && bench.old_engine) bench.start(true);
         if (input.nav == Direction::down) ++scroll;
         if (input.nav == Direction::up) --scroll;
         if (input.is_pressed(Action::page_next)) scroll += visible;
@@ -232,9 +279,10 @@ int main() {
         list.clear();
         ui.begin_frame(input, dt);
         list.rounded_rect({0, 0, 1920, 1080}, 0, style::bg);
-        draw::text(ui, draw::Face::semibold, "Alembic Bench", 60, 70, 40, style::text);
+        draw::text(ui, draw::Face::semibold, "Probe Bench (dev)", 60, 70, 40, style::warn);
         draw::text(ui, draw::Face::regular,
-                   status + (saved.empty() ? "" : " \xC2\xB7 " + saved) + "   \xE2\x96\xB3 again  \xE2\x97\x8B close", 60,
+                   status + (saved.empty() ? "" : " \xC2\xB7 " + saved) + "   \xE2\x96\xB3 again  " +
+                       (bench.old_engine ? "\xE2\x96\xA1 replace the engine  " : "") + "\xE2\x97\x8B close", 60,
                    110, 22, style::muted);
         constexpr float kKey = 60, kEngine = 720, kApp = 1320, kWidth = 560;
         draw::caps(ui, "Check", kKey, kTop - 8, 18, style::dim);

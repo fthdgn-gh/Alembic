@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // What a process on the console may do: the same checks run in the engine
-// payload (GET /api/probe) and in a game process (the Alembic Bench title,
+// payload (GET /api/probe) and in a game process (the Probe Bench dev title,
 // app/bench), so the two can be compared before moving work into the app.
 // Plain libc and libkernel calls only, none of the payload's kernel helpers,
 // so the app links it too. On a PC it says so and measures CPU only.

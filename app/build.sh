@@ -18,9 +18,10 @@
 # it to the ELF loader when no engine answers (default: build-ps5/alembic.elf
 # when it exists; "none" for an app without one, which downloads its
 # version's payload from GitHub the first time instead).
-# ALEMBIC_APP_VARIANT=bench builds the Alembic Bench development title
-# instead (PPSA99595, app/bench/main.cpp): the engine's process checks run in
-# a game process, beside the engine's own (see NOTES.md). Never released.
+# ALEMBIC_APP_VARIANT=bench builds the "Probe Bench (dev)" development title
+# instead (PPSA99595, app/bench/main.cpp, amber-framed icon): the engine's
+# process checks run in a game process, beside the engine's own (see
+# NOTES.md). It carries the same engine payload. Never released.
 set -euo pipefail
 
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -150,7 +151,11 @@ out="$dist/$title_id"
 rm -rf -- "$out"
 mkdir -p "$out/sce_sys" "$out/sce_module" "$out/assets/fonts" "$out/assets/audio/sfx"
 "$tool" self --sign --in "$build/eboot.elf" --out "$out/eboot.bin" --magic "$fself_magic"
-cp "$app/sce_sys/icon0.png" "$out/sce_sys/"
+if [[ $variant == bench ]]; then
+    python3 "$app/bench/icon.py" "$app/sce_sys/icon0.png" "$out/sce_sys/icon0.png"
+else
+    cp "$app/sce_sys/icon0.png" "$out/sce_sys/"
+fi
 # The home screen's backgrounds (behind the selected tile, and while it
 # starts): drawn and BC7-encoded by app/tools/background.cpp.
 background_tool="$build/background"
@@ -168,7 +173,7 @@ text, n = re.subn(r'("contentVersion"\s*:\s*")[0-9.]+(")', lambda m: m.group(1) 
 assert n == 1, "param.json has no contentVersion"
 if sys.argv[4] == "bench":
     for old, new in (("PPSA99594", "PPSA99595"), ('"99594"', '"99595"'), ("ALEMBICAPP000000", "ALEMBICBENCH0000"),
-                     ('"titleName": "Alembic"', '"titleName": "Alembic Bench"')):
+                     ('"titleName": "Alembic"', '"titleName": "Probe Bench (dev)"')):
         assert old in text, old
         text = text.replace(old, new)
 open(sys.argv[2], "w").write(text)
@@ -187,10 +192,7 @@ cp "$kit/LICENSE" "$kit/THIRD_PARTY_NOTICES.md" "$out/licenses/ps5-homebrew-ui/"
 opengl_release=$(cd -P "$opengl/.." && pwd)
 cp -R "$opengl_release/LICENSE" "$opengl_release/LICENSES" "$opengl_release/THIRD_PARTY_NOTICES.md" "$out/licenses/ps5-opengl/"
 engine_elf=${ALEMBIC_ENGINE_ELF:-$repo/build-ps5/alembic.elf}
-[[ $variant == app ]] || engine_elf=none
-if [[ $variant != app ]]; then
-    :
-elif [[ $engine_elf == none ]]; then
+if [[ $engine_elf == none ]]; then
     echo "note: no engine payload in the app (ALEMBIC_ENGINE_ELF=none); it downloads its version's from GitHub" >&2
 elif [[ -f $engine_elf ]]; then
     cp "$engine_elf" "$out/assets/alembic.elf"

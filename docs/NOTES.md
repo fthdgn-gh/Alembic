@@ -3042,7 +3042,7 @@ release: see "components follow their latest releases" below.)
   HTTP: the lock is gone. The installer read it as it read the other
   package (probes, SI, SC, then the PFS in 18 MiB ranges in order).
 
-### 2026-11-08: Alembic Bench, the engine's checks in a game process
+### 2026-11-08: Probe Bench, the engine's checks in a game process
 
 - **Why (owner):** do the ELF payload's process and a game process differ,
   and how? A bench to compare them before any engine work moves into the app.
@@ -3061,16 +3061,20 @@ release: see "components follow their latest releases" below.)
   /api/probe/app` returns it. Diagnostic only: no page or app counterpart,
   no peer protocol change.
 - **The title:** `ALEMBIC_APP_VARIANT=bench app/build.sh` ->
-  `build-app/dist/PPSA99595{,.zip,.ffpkg}` ("Alembic Bench"; the app's
-  param.json with its IDs swapped; no engine payload inside). It runs its
+  `build-app/dist/PPSA99595{,.zip,.ffpkg}` ("Probe Bench (dev)", so it is
+  not taken for Alembic on the console: its icon is the app's with red and
+  blue swapped in an amber frame, `app/bench/icon.py`; the app's param.json
+  with its IDs swapped). It carries the same engine payload as the app:
+  with no engine on 5940 it sends it to the ELF loader; with an engine that
+  has no `/api/probe` (404), □ sends it (a new engine on the console takes
+  over the port whatever the versions). It runs its
   checks, then the engine's, shows both (differences coloured), posts its
   report to the engine and saves both JSONs in /data/alembic-bench (else
   /download0/alembic-bench). △ again, ○ close. Not drawn by preview.sh.
 - **Known going in:** the app's malloc is the UI kit's fixed 128 MiB heap
   (`app_heap.c`), so an engine inside the app would need its own heap; the
   bench shows that as `largest_malloc_mb`.
-- **To do (owner, on the console):** install the bench image beside the
-  engine (new build of the engine for `/api/probe`), run it, then
+- **To do (owner, on the console):** install the bench image, run it, then
   `tools/probe/compare.py CONSOLE_IP`. Not run on a console yet.
 
 ### 2026-10-31: why conversions crawl on the console (/api/bench)

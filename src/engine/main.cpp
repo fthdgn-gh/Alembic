@@ -508,7 +508,7 @@ private:
             return json(200, kraken_bench(mask, prio));
         }
         // What this process may do (probe.hpp), and the same report from a
-        // game process (the Alembic Bench title posts it), for comparing them.
+        // game process (the Probe Bench dev title posts it), for comparing them.
         // ?io=0, ?https=0 skip those; ?mem=<MB> caps the mapping test.
         if (r.path == "/api/probe" && r.method == "GET") {
             probe::Options o;
@@ -531,7 +531,7 @@ private:
             if (probe_app_.empty()) {
                 if (auto kept = read_text(config_.state_dir + "/probe_app.json", 1u << 20); kept.ok()) probe_app_ = *kept;
             }
-            if (probe_app_.empty()) return error(404, "no report from the Alembic Bench app yet");
+            if (probe_app_.empty()) return error(404, "no report from the Probe Bench app yet");
             HttpResponse resp = json(200, JsonValue());
             resp.body = probe_app_;
             return resp;
@@ -2357,7 +2357,7 @@ private:
     HttpServer server_;
     std::mutex deps_mutex_;
     std::mutex probe_mutex_;
-    std::string probe_app_;  // the Alembic Bench app's last report (JSON)
+    std::string probe_app_;  // the Probe Bench app's last report (JSON)
     std::mutex launcher_mutex_;
     std::string launcher_status_ = "not tried";
     std::mutex quit_mutex_;

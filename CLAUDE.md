@@ -30,7 +30,7 @@ NOTES.md), `app/preview.sh [dir] [script]` draws it on this computer
 against the README's stand-in engine. Look at the pictures after every UI
 change. It mirrors the web page, both ways: a page change needs its app
 counterpart and an app change its page counterpart, in the same commit.
-`ALEMBIC_APP_VARIANT=bench app/build.sh` builds Alembic Bench (PPSA99595, a
+`ALEMBIC_APP_VARIANT=bench app/build.sh` builds "Probe Bench (dev)" (PPSA99595, a
 development title, never released): `src/engine/probe.cpp`'s process checks
 run in a game process beside the engine's `GET /api/probe`;
 `tools/probe/compare.py CONSOLE_IP` prints the differences.
