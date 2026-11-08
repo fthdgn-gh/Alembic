@@ -85,7 +85,11 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   Images do not offer it), Files does not offer it on Alembic's own app,
   and the APR check reads eboot.bin's import table instead of searching it
   for the name (same answer for every sample game; Alembic's app no
-  longer matches). See "Alembic's own app and the AMPR emulator".
+  longer matches). See "Alembic's own app and the AMPR emulator". Main's
+  CI green before the tag; published 2026-11-08, every job green; notes
+  cumulative (0.6.2, 0.6.1, then 0.6.0's). Catalog PR from the fork branch
+  update-alembic-0.6.2: darkxex/ps5-homebrew-catalog#1209 (opened by the
+  owner; #1208 for 0.6.1 merged).
 - **In 0.6.1 (2026-11-08):** Alembic's own app is no longer listed in
   Images nor taken for an APR user (its texts name libSceAmpr); adding the
   AMPR emulator to it is refused, and a PS5 engine removes at start what
