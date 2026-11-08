@@ -44,6 +44,12 @@ std::vector<std::string> scan_dirs(const EngineConfig& config, const std::vector
 // count; "backports" folders do not.
 std::vector<Found> scan(const std::vector<std::string>& dirs);
 
+// Where apps download packages (/data/downloads; on a PC <state>/downloads),
+// searched through every folder below it (not hidden ones) for .pkg files
+// only: the Images tab lists those too.
+std::string downloads_dir(const EngineConfig& config);
+std::vector<Found> scan_packages(const std::string& dir);
+
 // The AMPR emulator of one game: {status, emulator {id, name, version} or
 // null, where (game, backport or ""), target, zstd_packs}. status:
 // "current", "update" (a newer build of its kind is downloaded here),

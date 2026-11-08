@@ -121,6 +121,32 @@ std::vector<std::string> scan_dirs(const EngineConfig& config, const std::vector
     return dirs;
 }
 
+std::string downloads_dir(const EngineConfig& config) {
+    return config.shadowmount_config.empty() ? config.state_dir + "/downloads" : "/data/downloads";
+}
+
+namespace {
+void scan_packages_in(const std::string& dir, int depth, std::vector<Found>& out) {
+    auto entries = list_directory_entries(dir);
+    if (!entries.ok()) return;
+    for (const DirEntry& e : *entries) {
+        if (e.name.empty() || e.name == "." || e.name == "..") continue;
+        const std::string path = join_path(dir, e.name);
+        if (e.stat.kind == PathKind::directory) {
+            if (e.name[0] != '.' && depth > 0) scan_packages_in(path, depth - 1, out);
+        } else if (kind_of_file(e.name) == "fpkg") {
+            out.push_back({path, "fpkg", dir, e.stat.size, e.stat.mtime, ""});
+        }
+    }
+}
+} // namespace
+
+std::vector<Found> scan_packages(const std::string& dir) {
+    std::vector<Found> out;
+    scan_packages_in(dir, 16, out); // deep enough for any app's layout, finite for links in circles
+    return out;
+}
+
 std::vector<Found> scan(const std::vector<std::string>& dirs) {
     std::vector<Found> out;
     std::vector<std::string> seen;
@@ -324,6 +350,10 @@ void Index::refresh() {
     }
     const std::vector<std::string> dirs = scan_dirs(config_, custom);
     std::vector<Found> found = scan(dirs);
+    // Packages apps downloaded, unless a scan folder already listed them.
+    const std::string downloads = downloads_dir(config_);
+    for (Found& p : scan_packages(downloads))
+        if (std::none_of(found.begin(), found.end(), [&](const Found& f) { return f.path == p.path; })) found.push_back(std::move(p));
     for (Found& f : found)
         for (const auto& [path, backport] : backports)
             if (path == f.path) f.backport = backport;
@@ -358,6 +388,7 @@ void Index::refresh() {
     JsonValue dirs_json = JsonValue::array();
     for (const std::string& d : dirs)
         if (is_directory(d)) dirs_json.push(d);
+    if (is_directory(downloads) && std::find(dirs.begin(), dirs.end(), downloads) == dirs.end()) dirs_json.push(downloads);
     {
         std::lock_guard<std::mutex> lock(mutex_);
         images_ = list.items();

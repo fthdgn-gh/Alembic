@@ -248,6 +248,8 @@ Sayfada ayrıca:
   öykünücüsünün en yeni derlemesini, öykünücüsü olmayan oyunlaraysa
   kullanımdakini koyar. İki öykünücünün de tüm resmî derlemeleri, GitHub'ın
   yayımladığı SHA-256 ile tanınır.
+  Uygulamaların `/data/downloads` klasörüne (altındaki herhangi bir
+  klasöre) indirdiği paketler de listelenir.
 
   ![İmajlar: ShadowMount+ klasörlerindeki oyunlar ızgara olarak, güncellenecek iki AMPR öykünücüsü, öykünücüsü olmayan bir oyun ve Alembic'in tanımadığı bir derlemeye sahip bir oyun](docs/screenshots/images.png)
 - **Bileşenler:** Alembic'in ihtiyaç duyduğu ama kendisiyle gelmeyen üçüncü

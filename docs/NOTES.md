@@ -3110,6 +3110,10 @@ release: see "components follow their latest releases" below.)
   summary; Update AMPR emulators only when there are some, Refresh, the
   switch), folder headings by drive name ("Internal · homebrew"), the first
   game focused.
+- **Downloads (owner):** apps download packages to `/data/downloads`; the
+  Images tab searches it too, every folder below it (16 deep, not hidden
+  ones), for `.pkg` files only (`images::scan_packages`; on a PC
+  `<state>/downloads`).
 - **Not tried on a console yet.**
 
 ### 2026-11-08: Probe Bench, the engine's checks in a game process

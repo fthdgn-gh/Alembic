@@ -256,6 +256,8 @@ Aussi sur la page :
   récente de l'émulateur de chaque jeu, ou celui qui est utilisé là où un
   jeu n'en a pas. Chaque version officielle des deux émulateurs est reconnue
   au SHA-256 que GitHub publie pour elle.
+  Les paquets que des applications téléchargent dans `/data/downloads`
+  (dans n'importe quel dossier en dessous) sont listés aussi.
 
   ![Images : les jeux des dossiers de ShadowMount+ en grille, deux émulateurs AMPR à mettre à jour, un jeu sans émulateur et un autre avec une version qu'Alembic ne connaît pas](docs/screenshots/images.png)
 - **Composants :** les fichiers tiers dont Alembic a besoin mais qu'il ne

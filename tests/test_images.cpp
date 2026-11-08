@@ -88,3 +88,21 @@ TEST_CASE(images_entries_carry_the_ampr_state) {
     CHECK(custom["where"].str() == "game");
     CHECK(custom["emulator"].is_null());
 }
+
+TEST_CASE(images_downloads_are_searched_for_packages_only) {
+    const std::string root = test::make_temp_dir();
+    test::make_dir(root + "/app");
+    test::make_dir(root + "/app/deep");
+    test::make_dir(root + "/app/deep/er");
+    test::write_file(root + "/top.pkg", std::vector<std::uint8_t>(8, 0));
+    test::write_file(root + "/app/deep/er/game.PKG", std::vector<std::uint8_t>(8, 0));
+    test::write_file(root + "/app/image.ffpfsc", std::vector<std::uint8_t>(8, 0)); // not a package: left out
+    test::make_dir(root + "/.cache");
+    test::write_file(root + "/.cache/hidden.pkg", std::vector<std::uint8_t>(8, 0)); // in a hidden folder: left out
+    make_game(root + "/app/Folder", "PPSA00009", true); // a game folder: left out
+    const auto found = images::scan_packages(root);
+    CHECK(found.size() == 2);
+    CHECK(has(found, root + "/top.pkg"));
+    CHECK(has(found, root + "/app/deep/er/game.PKG"));
+    for (const auto& f : found) CHECK(f.kind == "fpkg");
+}

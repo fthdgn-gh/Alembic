@@ -230,6 +230,8 @@ Also on the page:
   the newest build of each game's own emulator in place, or the one in use
   where a game has none. Every official build of both emulators is
   recognised by the SHA-256 GitHub publishes for it.
+  Packages apps download to `/data/downloads` (in any folder below it)
+  are listed too.
 
   ![Images: the games in ShadowMount+'s folders as a grid, two AMPR emulators to update, one game without one and one with a build Alembic doesn't know](docs/screenshots/images.png)
 - **Components:** third-party files Alembic needs but doesn't ship (the AMPR
