@@ -1,4 +1,6 @@
 {
+ "Update {engine} to see its images here": "Aktualisiere {engine}, um seine Images hier zu sehen",
+ "{engine} did not answer": "{engine} hat nicht geantwortet",
  "List": "Liste",
  "Grid": "Raster",
  "Folders searched: {list}": "Durchsuchte Ordner: {list}",

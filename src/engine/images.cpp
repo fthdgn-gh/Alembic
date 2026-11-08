@@ -324,6 +324,7 @@ JsonValue Index::snapshot(std::int64_t max_age_s) {
     v.set("refreshing", running_);
     v.set("updated", updated_);
     v.set("smp_update_emulators", smp_update_emulators_);
+    v.set("ampr", std::string(platform::name()) == "ps5" || !environment("ALEMBIC_IMAGES_AMPR").empty());
     v.set("emulators", emulators_json(config_));
     return v;
 }
@@ -356,6 +357,9 @@ void Index::refresh() {
     for (Found& f : found)
         for (const auto& [path, backport] : backports)
             if (path == f.path) f.backport = backport;
+    // AMPR emulators are a PS5 matter: other engines do not read games for
+    // them (ALEMBIC_IMAGES_AMPR=1 does, for tests on a PC).
+    const bool ampr = std::string(platform::name()) == "ps5" || !environment("ALEMBIC_IMAGES_AMPR").empty();
     // First the list as the folders hold it, with what is known already:
     // shown at once, the rest filled in as each game is read.
     const Context ctx(config_);
@@ -368,7 +372,7 @@ void Index::refresh() {
     for (std::size_t i = 0; i < found.size(); ++i) {
         const Found& f = found[i];
         JsonValue e = entry_json_base(f, config_);
-        if (f.kind == "fpkg") {
+        if (f.kind == "fpkg" || !ampr) {
             e.set("ampr", JsonValue());
         } else {
             keys[i] = state_key(f);

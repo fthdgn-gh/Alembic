@@ -251,6 +251,10 @@ Sayfada ayrıca:
   Uygulamaların `/data/downloads` klasörüne (altındaki herhangi bir
   klasöre) indirdiği paketler de listelenir; bilgisayarda, sistemin
   İndirilenler klasöründekiler.
+  Eşleştirilmiş motorların imajları, her motor için ayrı bir bölümde
+  ardından gelir (Gönder, Dönüştür ve diğerleri Dosyalar'daki gibi çalışır);
+  AMPR öykünücüleri yalnızca bir PS5'te, kendi oyunları için gösterilir ve
+  güncellenir.
 
   ![İmajlar: ShadowMount+ klasörlerindeki oyunlar ızgara olarak, güncellenecek iki AMPR öykünücüsü, öykünücüsü olmayan bir oyun ve Alembic'in tanımadığı bir derlemeye sahip bir oyun](docs/screenshots/images.png)
 - **Bileşenler:** Alembic'in ihtiyaç duyduğu ama kendisiyle gelmeyen üçüncü

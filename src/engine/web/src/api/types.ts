@@ -252,5 +252,16 @@ export interface ImagesList {
   refreshing: boolean;
   updated: number;
   smp_update_emulators: boolean | null;
+  ampr?: boolean; // this engine reads games for their AMPR emulator (a PS5 one)
   emulators: ImagesEmulator[];
+}
+// GET /api/peers/images: each paired engine's list, its paths as this
+// engine reaches them (/peer/<id>/...), without AMPR state.
+export interface PeerImages {
+  engine: { id: string; name: string; platform: string };
+  state: "ok" | "offline" | "old" | "error";
+  error?: string;
+  images?: ImageItem[];
+  dirs?: string[];
+  refreshing?: boolean;
 }

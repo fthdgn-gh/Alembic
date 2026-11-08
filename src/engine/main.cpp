@@ -552,6 +552,14 @@ private:
         if (r.path.rfind("/api/peer/fs/", 0) == 0) return peer_fs_action(r);
         if (r.path == "/api/peer/jobs" || r.path.rfind("/api/peer/jobs/", 0) == 0) return peer_jobs_action(r);
         if (r.path == "/api/peer/places" && r.method == "POST") return peer_places_action(r);
+        // Its Images list, for a paired engine's Images tab (0.5.5; older
+        // engines answer 404 and are shown as needing an update).
+        if (r.path == "/api/peer/images" && r.method == "GET") {
+            if (!pairing_) return error(503, "starting");
+            if (auto who = pairing_->verify(r); !who.ok()) return error(401, who.error().message);
+            const auto it = r.query.find("refresh");
+            return json(200, images_.snapshot(it != r.query.end() && it->second == "1" ? 0 : 600));
+        }
         if (r.path == "/api/smp/scan" && r.method == "POST") {
             std::string why;
             if (!shadowmount_rescan(config_, &why)) return error(503, why);
@@ -954,6 +962,56 @@ private:
             auto added = discovery_->add((*body)["address"].str(), static_cast<std::uint16_t>(port));
             if (!added.ok()) return error(400, added.error().message);
             return state();
+        }
+        // Every paired engine's Images list, for this engine's Images tab:
+        // its paths as this engine reaches them (/peer/<id>/...).
+        if (r.path == "/api/peers/images" && r.method == "GET") {
+            const auto q = r.query.find("refresh");
+            const bool refresh = q != r.query.end() && q->second == "1";
+            JsonValue all = JsonValue::array();
+            for (const pairing::Paired& p : pairing_->list()) {
+                auto peer = discovery_->find(p.id);
+                JsonValue e = JsonValue::object();
+                JsonValue engine = JsonValue::object();
+                engine.set("id", p.id);
+                engine.set("name", peer ? peer->who.name : p.name);
+                engine.set("platform", peer ? peer->who.platform : std::string());
+                e.set("engine", std::move(engine));
+                if (!peer) {
+                    e.set("state", "offline");
+                    all.push(std::move(e));
+                    continue;
+                }
+                std::map<std::string, std::string> query;
+                if (refresh) query["refresh"] = "1";
+                auto text = peer_fs::request(*discovery_, *pairing_, p.id, "GET", "/api/peer/images", query, "", 4000, 16u << 20);
+                auto list = text.ok() ? parse_json(*text) : Result<JsonValue>(make_error(Errc::io, ""));
+                if (!text.ok() || !list.ok()) {
+                    e.set("state", !text.ok() && text.error().code == Errc::invalid_argument ? "old" : "error");
+                    if (!text.ok()) e.set("error", text.error().message);
+                    all.push(std::move(e));
+                    continue;
+                }
+                const std::string prefix = "/peer/" + p.id;
+                auto under = [&](const std::string& path) { return prefix + (path.empty() || path[0] != '/' ? "/" : "") + path; };
+                JsonValue images = JsonValue::array();
+                for (const JsonValue& i : (*list)["images"].items()) {
+                    JsonValue v = i;
+                    v.set("path", under(i["path"].str()));
+                    v.set("folder", under(i["folder"].str()));
+                    v.set("allowed", true); // reached through the pairing, as Files does
+                    v.set("ampr", JsonValue()); // AMPR emulators are updated on their own engine (a PS5)
+                    images.push(std::move(v));
+                }
+                JsonValue dirs = JsonValue::array();
+                for (const JsonValue& d : (*list)["dirs"].items()) dirs.push(under(d.str()));
+                e.set("state", "ok");
+                e.set("images", std::move(images));
+                e.set("dirs", std::move(dirs));
+                e.set("refreshing", (*list)["refreshing"]);
+                all.push(std::move(e));
+            }
+            return json(200, all);
         }
         // Jobs this engine sent to others, for the queue.
         if (r.path == "/api/peers/jobs" && r.method == "GET") {

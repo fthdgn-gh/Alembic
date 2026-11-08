@@ -1,4 +1,6 @@
 {
+ "Update {engine} to see its images here": "Обновите {engine}, чтобы видеть здесь его образы",
+ "{engine} did not answer": "{engine} не ответил",
  "List": "Список",
  "Grid": "Сетка",
  "Folders searched: {list}": "Просмотренные папки: {list}",

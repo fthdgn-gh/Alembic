@@ -264,6 +264,10 @@ Az oldalon még:
   Az alkalmazások által a `/data/downloads` mappába (bármelyik
   almappájába) letöltött csomagok is megjelennek; számítógépen a rendszer
   Letöltések mappájában lévők.
+  Utánuk a párosított motorok image-ei következnek, motoronként külön
+  szakaszban (a Küldés, a Konvertálás és a többi úgy működik, mint a
+  Fájlokban); AMPR-emulátorokat csak PS5-ön mutat és frissít, a saját
+  játékaihoz.
 
   ![Image-ek: a ShadowMount+ mappáiban lévő játékok rácsban, két frissítendő AMPR-emulátor, egy emulátor nélküli játék és egy olyan, amelynek a buildjét az Alembic nem ismeri](docs/screenshots/images.png)
 - **Komponensek:** azokat a külső fájlokat, amelyekre az Alembicnek szüksége

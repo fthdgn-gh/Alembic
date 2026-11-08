@@ -50,7 +50,10 @@
 /* grid view (components/Tile.tsx): tiles with the game's icon, square by
    padding (the PS5's browser has no aspect-ratio). */
 .list.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); grid-gap: .8rem; align-content: start; }
-.list.grid > .sect, .list.grid > .empty, .list.grid > .row { grid-column: 1 / -1; }
+.list.grid > .sect, .list.grid > .esect, .list.grid > .empty, .list.grid > .row { grid-column: 1 / -1; }
+/* Images with paired engines: a heading per engine (above its folders'). */
+.esect { font-size: 1.15rem; font-weight: 600; margin: 1.6rem .3rem .2rem; padding-bottom: .4rem; border-bottom: 1px solid var(--line); }
+.esect:first-child { margin-top: .6rem; }
 .tile { position: relative; min-width: 0; padding: .55rem; border-radius: .9rem; cursor: pointer; }
 .tile:focus { background: rgba(111,147,255,.12); }
 .tile:hover { background: rgba(255,255,255,.03); }

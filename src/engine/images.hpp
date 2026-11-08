@@ -70,6 +70,7 @@ public:
     explicit Index(const EngineConfig& config) : config_(config) {}
     ~Index();
     // {images, dirs (the folders searched), smp (ShadowMount+'s API answered),
+    // ampr (this engine reads games for their AMPR emulator: a PS5 one),
     // refreshing, updated, smp_update_emulators (bool, or null when
     // ShadowMount+ does not say), emulators [{id, label, name, version,
     // latest, downloaded, in_use}]}. Starts a refresh when the list is older

@@ -1,4 +1,6 @@
 {
+ "Update {engine} to see its images here": "Frissítsd ezt: {engine}, hogy itt lásd az image-eit",
+ "{engine} did not answer": "{engine} nem válaszolt",
  "List": "Lista",
  "Grid": "Rács",
  "Folders searched: {list}": "Átvizsgált mappák: {list}",

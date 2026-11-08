@@ -314,6 +314,13 @@ void App::open_bulk_actions() {
             add(t("Update the AMPR emulator"), some(updatable.size(), t("The newest build of each one's emulator")), false,
                 [this, updatable, done] { images_->update_ampr(*this, updatable, done); });
     }
+    // In Images, only where the engine reads games for it (a PS5's own ones).
+    if (lib)
+        images.erase(std::remove_if(images.begin(), images.end(), [this](const Entry& e) {
+                         const JsonValue* item = images_->item(e.path);
+                         return !item || !(*item)["ampr"].is_object();
+                     }),
+                     images.end());
     if (!images.empty())
         add(t("Add the AMPR emulator\xE2\x80\xA6"), some(images.size(), t("For games that stop at start from an image or folder")), false,
             [this, images, done] {

@@ -10,9 +10,9 @@ import type { ImageItem } from "../../api/types";
 import { tab, viewModes } from "../../state/view";
 import { Tile } from "../../components/Tile";
 import { ViewSwitch } from "../../components/ViewSwitch";
-import { images, loadImages } from "../../state/images";
+import { images, peerImages, loadImages } from "../../state/images";
 import { jobs, isActive } from "../../state/jobs";
-import { shownPath, folderLabel } from "../../state/paths";
+import { shownPath, folderLabel, hereName } from "../../state/paths";
 import { selecting, isSelected, toggleSelected } from "../../state/selection";
 import { bytes, date } from "../../lib/format";
 import { KIND_LABEL } from "../../lib/kinds";
@@ -110,7 +110,7 @@ export function ImagesPage(props: { hidden: boolean }) {
   useEffect(() => { if (tab.value === "images") loadImages(); }, [tab.value]);
   // While the engine reads the folders, look again every second and a half.
   useEffect(() => {
-    if (!data || !data.refreshing || tab.value !== "images") return;
+    if (!data || !(data.refreshing || peerImages.value.some((p) => p.refreshing)) || tab.value !== "images") return;
     const id = setTimeout(() => loadImages(), 1500);
     return () => clearTimeout(id);
   }, [data, tab.value]);
@@ -128,18 +128,36 @@ export function ImagesPage(props: { hidden: boolean }) {
   useEffect(() => {
     if (tab.value === "images" && data && !overlays.value.length && zoneOf(document.activeElement) !== "images") setTimeout(focusFirst, 0);
   }, [data && data.updated]);
-  const list = data ? data.images.slice().sort((a, b) => a.folder.localeCompare(b.folder) || a.name.replace(/^\./, "").localeCompare(b.name.replace(/^\./, ""))) : [];
+  const sorted = (l: ImageItem[]) => l.slice().sort((a, b) => a.folder.localeCompare(b.folder) || a.name.replace(/^\./, "").localeCompare(b.name.replace(/^\./, "")));
+  const list = data ? sorted(data.images) : [];
+  const peers = peerImages.value;
   const todo = list.filter(amprUpdatable).length;
+  const total = list.length + peers.reduce((n, p) => n + (p.images ? p.images.length : 0), 0);
   async function again() { setBusy(true); await loadImages(true); setBusy(false); }
   const grid = viewModes.value.images === "grid";
   const rows: any[] = [];
-  let folder = "";
-  for (const i of list) {
-    if (i.folder !== folder) {
-      folder = i.folder;
-      rows.push(<div class="sect" style="margin:1rem .3rem .3rem">{folderLabel(folder)}</div>);
+  // Folder by folder: its heading, then its rows or tiles.
+  const add = (items: ImageItem[]) => {
+    let folder = "";
+    for (const i of sorted(items)) {
+      if (i.folder !== folder) {
+        folder = i.folder;
+        rows.push(<div class="sect" style="margin:1rem .3rem .3rem">{folderLabel(folder)}</div>);
+      }
+      rows.push(grid ? <Cell key={i.path} i={i} /> : <Row key={i.path} i={i} />);
     }
-    rows.push(grid ? <Cell key={i.path} i={i} /> : <Row key={i.path} i={i} />);
+  };
+  // With paired engines, a section per engine: this one first.
+  if (peers.length) rows.push(<div class="esect">{hereName()}</div>);
+  if (data && !list.length && !data.refreshing) rows.push(<div class="empty">{t("No images, game folders or packages in ShadowMount+'s folders.")}</div>);
+  add(list);
+  for (const p of peers) {
+    rows.push(<div class="esect">{p.engine.name}</div>);
+    if (p.state === "offline") rows.push(<div class="empty">{t("{engine} is offline", { engine: p.engine.name })}</div>);
+    else if (p.state === "old") rows.push(<div class="empty">{t("Update {engine} to see its images here", { engine: p.engine.name })}</div>);
+    else if (p.state === "error") rows.push(<div class="empty">{p.error || t("{engine} did not answer", { engine: p.engine.name })}</div>);
+    else if (!p.images || !p.images.length) rows.push(<div class="empty">{p.refreshing ? t("Reading the games…") : t("No images, game folders or packages in ShadowMount+'s folders.")}</div>);
+    else add(p.images);
   }
   return (
     <section class="view scroll" id="view-images" hidden={props.hidden}>
@@ -151,7 +169,7 @@ export function ImagesPage(props: { hidden: boolean }) {
             <div class="crumbs"><span style="padding:.1rem .35rem">{t("Images")}</span></div>
             <div class="summary">
               {!data ? t("Looking for images…") : data.refreshing && !list.length ? t("Reading the games…")
-                : [plural(list.length, "{n} item", "{n} items"), todo ? plural(todo, "{n} AMPR emulator to update", "{n} AMPR emulators to update") : "",
+                : [plural(total, "{n} item", "{n} items"), todo ? plural(todo, "{n} AMPR emulator to update", "{n} AMPR emulators to update") : "",
                   data.refreshing ? t("Reading the games…") : ""].filter(Boolean).join("  ·  ")}
             </div>
           </div>
@@ -163,9 +181,9 @@ export function ImagesPage(props: { hidden: boolean }) {
         </div>
         {data && data.smp_update_emulators && todo ? <div class="note" style="margin:.8rem 0 0">{t("ShadowMount+'s “update emulators” is on: when a game starts, it puts its own copy in place of a matching emulator. Turn it off in ShadowMount+ for games that should keep the one shown here.")}</div> : null}
         <div class={"list" + (grid ? " grid" : "")} data-zone="images" data-column={grid ? undefined : true}>
-          {data && !list.length && !data.refreshing ? <div class="empty">{t("No images, game folders or packages in ShadowMount+'s folders.")}</div> : rows}
+          {rows}
         </div>
-        {data && data.dirs.length ? <p class="muted" style="margin:1rem .2rem">{t("Folders searched: {list}", { list: data.dirs.map(shownPath).join(", ") })}</p> : null}
+        {data && data.dirs.length ? <p class="muted" style="margin:1rem .2rem">{t("Folders searched: {list}", { list: data.dirs.concat(...peers.map((p) => p.dirs || [])).map(shownPath).join(", ") })}</p> : null}
       </div>
     </section>
   );

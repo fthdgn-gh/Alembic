@@ -1,4 +1,6 @@
 {
+ "Update {engine} to see its images here": "ここにイメージを表示するには {engine} をアップデートしてください",
+ "{engine} did not answer": "{engine} から応答がありません",
  "List": "リスト",
  "Grid": "グリッド",
  "Folders searched: {list}": "確認したフォルダー: {list}",

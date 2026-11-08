@@ -232,6 +232,9 @@ Also on the page:
   recognised by the SHA-256 GitHub publishes for it.
   Packages apps download to `/data/downloads` (in any folder below it)
   are listed too; on a PC, those in the system's Downloads folder.
+  Paired engines' images follow, a section per engine (Send, Convert and
+  the rest work on them as in Files); AMPR emulators are shown and updated
+  only on a PS5, for its own games.
 
   ![Images: the games in ShadowMount+'s folders as a grid, two AMPR emulators to update, one game without one and one with a build Alembic doesn't know](docs/screenshots/images.png)
 - **Components:** third-party files Alembic needs but doesn't ship (the AMPR

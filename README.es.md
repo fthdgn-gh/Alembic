@@ -254,6 +254,10 @@ También en la página:
   También se listan los paquetes que las aplicaciones descargan en
   `/data/downloads` (en cualquier carpeta dentro de ella); en un PC, los de
   la carpeta de Descargas del sistema.
+  Después aparecen las imágenes de los motores emparejados, una sección por
+  motor (Enviar, Convertir y lo demás funcionan como en Archivos); los
+  emuladores AMPR solo se muestran y actualizan en una PS5, para sus propios
+  juegos.
 
   ![Imágenes: los juegos de las carpetas de ShadowMount+ en cuadrícula, dos emuladores AMPR por actualizar, un juego sin emulador y otro con una versión que Alembic no conoce](docs/screenshots/images.png)
 - **Componentes:** los archivos de terceros que Alembic necesita pero no

@@ -42,7 +42,9 @@ export async function openBulkActions() {
   if (packages.length) items.push({ label: t("Install"), sub: some(packages.length, t("Hand them to the console's installer")), value: () => installMany(packages) });
   const updatable = lib ? (all as ImageItem[]).filter(amprUpdatable) : [];
   if (updatable.length) items.push({ label: t("Update the AMPR emulator"), sub: some(updatable.length, t("The newest build of each one's emulator")), value: () => updateAmpr(updatable).then(done) });
-  if (images.length) items.push({ label: t("Add the AMPR emulator…"), sub: some(images.length, t("For games that stop at start from an image or folder")), value: () => amprMany(images) });
+  // In Images, only where the engine reads games for it (a PS5's own ones).
+  const amprable = lib ? images.filter((e) => !!(e as ImageItem).ampr) : images;
+  if (amprable.length) items.push({ label: t("Add the AMPR emulator…"), sub: some(amprable.length, t("For games that stop at start from an image or folder")), value: () => amprMany(amprable) });
   const visible = images.filter((e) => !isHiddenName(e.name)), hidden = images.filter((e) => isHiddenName(e.name));
   if (visible.length) items.push({ label: t("Hide from ShadowMount+"), sub: some(visible.length, t("Renames them to .name, so ShadowMount+ uses other copies of these games")), value: () => hideMany(visible, true) });
   if (hidden.length) items.push({ label: t("Show to ShadowMount+ again"), sub: some(hidden.length, t("Renames them back without the leading dot")), value: () => hideMany(hidden, false) });

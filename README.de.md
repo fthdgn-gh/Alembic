@@ -260,6 +260,10 @@ Außerdem auf der Seite:
   Pakete, die Apps nach `/data/downloads` laden (in beliebige Ordner
   darunter), werden ebenfalls aufgeführt; auf einem PC die im
   Downloads-Ordner des Systems.
+  Danach folgen die Images gekoppelter Engines, ein Abschnitt je Engine
+  (Senden, Konvertieren und der Rest funktionieren dort wie in Dateien);
+  AMPR-Emulatoren werden nur auf einer PS5 für ihre eigenen Spiele gezeigt
+  und aktualisiert.
 
   ![Images: die Spiele in den Ordnern von ShadowMount+ als Raster, zwei AMPR-Emulatoren zu aktualisieren, ein Spiel ohne Emulator und eines mit einem Build, den Alembic nicht kennt](docs/screenshots/images.png)
 - **Komponenten:** Dateien von Dritten, die Alembic braucht, aber nicht

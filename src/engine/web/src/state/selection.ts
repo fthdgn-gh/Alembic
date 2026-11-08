@@ -6,10 +6,10 @@
 import { signal, computed } from "@preact/signals";
 import type { Entry } from "../api/types";
 import { cwd, listing, tab } from "./view";
-import { images } from "./images";
+import { allImages } from "./images";
 
 // The rows the selection is made from: the folder's in Files, the list's in Images.
-const rows = (): Entry[] => (tab.value === "images" ? (images.value ? images.value.images : []) : listing.value ? listing.value.entries : []);
+const rows = (): Entry[] => (tab.value === "images" ? allImages() : listing.value ? listing.value.entries : []);
 
 export const selecting = signal(false);
 export const selected = signal<string[]>([]); // paths, in the order they were ticked

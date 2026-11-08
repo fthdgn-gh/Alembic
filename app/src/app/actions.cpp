@@ -137,7 +137,8 @@ void App::open_actions(const Entry& e, const JsonValue* lib) {
             t("{old} \xE2\x86\x92 the newest build of its kind", {{"old", item["ampr"]["emulator"]["name"].str()}}), false,
             [this, item] { images_->update_ampr(*this, {item}); });
     }
-    if (conv && e.kind != "fpkg")
+    // In Images, only where the engine reads games for it (a PS5's own ones).
+    if (conv && e.kind != "fpkg" && (!lib || (*lib)["ampr"].is_object()))
         add(t("Add the AMPR emulator\xE2\x80\xA6"), t("For games that stop at start from an image or folder"), false, [this, e] {
             JsonValue req = JsonValue::object();
             req.set("kind", "ampr_emu");

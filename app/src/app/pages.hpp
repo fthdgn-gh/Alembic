@@ -73,6 +73,8 @@ private:
     std::string target_name(const JsonValue& item) const;
     bool is_pending(const std::string& path) const;
     JsonValue data_;                    // GET /api/images
+    JsonValue peers_ = JsonValue::array();  // GET /api/peers/images: the paired engines' lists
+    void rebuild_entries(App& app);     // app.image_entries: this engine's rows, then the others' 
     std::string focused_;               // the focused row's path
     std::vector<std::string> pending_;  // paths with an AMPR job queued from here
     float poll_at_ = 0.0f;

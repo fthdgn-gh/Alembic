@@ -75,18 +75,43 @@ void ImagesPage::load(App& app, bool refresh) {
             return fa != fb ? fa < fb : sort_name(a["name"].str()) < sort_name(b["name"].str());
         });
         JsonValue sorted = JsonValue::array();
-        app.image_entries.clear();
-        for (auto& i : list) {
-            app.image_entries.push_back(entry_from(i));
-            sorted.push(std::move(i));
-        }
+        for (auto& i : list) sorted.push(std::move(i));
         data_.set("images", std::move(sorted));
+        rebuild_entries(app);
     });
+    // The paired engines' lists (engines before 0.5.5 have none: no sections then).
+    app.get(refresh ? "/api/peers/images?refresh=1" : "/api/peers/images", [this, &app](const Reply& r) {
+        JsonValue peers = JsonValue::array();
+        if (r.ok())
+            for (const JsonValue& p : r.json.items()) {
+                std::vector<JsonValue> list = p["images"].items();
+                std::stable_sort(list.begin(), list.end(), [](const JsonValue& a, const JsonValue& b) {
+                    const std::string fa = a["folder"].str(), fb = b["folder"].str();
+                    return fa != fb ? fa < fb : sort_name(a["name"].str()) < sort_name(b["name"].str());
+                });
+                JsonValue v = p, sorted = JsonValue::array();
+                for (auto& i : list) sorted.push(std::move(i));
+                v.set("images", std::move(sorted));
+                peers.push(std::move(v));
+            }
+        peers_ = std::move(peers);
+        rebuild_entries(app);
+    });
+}
+
+void ImagesPage::rebuild_entries(App& app) {
+    app.image_entries.clear();
+    for (const auto& i : data_["images"].items()) app.image_entries.push_back(entry_from(i));
+    for (const auto& p : peers_.items())
+        for (const auto& i : p["images"].items()) app.image_entries.push_back(entry_from(i));
 }
 
 const JsonValue* ImagesPage::item(const std::string& path) const {
     for (const auto& i : data_["images"].items())
         if (i["path"].str() == path) return &i;
+    for (const auto& p : peers_.items())
+        for (const auto& i : p["images"].items())
+            if (i["path"].str() == path) return &i;
     return nullptr;
 }
 
@@ -227,7 +252,9 @@ void ImagesPage::build(Ui& ui, App& app, const Rect& area) {
         load(app, false);
     }
     // While the engine reads the folders, look again every second and a half.
-    if (data_["refreshing"].boolean() && ui.time > poll_at_) {
+    bool peers_reading = false;
+    for (const auto& p : peers_.items()) peers_reading = peers_reading || p["refreshing"].boolean();
+    if ((data_["refreshing"].boolean() || peers_reading) && ui.time > poll_at_) {
         poll_at_ = ui.time + 1.5f;
         load(app, false);
     }
@@ -280,7 +307,9 @@ void ImagesPage::build(Ui& ui, App& app, const Rect& area) {
         } else if (refreshing && list.empty()) {
             summary = t("Reading the games\xE2\x80\xA6");
         } else {
-            summary = plural(static_cast<long long>(list.size()), "{n} item", "{n} items");
+            std::size_t total = list.size();
+            for (const auto& p : peers_.items()) total += p["images"].items().size();
+            summary = plural(static_cast<long long>(total), "{n} item", "{n} items");
             if (todo) summary += "  \xC2\xB7  " + plural(todo, "{n} AMPR emulator to update", "{n} AMPR emulators to update");
             if (refreshing) summary += "  \xC2\xB7  " + t("Reading the games\xE2\x80\xA6");
         }
@@ -307,165 +336,190 @@ void ImagesPage::build(Ui& ui, App& app, const Rect& area) {
         y += nh + 0.5f * R;
     }
     DrawList& l = *ui.list;
-    if (!data_.is_null() && list.empty() && !data_["refreshing"].boolean()) {
-        draw::text(ui, Face::regular, t("No images, game folders or packages in ShadowMount+'s folders."), x + w * 0.5f,
-                   draw::baseline(y + 3.0f * R, 1.0f * R), 1.0f * R, muted, Align::center);
-        y += 6.0f * R;
-    }
-    std::string folder;
     bool any_focused = false;
     const bool grid = app.view_mode("images") == "grid";
-    if (grid) {
-        // Folder by folder: its heading, then its tiles.
-        const Grid g = grid_of(x, w);
-        for (std::size_t a = 0; a < list.size();) {
-            std::size_t b = a;
-            while (b < list.size() && list[b]["folder"].str() == list[a]["folder"].str()) ++b;
-            y += section(ui, folder_label(app, list[a]["folder"].str()), x + 0.3f * R, y) + 0.3f * R;
-            for (std::size_t k = a; k < b; ++k) {
-                const JsonValue& i = list[k];
-                const Rect r = g.cell(static_cast<int>(k - a), y);
-                const Id id = Id("img") / i["path"].str();
-                TileInfo info;
-                info.entry = entry_from(i);
-                info.meta = ui.visible(r) ? app.meta(info.entry.path, info.entry.mtime, info.entry.size) : nullptr;
-                info.selecting = app.selecting;
-                info.ticked = app.selecting && app.is_selected(info.entry.path);
-                info.hidden = info.dim = i["hidden"].boolean();
+    // One engine's items, folder by folder (rows or tiles).
+    auto draw_items = [&](const std::vector<JsonValue>& list) {
+        std::string folder;
+        if (grid) {
+            // Folder by folder: its heading, then its tiles.
+            const Grid g = grid_of(x, w);
+            for (std::size_t a = 0; a < list.size();) {
+                std::size_t b = a;
+                while (b < list.size() && list[b]["folder"].str() == list[a]["folder"].str()) ++b;
+                y += section(ui, folder_label(app, list[a]["folder"].str()), x + 0.3f * R, y) + 0.3f * R;
+                for (std::size_t k = a; k < b; ++k) {
+                    const JsonValue& i = list[k];
+                    const Rect r = g.cell(static_cast<int>(k - a), y);
+                    const Id id = Id("img") / i["path"].str();
+                    TileInfo info;
+                    info.entry = entry_from(i);
+                    info.meta = ui.visible(r) ? app.meta(info.entry.path, info.entry.mtime, info.entry.size) : nullptr;
+                    info.selecting = app.selecting;
+                    info.ticked = app.selecting && app.is_selected(info.entry.path);
+                    info.hidden = info.dim = i["hidden"].boolean();
+                    const std::string status = i["ampr"]["status"].str();
+                    if (is_pending(info.entry.path)) {
+                        info.badge_state = "queued";
+                        info.badge = "queued";
+                    } else if (status == "update") {
+                        info.badge_state = "running";
+                        info.badge = "update available";
+                    } else if (status == "missing") {
+                        info.badge_state = "failed";
+                        info.badge = "no emulator";
+                    } else if (status == "unknown") {
+                        info.badge_state = "queued";
+                        info.badge = "unknown build";
+                    } else if (status == "not_downloaded") {
+                        info.badge_state = "queued";
+                        info.badge = "not downloaded here";
+                    }
+                    if (tile(ui, app, id, r, info)) {
+                        if (app.selecting) app.toggle_selected(info.entry.path);
+                        else app.open_convert(info.entry);
+                    }
+                    if (ui.focused(id)) {
+                        focused_ = info.entry.path;
+                        any_focused = true;
+                    }
+                }
+                y += g.height(static_cast<int>(b - a)) + 0.4f * R;
+                a = b;
+            }
+        }
+        const std::vector<JsonValue> none;
+        for (const JsonValue& i : grid ? none : list) {
+            const Entry e = entry_from(i);
+            if (i["folder"].str() != folder) {
+                folder = i["folder"].str();
+                y += section(ui, folder_label(app, folder), x + 0.3f * R, y);
+            }
+            const float h = 0.55f * R * 2.0f + 3.4f * R;
+            y += 0.15f * R;
+            const Rect r{x, y, w, h};
+            const Id id = Id("img") / e.path;
+            if (ui.item(id, r, 0, 0.7f * R)) {
+                if (app.selecting) app.toggle_selected(e.path);
+                else app.open_convert(e);
+            }
+            const bool f = ui.focused(id);
+            if (f) {
+                focused_ = e.path;
+                any_focused = true;
+            }
+            const bool ticked = app.selecting && app.is_selected(e.path);
+            if (ui.visible(r)) {
+                const Meta* m = app.meta(e.path, e.mtime, e.size);
+                const float alpha = i["hidden"].boolean() ? 0.6f : 1.0f;
+                if (ticked) l.rounded_rect(r, 0.7f * R, accent.with_alpha(0.08f));
+                if (f) l.rounded_rect(r, 0.7f * R, accent.with_alpha(0.12f));
+                const Rect icon{r.x + 0.75f * R, r.y + 0.55f * R, 3.4f * R, 3.4f * R};
+                const std::uint32_t tex = m && m->icon ? app.icon(e.path, e.mtime) : 0;
+                draw::ico(ui, icon, e.game ? "game" : e.kind, e.game ? t("GAME") : kind_label(e.kind), tex);
+                if (app.selecting) {  // the tick on the icon's corner (.row .tick)
+                    const Rect tk{icon.x - 0.35f * R, icon.y - 0.35f * R, 1.3f * R, 1.3f * R};
+                    l.rounded_rect(tk, tk.w * 0.5f, ticked ? accent : panel2);
+                    if (ticked)
+                        draw::text(ui, Face::semibold, "\xE2\x9C\x93", tk.cx(), draw::baseline(tk.cy(), 0.9f * R), 0.9f * R, bg,
+                                   Align::center);
+                }
+                const float text_x = icon.x + icon.w + 1.0f * R;
+                // ⋯ (Options), then the AMPR pill or the size.
+                float right_x = r.x + r.w - 0.75f * R;
+                const float ms = 1.35f * R;
+                draw::dots(ui, right_x - 0.75f * R - ms * 0.4f, r.cy(), ms, dim);
+                right_x -= 0.75f * R * 2.0f + ms * 0.8f + 1.0f * R;
                 const std::string status = i["ampr"]["status"].str();
-                if (is_pending(info.entry.path)) {
-                    info.badge_state = "queued";
-                    info.badge = "queued";
+                std::string pill_state, pill;
+                if (is_pending(e.path)) {
+                    pill_state = "queued";
+                    pill = "queued";
                 } else if (status == "update") {
-                    info.badge_state = "running";
-                    info.badge = "update available";
+                    pill_state = "running";
+                    pill = "update available";
                 } else if (status == "missing") {
-                    info.badge_state = "failed";
-                    info.badge = "no emulator";
+                    pill_state = "failed";
+                    pill = "no emulator";
                 } else if (status == "unknown") {
-                    info.badge_state = "queued";
-                    info.badge = "unknown build";
+                    pill_state = "queued";
+                    pill = "unknown build";
                 } else if (status == "not_downloaded") {
-                    info.badge_state = "queued";
-                    info.badge = "not downloaded here";
+                    pill_state = "queued";
+                    pill = "not downloaded here";
                 }
-                if (tile(ui, app, id, r, info)) {
-                    if (app.selecting) app.toggle_selected(info.entry.path);
-                    else app.open_convert(info.entry);
+                if (!pill.empty()) {
+                    right_x -= draw::state_pill(ui, pill_state, t(pill), right_x, r.cy()) + 1.0f * R;
+                } else if (e.kind != "folder") {
+                    const std::string sz = bytes(e.size);
+                    const float zs = 0.9f * R;
+                    draw::text(ui, Face::regular, sz, right_x, draw::baseline(r.cy(), zs), zs, muted, Align::right);
+                    right_x -= draw::measure(ui, Face::regular, sz, zs) + 1.0f * R;
                 }
-                if (ui.focused(id)) {
-                    focused_ = info.entry.path;
-                    any_focused = true;
-                }
-            }
-            y += g.height(static_cast<int>(b - a)) + 0.4f * R;
-            a = b;
-        }
-    }
-    const std::vector<JsonValue> none;
-    for (const JsonValue& i : grid ? none : list) {
-        const Entry e = entry_from(i);
-        if (i["folder"].str() != folder) {
-            folder = i["folder"].str();
-            y += section(ui, folder_label(app, folder), x + 0.3f * R, y);
-        }
-        const float h = 0.55f * R * 2.0f + 3.4f * R;
-        y += 0.15f * R;
-        const Rect r{x, y, w, h};
-        const Id id = Id("img") / e.path;
-        if (ui.item(id, r, 0, 0.7f * R)) {
-            if (app.selecting) app.toggle_selected(e.path);
-            else app.open_convert(e);
-        }
-        const bool f = ui.focused(id);
-        if (f) {
-            focused_ = e.path;
-            any_focused = true;
-        }
-        const bool ticked = app.selecting && app.is_selected(e.path);
-        if (ui.visible(r)) {
-            const Meta* m = app.meta(e.path, e.mtime, e.size);
-            const float alpha = i["hidden"].boolean() ? 0.6f : 1.0f;
-            if (ticked) l.rounded_rect(r, 0.7f * R, accent.with_alpha(0.08f));
-            if (f) l.rounded_rect(r, 0.7f * R, accent.with_alpha(0.12f));
-            const Rect icon{r.x + 0.75f * R, r.y + 0.55f * R, 3.4f * R, 3.4f * R};
-            const std::uint32_t tex = m && m->icon ? app.icon(e.path, e.mtime) : 0;
-            draw::ico(ui, icon, e.game ? "game" : e.kind, e.game ? t("GAME") : kind_label(e.kind), tex);
-            if (app.selecting) {  // the tick on the icon's corner (.row .tick)
-                const Rect tk{icon.x - 0.35f * R, icon.y - 0.35f * R, 1.3f * R, 1.3f * R};
-                l.rounded_rect(tk, tk.w * 0.5f, ticked ? accent : panel2);
-                if (ticked)
-                    draw::text(ui, Face::semibold, "\xE2\x9C\x93", tk.cx(), draw::baseline(tk.cy(), 0.9f * R), 0.9f * R, bg,
-                               Align::center);
-            }
-            const float text_x = icon.x + icon.w + 1.0f * R;
-            // ⋯ (Options), then the AMPR pill or the size.
-            float right_x = r.x + r.w - 0.75f * R;
-            const float ms = 1.35f * R;
-            draw::dots(ui, right_x - 0.75f * R - ms * 0.4f, r.cy(), ms, dim);
-            right_x -= 0.75f * R * 2.0f + ms * 0.8f + 1.0f * R;
-            const std::string status = i["ampr"]["status"].str();
-            std::string pill_state, pill;
-            if (is_pending(e.path)) {
-                pill_state = "queued";
-                pill = "queued";
-            } else if (status == "update") {
-                pill_state = "running";
-                pill = "update available";
-            } else if (status == "missing") {
-                pill_state = "failed";
-                pill = "no emulator";
-            } else if (status == "unknown") {
-                pill_state = "queued";
-                pill = "unknown build";
-            } else if (status == "not_downloaded") {
-                pill_state = "queued";
-                pill = "not downloaded here";
-            }
-            if (!pill.empty()) {
-                right_x -= draw::state_pill(ui, pill_state, t(pill), right_x, r.cy()) + 1.0f * R;
-            } else if (e.kind != "folder") {
-                const std::string sz = bytes(e.size);
-                const float zs = 0.9f * R;
-                draw::text(ui, Face::regular, sz, right_x, draw::baseline(r.cy(), zs), zs, muted, Align::right);
-                right_x -= draw::measure(ui, Face::regular, sz, zs) + 1.0f * R;
-            }
-            const float tw = right_x - text_x;
-            const float ts = 1.05f * R, ss = 0.82f * R;
-            const float t_cy = r.cy() - 0.5f * ss * 1.45f;
-            const float s_cy = r.cy() + 0.5f * ts * 1.45f - 0.05f * R;
-            draw::text_fit(ui, Face::regular, m && !m->title.empty() ? m->title : e.name, text_x, draw::baseline(t_cy, ts), ts, tw,
-                           style::text.with_alpha(alpha));
-            float pw = m ? draw::platform_pill(ui, m->platform, text_x, s_cy) : 0.0f;
-            if (pw) pw += 0.45f * R;
-            pw += draw::fmt_pill(ui, e.game ? "folder" : e.kind, e.game ? t("FOLDER") : kind_label(e.kind), text_x + pw, s_cy);
-            if (m && (m->packs == "lz4" || m->packs == "zstd"))
-                pw += 0.45f * R + draw::fmt_pill(ui, "packs", m->packs == "zstd" ? "ZSTD" : "LZ4", text_x + pw + 0.45f * R, s_cy);
-            if (i["hidden"].boolean()) pw += 0.45f * R + draw::fmt_pill(ui, "file", t("HIDDEN"), text_x + pw + 0.45f * R, s_cy);
-            // The file's name first when the title is the game's (what Rename changes).
-            std::string sub = m && !m->title.empty() ? e.name : "";
-            if (uses_apr(status)) {
-                if (!sub.empty()) sub += "  \xC2\xB7  ";
-                if (i["ampr"]["emulator"].is_object()) {
-                    sub += i["ampr"]["emulator"]["name"].str() + " \xC2\xB7 " +
-                          (i["ampr"]["where"].str() == "backport" ? t("in its backport") : t("in the game"));
-                    if (status == "update" || status == "not_downloaded") sub += " \xE2\x86\x92 " + target_name(i);
+                const float tw = right_x - text_x;
+                const float ts = 1.05f * R, ss = 0.82f * R;
+                const float t_cy = r.cy() - 0.5f * ss * 1.45f;
+                const float s_cy = r.cy() + 0.5f * ts * 1.45f - 0.05f * R;
+                draw::text_fit(ui, Face::regular, m && !m->title.empty() ? m->title : e.name, text_x, draw::baseline(t_cy, ts), ts, tw,
+                               style::text.with_alpha(alpha));
+                float pw = m ? draw::platform_pill(ui, m->platform, text_x, s_cy) : 0.0f;
+                if (pw) pw += 0.45f * R;
+                pw += draw::fmt_pill(ui, e.game ? "folder" : e.kind, e.game ? t("FOLDER") : kind_label(e.kind), text_x + pw, s_cy);
+                if (m && (m->packs == "lz4" || m->packs == "zstd"))
+                    pw += 0.45f * R + draw::fmt_pill(ui, "packs", m->packs == "zstd" ? "ZSTD" : "LZ4", text_x + pw + 0.45f * R, s_cy);
+                if (i["hidden"].boolean()) pw += 0.45f * R + draw::fmt_pill(ui, "file", t("HIDDEN"), text_x + pw + 0.45f * R, s_cy);
+                // The file's name first when the title is the game's (what Rename changes).
+                std::string sub = m && !m->title.empty() ? e.name : "";
+                if (uses_apr(status)) {
+                    if (!sub.empty()) sub += "  \xC2\xB7  ";
+                    if (i["ampr"]["emulator"].is_object()) {
+                        sub += i["ampr"]["emulator"]["name"].str() + " \xC2\xB7 " +
+                              (i["ampr"]["where"].str() == "backport" ? t("in its backport") : t("in the game"));
+                        if (status == "update" || status == "not_downloaded") sub += " \xE2\x86\x92 " + target_name(i);
+                    } else {
+                        sub += status == "unknown" ? t("a libSceAmpr.sprx Alembic doesn't know") : t("no AMPR emulator");
+                    }
                 } else {
-                    sub += status == "unknown" ? t("a libSceAmpr.sprx Alembic doesn't know") : t("no AMPR emulator");
+                    std::vector<std::string> bits;
+                    sub.clear();
+                    if (m && !m->title.empty()) bits.push_back(e.name);
+                    if (m && !m->version.empty()) bits.push_back("v" + version_text(m->version));
+                    if (m && !m->title_id.empty()) bits.push_back(m->title_id);
+                    if (!m) bits.push_back(date(e.mtime));
+                    for (std::size_t k = 0; k < bits.size(); ++k) sub += (k ? "  \xC2\xB7  " : "") + bits[k];
                 }
-            } else {
-                std::vector<std::string> bits;
-                sub.clear();
-                if (m && !m->title.empty()) bits.push_back(e.name);
-                if (m && !m->version.empty()) bits.push_back("v" + version_text(m->version));
-                if (m && !m->title_id.empty()) bits.push_back(m->title_id);
-                if (!m) bits.push_back(date(e.mtime));
-                for (std::size_t k = 0; k < bits.size(); ++k) sub += (k ? "  \xC2\xB7  " : "") + bits[k];
+                draw::text_fit(ui, Face::regular, sub, text_x + pw + 0.45f * R, draw::baseline(s_cy, ss), ss, tw - pw - 0.45f * R,
+                               muted);
             }
-            draw::text_fit(ui, Face::regular, sub, text_x + pw + 0.45f * R, draw::baseline(s_cy, ss), ss, tw - pw - 0.45f * R,
-                           muted);
+            y += h;
         }
-        y += h;
+    };
+    auto message = [&](const std::string& text) {
+        draw::text(ui, Face::regular, text, x + w * 0.5f, draw::baseline(y + 2.0f * R, 1.0f * R), 1.0f * R, muted, Align::center);
+        y += 4.0f * R;
+    };
+    // With paired engines, a section per engine: this one first.
+    const std::vector<JsonValue>& peers = peers_.items();
+    auto heading = [&](const std::string& name) {
+        y += 0.8f * R;
+        draw::text_fit(ui, Face::semibold, name, x + 0.3f * R, draw::baseline(y + 1.15f * R * 0.725f, 1.15f * R), 1.15f * R, w, style::text);
+        y += 1.15f * R * 1.45f + 0.3f * R;
+        draw::hline(ui, x, y, w, line);
+        y += 0.4f * R;
+    };
+    if (!peers.empty()) heading(app.here_name());
+    if (!data_.is_null() && list.empty() && !data_["refreshing"].boolean())
+        message(t("No images, game folders or packages in ShadowMount+'s folders."));
+    draw_items(list);
+    for (const JsonValue& p : peers) {
+        const std::string name = p["engine"]["name"].str(), state = p["state"].str();
+        heading(name);
+        if (state == "offline") message(t("{engine} is offline", {{"engine", name}}));
+        else if (state == "old") message(t("Update {engine} to see its images here", {{"engine", name}}));
+        else if (state == "error") message(p["error"].str().empty() ? t("{engine} did not answer", {{"engine", name}}) : p["error"].str());
+        else if (p["images"].items().empty())
+            message(p["refreshing"].boolean() ? t("Reading the games\xE2\x80\xA6") : t("No images, game folders or packages in ShadowMount+'s folders."));
+        else draw_items(p["images"].items());
     }
     if (!any_focused) focused_.clear();
     const JsonValue& dirs = data_["dirs"];

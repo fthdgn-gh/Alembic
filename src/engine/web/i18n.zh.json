@@ -1,4 +1,6 @@
 {
+ "Update {engine} to see its images here": "更新 {engine} 才能在此看到它的镜像",
+ "{engine} did not answer": "{engine} 没有响应",
  "List": "列表",
  "Grid": "网格",
  "Folders searched: {list}": "已查找的文件夹：{list}",

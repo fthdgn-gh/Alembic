@@ -3117,6 +3117,17 @@ release: see "components follow their latest releases" below.)
   Windows' FOLDERID_Downloads through SHGetKnownFolderPath, so shell32 and
   ole32 are linked; Linux's XDG_DOWNLOAD_DIR in user-dirs.dirs; macOS
   ~/Downloads).
+- **Other engines (owner):** Images lists paired engines' images too, a
+  section per engine. `GET /api/peer/images` (signed) answers an engine's
+  own snapshot; `GET /api/peers/images` gathers every paired one's with
+  paths under `/peer/<id>` (Convert, Install, Rename, Hide, Delete, Send,
+  Show in Files work through the pairing as in Files) and its state: ok,
+  offline, old (404: an engine before this, "update it"), error. Optional
+  requests: no peer protocol change. **AMPR is a PS5 matter (owner):** an
+  engine that is not a PS5 does not read games for it (`ampr: false`; the
+  env var ALEMBIC_IMAGES_AMPR=1 turns it on for tests), and other engines'
+  items carry no AMPR state, so Images offers AMPR actions only for a
+  PS5's own games. Checked on the Mac with two paired engines (page and app).
 - **Not tried on a console yet.**
 
 ### 2026-11-08: Probe Bench, the engine's checks in a game process
