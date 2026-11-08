@@ -84,7 +84,11 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   Images nor taken for an APR user (its texts name libSceAmpr); adding the
   AMPR emulator to it is refused, and a PS5 engine removes at start what
   0.6.0 added to it (the app then did not start). See "Alembic's own app
-  and the AMPR emulator".
+  and the AMPR emulator". Main's CI green before the tag; published
+  2026-11-08, every job green; notes carry 0.6.0's too (owner). Catalog PR
+  from the fork branch update-alembic-0.6.1:
+  darkxex/ps5-homebrew-catalog#1208 (opened by the owner; #1207 for 0.6.0
+  merged).
 - **In 0.6.0 (2026-11-08):** the Images tab, first and the PS5's home:
   every image, game folder and package in ShadowMount+'s folders, the
   packages in the downloads folder (`/data/downloads`; on a PC the system's
