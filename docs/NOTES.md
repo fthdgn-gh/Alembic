@@ -3092,6 +3092,39 @@ release: see "components follow their latest releases" below.)
   crashed.txt, and later runs skip and list those (OPTIONS forgets them).
   The checks start after the first frames, so a crash before the screen
   shows is the UI, not the checks.
+- **Third run (2026-11-08): it ran** (no crash, no check skipped; 1.9 s).
+  Engine 0.5.3+probe vs the bench, same console, engine idle:
+  - **CPU:** SHA-256 on 1/2/4/8/16 threads: engine 1047/1618/1674/1765/1672
+    MB/s (mask 0xEA00, prio 700, ran on CPUs 13-15), game process
+    1305/2574/5097/7005/7953. A game process gets ~4.7x the engine's CPU.
+  - **Identity:** engine euid 0; game uid/euid 1. `security.jail.jailed`
+    does not exist in the game (ENOENT).
+  - **Files:** the game sees `/`, /data, /data/homebrew, /preinst, /mnt,
+    /mnt/ext1, /app0, /download0, /dev; not /system*, /user*, /mnt/usb*,
+    /mnt/sandbox, /mnt/shadowmnt, /hostapp. It can write /data,
+    /data/homebrew and /download0 (mode 0777), not /data/alembic or
+    /mnt/ext1 (root 0755). opendir fails everywhere (EPERM), /app0 too
+    (libc's opendir; the kit already notes /app0 lists nothing) — listing
+    needs another way (sceKernelGetdents?), not tried.
+  - **Memory:** anonymous mmap stops at 256 MB in the game (ENOMEM; engine
+    reached the 2 GB cap); sceKernelGetDirectMemorySize says 11712 MB, so a
+    game's big buffers would be direct memory. largest_malloc (4096 both)
+    means nothing: never touched.
+  - **I/O on /data:** write 170 MB/s (game) vs 146 (engine); reads cached.
+  - **Modules:** every sceKernelLoadStartModule by /system/common/lib path
+    fails in the game with 0x80020002 (ENOENT: no /system in its
+    sandbox). So **the app's HTTPS (libSceNet/Ssl/Http by path) cannot work
+    as built: the shipped app's "download the engine from GitHub" fallback
+    fails** (it has never been tried on a console). Games load these with
+    sceSysmoduleLoadModule.
+  - **Not answered yet:** no libkernel handle answered sceKernelDlsym
+    (0x2001, 0x1, 0x2, and loading libkernel.sprx by path failed as above),
+    so every "not in this process" (scePthread*, cpuset_getaffinity, bind,
+    listen, ...) means "could not look it up", not "absent". bind/listen in
+    the game are unknown.
+  - Engine side: cpuset_getaffinity gives ERANGE (the SDK's cpuset_t size
+    is not the kernel's); /mnt/ext0 with no drive in it is a small writable
+    mount (ENOSPC).
 - **Known going in:** the app's malloc is the UI kit's fixed 128 MiB heap
   (`app_heap.c`), so an engine inside the app would need its own heap; the
   bench shows that as `largest_malloc_mb`.
