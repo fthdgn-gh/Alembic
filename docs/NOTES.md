@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (2026-11-08, release 0.5.4)
+## Where we are (2026-11-08, release 0.6.0)
 
 ### What works
 
@@ -80,6 +80,15 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   main and wait for CI before tagging. Catalog PR from the fork branch
   update-alembic-0.5.0: darkxex/ps5-homebrew-catalog#1084 (opened by the
   owner: auto mode refuses it).
+- **In 0.6.0 (2026-11-08):** the Images tab, first and the PS5's home:
+  every image, game folder and package in ShadowMount+'s folders, the
+  packages in the downloads folder (`/data/downloads`; on a PC the system's
+  Downloads), and paired engines' images, a section per engine, as a grid
+  (default) or a list, with Files' actions except moving and copying to
+  folders, plus Show in Files; on a PS5, each game's AMPR emulator with
+  updates that keep its kind (every official build named by GitHub's
+  SHA-256). Files gets the list/grid switch too. See the 2026-11-08 entry
+  "the Images tab".
 - **In 0.5.4 (2026-11-08):** Simplified Chinese (简体中文) on the page, in
   the app and in notifications; the README in every page language; the
   app imports libSceNet/Ssl/Http, so an app without an engine inside can
