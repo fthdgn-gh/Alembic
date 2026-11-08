@@ -6,6 +6,7 @@
 // ps5-homebrew-ui's src/main.cpp (GPL-3.0).
 
 #include "app/app.hpp"
+#include "app/i18n.hpp"
 #include "app/image.hpp"
 #include "audio/cues.hpp"
 #include "audio/mixer.hpp"
@@ -22,6 +23,7 @@
 #include "platform/ps5/display_egl.hpp"
 #include "platform/ps5/pad.hpp"
 #include "platform/ps5/system.hpp"
+#include "ui/cjk_fonts.hpp"
 #include "ui/fonts.hpp"
 #include "ui/ui.hpp"
 
@@ -145,23 +147,22 @@ int main() {
         sys::park();
     }
     gfx::Renderer renderer;
-    gfx::Font regular, semibold, mono, japanese, japanese_semibold;
-    ui::Fonts fonts, japanese_ref;
+    gfx::Font regular, semibold, mono;
+    ui::Fonts fonts;
     if (!renderer.init() || !load_font(renderer, "inter-regular.huifont", &regular, &fonts.regular) ||
         !load_font(renderer, "inter-semibold.huifont", &semibold, &fonts.semibold) ||
         !load_font(renderer, "dejavu-sans-mono.huifont", &mono, &fonts.mono)) {
         sys::log("[ALEMBIC] fatal: renderer init failed");
         sys::park();
     }
-    // Japanese (IBM Plex Sans JP, in Inter's two weights) wherever the faces have no glyph.
-    if (load_font(renderer, "ibm-plex-sans-jp-regular.huifont", &japanese, &japanese_ref.regular) &&
-        load_font(renderer, "ibm-plex-sans-jp-semibold.huifont", &japanese_semibold, &japanese_ref.semibold)) {
-        regular.add_fallback(&japanese, japanese_ref.regular.texture);
-        mono.add_fallback(&japanese, japanese_ref.regular.texture);
-        semibold.add_fallback(&japanese_semibold, japanese_ref.semibold.texture);
-    } else {
-        sys::log("[ALEMBIC] no Japanese font");
-    }
+    // Japanese and Chinese wherever the faces have no glyph (ui/cjk_fonts.hpp).
+    alembic::app::CjkFonts cjk;
+    cjk.has_ja = load_font(renderer, "ibm-plex-sans-jp-regular.huifont", &cjk.ja, &cjk.ja_ref.regular) &&
+                 load_font(renderer, "ibm-plex-sans-jp-semibold.huifont", &cjk.ja_semibold, &cjk.ja_ref.semibold);
+    cjk.has_zh = load_font(renderer, "ibm-plex-sans-sc-regular.huifont", &cjk.zh, &cjk.zh_ref.regular) &&
+                 load_font(renderer, "ibm-plex-sans-sc-semibold.huifont", &cjk.zh_semibold, &cjk.zh_ref.semibold);
+    if (!cjk.has_ja) sys::log("[ALEMBIC] no Japanese font");
+    if (!cjk.has_zh) sys::log("[ALEMBIC] no Chinese font");
     // Faces the kit's components may ask for.
     fonts.display = fonts.semibold;
     fonts.pixel = fonts.regular;
@@ -248,6 +249,7 @@ int main() {
         const std::size_t count = pad.read(samples);
         const InputFrame input = tracker.update(std::span<const PadSample>(samples, count), static_cast<std::uint64_t>(now));
 
+        cjk.apply(alembic::app::language(), regular, semibold, mono);
         feedback.clear();
         list.clear();
         ui.begin_frame(input, dt);

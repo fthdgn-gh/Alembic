@@ -3441,6 +3441,26 @@ with `fself::make_prospero_fself`, ported from ProsperoPkgTool's
   instead of UTF-8 bytes. Page and app pictures in Hungarian against the
   stand-in engine looked at.
 
+### 2026-11-08: Simplified Chinese
+
+- **Simplified Chinese** (`i18n.zh.json`, all 871 texts), asked for in
+  issue 5. The translation is the model's: the issue's author is to be asked to
+  review it. Listed as 简体中文 after 日本語 (page, app, README). One plural
+  form; numbers as English (`toLocaleString("zh")`). Browsers set to zh-CN
+  or zh-TW get it (the page reads the first two letters). The console's
+  languages 10 and 11 (Traditional, Simplified; public PS4 numbering, not
+  checked on a console) map to zh. Traditional Chinese may come later: it
+  needs its own texts and font.
+- **App font:** IBM Plex Sans SC (OFL, from IBM/plex at `48e8676`, unhinted
+  TrueType, SHA-256 pinned in `app/tools/fonts.sh`), baked with
+  `app/tools/chinese_glyphs.py`: CJK punctuation, full-width forms, the
+  3,755 GB 2312 level 1 hanzi and what the texts use (3,901 glyphs, 13 MB
+  per weight, under the app's 16 MB font limit). Japanese and Chinese draw
+  shared characters differently, so `ui/cjk_fonts.hpp` puts the Chinese face
+  before the Japanese one only while the language is zh (checked each
+  frame). Page and app pictures in Chinese against the stand-in engine
+  looked at.
+
 ## Next session
 
 **Settled (owner, 2026-10-22):**

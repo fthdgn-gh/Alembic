@@ -2,8 +2,8 @@
 // The page's translations in the app: the same i18n.<code>.json files the
 // engine serves (and i18n.messages.json, the engine's message patterns),
 // keyed by the English text, with the same rules as
-// src/engine/web/src/lib/i18n.ts. Japanese is drawn with IBM Plex Sans JP,
-// the faces' fallback (app/tools/fonts.sh).
+// src/engine/web/src/lib/i18n.ts. Japanese and Chinese are drawn with IBM Plex
+// Sans JP and SC, the faces' fallbacks (ui/cjk_fonts.hpp).
 #pragma once
 
 #include <initializer_list>

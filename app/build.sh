@@ -158,7 +158,7 @@ assert n == 1, "param.json has no contentVersion"
 open(sys.argv[2], "w").write(text)
 PY
 cp "$fonts"/*.huifont "$out/assets/fonts/"
-cp "$kit"/third_party/fonts/{Inter,DejaVu}-LICENSE.txt "$fonts/IBMPlexSansJP-LICENSE.txt" "$out/assets/fonts/"
+cp "$kit"/third_party/fonts/{Inter,DejaVu}-LICENSE.txt "$fonts/IBMPlexSansJP-LICENSE.txt" "$fonts/IBMPlexSansSC-LICENSE.txt" "$out/assets/fonts/"
 cp -R "$kit/assets/audio/sfx/glass" "$out/assets/audio/sfx/"
 # Listing /app0 returns nothing on the console, so the sound folder carries an
 # index of its files (read by save::list_files).

@@ -10,11 +10,13 @@
 // r1 l2 r2 options, wait:<seconds>, shot:<name>.
 
 #include "app/app.hpp"
+#include "app/i18n.hpp"
 #include "app/image.hpp"
 #include "core/save_file.hpp"
 #include "engine/client.hpp"
 #include "gfx/canvas.hpp"
 #include "gfx/renderer.hpp"
+#include "ui/cjk_fonts.hpp"
 #include "ui/fonts.hpp"
 #include "ui/ui.hpp"
 
@@ -77,17 +79,18 @@ int main(int argc, char** argv) {
         return 1;
     }
     hui::gfx::Renderer renderer;
-    hui::gfx::Font regular, semibold, mono, japanese, japanese_semibold;
-    hui::ui::Fonts fonts, japanese_ref;
+    hui::gfx::Font regular, semibold, mono;
+    hui::ui::Fonts fonts;
+    alembic::app::CjkFonts cjk;
     if (!renderer.init() || !load_font(renderer, fonts_dir + "/inter-regular.huifont", &regular, &fonts.regular) ||
         !load_font(renderer, fonts_dir + "/inter-semibold.huifont", &semibold, &fonts.semibold) ||
         !load_font(renderer, fonts_dir + "/dejavu-sans-mono.huifont", &mono, &fonts.mono) ||
-        !load_font(renderer, fonts_dir + "/ibm-plex-sans-jp-regular.huifont", &japanese, &japanese_ref.regular) ||
-        !load_font(renderer, fonts_dir + "/ibm-plex-sans-jp-semibold.huifont", &japanese_semibold, &japanese_ref.semibold))
+        !load_font(renderer, fonts_dir + "/ibm-plex-sans-jp-regular.huifont", &cjk.ja, &cjk.ja_ref.regular) ||
+        !load_font(renderer, fonts_dir + "/ibm-plex-sans-jp-semibold.huifont", &cjk.ja_semibold, &cjk.ja_ref.semibold) ||
+        !load_font(renderer, fonts_dir + "/ibm-plex-sans-sc-regular.huifont", &cjk.zh, &cjk.zh_ref.regular) ||
+        !load_font(renderer, fonts_dir + "/ibm-plex-sans-sc-semibold.huifont", &cjk.zh_semibold, &cjk.zh_ref.semibold))
         return 1;
-    regular.add_fallback(&japanese, japanese_ref.regular.texture);
-    mono.add_fallback(&japanese, japanese_ref.regular.texture);
-    semibold.add_fallback(&japanese_semibold, japanese_ref.semibold.texture);
+    cjk.has_ja = cjk.has_zh = true;
     fonts.display = fonts.semibold;
     fonts.pixel = fonts.regular;
     fonts.hand = fonts.regular;
@@ -178,6 +181,7 @@ int main(int argc, char** argv) {
                 std::fprintf(stderr, "unknown script word: %s\n", w.c_str());
             }
         }
+        cjk.apply(alembic::app::language(), regular, semibold, mono);
         feedback.clear();
         list.clear();
         ui.begin_frame(input, dt);

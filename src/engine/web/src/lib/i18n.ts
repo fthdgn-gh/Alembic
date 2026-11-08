@@ -30,7 +30,7 @@ export function loadTranslations(code: string): Promise<void> {
   });
 }
 
-export const LANGS: [string, string][] = [["en", "English"], ["tr", "Türkçe"], ["de", "Deutsch"], ["es", "Español"], ["fr", "Français"], ["hu", "Magyar"], ["ru", "Русский"], ["ja", "日本語"]];
+export const LANGS: [string, string][] = [["en", "English"], ["tr", "Türkçe"], ["de", "Deutsch"], ["es", "Español"], ["fr", "Français"], ["hu", "Magyar"], ["ru", "Русский"], ["ja", "日本語"], ["zh", "简体中文"]];
 
 function saved(): string | null {
   try { return JSON.parse(localStorage.getItem("alembic.lang") as string); } catch (e) { return null; }

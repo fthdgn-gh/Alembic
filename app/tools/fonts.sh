@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Sourced by app/build.sh and app/preview.sh: bakes the app's fonts (accented
-# Latin, Greek and Cyrillic: the kit's "european" set; and Japanese, below)
-# into $work/fonts.
+# Latin, Greek and Cyrillic: the kit's "european" set; Japanese and Chinese,
+# below) into $work/fonts.
 fonts="$work/fonts"
 mkdir -p "$fonts" "$work/host"
 baker="$work/host/bake_font"
@@ -40,4 +40,32 @@ for plex_weight in Regular SemiBold; do
     plex_font="$fonts/ibm-plex-sans-jp-$(tr '[:upper:]' '[:lower:]' <<<"$plex_weight").huifont"
     [[ -f $plex_font && ! $plex_font -ot $baker && ! $plex_font -ot $plex_dir/glyphs.txt ]] && continue
     "$baker" "$plex_dir/IBMPlexSansJP-$plex_weight.ttf" "$plex_font" 48 6 4096 "file:$plex_dir/glyphs.txt" 2>/dev/null >/dev/null
+done
+
+# Simplified Chinese: IBM Plex Sans SC (SIL OFL 1.1) from IBM/plex, pinned to a
+# commit and SHA-256 (unhinted TrueType), baked like the Japanese face with
+# the characters app/tools/chinese_glyphs.py lists. With the page in Chinese
+# it comes before the Japanese face, so shared hanzi take their Chinese shapes.
+plexsc_commit=48e8676114c04f29033b4b53da4ec579f8846297
+plexsc_dir="$work/ibm-plex-sans-sc"
+mkdir -p "$plexsc_dir"
+for plexsc_spec in "IBMPlexSansSC-Regular.ttf 0b8b5c398c3198ec8932f3d3eb5eea0b3e7ff4f6cb5b84fcde180ad890094d5e" \
+            "IBMPlexSansSC-SemiBold.ttf a785ab071ae8d75865c8aa9adc74fe6e5af67a9ba7cff76ca533dafba8cb7b2d" \
+            "license.txt 91c25c350d3cac39da2736d74f7ba37ef648f5237a4e330a240615bc8d8c4360"; do
+    read -r plexsc_name plexsc_sha <<<"$plexsc_spec"
+    plexsc_file="$plexsc_dir/$plexsc_name"
+    if [[ ! -f $plexsc_file ]] || ! echo "$plexsc_sha  $plexsc_file" | sha256sum --check --strict --quiet 2>/dev/null; then
+        curl -fsSL -o "$plexsc_file.part" "https://raw.githubusercontent.com/IBM/plex/$plexsc_commit/packages/plex-sans-sc/fonts/complete/ttf/unhinted/$plexsc_name"
+        echo "$plexsc_sha  $plexsc_file.part" | sha256sum --check --strict --quiet || { echo "$plexsc_name: unexpected SHA-256" >&2; exit 1; }
+        mv "$plexsc_file.part" "$plexsc_file"
+    fi
+done
+cp "$plexsc_dir/license.txt" "$fonts/IBMPlexSansSC-LICENSE.txt"
+python3 "$app/tools/chinese_glyphs.py" "$repo/src/engine/web/i18n.zh.json" >"$plexsc_dir/glyphs.txt.new"
+cmp -s "$plexsc_dir/glyphs.txt.new" "$plexsc_dir/glyphs.txt" || mv "$plexsc_dir/glyphs.txt.new" "$plexsc_dir/glyphs.txt"
+rm -f "$plexsc_dir/glyphs.txt.new"
+for plexsc_weight in Regular SemiBold; do
+    plexsc_font="$fonts/ibm-plex-sans-sc-$(tr '[:upper:]' '[:lower:]' <<<"$plexsc_weight").huifont"
+    [[ -f $plexsc_font && ! $plexsc_font -ot $baker && ! $plexsc_font -ot $plexsc_dir/glyphs.txt ]] && continue
+    "$baker" "$plexsc_dir/IBMPlexSansSC-$plexsc_weight.ttf" "$plexsc_font" 48 6 4096 "file:$plexsc_dir/glyphs.txt" 2>/dev/null >/dev/null
 done

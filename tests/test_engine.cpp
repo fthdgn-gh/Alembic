@@ -122,7 +122,7 @@ TEST_CASE(engine_names_outputs_next_to_the_input) {
 
 // The engine's translations come from the page's i18n.<name>.json files.
 TEST_CASE(engine_l10n_messages) {
-    for (const char* name : {"messages", "es", "fr", "de", "ja", "tr", "ru", "hu"}) {
+    for (const char* name : {"messages", "es", "fr", "de", "ja", "tr", "ru", "hu", "zh"}) {
         std::vector<std::uint8_t> js = test::read_file(test::source_dir() + "/src/engine/web/i18n." + name + ".json");
         CHECK(!js.empty());
         l10n::load(name, std::string_view(reinterpret_cast<const char*>(js.data()), js.size()));

@@ -313,6 +313,7 @@ std::string system_language() {
     case 3: case 20: return "es"; // Spain, Latin America
     case 4: return "de";
     case 8: return "ru";
+    case 10: case 11: return "zh"; // Traditional, Simplified: only Simplified is translated
     case 19: return "tr";
     case 24: return "hu";
     default: return "en";

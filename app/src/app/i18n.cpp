@@ -96,7 +96,7 @@ bool match(const std::string& pattern, std::string_view text, std::vector<std::p
 const std::vector<std::pair<std::string, std::string>>& languages() {
     static const std::vector<std::pair<std::string, std::string>> list = {
         {"en", "English"}, {"tr", "Türkçe"}, {"de", "Deutsch"}, {"es", "Español"},
-        {"fr", "Français"}, {"hu", "Magyar"}, {"ru", "Русский"}, {"ja", "日本語"}};
+        {"fr", "Français"}, {"hu", "Magyar"}, {"ru", "Русский"}, {"ja", "日本語"}, {"zh", "简体中文"}};
     return list;
 }
 
@@ -139,7 +139,7 @@ std::string t(std::string_view text, Vars vars) { return fill(t(text), vars); }
 std::string number(long long n) {
     std::string digits = std::to_string(n < 0 ? -n : n);
     const std::string& lang = language();
-    const char* sep = lang == "en" || lang == "ja" ? "," : lang == "fr" || lang == "ru" || lang == "hu" ? "\xC2\xA0" : ".";
+    const char* sep = lang == "en" || lang == "ja" || lang == "zh" ? "," : lang == "fr" || lang == "ru" || lang == "hu" ? "\xC2\xA0" : ".";
     std::string out;
     const int len = static_cast<int>(digits.size());
     for (int i = 0; i < len; ++i) {
