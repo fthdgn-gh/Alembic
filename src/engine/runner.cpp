@@ -338,14 +338,14 @@ void discard_checkpoint(const JobSpec& spec, const EngineConfig& config) {
     (void)remove_file(checkpoint_path(*output, config));
 }
 
-namespace {
-
 smp::Endpoint shadowmount_endpoint(const EngineConfig& config) {
     if (!config.shadowmount_address.empty())
         if (auto e = smp::parse_endpoint(config.shadowmount_address)) return *e;
     if (!config.shadowmount_config.empty()) return smp::read_endpoint(config.shadowmount_config);
     return smp::Endpoint{};
 }
+
+namespace {
 
 // After a conversion into something ShadowMount+ mounts: hide the source when
 // asked, tell ShadowMount+ to rescan, and say when it keeps another source
@@ -728,12 +728,12 @@ std::string sha256_of(const RandomAccess& file) {
     return Sha256::hex(h.finish());
 }
 
+} // namespace
+
 std::string file_sha256(const std::string& path) {
     auto file = File::open(path, File::Mode::read);
     return file.ok() ? sha256_of(*file) : "";
 }
-
-} // namespace
 
 std::optional<AmprState> ampr_state(const std::string& path, const std::string& passcode) {
     PathStat st = stat_path(path);

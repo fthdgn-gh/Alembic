@@ -3,6 +3,7 @@
 #pragma once
 
 #include "jobs.hpp"
+#include "smp.hpp"
 
 #include "alembic/convert.hpp"
 #include "alembic/resume.hpp"
@@ -85,6 +86,8 @@ bool output_allowed(const std::string& path, const std::vector<std::string>& roo
 Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config, const ProgressFn& progress);
 // Asks ShadowMount+ for a rescan (retry counters reset); false with the
 // reason when its API is not there.
+// ShadowMount+'s API: --shadowmount, else its config.ini; disabled when neither.
+smp::Endpoint shadowmount_endpoint(const EngineConfig& config);
 bool shadowmount_rescan(const EngineConfig& config, std::string* why = nullptr);
 // The source ShadowMount+ runs `title_id` from ("" when unknown or no API).
 std::string shadowmount_source(const EngineConfig& config, const std::string& title_id);
@@ -124,6 +127,8 @@ std::optional<AmprState> ampr_state(const std::string& path, const std::string& 
 // SHA-256 of the libSceAmpr.sprx the game runs with: an image's backport
 // folder's, when it has one (it replaces the game's whole fakelib), else the
 // game's own; "" when there is none.
+// A file's SHA-256 (hex), "" when it cannot be read.
+std::string file_sha256(const std::string& path);
 std::string emulator_in_place(const std::string& path, const AmprState& state, const EngineConfig& config);
 // The folder an "ampr_emu" job writes the backport into for this image:
 // <scan path>/backports when a backport for the title is already there (it

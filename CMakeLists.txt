@@ -233,6 +233,7 @@ if(ALEMBIC_BUILD_ENGINE)
         src/engine/ftp.cpp
         src/engine/game_meta.cpp
         src/engine/http.cpp
+        src/engine/images.cpp
         src/engine/jobs.cpp
         src/engine/json_value.cpp
         src/engine/keys.cpp
@@ -292,6 +293,7 @@ if(ALEMBIC_BUILD_TESTS)
         tests/test_main.cpp
         tests/test_ampr.cpp
         tests/test_ampr_emu.cpp
+        tests/test_images.cpp
         tests/test_fself.cpp
         tests/test_convert.cpp
         tests/test_crypto.cpp

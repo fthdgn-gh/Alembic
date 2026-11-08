@@ -7,6 +7,7 @@
 #include "alembic/io.hpp"
 #include "alembic/sha256.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <map>
 #include <mutex>
@@ -125,6 +126,60 @@ Latest fetch_latest(const Dependency& dep) {
     if (l.version.empty()) l.error = "the latest release has no version";
     else if (l.url.empty()) l.error = "the latest release " + l.version + " has no " + dep.feed.asset;
     return l;
+}
+
+// Every published build of `dep`'s asset: {version, sha256} from GitHub's
+// digests (the last 100 releases), so a game's emulator from any official
+// release gets its name in the Images tab. Besides the asset itself, its
+// variants ("libSceAmpr.sprx-0.3.6.1-test-debug", as ampr_emu's older
+// releases name them) count, named by their suffix ("0.3.6.1-test-debug").
+// Empty when GitHub can't be reached.
+std::vector<std::pair<std::string, std::string>> fetch_release_history(const Dependency& dep) {
+    std::vector<std::pair<std::string, std::string>> out;
+    auto body = platform::http_get("https://api.github.com/repos/" + dep.feed.repo + "/releases?per_page=100", 4u << 20);
+    if (!body.ok()) return out;
+    auto v = parse_json(std::string_view(reinterpret_cast<const char*>(body->data()), body->size()));
+    if (!v.ok()) return out;
+    for (const JsonValue& r : v->items()) {
+        if (r["draft"].boolean(false)) continue;
+        const std::string version = strip_v(r["tag_name"].str());
+        for (const JsonValue& a : r["assets"].items()) {
+            const std::string name = a["name"].str(), digest = a["digest"].str();
+            if (digest.rfind("sha256:", 0) != 0 || digest.size() != 7 + 64) continue;
+            if (name == dep.feed.asset) out.emplace_back(version, digest.substr(7));
+            else if (name.rfind(dep.feed.asset + "-", 0) == 0 && name.size() > dep.feed.asset.size() + 1)
+                out.emplace_back(name.substr(dep.feed.asset.size() + 1), digest.substr(7));
+        }
+    }
+    return out;
+}
+
+// Adds builds to components.json's "known" list (those not there yet).
+void remember_builds(const Dependency& dep, const std::vector<std::pair<std::string, std::string>>& builds,
+                     const std::string& state_dir) {
+    if (builds.empty()) return;
+    std::lock_guard<std::mutex> lock(g_mutex);
+    JsonValue c = load_components(state_dir);
+    JsonValue known = JsonValue::array();
+    std::vector<std::string> seen;
+    for (const JsonValue& k : c["known"].items()) {
+        seen.push_back(k["sha256"].str());
+        known.push(k);
+    }
+    bool added = false;
+    for (const auto& [version, sha] : builds) {
+        if (std::find(seen.begin(), seen.end(), sha) != seen.end()) continue;
+        seen.push_back(sha);
+        JsonValue k = JsonValue::object();
+        k.set("id", dep.id);
+        k.set("version", version);
+        k.set("sha256", sha);
+        known.push(std::move(k));
+        added = true;
+    }
+    if (!added) return;
+    c.set("known", std::move(known));
+    (void)save_components(state_dir, c);
 }
 
 // A newer build than the one downloaded (by version, else by hash).
@@ -430,6 +485,7 @@ void check_dependency_updates(const std::string& state_dir, bool apply, const st
             if (log) log(dep.name + ": update check failed: " + l.error);
             continue;
         }
+        if (dep.group == kAmprRuntimeGroup) remember_builds(dep, fetch_release_history(dep), state_dir);
         if (dependency_state(dep, state_dir) != "installed") continue;
         auto [sha, version] = expected_build(dep, state_dir);
         if (!is_update(l, version, sha)) continue;

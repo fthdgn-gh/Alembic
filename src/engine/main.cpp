@@ -81,6 +81,7 @@
 #include "fs_ops.hpp"
 #include "game_meta.hpp"
 #include "http.hpp"
+#include "images.hpp"
 #include "jobs.hpp"
 #include "json_value.hpp"
 #include "keys.hpp"
@@ -193,18 +194,6 @@ HttpResponse error(int status, const std::string& message) {
 // Paths from the page and the command line: '/' between parts (Windows may
 // send '\\'), no trailing '/' except for "/" and "C:/".
 std::string strip_slashes(std::string p) { return without_trailing_slashes(portable_path(std::move(p))); }
-
-std::string file_sha256(const std::string& path) {
-    auto file = File::open(path, File::Mode::read);
-    if (!file.ok()) return "";
-    auto size = file->size();
-    if (!size.ok() || *size > 64u * 1024 * 1024) return "";
-    std::vector<std::uint8_t> data(static_cast<std::size_t>(*size));
-    if (!file->read_at(0, data).ok()) return "";
-    alembic::Sha256 hasher;
-    hasher.update(data);
-    return alembic::Sha256::hex(hasher.finish());
-}
 
 // What a file is, from its name, for the browser.
 std::string kind_of(const std::string& name, bool dir) {
@@ -535,6 +524,12 @@ private:
             HttpResponse resp = json(200, JsonValue());
             resp.body = probe_app_;
             return resp;
+        }
+        // The Images tab: images and game folders whose game uses the APR,
+        // and their AMPR emulators (images.hpp). ?refresh=1 reads them again.
+        if (r.path == "/api/images" && r.method == "GET") {
+            const auto it = r.query.find("refresh");
+            return json(200, images_.snapshot(it != r.query.end() && it->second == "1" ? 0 : 600));
         }
         if (r.path == "/api/info" && r.method == "GET") return info();
         if (r.path == "/api/browse" && r.method == "GET") return browse(r);
@@ -2356,6 +2351,7 @@ private:
     JobQueue queue_;
     HttpServer server_;
     std::mutex deps_mutex_;
+    images::Index images_{config_};
     std::mutex probe_mutex_;
     std::string probe_app_;  // the Probe Bench app's last report (JSON)
     std::mutex launcher_mutex_;
