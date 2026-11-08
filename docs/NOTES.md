@@ -88,7 +88,10 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   folders, plus Show in Files; on a PS5, each game's AMPR emulator with
   updates that keep its kind (every official build named by GitHub's
   SHA-256). Files gets the list/grid switch too. See the 2026-11-08 entry
-  "the Images tab".
+  "the Images tab". Main's CI green before the tag; published 2026-11-08,
+  every job green. Catalog PR from the fork branch update-alembic-0.6.0:
+  darkxex/ps5-homebrew-catalog#1207 (opened by the owner: auto mode
+  refuses it).
 - **In 0.5.4 (2026-11-08):** Simplified Chinese (简体中文) on the page, in
   the app and in notifications; the README in every page language; the
   app imports libSceNet/Ssl/Http, so an app without an engine inside can
