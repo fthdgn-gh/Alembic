@@ -3130,6 +3130,13 @@ release: see "components follow their latest releases" below.)
   but it is far more limited than the engine needs (files, drives,
   listing, modules); widening its rights is not explored. The engine stays
   a payload. The bench stays as a development tool.
+- **The app's HTTPS fix (owner: fix it), step 1:** `https_ps5.cpp` gains
+  ALEMBIC_HTTPS_IMPORTED (plain imports of libSceNet/Ssl/Http, which the
+  loader fills at start, as for games). The bench is built that way first
+  (its NEEDED list gains the three modules); the app stays on
+  ALEMBIC_HTTPS_DYNAMIC until the bench starts on the console and its
+  `network.https_github` says ok. Risk being tested: a title whose imports
+  the console cannot provide does not start at all.
 - **Known going in:** the app's malloc is the UI kit's fixed 128 MiB heap
   (`app_heap.c`), so an engine inside the app would need its own heap; the
   bench shows that as `largest_malloc_mb`.

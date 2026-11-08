@@ -15,37 +15,46 @@ struct SceSslData {
 };
 
 // The payload links these weakly (its loader fills them, or leaves them
-// empty); the app (ALEMBIC_HTTPS_DYNAMIC) does not import them at all, so a
-// title that cannot load them still starts: both can load them when needed.
+// empty) and can load the modules by path when needed; the app imports them
+// (ALEMBIC_HTTPS_IMPORTED). ALEMBIC_HTTPS_DYNAMIC: no imports, by path only.
 #ifndef ALEMBIC_HTTPS_DYNAMIC
+// ALEMBIC_HTTPS_IMPORTED (the app): plain imports, which the console's loader
+// fills when the title starts, as for any game. A game process cannot load
+// these modules by path (no /system in its sandbox: 0x80020002, Probe
+// Bench, 2026-11-08), so the app's run-time loading never worked there.
+#if defined(ALEMBIC_HTTPS_IMPORTED)
+#define ALEMBIC_HTTPS_LINK
+#else
+#define ALEMBIC_HTTPS_LINK __attribute__((weak))
+#endif
 extern "C" {
-int sceNetInit(void) __attribute__((weak));
-int sceNetPoolCreate(const char* name, int size, int flags) __attribute__((weak));
-int sceNetPoolDestroy(int pool_id) __attribute__((weak));
-int sceSslInit(std::size_t pool_size) __attribute__((weak));
-int sceSslTerm(int ssl_id) __attribute__((weak));
+int sceNetInit(void) ALEMBIC_HTTPS_LINK;
+int sceNetPoolCreate(const char* name, int size, int flags) ALEMBIC_HTTPS_LINK;
+int sceNetPoolDestroy(int pool_id) ALEMBIC_HTTPS_LINK;
+int sceSslInit(std::size_t pool_size) ALEMBIC_HTTPS_LINK;
+int sceSslTerm(int ssl_id) ALEMBIC_HTTPS_LINK;
 int sceSslLoadCert(int ssl_id, int ca_count, const SceSslData** ca_list, const SceSslData* cert,
-                   const SceSslData* private_key) __attribute__((weak));
-int sceSslUnloadCert(int ssl_id) __attribute__((weak));
-int sceHttpInit(int net_pool_id, int ssl_id, std::size_t pool_size) __attribute__((weak));
-int sceHttpTerm(int http_id) __attribute__((weak));
+                   const SceSslData* private_key) ALEMBIC_HTTPS_LINK;
+int sceSslUnloadCert(int ssl_id) ALEMBIC_HTTPS_LINK;
+int sceHttpInit(int net_pool_id, int ssl_id, std::size_t pool_size) ALEMBIC_HTTPS_LINK;
+int sceHttpTerm(int http_id) ALEMBIC_HTTPS_LINK;
 int sceHttpCreateTemplate(int http_id, const char* user_agent, int http_version, int auto_proxy_config)
-    __attribute__((weak));
-int sceHttpDeleteTemplate(int template_id) __attribute__((weak));
-int sceHttpCreateConnectionWithURL(int template_id, const char* url, int keepalive) __attribute__((weak));
-int sceHttpDeleteConnection(int connection_id) __attribute__((weak));
+    ALEMBIC_HTTPS_LINK;
+int sceHttpDeleteTemplate(int template_id) ALEMBIC_HTTPS_LINK;
+int sceHttpCreateConnectionWithURL(int template_id, const char* url, int keepalive) ALEMBIC_HTTPS_LINK;
+int sceHttpDeleteConnection(int connection_id) ALEMBIC_HTTPS_LINK;
 int sceHttpCreateRequestWithURL2(int connection_id, const char* method, const char* url, std::uint64_t length)
-    __attribute__((weak));
-int sceHttpDeleteRequest(int request_id) __attribute__((weak));
-int sceHttpSendRequest(int request_id, const void* data, std::size_t size) __attribute__((weak));
-int sceHttpGetStatusCode(int request_id, int* status) __attribute__((weak));
-int sceHttpReadData(int request_id, void* buffer, std::size_t size) __attribute__((weak));
-int sceHttpSetAutoRedirect(int id, int enabled) __attribute__((weak));
-int sceHttpSetResponseHeaderMaxSize(int id, std::size_t size) __attribute__((weak));
-int sceHttpSetResolveTimeOut(int id, std::uint32_t us) __attribute__((weak));
-int sceHttpSetConnectTimeOut(int id, std::uint32_t us) __attribute__((weak));
-int sceHttpSetSendTimeOut(int id, std::uint32_t us) __attribute__((weak));
-int sceHttpSetRecvTimeOut(int id, std::uint32_t us) __attribute__((weak));
+    ALEMBIC_HTTPS_LINK;
+int sceHttpDeleteRequest(int request_id) ALEMBIC_HTTPS_LINK;
+int sceHttpSendRequest(int request_id, const void* data, std::size_t size) ALEMBIC_HTTPS_LINK;
+int sceHttpGetStatusCode(int request_id, int* status) ALEMBIC_HTTPS_LINK;
+int sceHttpReadData(int request_id, void* buffer, std::size_t size) ALEMBIC_HTTPS_LINK;
+int sceHttpSetAutoRedirect(int id, int enabled) ALEMBIC_HTTPS_LINK;
+int sceHttpSetResponseHeaderMaxSize(int id, std::size_t size) ALEMBIC_HTTPS_LINK;
+int sceHttpSetResolveTimeOut(int id, std::uint32_t us) ALEMBIC_HTTPS_LINK;
+int sceHttpSetConnectTimeOut(int id, std::uint32_t us) ALEMBIC_HTTPS_LINK;
+int sceHttpSetSendTimeOut(int id, std::uint32_t us) ALEMBIC_HTTPS_LINK;
+int sceHttpSetRecvTimeOut(int id, std::uint32_t us) ALEMBIC_HTTPS_LINK;
 }
 #endif
 
@@ -132,7 +141,11 @@ const Api* api(std::string* why) {
     }
     tried = true;
 #ifndef ALEMBIC_HTTPS_DYNAMIC
+#if defined(ALEMBIC_HTTPS_IMPORTED)
+    {  // imported: the loader filled them or the title did not start
+#else
     if (::sceHttpInit && ::sceSslInit && ::sceNetPoolCreate) {
+#endif
     a.sceNetInit = ::sceNetInit;
     a.sceNetPoolCreate = ::sceNetPoolCreate;
     a.sceNetPoolDestroy = ::sceNetPoolDestroy;

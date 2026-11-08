@@ -76,6 +76,11 @@ version_header="$build/gen/app_version.h"
 printf '#pragma once\n#define ALEMBIC_APP_VERSION "%s"\n' "$version" > "$version_header.new"
 if cmp -s "$version_header.new" "$version_header"; then rm "$version_header.new"; else mv "$version_header.new" "$version_header"; fi
 
+# HTTPS (the app downloads its engine when it carries none). A game process
+# cannot load libSceNet/Ssl/Http by path (Probe Bench, 2026-11-08), so the
+# bench imports them, as games do; the app follows once that is proven.
+if [[ $variant == bench ]]; then https_mode=-DALEMBIC_HTTPS_IMPORTED=1; else https_mode=-DALEMBIC_HTTPS_DYNAMIC=1; fi
+
 source "$kit/tools/ninja-build.sh"
 ninja_begin "$build/app.ninja"
 target_compiler=$(command -v "$PS5_CLANG")
@@ -98,9 +103,7 @@ for source in "${sources[@]}"; do
     relative=${source#"$repo/"}
     object="$build/obj/${relative//\//_}.o"
     if [[ $source == *.c ]]; then standard=-std=c11; else standard=-std=c++20; fi
-    # ALEMBIC_HTTPS_DYNAMIC: the HTTPS libraries are loaded when the app first
-    # downloads, not imported (a title that cannot load them still starts).
-    args=("$standard" -O2 -Wall -Wextra -ffunction-sections -fdata-sections -DGL_GLEXT_PROTOTYPES=1 -DALEMBIC_HTTPS_DYNAMIC=1)
+    args=("$standard" -O2 -Wall -Wextra -ffunction-sections -fdata-sections -DGL_GLEXT_PROTOTYPES=1 "$https_mode")
     [[ $source == *.c ]] || args+=(-fno-exceptions -fno-rtti)
     # probe.cpp in the app: libkernel functions looked up, not imported.
     [[ $source != */probe.cpp ]] || args+=(-DALEMBIC_PROBE_DYNAMIC=1)
