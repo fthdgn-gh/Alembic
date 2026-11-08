@@ -6,7 +6,8 @@ import { cwd, tab } from "../../state/view";
 import { info, locations, peerDrives, loadInfo } from "../../state/engine";
 import { shownPath } from "../../state/paths";
 import { refreshJobs } from "../../state/jobs";
-import { isConvertible, isHiddenName } from "../../lib/kinds";
+import { isConvertible, isHiddenName, isAlembicTitle } from "../../lib/kinds";
+import { cachedMeta } from "../../api/meta";
 import { base, bytes, dir } from "../../lib/format";
 import { t, tMsg } from "../../lib/i18n";
 import { ask, choose } from "../../components/Dialogs";
@@ -39,7 +40,8 @@ export async function openActions(e: Entry, lib?: ImageItem) {
   const amprUpdate = lib && lib.ampr && (lib.ampr.status === "update" || lib.ampr.status === "not_downloaded") ? lib : null;
   if (amprUpdate) items.push({ label: t("Update the AMPR emulator"), sub: t("{old} → the newest build of its kind", { old: amprUpdate.ampr!.emulator ? amprUpdate.ampr!.emulator.name : "" }), value: () => updateAmpr([amprUpdate]) });
   // In Images, only where the engine reads games for it (a PS5's own ones).
-  if (conv && e.kind !== "fpkg" && (!lib || lib.ampr)) items.push({ label: t("Add the AMPR emulator…"), sub: t("For games that stop at start from an image or folder"), value: () => addAmpr(e) });
+  const own = cachedMeta(e);
+  if (conv && e.kind !== "fpkg" && (!lib || lib.ampr) && !(own && isAlembicTitle(own.title_id))) items.push({ label: t("Add the AMPR emulator…"), sub: t("For games that stop at start from an image or folder"), value: () => addAmpr(e) });
   if (conv && e.kind !== "fpkg") items.push(isHiddenName(e.name)
     ? { label: t("Show to ShadowMount+ again"), sub: t("Renames it back to {name}", { name: e.name.slice(1) }), value: () => toggleHidden(e.path) }
     : { label: t("Hide from ShadowMount+"), sub: t("Renames it to .{name}, so ShadowMount+ uses another copy of this game", { name: e.name }), value: () => toggleHidden(e.path) });

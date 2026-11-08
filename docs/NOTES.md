@@ -3177,6 +3177,10 @@ release: see "components follow their latest releases" below.)
   in the app's own folder those two files. The engine is a payload, so it
   gets there even when the app does not start: update it from the page in
   the console's browser (Settings > Updates) or load `alembic.elf`.
+- **After 0.6.1 (owner):** Files does not offer "Add the AMPR emulator" on
+  Alembic's own app either (page `isAlembicTitle` from the game's cached
+  info, app the same; one and several). 0.6.1's engine already refused the
+  job; this hides the option. For the next release.
 
 ### 2026-11-08: Probe Bench, the engine's checks in a game process
 

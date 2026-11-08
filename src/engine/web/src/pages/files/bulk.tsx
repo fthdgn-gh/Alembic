@@ -10,7 +10,8 @@ import { amprUpdatable, updateAmpr } from "../images/ampr";
 import { info, locations, peerDrives, loadInfo } from "../../state/engine";
 import { refreshJobs } from "../../state/jobs";
 import { selectedEntries, selectAll, selectableCount, clearSelected, stopSelecting } from "../../state/selection";
-import { isConvertible, isHiddenName } from "../../lib/kinds";
+import { isConvertible, isHiddenName, isAlembicTitle } from "../../lib/kinds";
+import { cachedMeta } from "../../api/meta";
 import { bytes, dir } from "../../lib/format";
 import { t, tMsg, plural } from "../../lib/i18n";
 import { ask, choose } from "../../components/Dialogs";
@@ -43,7 +44,7 @@ export async function openBulkActions() {
   const updatable = lib ? (all as ImageItem[]).filter(amprUpdatable) : [];
   if (updatable.length) items.push({ label: t("Update the AMPR emulator"), sub: some(updatable.length, t("The newest build of each one's emulator")), value: () => updateAmpr(updatable).then(done) });
   // In Images, only where the engine reads games for it (a PS5's own ones).
-  const amprable = lib ? images.filter((e) => !!(e as ImageItem).ampr) : images;
+  const amprable = (lib ? images.filter((e) => !!(e as ImageItem).ampr) : images).filter((e) => { const m = cachedMeta(e); return !(m && isAlembicTitle(m.title_id)); });
   if (amprable.length) items.push({ label: t("Add the AMPR emulator…"), sub: some(amprable.length, t("For games that stop at start from an image or folder")), value: () => amprMany(amprable) });
   const visible = images.filter((e) => !isHiddenName(e.name)), hidden = images.filter((e) => isHiddenName(e.name));
   if (visible.length) items.push({ label: t("Hide from ShadowMount+"), sub: some(visible.length, t("Renames them to .name, so ShadowMount+ uses other copies of these games")), value: () => hideMany(visible, true) });

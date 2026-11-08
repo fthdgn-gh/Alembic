@@ -8,4 +8,7 @@ export const isConvertible = (e: Entry) => CONVERTIBLE.indexOf(e.kind) >= 0 || !
 
 // ShadowMount+ skips names that start with "." and keeps one source per
 // game while that source exists: hiding the old one makes it switch.
+// Alembic's own app and its Probe Bench: never given the AMPR emulator (their
+// texts name libSceAmpr; adding it kept the app from starting, 0.6.0).
+export const isAlembicTitle = (titleId: string | null | undefined) => titleId === "PPSA99594" || titleId === "PPSA99595";
 export const isHiddenName = (name: string) => name.length > 1 && name[0] === ".";

@@ -138,7 +138,10 @@ void App::open_actions(const Entry& e, const JsonValue* lib) {
             [this, item] { images_->update_ampr(*this, {item}); });
     }
     // In Images, only where the engine reads games for it (a PS5's own ones).
-    if (conv && e.kind != "fpkg" && (!lib || (*lib)["ampr"].is_object()))
+    // Never Alembic's own app or its bench (adding it kept the app from starting, 0.6.0).
+    const Meta* own = conv ? meta(e.path, e.mtime, e.size) : nullptr;
+    const bool alembic = own && (own->title_id == "PPSA99594" || own->title_id == "PPSA99595");
+    if (conv && e.kind != "fpkg" && !alembic && (!lib || (*lib)["ampr"].is_object()))
         add(t("Add the AMPR emulator\xE2\x80\xA6"), t("For games that stop at start from an image or folder"), false, [this, e] {
             JsonValue req = JsonValue::object();
             req.set("kind", "ampr_emu");

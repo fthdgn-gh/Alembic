@@ -321,6 +321,12 @@ void App::open_bulk_actions() {
                          return !item || !(*item)["ampr"].is_object();
                      }),
                      images.end());
+    // Never Alembic's own app or its bench (adding it kept the app from starting, 0.6.0).
+    images.erase(std::remove_if(images.begin(), images.end(), [this](const Entry& e) {
+                     const Meta* m = meta(e.path, e.mtime, e.size);
+                     return m && (m->title_id == "PPSA99594" || m->title_id == "PPSA99595");
+                 }),
+                 images.end());
     if (!images.empty())
         add(t("Add the AMPR emulator\xE2\x80\xA6"), some(images.size(), t("For games that stop at start from an image or folder")), false,
             [this, images, done] {
