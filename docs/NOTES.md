@@ -84,7 +84,12 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   packs, Options, Where, Afterwards, Review; ✕ Next, ○ back, □ Review),
   one Asset packs choice instead of four switches, FFPKG the recommended
   default; the README guide (formats, how-tos, tips) in every language.
-  See the 2026-11-10 entry "Convert, step by step".
+  See the 2026-11-10 entry "Convert, step by step". Tried on the console
+  by the owner before the tag (a conversion through the new dialog). Main's
+  CI green before the tag; published 2026-11-10, every job green; notes
+  cumulative (0.6.3, 0.6.2, 0.6.1, then 0.6.0's). Catalog PR from the fork
+  branch update-alembic-0.6.3: darkxex/ps5-homebrew-catalog#1236 (opened
+  by Claude).
 - **In 0.6.2 (2026-11-08):** the AMPR emulator only for games that use
   the APR: never added to one that does not (engine refuses; Files and
   Images do not offer it), Files does not offer it on Alembic's own app,
