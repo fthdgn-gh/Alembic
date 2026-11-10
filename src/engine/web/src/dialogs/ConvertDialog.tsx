@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The Convert dialog, in steps: Format, Options, Where, Afterwards, Review
-// (steps with nothing to choose are left out). □ queues from any step.
+// The Convert dialog, in steps: Format (and asset packs), Options, Where,
+// Afterwards, Review (steps with nothing to choose are left out). □ queues from any step.
 // Several games (a selection in Files) share the choices and get a job each.
 import { useEffect, useState } from "preact/hooks";
 import type { Dep, Entry, Inspect, Plan, Job } from "../api/types";
@@ -105,7 +105,10 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   const anyShared = entries.some((e) => !!e.shared);
   const rt = info.value ? info.value.lz4_runtime : null;
   // ShadowMount+'s default, unless the game already is one.
-  const [to, setTo] = useState(props.install ? "fpkg" : entries.every((e) => e.kind === "ffpkg") ? "exfat" : "ffpkg");
+  const firstTo = props.install ? "fpkg" : entries.every((e) => e.kind === "ffpkg") ? "exfat" : "ffpkg";
+  const [to, setTo] = useState(firstTo);
+  // A format chosen on a card stays; until then, changing the packs keeps the game's own format.
+  const [picked, setPicked] = useState(props.install);
   const [step, setStep] = useState<Step>(props.install ? "review" : "format");
   const [installWant, setInstall] = useState(props.install);
   const [keepPkg, setKeepPkg] = useState(false);
@@ -288,7 +291,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   const installShown = installable;
   const delShown = !anyShared && !(installable && installWant);
   const has: Record<Step, boolean> = {
-    format: true, options: compShown || packsShown || amprShown, where: true,
+    format: true, options: compShown || lz4 || zstd || amprShown, where: true,
     after: installShown || delShown || !hideHidden, review: true,
   };
   const steps = (["format", "options", "where", "after", "review"] as Step[]).filter((s) => has[s]);
@@ -342,21 +345,29 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
     : zunpack ? t("Turns the packs back into ordinary files; ampr-emu-ng stays in fakelib")
     : t("Big files that hold the game's small ones, read by an AMPR emulator");
 
+  // Packs a game in its own format (exFAT stays exFAT) until a format is picked; a package is converted anyway.
+  const choosePacks = (v: Packs) => {
+    setPacks(v);
+    if (!picked && oneFormat && oneFormat !== "fpkg") setTo(v === nowPacks ? firstTo : oneFormat);
+  };
   const body = cur === "format" ? <>
+      <ChoiceRow label={t("Asset packs")} hint={packHint} hidden={!packsShown} value={packs as Packs} onChange={choosePacks}
+        options={packChoices.map((p) => ({ value: p, label: packLabel(p) }))} dataKey="cv:packs" />
       <div class="lbl">{many ? t("Convert {n} games to", { n: entries.length }) : t("Convert to")}</div>
       <div class="opts">
         {FORMATS.map((f) => {
           const same = f.value === oneFormat;
           return (
             <button key={f.value} class={"opt" + (target === f.value ? " sel" : "")} data-key={f.value} data-autofocus={target === f.value ? "" : undefined}
-              onClick={() => { setTo(f.value); goTo(steps[1]); }}>
+              onClick={() => { setTo(f.value); setPicked(true); goTo(steps[1]); }}>
               <b>{f.label}{f.value === "ffpkg" ? <span class="tag rec">{t("Recommended")}</span> : null}{same ? <span class="tag">{t("Current")}</span> : null}</b>
               <span>{t(f.hint)}</span>
             </button>
           );
         })}
       </div>
-      <div class="note" hidden={!(oneFormat && oneFormat === target && !packsChange)}>{t("This is the game's own format: only its asset packs can change (next step).")}</div>
+      <div class="note" hidden={packs !== "zstd"}>{t("Turn off ShadowMount+'s “update emulators”: it would swap ampr-emu-ng for another emulator that can't read these packs.")}</div>
+      <div class="note" hidden={!lz4NoteShown}>{t("FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data.")}</div>
     </>
     : cur === "options" ? <>
       <div class="lbl">{t("Options for {format}", { format: formatLabel(target) })}</div>
@@ -366,18 +377,13 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
       <ChoiceRow label={t("Compression")} hint={t("Executables stay uncompressed; matches ProsperoPkgTool byte for byte")}
         hidden={target !== "fpkg" || anyPs4} value={pkgComp} onChange={setPkgComp}
         options={[{ value: "stored", label: t("Stored · fastest") }, { value: "kraken", label: t("Kraken · smaller") }]} />
-      <ChoiceRow label={t("Asset packs")} hint={packHint} hidden={!packsShown} value={packs as Packs} onChange={(v) => setPacks(v)}
-        options={packChoices.map((p) => ({ value: p, label: packLabel(p) }))} dataKey="cv:packs" />
-      <div class="indent" hidden={!lz4}>
+      {/* The packs themselves are chosen on the Format step; here, how they are made. */}
+      <div hidden={!lz4}>
         <ChoiceRow label={t("Profile")} hint={t("Automatic uses a console-tested profile when one matches")} options={profiles} value={profile} onChange={setProfile} />
         <ChoiceRow label={t("LZ4 level")} options={[{ value: 1, label: t("1 · fast") }, { value: 9, label: t("9 · default") }, { value: 12, label: t("12 · smallest") }]} value={lz4Level} onChange={setLz4Level} />
         {rtNote}
       </div>
-      <div class="indent" hidden={!zstd}>
-        <ChoiceRow label={t("zstd level")} options={[{ value: 1, label: t("1 · fastest") }, { value: 5, label: t("5 · default") }, { value: 19, label: t("19 · smallest") }]} value={zstdLevel} onChange={setZstdLevel} />
-      </div>
-      <div class="note" hidden={packs !== "zstd"}>{t("Turn off ShadowMount+'s “update emulators”: it would swap ampr-emu-ng for another emulator that can't read these packs.")}</div>
-      <div class="note" hidden={!lz4NoteShown}>{t("FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data.")}</div>
+      <ChoiceRow label={t("zstd level")} hidden={!zstd} options={[{ value: 1, label: t("1 · fastest") }, { value: 5, label: t("5 · default") }, { value: 19, label: t("19 · smallest") }]} value={zstdLevel} onChange={setZstdLevel} />
       {/* ampr_emu for games that use the console's APR (not packages: installed, they have the real one). */}
       <SwitchRow label={t("Add the AMPR emulator")} hint={t("This game uses the console's APR: without an emulator it stops at start from an image or folder")} on={ampr} onChange={setAmpr} hidden={!amprShown} />
     </>

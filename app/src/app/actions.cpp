@@ -792,6 +792,8 @@ public:
     std::string to = "ffpkg";
     std::string step = "format";
     bool installing = false;  // opened as Install…
+    std::string first_to;     // the format it opened with
+    bool picked = false;      // a format chosen on a card stays; until then, packs keep the game's own format
     std::string dest;
     JsonValue inspect;
     std::string problem;
@@ -1243,7 +1245,7 @@ public:
         // What each step holds; empty ones are left out.
         const bool comp_shown = target == "ffpfsc" || (target == "fpkg" && !any_ps4(app));
         const bool del_shown = !any_shared() && !(installable(app) && install);
-        const bool has_options = comp_shown || !pchoices.empty() || ampr_shown;
+        const bool has_options = comp_shown || lz4_on || zstd_on || ampr_shown;
         const bool has_after = installable(app) || del_shown || !hide_hidden;
         steps_now.clear();
         for (const char* st : kSteps) {
@@ -1296,8 +1298,34 @@ public:
         const float body_top = y;
 
         if (cur == "format") {
+            if (!pchoices.empty()) {
+                std::vector<std::string> labels;
+                int idx = 0;
+                for (std::size_t i = 0; i < pchoices.size(); ++i) {
+                    const std::string& p = pchoices[i];
+                    labels.push_back((p == "none" ? t("None") : p == "lz4" ? std::string("LZ4") : std::string("zstd")) +
+                                     (p == now ? " \xC2\xB7 " + t("as now") : std::string()));
+                    if (p == packs_now) idx = static_cast<int>(i);
+                }
+                const std::string hint =
+                    packs_now == "lz4" ? (now == "zstd" ? t("Replaces the zstd packs; both AMPR emulators read LZ4 packs")
+                                                        : t("For ampr_emu games; both AMPR emulators read them"))
+                    : packs_now == "zstd" ? (now == "lz4" ? t("Replaces the LZ4 packs with smaller zstd ones; read only by ampr-emu-ng, which goes into the game")
+                                                          : t("Smaller than LZ4 and faster to make; read only by ampr-emu-ng, which goes into the game"))
+                    : unpack_on  ? t("Turns the packs back into ordinary files; ampr_emu's runtime stays in fakelib")
+                    : zunpack_on ? t("Turns the packs back into ordinary files; ampr-emu-ng stays in fakelib")
+                                 : t("Big files that hold the game's small ones, read by an AMPR emulator");
+                bool changed = false;
+                y += choice_row(ui, "cv:packs", x, y, w, t("Asset packs"), hint, labels, &idx, &changed);
+                if (changed) {
+                    packs_want = pchoices[static_cast<std::size_t>(std::clamp(idx, 0, static_cast<int>(pchoices.size()) - 1))];
+                    // Packs a game in its own format (exFAT stays exFAT) until a format is picked; a package is converted anyway.
+                    const std::string own = one_format();
+                    if (!picked && !own.empty() && own != "fpkg") to = packs_want == now ? first_to : own;
+                }
+            }
             y += section(ui, many() ? t("Convert {n} games to", {{"n", std::to_string(entries.size())}}) : t("Convert to"),
-                         x + 0.1f * R, y, 0.2f);
+                         x + 0.1f * R, y, pchoices.empty() ? 0.2f : 0.6f);
             const std::string same = one_format();
             const float tile_w = (w - 1.0f * R) / 3.0f;
             for (std::size_t row = 0; row * 3 < std::size(kFormats); ++row) {
@@ -1321,14 +1349,19 @@ public:
                                     0.8f * 1.45f * R, muted);
                     if (ui.item(Id("fmt") / f.value, r, sel ? kAutofocus : 0u, 0.75f * R)) {
                         to = f.value;
+                        picked = true;
                         ui.play(hui::audio::Cue::select);
                         if (steps_now.size() > 1) go_to(steps_now[1]);
                     }
                 }
                 y += h + 0.5f * R;
             }
-            if (!same.empty() && same == target && !packs_change)
-                y += note(ui, t("This is the game's own format: only its asset packs can change (next step)."), x, y, w);
+            if (packs_now == "zstd")
+                y += note(ui, t("Turn off ShadowMount+'s \xE2\x80\x9Cupdate emulators\xE2\x80\x9D: it would swap ampr-emu-ng for "
+                                "another emulator that can't read these packs."), x, y - 0.5f * R, w) + 0.5f * R;
+            if (target == "ffpfsc" && packs_now == "lz4")
+                y += note(ui, t("FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data."),
+                          x, y - 0.5f * R, w) + 0.5f * R;
         } else if (cur == "options") {
             y += section(ui, t("Options for {format}", {{"format", format_label(target)}}), x + 0.1f * R, y, 0.2f);
             if (target == "ffpfsc")
@@ -1339,30 +1372,9 @@ public:
                 y += choice_row(ui, "cv:pkgcomp", x, y, w, t("Compression"),
                                 t("Executables stay uncompressed; matches ProsperoPkgTool byte for byte"),
                                 {t("Stored \xC2\xB7 fastest"), t("Kraken \xC2\xB7 smaller")}, &pkg_comp);
-            if (!pchoices.empty()) {
-                std::vector<std::string> labels;
-                int idx = 0;
-                for (std::size_t i = 0; i < pchoices.size(); ++i) {
-                    const std::string& p = pchoices[i];
-                    labels.push_back((p == "none" ? t("None") : p == "lz4" ? std::string("LZ4") : std::string("zstd")) +
-                                     (p == now ? " \xC2\xB7 " + t("as now") : std::string()));
-                    if (p == packs_now) idx = static_cast<int>(i);
-                }
-                const std::string hint =
-                    packs_now == "lz4" ? (now == "zstd" ? t("Replaces the zstd packs; both AMPR emulators read LZ4 packs")
-                                                        : t("For ampr_emu games; both AMPR emulators read them"))
-                    : packs_now == "zstd" ? (now == "lz4" ? t("Replaces the LZ4 packs with smaller zstd ones; read only by ampr-emu-ng, which goes into the game")
-                                                          : t("Smaller than LZ4 and faster to make; read only by ampr-emu-ng, which goes into the game"))
-                    : unpack_on  ? t("Turns the packs back into ordinary files; ampr_emu's runtime stays in fakelib")
-                    : zunpack_on ? t("Turns the packs back into ordinary files; ampr-emu-ng stays in fakelib")
-                                 : t("Big files that hold the game's small ones, read by an AMPR emulator");
-                bool changed = false;
-                y += choice_row(ui, "cv:packs", x, y, w, t("Asset packs"), hint, labels, &idx, &changed);
-                if (changed) packs_want = pchoices[static_cast<std::size_t>(std::clamp(idx, 0, static_cast<int>(pchoices.size()) - 1))];
-            }
-            const float ix = x + 1.25f * R + 0.9f * R + 2.0f, iw = w - (ix - x);
+            // The packs themselves are chosen on the Format step; here, how they are made.
+            const float ix = x, iw = w;
             if (lz4_on) {
-                const float top = y;
                 std::vector<std::string> profiles = {t("Automatic")};
                 for (const auto& p : app.info["lz4_profiles"].items()) profiles.push_back(p["label"].str());
                 profiles.push_back(t("Scan (untested)"));
@@ -1378,20 +1390,11 @@ public:
                 else if (rt.is_object() && !rt["pinned"].boolean())
                     y += draw::paragraph(ui, Face::regular, t("The runtime file is not the pinned ampr_emu 0.4.2.1 build."), ix, y, iw,
                                          0.88f * R, 0.88f * 1.45f * R, warn) + 0.5f * R;
-                indent_line(ui, x, top, y);
             }
             if (zstd_on) {
-                const float top = y;
                 y += choice_row(ui, "cv:zstdlevel", ix, y, iw, t("zstd level"), "",
                                 {t("1 \xC2\xB7 fastest"), t("5 \xC2\xB7 default"), t("19 \xC2\xB7 smallest")}, &zstd_level);
-                indent_line(ui, x, top, y);
             }
-            if (packs_now == "zstd")
-                y += note(ui, t("Turn off ShadowMount+'s \xE2\x80\x9Cupdate emulators\xE2\x80\x9D: it would swap ampr-emu-ng for "
-                                "another emulator that can't read these packs."), x, y - 0.5f * R, w) + 0.5f * R;
-            if (target == "ffpfsc" && packs_now == "lz4")
-                y += note(ui, t("FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data."),
-                          x, y - 0.5f * R, w) + 0.5f * R;
             // ampr_emu for games that use the console's APR (not packages: installed, they have the real one).
             if (ampr_shown)
                 y += switch_row(ui, "cv:ampr", x, y, w, t("Add the AMPR emulator"),
@@ -1687,6 +1690,8 @@ void App::open_convert(const std::vector<Entry>& list, bool install) {
     c->to = install ? "fpkg" : all_ffpkg ? "exfat" : "ffpkg";
     c->install = install;
     c->installing = install;
+    c->first_to = c->to;
+    c->picked = install;
     if (install) c->step = "review";
     std::string d = prefs["dest"].str();
     // A shared file has no folder on the console: it goes to a place here.

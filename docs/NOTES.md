@@ -3782,6 +3782,11 @@ with `fself::make_prospero_fself`, ported from ProsperoPkgTool's
 - The four pack/unpack switches are one "Asset packs" choice (None / LZ4 /
   zstd, the games' own marked "as now"; none for a mixed selection). The
   AMPR switch shows only when a plan says the game needs it.
+- Asset packs sit on the Format step, above the cards (owner, after trying
+  it on the console: repacking an exFAT game meant Options, then back to
+  Format). Until a format card is picked, changing the packs selects the
+  game's own format (back to the first default when set "as now"; not for
+  packages). Options keeps the levels, the LZ4 profile and AMPR.
 - The stand-in engine (`tools/screenshots/mock.mjs`) now reports packed
   games in `/api/inspect`; `shoot.sh convert` shows the Review step.
 

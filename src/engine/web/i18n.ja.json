@@ -923,7 +923,6 @@
  "The source is kept": "変換元はそのまま",
  "The sources are kept": "変換元はそのまま",
  "This game uses the console's APR: without an emulator it stops at start from an image or folder": "このゲームは本体の APR を使います。エミュレーターがないと、イメージやフォルダーからの起動時に止まります",
- "This is the game's own format: only its asset packs can change (next step).": "これはゲームの現在の形式です。変更できるのはアセットパックだけです（次のステップ）。",
  "UFS2 image · ShadowMount+'s default": "UFS2 イメージ · ShadowMount+ の既定",
  "When it's done": "完了したら",
  "Where": "保存先",
