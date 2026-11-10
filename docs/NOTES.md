@@ -3764,6 +3764,27 @@ with `fself::make_prospero_fself`, ported from ProsperoPkgTool's
   without a link; THIRD_PARTY_NOTICES keeps the URL as the record.
 - Menu paths in the READMEs are written with "→".
 
+### 2026-11-10: Convert, step by step
+
+- Convert (page `dialogs/ConvertDialog.tsx`, app `actions.cpp` Convert) is a
+  wizard (owner): Format, Options, Where, Afterwards, Review; a step with
+  nothing to choose is left out. ✕ on a format picks it and moves on, then
+  Next has the focus on each step (✕ ✕ ✕ takes the defaults); ○ goes a step
+  back (closes on the first: `Overlay.onBack` on the page, `back()` in the
+  app); □ goes to Review, and queues from there. L1/R1 were tried and
+  dropped (owner: confirm and back instead). Review: a line per step (✕
+  goes back to it), the source or the games beside it, then the notes.
+  Install… opens on Review.
+- Formats: all six, FFPKG first with "Recommended" (and the default, exFAT
+  for games already FFPKG); the source's own format is shown as "Current"
+  instead of hidden: picking it changes only the asset packs, and when
+  nothing changes the footer says so and nothing queues.
+- The four pack/unpack switches are one "Asset packs" choice (None / LZ4 /
+  zstd, the games' own marked "as now"; none for a mixed selection). The
+  AMPR switch shows only when a plan says the game needs it.
+- The stand-in engine (`tools/screenshots/mock.mjs`) now reports packed
+  games in `/api/inspect`; `shoot.sh convert` shows the Review step.
+
 ## Next session
 
 **Settled (owner, 2026-10-22):**

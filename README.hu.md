@@ -100,7 +100,7 @@ PS4 fake PKG. Az oldal és az alkalmazás minden játékot **PS5** (fehér) vagy
   PS5-LZ4-Compression
   játékprofiljaival.
 - **zstd-csomagok** quer3q [ampr-emu-ng](https://github.com/quer3q/ampr-emu-ng)
-  emulátorához (`--zstd`, vagy átalakításkor „Csomagolás zstd-formátumba”),
+  emulátorához (`--zstd`, vagy az Átalakítás ablakban **Asset-csomagok** → zstd),
   bájtra azonosak a [ps5-dump-forge](https://github.com/quer3q/ps5-dump-forge)
   kimenetével: kisebbek az LZ4-nél és gyorsabban elkészülnek (egy 26 GiB-os
   játékfájlkészletből Macen 33 s alatt 11,1 GiB lett, szemben az LZ4 77 s
@@ -108,8 +108,8 @@ PS4 fake PKG. Az oldal és az alkalmazás minden játékot **PS5** (fehér) vagy
   fájlját (a Komponensek közül); kapcsold ki a ShadowMount+ „update
   emulators” beállítását, hogy ne cserélje le egy olyanra, amely nem tudja
   olvasni őket. Szintek: 1, 5 (alapértelmezett) és 19. PS5-ön kipróbálva. A
-  csomagolt játék az Átalakítás menüben váltható LZ4- és zstd-csomagok között
-  („Váltás zstd-csomagokra”): a régi csomagok egyenesen az újakba
+  csomagolt játék az Átalakítás ablakban váltható LZ4- és zstd-csomagok között
+  (**Asset-csomagok**): a régi csomagok egyenesen az újakba
   dekódolódnak.
 - **AMPR-emulátor:** a konzol APR fájlolvasóját használó játékoknak egy
   emulátor `libSceAmpr.sprx` fájljára van szükségük ahhoz, hogy image-ből
@@ -166,7 +166,11 @@ ellenőrzi).
    hálózati szerverről (SMB, NFS, WebDAV vagy FTP) vagy egy párosított motor
    meghajtójáról (egy címke különbözteti meg a PS5- és PS4-játékokat), majd
    **Átalakítás**, **Telepítés** (csomagok), **Másolás ide…** vagy
-   **Áthelyezés ide…**. Egy PS5-játék csomaggá alakítása után a csomag a
+   **Áthelyezés ide…**. Az átalakítás lépésenként halad: **Formátum**,
+   **Beállítások**, **Hová**, **Utána**, végül **Áttekintés**, ahol egy soron
+   a ✕ visszavisz az adott lépéshez; a **Tovább** gombon a ✕ változatlanul
+   hagyja a lépést, a ○ egyet visszalép, a □ pedig bármelyik lépésből a
+   várólistához adja. Egy PS5-játék csomaggá alakítása után a csomag a
    végén átadható a konzol telepítőjének (**Telepítés a befejezés után**);
    a csomag ezután törlődik, amint a telepítő beolvasta, hacsak nincs
    bekapcsolva a **Csomag megtartása**, így addig helyre van szüksége.
@@ -176,7 +180,7 @@ ellenőrzi).
 
 ![Az Alembic oldala a PS5 böngészőjében: többféle formátumú játékok könyvtára, bal oldalon meghajtókkal, egy NAS-megosztással, egy NFS-exporttal, egy FTPS-szerverrel és egy párosított PC-vel](docs/screenshots/files.png)
 
-![Az Átalakítás ablak: célformátumok, tömörítési szint, az LZ4- és zstd-csomagok kapcsolói, az AMPR-emulátor kapcsolója, és a kimeneti útvonal egy párosított PC-n](docs/screenshots/convert.png)
+![Az Átalakítás ablak Áttekintés lépése: a formátum, a beállítások, a kimeneti útvonal egy párosított PC-n és az, ami utána történik, a játék adatai mellett](docs/screenshots/convert.png)
 
 ![A várólista: egy futó átalakítás sebességgel és hátralévő idővel, egy szüneteltetett, amely a mentési pontjától folytatódik, egy másolás egy NAS-megosztásra, és egy feladat, amely a párosított PC-n fut](docs/screenshots/queue.png)
 
@@ -402,7 +406,7 @@ számítógépre akarod korlátozni; ekkor más motorok sem érik el.
   hang); tartsd közvetlenül a `/data` (vagy a `/user`) alatt, ahol a
   ShadowMount+ a leggyorsabban olvassa az exFAT-ot.
 - **Ha kevés a hely:** két mód van, és kombinálhatók.
-  - A **zstd-csomagok** (egy kapcsoló az Átalakítás ablakban) kisebbre
+  - A **zstd-csomagok** (**Asset-csomagok** az Átalakítás ablakban) kisebbre
     tömörítik a játék fájljait, és az image olvasása gyors marad: egy
     26 GiB-os játékfájl-készletből 11,1 GiB lett, nagyjából egyharmaddal
     kisebb, mint LZ4-csomagokkal. A játéknak ezután ampr-emu-ng kell, és a

@@ -14,6 +14,8 @@ interface NavState { view?: string; path?: string | null; from?: string | null; 
 export function depth(): number { return history.state && history.state.depth ? history.state.depth : 0; }
 export function pushNav(s: NavState) { s.depth = depth() + 1; history.pushState(s, ""); }
 export function goBack() {
+  const top = overlays.value.length ? overlays.value[overlays.value.length - 1] : null;
+  if (top && top.onBack && top.onBack()) return; // a step back inside the dialog
   if (overlays.value.length || depth() > 0) { lastNative.back = Date.now(); history.back(); }
 }
 

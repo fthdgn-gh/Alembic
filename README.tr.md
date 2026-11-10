@@ -98,15 +98,15 @@ işaretler.
   bayt bayt aynı; oyun profilleri
   PS5-LZ4-Compression'dan.
 - quer3q'nun [ampr-emu-ng](https://github.com/quer3q/ampr-emu-ng)'si için
-  **zstd paketleri** (`--zstd` ya da dönüştürürken "zstd paketlerine
-  paketle"): [ps5-dump-forge](https://github.com/quer3q/ps5-dump-forge)'unkiyle
+  **zstd paketleri** (`--zstd` ya da Dönüştür'de **Varlık paketleri** →
+  zstd): [ps5-dump-forge](https://github.com/quer3q/ps5-dump-forge)'unkiyle
   bayt bayt aynı; LZ4'ten küçük ve daha hızlı yapılır (26 GiB'lık oyun
   dosyaları bir Mac'te 33 saniyede 11,1 GiB oldu; LZ4'te 77 saniyede
   17,5 GiB). Oyuna ampr-emu-ng'nin `libSceAmpr.sprx` dosyası eklenir
   (Bileşenler'den); bu paketleri okuyamayan bir öykünücüyle değiştirilmemesi
   için ShadowMount+'ın "update emulators" ayarını kapatın. Seviyeler 1, 5
   (varsayılan) ve 19. PS5'te denendi. Paketlenmiş bir oyun Dönüştür'de LZ4 ve
-  zstd paketleri arasında geçiş yapabilir ("zstd paketlerine geç"); eski
+  zstd paketleri arasında geçiş yapabilir (**Varlık paketleri**); eski
   paketler doğrudan yenilerine açılır.
 - **AMPR öykünücüsü:** konsolun APR dosya okuyucusunu kullanan oyunlar,
   imajdan ya da klasörden açılabilmek için bir öykünücünün `libSceAmpr.sprx`
@@ -160,17 +160,21 @@ sürümünün motorunu GitHub sürümünden indirir ve `SHA256SUMS` ile denetler
 3. **Dosyalar**'da dahili depolamada, USB'de, bir ağ sunucusunda (SMB, NFS,
    WebDAV ya da FTP) veya eşleştirilmiş bir motorun sürücüsünde bir oyun seçin
    (bir etiket PS5 ve PS4 oyunlarını ayırt eder), ardından **Dönüştür**,
-   **Kur** (paketler), **Kopyala** ya da **Taşı**'yı seçin. Bir PS5 oyununu
-   pakete dönüştürürken, iş bitince paket konsolun yükleyicisine verilebilir
-   (**Bitince kur**); **Paketi sakla** açık değilse yükleyici paketi okuduktan
-   sonra paket silinir, yani o zamana kadar paket için yer gerekir.
+   **Kur** (paketler), **Kopyala** ya da **Taşı**'yı seçin. Dönüştür adım
+   adım ilerler: **Biçim**, **Seçenekler**, **Hedef**, **Sonrası**, ardından
+   **Gözden geçir**; burada bir satırda ✕ o adıma geri döner. **İleri**'de ✕
+   adımı olduğu gibi bırakır, ○ bir adım geri gider, □ ise her adımdan
+   kuyruğa ekler. Bir PS5 oyununu pakete dönüştürürken, iş bitince paket
+   konsolun yükleyicisine verilebilir (**Bitince kur**); **Paketi sakla**
+   açık değilse yükleyici paketi okuduktan sonra paket silinir, yani o zamana
+   kadar paket için yer gerekir.
 4. İşler **Kuyruk**'ta teker teker çalışır: duraklatın, sürdürün (uzun işler
    son kayıt noktasından devam eder), sıralarını değiştirin, iptal edin. Bir
    iş bitince bildirim alırsınız.
 
 ![PS5 tarayıcısında Alembic sayfası: çeşitli biçimlerde oyunlardan oluşan bir kitaplık; solda sürücüler, bir NAS paylaşımı, bir NFS dışa aktarımı, bir FTPS sunucusu ve eşleştirilmiş bir PC](docs/screenshots/files.png)
 
-![Dönüştür penceresi: hedef biçimler, sıkıştırma seviyesi, LZ4 ve zstd paket anahtarları, AMPR öykünücüsü anahtarı ve eşleştirilmiş bir PC'deki çıktı yolu](docs/screenshots/convert.png)
+![Dönüştür penceresinin Gözden geçir adımı: biçim, seçenekler, eşleştirilmiş bir PC'deki çıktı yolu ve sonrasında olacaklar, oyunun ayrıntılarının yanında](docs/screenshots/convert.png)
 
 ![Kuyruk: hızı ve kalan süresiyle çalışan bir dönüştürme, son kayıt noktasından devam edecek duraklatılmış bir dönüştürme, bir NAS paylaşımına kopyalama ve eşleştirilmiş PC'de çalışan bir iş](docs/screenshots/queue.png)
 
@@ -378,13 +382,13 @@ başlatın; o zaman diğer motorlar ona ulaşamaz.
   ShadowMount+'ın exFAT'ı en hızlı okuduğu yerde, doğrudan `/data` (ya da
   `/user`) altında tutun.
 - **Yer azsa:** birlikte de kullanılabilen iki yol var.
-  - **zstd paketleri** (Dönüştür'de bir anahtar) oyunun dosyalarını küçültür
-    ve imajın okunmasını hızlı tutar: 26 GiB'lık bir oyun dosyası kümesi
-    11,1 GiB oldu, LZ4 paketlerinden yaklaşık üçte bir daha küçük. Oyunun
-    sonra ampr-emu-ng'ye ihtiyacı olur ve ShadowMount+'ın "update emulators"
-    ayarı kapalı olmalıdır, yoksa ampr_emu'yu geri koyar. ampr-emu-ng genç
-    ve hızlı değişiyor: henüz her oyun çalışmıyor, bu yüzden aslını silmeden
-    önce oyunun başladığını denetleyin.
+  - **zstd paketleri** (Dönüştür'de **Varlık paketleri**) oyunun dosyalarını
+    küçültür ve imajın okunmasını hızlı tutar: 26 GiB'lık bir oyun dosyası
+    kümesi 11,1 GiB oldu, LZ4 paketlerinden yaklaşık üçte bir daha küçük.
+    Oyunun sonra ampr-emu-ng'ye ihtiyacı olur ve ShadowMount+'ın "update
+    emulators" ayarı kapalı olmalıdır, yoksa ampr_emu'yu geri koyar.
+    ampr-emu-ng genç ve hızlı değişiyor: henüz her oyun çalışmıyor, bu
+    yüzden aslını silmeden önce oyunun başladığını denetleyin.
   - **LZ4 paketleri** iki öykünücüyle de çalışır (ampr-emu-ng de onları
     okur), ama daha büyüktür ve ampr_emu ile yalnızca bazı oyunlar çalışır.
   - **FFPFSC** bütün imajı sıkıştırır ve öykünücü gerektirmez, ama konsol

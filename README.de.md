@@ -99,7 +99,7 @@ mit einer Plakette **PS5** (weiß) oder **PS4** (schwarz).
   dessen `ampr_pack.py`, mit Spielprofilen aus
   PS5-LZ4-Compression.
 - **zstd-Pakete** für quer3qs [ampr-emu-ng](https://github.com/quer3q/ampr-emu-ng)
-  (`--zstd`, oder „In zstd-Pakete packen“ beim Umwandeln), byte-identisch zu
+  (`--zstd`, oder **Asset-Pakete** → zstd in Umwandeln), byte-identisch zu
   denen von [ps5-dump-forge](https://github.com/quer3q/ps5-dump-forge):
   kleiner als LZ4 und schneller erstellt (26 GiB Spieldateien wurden auf einem
   Mac in 33 s zu 11,1 GiB, gegenüber 17,5 GiB in 77 s mit LZ4). Das Spiel
@@ -107,7 +107,7 @@ mit einer Plakette **PS5** (weiß) oder **PS4** (schwarz).
   ShadowMount+ „update emulators“ aus, damit sie nicht gegen eine getauscht
   wird, die diese Pakete nicht lesen kann. Stufen 1, 5 (Standard) und 19. Auf
   einer PS5 ausprobiert. Ein gepacktes Spiel kann in Umwandeln zwischen LZ4-
-  und zstd-Paketen wechseln („Zu zstd-Paketen wechseln“); die alten Pakete
+  und zstd-Paketen wechseln (**Asset-Pakete**); die alten Pakete
   werden dabei direkt in die neuen dekodiert.
 - **AMPR-Emulator:** Spiele, die den APR-Dateileser der Konsole nutzen,
   brauchen die `libSceAmpr.sprx` eines Emulators, um aus einem Image oder
@@ -164,8 +164,12 @@ ihrer eigenen Version aus dem GitHub-Release herunter, geprüft gegen
    Netzwerkserver (SMB, NFS, WebDAV oder FTP) oder auf einem Laufwerk einer
    gekoppelten Engine (eine Plakette unterscheidet PS5- und PS4-Spiele), dann
    **Umwandeln**, **Installieren** (Pakete), **Kopieren** oder
-   **Verschieben**. Wandelst du ein PS5-Spiel in ein Paket um, kann es danach
-   an den Installer der Konsole übergeben werden (**Nach Abschluss
+   **Verschieben**. Umwandeln geht Schritt für Schritt: **Format**,
+   **Optionen**, **Ziel**, **Danach**, dann **Übersicht**, wo ✕ auf einer
+   Zeile zu diesem Schritt zurückführt; ✕ auf **Weiter** lässt einen Schritt,
+   wie er ist, ○ geht einen zurück, und □ fügt aus jedem Schritt zur
+   Warteschlange hinzu. Wandelst du ein PS5-Spiel in ein Paket um, kann es
+   danach an den Installer der Konsole übergeben werden (**Nach Abschluss
    installieren**); das Paket wird dann gelöscht, sobald der Installer es
    gelesen hat, außer **Paket behalten** ist an. Bis dahin braucht es also
    Platz.
@@ -175,7 +179,7 @@ ihrer eigenen Version aus dem GitHub-Release herunter, geprüft gegen
 
 ![Die Seite von Alembic im Browser der PS5: eine Bibliothek mit Spielen in mehreren Formaten, links Laufwerke, eine NAS-Freigabe, ein NFS-Export, ein FTPS-Server und ein gekoppelter PC](docs/screenshots/files.png)
 
-![Der Dialog Umwandeln: Zielformate, Kompressionsstufe, die Schalter für LZ4- und zstd-Pakete, der Schalter für den AMPR-Emulator und der Ausgabepfad auf einem gekoppelten PC](docs/screenshots/convert.png)
+![Der Schritt Übersicht des Dialogs Umwandeln: das Format, die Optionen, der Ausgabepfad auf einem gekoppelten PC und was danach passiert, neben den Details des Spiels](docs/screenshots/convert.png)
 
 ![Die Warteschlange: eine laufende Umwandlung mit Geschwindigkeit und Restzeit, eine pausierte, die am Sicherungspunkt weitermacht, eine Kopie auf eine NAS-Freigabe und ein Auftrag auf dem gekoppelten PC](docs/screenshots/queue.png)
 
@@ -394,13 +398,13 @@ beschränken; andere Engines erreichen sie dann nicht.
   direkt unter `/data` (oder `/user`) ab, wo ShadowMount+ exFAT am schnellsten
   liest.
 - **Wenig Platz:** zwei Wege, die sich kombinieren lassen.
-  - **zstd-Pakete** (ein Schalter in Umwandeln) verkleinern die Dateien des
-    Spiels, und das Image bleibt schnell lesbar: 26 GiB Spieldateien wurden
-    zu 11,1 GiB, etwa ein Drittel kleiner als mit LZ4-Paketen. Das Spiel
-    braucht dann ampr-emu-ng, und „update emulators“ von ShadowMount+ muss
-    aus sein, sonst setzt es ampr_emu wieder ein. ampr-emu-ng ist jung und
-    ändert sich schnell: Noch läuft nicht jedes Spiel, also prüfe, ob das
-    Spiel startet, bevor du das Original löschst.
+  - **zstd-Pakete** (**Asset-Pakete** in Umwandeln) verkleinern die Dateien
+    des Spiels, und das Image bleibt schnell lesbar: 26 GiB Spieldateien
+    wurden zu 11,1 GiB, etwa ein Drittel kleiner als mit LZ4-Paketen. Das
+    Spiel braucht dann ampr-emu-ng, und „update emulators“ von ShadowMount+
+    muss aus sein, sonst setzt es ampr_emu wieder ein. ampr-emu-ng ist jung
+    und ändert sich schnell: Noch läuft nicht jedes Spiel, also prüfe, ob
+    das Spiel startet, bevor du das Original löschst.
   - **LZ4-Pakete** funktionieren mit beiden Emulatoren (ampr-emu-ng liest sie
     auch), sind aber größer, und mit ampr_emu laufen nur manche Spiele.
   - **FFPFSC** komprimiert das ganze Image und braucht keinen Emulator, aber

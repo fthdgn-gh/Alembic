@@ -90,14 +90,14 @@ and the app mark each game with a **PS5** (white) or **PS4** (black) pill.
   game profiles from
   PS5-LZ4-Compression.
 - **zstd packs** for quer3q's [ampr-emu-ng](https://github.com/quer3q/ampr-emu-ng)
-  (`--zstd`, or "Pack into zstd packs" when converting), byte-identical to
+  (`--zstd`, or **Asset packs** → zstd in Convert), byte-identical to
   [ps5-dump-forge](https://github.com/quer3q/ps5-dump-forge)'s: smaller than
   LZ4 and faster to make (a 26 GiB set of game files became 11.1 GiB in
   33 s on a Mac, against 17.5 GiB in 77 s for LZ4). The game gets
   ampr-emu-ng's `libSceAmpr.sprx` (from Components); turn off ShadowMount+'s
   "update emulators" so it isn't swapped for one that can't read them.
   Levels 1, 5 (default) and 19. Tried on a PS5. A packed game can switch
-  between LZ4 and zstd packs in Convert ("Switch to zstd packs"), the old
+  between LZ4 and zstd packs in Convert (**Asset packs**), the old
   packs decoded straight into the new ones.
 - **AMPR emulator:** games that use the console's APR file reader need
   an emulator's `libSceAmpr.sprx` to start from an image or folder:
@@ -147,18 +147,21 @@ GitHub release first, checked against `SHA256SUMS`).
 3. In **Files**, pick a game on internal storage, USB, a network server (SMB,
    NFS, WebDAV or FTP) or a paired engine's drive (a pill tells PS5 and PS4
    games apart), then
-   **Convert**, **Install** (packages), **Copy** or **Move**. Converting a
-   PS5 game to a package can hand it to the console's installer when done
-   (**Install when done**); the package is then deleted once the installer
-   has read it, unless **Keep the package** is on, so it needs room until
-   then.
+   **Convert**, **Install** (packages), **Copy** or **Move**. Convert goes
+   step by step: **Format**, **Options**, **Where**, **Afterwards**, then
+   **Review**, where ✕ on a line goes back to that step; ✕ on **Next** keeps
+   a step as it is, ○ goes back one, and □ adds to the queue from any step.
+   Converting a PS5 game to a package can hand it to the console's installer
+   when done (**Install when done**); the package is then deleted once the
+   installer has read it, unless **Keep the package** is on, so it needs room
+   until then.
 4. Jobs run one at a time in **Queue**: pause, resume (long jobs continue
    from a checkpoint), reorder, cancel. You get a notification when one
    finishes.
 
 ![Alembic's page in the PS5 browser: a library of games in several formats, with drives, a NAS share, an NFS export, an FTPS server and a paired PC on the left](docs/screenshots/files.png)
 
-![The Convert dialog: target formats, compression level, the LZ4 and zstd pack switches, the AMPR emulator switch, and the output path on a paired PC](docs/screenshots/convert.png)
+![The Convert dialog's Review step: the format, the options, the output path on a paired PC and what happens afterwards, next to the game's details](docs/screenshots/convert.png)
 
 ![The queue: a running conversion with speed and time left, a paused one that continues from its checkpoint, a copy to a NAS share, and a job running on the paired PC](docs/screenshots/queue.png)
 
@@ -352,8 +355,8 @@ engines can't reach it then.
   game misbehaves as FFPKG (wrong sound, for example); keep it directly under
   `/data` (or `/user`), where ShadowMount+ reads exFAT fastest.
 - **Short on space:** two ways, which can be combined.
-  - **zstd packs** (a switch in Convert) shrink the game's files and keep the
-    image fast to read: a 26 GiB set of game files became 11.1 GiB, about a
+  - **zstd packs** (**Asset packs** in Convert) shrink the game's files and
+    keep the image fast to read: a 26 GiB set of game files became 11.1 GiB, about a
     third smaller than LZ4 packs. The game then needs ampr-emu-ng, and
     ShadowMount+'s "update emulators" must be off, or it puts ampr_emu back.
     ampr-emu-ng is young and moves fast: not every game works yet, so check

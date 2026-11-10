@@ -98,7 +98,7 @@ cada juego con una etiqueta **PS5** (blanca) o **PS4** (negra).
   idénticos byte a byte a los de su `ampr_pack.py`, con perfiles de juego de
   PS5-LZ4-Compression.
 - **Paquetes zstd** para [ampr-emu-ng](https://github.com/quer3q/ampr-emu-ng),
-  de quer3q (`--zstd`, o "Empaquetar en paquetes zstd" al convertir),
+  de quer3q (`--zstd`, o **Paquetes de recursos** → zstd en Convertir),
   idénticos byte a byte a los de
   [ps5-dump-forge](https://github.com/quer3q/ps5-dump-forge): más pequeños que
   los LZ4 y más rápidos de crear (un conjunto de 26 GiB de archivos de juego
@@ -107,7 +107,7 @@ cada juego con una etiqueta **PS5** (blanca) o **PS4** (negra).
   "update emulators" en ShadowMount+ para que no lo cambie por uno que no
   pueda leerlos. Niveles 1, 5 (predeterminado) y 19. Probado en una PS5. Un
   juego empaquetado puede pasar de paquetes LZ4 a zstd y viceversa en
-  Convertir ("Cambiar a paquetes zstd"): los paquetes antiguos se descodifican
+  Convertir (**Paquetes de recursos**): los paquetes antiguos se descodifican
   directamente en los nuevos.
 - **Emulador AMPR:** los juegos que usan el lector de archivos APR de la
   consola necesitan el `libSceAmpr.sprx` de un emulador para arrancar desde
@@ -162,18 +162,22 @@ versión desde la versión publicada en GitHub, comprobado con `SHA256SUMS`).
 3. En **Archivos**, elige un juego del almacenamiento interno, de un USB, de un
    servidor de red (SMB, NFS, WebDAV o FTP) o de una unidad de un motor
    emparejado (una etiqueta distingue los juegos de PS5 y de PS4) y luego
-   **Convertir**, **Instalar** (paquetes), **Copiar** o **Mover**. Al
-   convertir un juego de PS5 en paquete, este se puede pasar al instalador de
-   la consola al terminar (**Instalar al terminar**); después el paquete se
-   borra en cuanto el instalador lo ha leído, salvo que **Conservar el
-   paquete** esté activado, así que hasta entonces necesita espacio.
+   **Convertir**, **Instalar** (paquetes), **Copiar** o **Mover**.
+   Convertir va paso a paso: **Formato**, **Opciones**, **Destino**,
+   **Después** y luego **Revisar**, donde ✕ sobre una línea vuelve a ese
+   paso; ✕ sobre **Siguiente** deja un paso como está, ○ retrocede uno y □
+   añade a la cola desde cualquier paso. Al convertir un juego de PS5 en
+   paquete, este se puede pasar al instalador de la consola al terminar
+   (**Instalar al terminar**); después el paquete se borra en cuanto el
+   instalador lo ha leído, salvo que **Conservar el paquete** esté activado,
+   así que hasta entonces necesita espacio.
 4. Las tareas se ejecutan de una en una en **Cola**: pausar, reanudar (las
    tareas largas continúan desde un punto de control), reordenar, cancelar.
    Recibes una notificación cuando termina una.
 
 ![La página de Alembic en el navegador de la PS5: una biblioteca de juegos en varios formatos, con unidades, un recurso compartido de un NAS, una exportación NFS, un servidor FTPS y un PC emparejado a la izquierda](docs/screenshots/files.png)
 
-![El diálogo Convertir: formatos de destino, nivel de compresión, los interruptores de paquetes LZ4 y zstd, el del emulador AMPR y la ruta de salida en un PC emparejado](docs/screenshots/convert.png)
+![El paso Revisar del diálogo Convertir: el formato, las opciones, la ruta de salida en un PC emparejado y lo que pasa después, junto a los detalles del juego](docs/screenshots/convert.png)
 
 ![La cola: una conversión en curso con su velocidad y el tiempo restante, otra en pausa que continúa desde su punto de control, una copia a un recurso compartido de un NAS y una tarea que se ejecuta en el PC emparejado](docs/screenshots/queue.png)
 
@@ -387,8 +391,8 @@ entonces los demás motores no pueden contactar con él.
   tenlo directamente bajo `/data` (o `/user`), donde ShadowMount+ lee exFAT
   más rápido.
 - **Poco espacio:** dos formas, que se pueden combinar.
-  - **Los paquetes zstd** (un interruptor en Convertir) reducen los archivos
-    del juego y mantienen la imagen rápida de leer: un conjunto de 26 GiB de
+  - **Los paquetes zstd** (**Paquetes de recursos** en Convertir) reducen
+    los archivos del juego y mantienen la imagen rápida de leer: un conjunto de 26 GiB de
     archivos de juego se quedó en 11,1 GiB, aproximadamente un tercio menos
     que con paquetes LZ4. Después el juego necesita ampr-emu-ng, y la opción
     "update emulators" de ShadowMount+ debe estar desactivada, o vuelve a

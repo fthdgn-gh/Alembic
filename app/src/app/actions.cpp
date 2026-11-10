@@ -746,14 +746,40 @@ struct Format {
     const char* label;
     const char* hint;
 };
+// In the order Convert shows them: ShadowMount+'s default first (ConvertDialog.tsx FORMATS).
 const Format kFormats[] = {
-    {"ffpfsc", "FFPFSC", "Compressed image, smallest"},
-    {"ffpkg", "FFPKG", "UFS2 image, ShadowMount+'s pick"},
-    {"ffpfs", "FFPFS", "PFS image, uncompressed (experimental in ShadowMount+)"},
-    {"exfat", "exFAT", "Plain image, fastest to load"},
+    {"ffpkg", "FFPKG", "UFS2 image \xC2\xB7 ShadowMount+'s default"},
+    {"exfat", "exFAT", "Plain image \xC2\xB7 loads fastest; for games that misbehave"},
+    {"ffpfsc", "FFPFSC", "Compressed image \xC2\xB7 smallest; big games may stutter"},
+    {"ffpfs", "FFPFS", "PFS image \xC2\xB7 experimental in ShadowMount+"},
+    {"fpkg", "FPKG", "Package to install on the console"},
     {"folder", "Folder", "Loose files"},
-    {"fpkg", "FPKG", "Debug package to install"},
 };
+std::string format_label(const std::string& v) {
+    for (const auto& f : kFormats)
+        if (v == f.value) return f.label;
+    return v;
+}
+std::string format_hint(const std::string& v) {
+    for (const auto& f : kFormats)
+        if (v == f.value) return t(f.hint);
+    return "";
+}
+
+// The steps, in order; one with nothing to choose is left out.
+const char* const kSteps[] = {"format", "options", "where", "after", "review"};
+std::string step_label(const std::string& s) {
+    return s == "format" ? t("Format") : s == "options" ? t("Options") : s == "where" ? t("Where") : s == "after" ? t("Afterwards") : t("Review");
+}
+
+// A small outlined tag (.tag), accent-coloured for "Recommended"; returns its width.
+float tag_at(Ui& ui, const std::string& label, float x, float cy, bool accent_on) {
+    const float size = 0.72f * R;
+    const float w = draw::measure(ui, Face::regular, label, size) + 0.9f * R + 2.0f, h = size + 0.55f * R;
+    ui.list->bordered_rect({x, cy - h * 0.5f, w, h}, 0.4f * R, Color{0, 0, 0, 0}, 1.0f, accent_on ? accent : line2);
+    draw::text(ui, Face::regular, label, x + 0.45f * R + 1.0f, draw::baseline(cy, size), size, accent_on ? accent : muted);
+    return w;
+}
 
 class Convert : public Overlay {
 public:
@@ -763,7 +789,9 @@ public:
     std::map<std::string, std::string> problems;  // by path: could not be read
     std::map<std::string, JsonValue> plans;       // by path, for plan_key
     std::map<std::string, std::string> plan_errs;
-    std::string to = "ffpfsc";
+    std::string to = "ffpkg";
+    std::string step = "format";
+    bool installing = false;  // opened as Install…
     std::string dest;
     JsonValue inspect;
     std::string problem;
@@ -774,8 +802,8 @@ public:
     int profile = 0;
     int lz4_level = 1;  // index: 1 / 9 / 12
     int zstd_level = 1; // index: 1 / 5 / 19
-    bool zstd = false, zunpack = false;
-    bool lz4 = false, unpack = false, ampr = true, verify = true, del = false, hide = false, over = false;
+    std::string packs_want;  // "none" | "lz4" | "zstd"; "": as the games are
+    bool ampr = true, verify = true, del = false, hide = false, over = false;
     std::string name;
     int where = 0;  // index into on-choices
     JsonValue plan;
@@ -786,6 +814,8 @@ public:
     std::string msg;
     bool msg_err = false, busy = false;
     bool started = false;
+    bool refocus = true;  // a new step: its first choice takes the focus
+    std::vector<std::string> steps_now = {"format"};
     Sheet sheet;
 
     std::vector<std::pair<std::string, std::string>> on_choices(App& app) const {
@@ -818,41 +848,48 @@ public:
 
     bool many() const { return entries.size() > 1; }
     static std::string format_of(const Entry& e) { return e.game ? "folder" : e.kind; }
-    bool packed(const Entry& e) const {
+    // The packs a game has now ("none" until it has been read).
+    std::string packs_of(const Entry& e) const {
         auto it = inspects.find(e.path);
-        return it != inspects.end() && it->second["lz4_packed"].boolean();
+        if (it == inspects.end()) return "none";
+        return it->second["lz4_packed"].boolean() ? "lz4" : it->second["zstd_packed"].boolean() ? "zstd" : "none";
     }
-    bool packed_any() const { return std::any_of(entries.begin(), entries.end(), [this](const Entry& e) { return packed(e); }); }
-    // zstd packs (ampr-emu-ng's) the same way; a game has one kind or none.
-    bool zpacked(const Entry& e) const {
-        auto it = inspects.find(e.path);
-        return it != inspects.end() && it->second["zstd_packed"].boolean();
+    // The packs all of them have, or "mixed" (left as they are).
+    std::string now_packs() const {
+        const std::string first = packs_of(entries.front());
+        for (const auto& e : entries)
+            if (packs_of(e) != first) return "mixed";
+        return first;
     }
-    bool zpacked_any() const { return std::any_of(entries.begin(), entries.end(), [this](const Entry& e) { return zpacked(e); }); }
-    bool zpacked_all() const { return std::all_of(entries.begin(), entries.end(), [this](const Entry& e) { return zpacked(e); }); }
-    bool pack_offered() const { return !packed_any() && !zpacked_any(); }
-    // zstd packs are for PS5 games in a folder or an image.
-    // A packed game can switch to the other kind of packs in the same conversion.
-    bool zstd_offered(App& app) const { return (pack_offered() || packed_all()) && !any_ps4(app) && to != "fpkg"; }
-    bool lz4_offered() const { return pack_offered() || zpacked_all(); }
-    bool packed_all() const { return std::all_of(entries.begin(), entries.end(), [this](const Entry& e) { return packed(e); }); }
     bool any_shared() const { return std::any_of(entries.begin(), entries.end(), [](const Entry& e) { return e.shared; }); }
     bool any_ps4(App& app) const {
         for (const auto& e : entries)
             if (const Meta* m = app.meta(e.path, e.mtime, e.size); m && m->platform == "ps4") return true;
         return false;
     }
-    // The format all of them share ("" when they differ): converting to it is no conversion.
+    // The format all of them share ("" when they differ): converting to it changes only the packs.
     std::string one_format() const {
         for (const auto& e : entries)
             if (format_of(e) != format_of(entries.front())) return "";
         return format_of(entries.front());
     }
+    // zstd packs are for PS5 games in a folder or an image.
+    std::vector<std::string> pack_choices(App& app) const {
+        if (now_packs() == "mixed") return {};
+        std::vector<std::string> out = {"none", "lz4"};
+        if (!any_ps4(app) && to != "fpkg") out.push_back("zstd");
+        return out;
+    }
+    std::string packs(App& app) const {
+        const std::string now = now_packs();
+        if (now == "mixed") return now;
+        const std::string w = packs_want.empty() ? now : packs_want;
+        const auto c = pack_choices(app);
+        return std::find(c.begin(), c.end(), w) != c.end() ? w : now;
+    }
 
     // A PS5 package can go straight to the console's installer.
-    bool installable(App& app, const std::string& target) const {
-        return target == "fpkg" && app.is_ps5() && !any_ps4(app);
-    }
+    bool installable(App& app) const { return to == "fpkg" && app.is_ps5() && !any_ps4(app); }
 
     // The games that get a job: several games leave out those already in the target format.
     std::vector<Entry> work(App& app) {
@@ -878,21 +915,17 @@ public:
     }
 
     JsonValue spec(App& app, const Entry& e, std::string* key_out) {
-        const bool zstd_on = zstd && zstd_offered(app) && !(unpack && packed_all());
-        const bool lz4_on = lz4 && lz4_offered() && !zstd_on && !(zunpack && zpacked_all());
-        const bool unpack_on = unpack && packed_all() && !zstd_on, zunpack_on = zunpack && zpacked_all() && !lz4_on;
-        const std::string same = one_format();
-        std::vector<std::string> offered;
-        for (const auto& f : kFormats)
-            if (f.value != same || lz4_on || unpack_on || zstd_on || zunpack_on) offered.push_back(f.value);
-        const std::string target = std::find(offered.begin(), offered.end(), to) != offered.end() ? to : offered.front();
-        const bool install_on = install && installable(app, target);
+        const std::string now = now_packs(), p = packs(app);
+        const bool lz4_on = p == "lz4" && now != "lz4", zstd_on = p == "zstd" && now != "zstd";
+        const bool unpack_on = now == "lz4" && p == "none", zunpack_on = now == "zstd" && p == "none";
+        const std::string target = to;
+        const bool install_on = install && installable(app);
         const bool del_on = !any_shared() && del && !install_on;
         const bool hide_hidden = e.kind == "fpkg" || is_hidden_name(e.name) || del_on || target == "fpkg" || e.shared;
         static const int levels[] = {1, 6, 9};
         static const int lz4_levels[] = {1, 9, 12};
         std::vector<std::string> profiles = {"auto"};
-        for (const auto& p : app.info["lz4_profiles"].items()) profiles.push_back(p["id"].str());
+        for (const auto& pr : app.info["lz4_profiles"].items()) profiles.push_back(pr["id"].str());
         profiles.push_back("scan");
         JsonValue s = JsonValue::object();
         s.set("input", e.path);
@@ -1087,6 +1120,56 @@ public:
         choose(app, t("Save to"), std::move(items));
     }
 
+    void go_to(const std::string& s) {
+        if (s == step) return;
+        step = s;
+        msg.clear();
+        refocus = true;
+    }
+    int at() const {
+        const auto it = std::find(steps_now.begin(), steps_now.end(), step);
+        return it == steps_now.end() ? 0 : static_cast<int>(it - steps_now.begin());
+    }
+    void move(int d) {
+        const int n = at() + d;
+        if (n >= 0 && n < static_cast<int>(steps_now.size())) go_to(steps_now[static_cast<std::size_t>(n)]);
+    }
+
+    // Room where the output goes (and how big the games are).
+    std::string room(App& app) {
+        if (plans.empty()) return "";
+        auto it = plans.find(entry.path);
+        const std::string out = (it != plans.end() ? it->second : plans.begin()->second)["output"].str();
+        double need = 0;
+        for (const auto& e : work(app)) {
+            auto in = inspects.find(e.path);
+            if (in != inspects.end()) need += in->second["bytes"].number();
+        }
+        if (const JsonValue* r = app.root_of(out))
+            return t("{size} free on {drive}", {{"size", bytes((*r)["free"].number())}, {"drive", app.drive_name((*r)["root"].str())}}) +
+                   (need > 0 ? " \xC2\xB7 " + (many() ? t("the games are {size} unpacked", {{"size", bytes(need)}})
+                                                      : t("the game is {size} unpacked", {{"size", bytes(need)}}))
+                             : "");
+        if (const JsonValue* srv = app.server_of(out)) return App::on_server_text(*srv);
+        return "";
+    }
+    std::string dest_label(App& app) const {
+        if (dest.empty()) return many() ? t("Next to each source") : t("Next to the source");
+        for (const auto& l : app.locations.items())
+            if (l["path"].str() == dest) return place_label(l["label"].str());
+        return app.shown_path(dest);
+    }
+
+    // A note in the warning colour; returns the height it took.
+    static float note(Ui& ui, const std::string& text, float x, float y, float w) {
+        if (text.empty()) return 0.0f;
+        return 0.5f * R + draw::paragraph(ui, Face::regular, text, x, y + 0.5f * R, w, 0.88f * R, 0.88f * 1.45f * R, warn);
+    }
+    // An indented group (.indent): the line to its left.
+    static void indent_line(Ui& ui, float x, float top, float bottom) {
+        ui.list->rounded_rect({x + 1.25f * R, top, 2.0f, bottom - top - 0.5f * R}, 0.0f, line);
+    }
+
     void build(Ui& ui, App& app) override {
         if (!started) start(app);
         // The plans for the current choices, asked 150 ms after they change.
@@ -1099,7 +1182,7 @@ public:
         }
         pending_t += ui.dt;
         if (waiting) waited += ui.dt;
-        if (pending_key != requested_key && pending_t > 0.15f) {
+        if (!all.empty() && pending_key != requested_key && pending_t > 0.15f) {
             requested_key = pending_key;
             waiting = true;
             waited = 0.0f;
@@ -1119,7 +1202,6 @@ public:
                                   : (plan_errs.count(entry.path) ? plan_errs[entry.path] : std::string());
                 msg.clear();
             };
-            if (all.empty()) finish();
             for (const auto& sp : all) {
                 const std::string input = sp["input"].str();
                 app.api("POST", "/api/plan", sp, [this, &app, k, want, got, left, input, finish](const Reply& r) {
@@ -1133,286 +1215,338 @@ public:
                 }, Engine::kSlow, 600000);
             }
         }
-        const bool plan_ready = plan_key == key_now && plan_err.empty() && !plans.empty();
-        const bool packed = many() ? packed_all() : inspect["lz4_packed"].boolean();
-        const std::string target = s["to"].str();
+        const std::string target = to;
+        // Nothing changes: the games' own format and packs.
+        const std::string nothing = all.empty() ? t("Already {format}: choose other asset packs, or another format.",
+                                                    {{"format", format_label(target)}})
+                                                : std::string();
+        const bool plan_ready = nothing.empty() && plan_key == key_now && plan_err.empty() && !plans.empty();
+        const std::string now = now_packs(), packs_now = packs(app);
         const bool lz4_on = s["lz4"].boolean(), unpack_on = s["lz4_unpack"].boolean();
         const bool zstd_on = s["zstd"].boolean(), zunpack_on = s["zstd_unpack"].boolean();
-        const bool zpacked_one = many() ? zpacked_all() : inspect["zstd_packed"].boolean();
+        const bool packs_change = lz4_on || unpack_on || zstd_on || zunpack_on;
         const bool del_on = s["delete_source"].boolean();
         bool hide_hidden = true;
         for (const auto& e : entries)
             hide_hidden = hide_hidden && (e.kind == "fpkg" || is_hidden_name(e.name) || del_on || target == "fpkg" || e.shared);
-        const bool ampr_hidden = target == "fpkg" || lz4_on || zstd_on;
+        const bool ampr_hidden = target == "fpkg" || packs_now == "lz4" || packs_now == "zstd";  // packs bring their emulator
+        bool ampr_needed = false, any_unsigned = false;
+        for (const auto& [path, p] : plans) {
+            ampr_needed = ampr_needed || p["ampr_needed"].boolean();
+            any_unsigned = any_unsigned || p["unsigned_executables"].number() > 0;
+        }
+        const bool ampr_shown = !ampr_hidden && ampr_needed;
+        const auto choices = on_choices(app);
+        const bool where_hidden = choices.size() < 2 || any_shared();
+        const auto pchoices = pack_choices(app);
 
-        sheet.begin(ui, t("Convert"), "", Sheet::Size::wide, true);
-        const float x = sheet.x(), w = sheet.w();
-        const float gap = 1.75f * R;
-        const float lw = (w - gap) * 1.25f / 2.25f, rw = w - gap - lw;
-        float y = sheet.content_top();
-        // ---- left: format and options ----
-        y += section(ui, t("Convert to"), x + 0.1f * R, y, 0.2f);
+        // What each step holds; empty ones are left out.
+        const bool comp_shown = target == "ffpfsc" || (target == "fpkg" && !any_ps4(app));
+        const bool del_shown = !any_shared() && !(installable(app) && install);
+        const bool has_options = comp_shown || !pchoices.empty() || ampr_shown;
+        const bool has_after = installable(app) || del_shown || !hide_hidden;
+        steps_now.clear();
+        for (const char* st : kSteps) {
+            const std::string sn = st;
+            if ((sn == "options" && !has_options) || (sn == "after" && !has_after)) continue;
+            steps_now.push_back(sn);
+        }
+        const int at_now = at();
+        const std::string cur = steps_now[static_cast<std::size_t>(at_now)];
+        const bool last = at_now == static_cast<int>(steps_now.size()) - 1;
+        if (refocus) {
+            ui.reset_focus();
+            refocus = false;
+        }
+
         {
+            // The game's name after the title.
+            const Meta* m0 = app.meta(entry.path, entry.mtime, entry.size);
+            sheet.title_aside = many() ? plural(static_cast<long long>(entries.size()), "{n} game", "{n} games")
+                                       : m0 && !m0->title.empty() ? m0->title : entry.name;
+        }
+        sheet.begin(ui, installing ? t("Install") : t("Convert"), "", Sheet::Size::wide, true);
+        const float x = sheet.x(), w = sheet.w();
+        float y = sheet.content_top();
+        {
+            float sx = x;
+            const float cy = y + 0.75f * R;
+            for (std::size_t i = 0; i < steps_now.size(); ++i) {
+                const int ii = static_cast<int>(i);
+                const bool is_cur = ii == at_now, done = ii < at_now;
+                if (i > 0) {
+                    ui.list->rounded_rect({sx, cy - 0.5f, 1.4f * R, 1.0f}, 0.0f, line2);
+                    sx += 1.4f * R + 0.9f * R;
+                }
+                const Rect c{sx, cy - 0.75f * R, 1.5f * R, 1.5f * R};
+                ui.list->bordered_rect(c, 0.75f * R, is_cur ? accent : Color{0, 0, 0, 0}, 1.0f, is_cur || done ? accent : line2);
+                const std::string n = done ? "\xE2\x9C\x93" : std::to_string(i + 1);
+                draw::text(ui, Face::regular, n, c.cx() - draw::measure(ui, Face::regular, n, 0.78f * R) * 0.5f,
+                           draw::baseline(cy, 0.78f * R), 0.78f * R, is_cur ? style::text : done ? accent : dim);
+                sx += 1.5f * R + 0.45f * R;
+                const std::string lab = step_label(steps_now[i]);
+                sx += draw::text(ui, is_cur ? Face::semibold : Face::regular, lab, sx, draw::baseline(cy, 0.9f * R), 0.9f * R,
+                                 is_cur ? style::text : done ? muted : dim);
+                sx += 0.9f * R;
+            }
+            y += 1.5f * R + 0.8f * R;
+            draw::hline(ui, x - 1.5f * R, y, w + 3.0f * R, line);
+            y += 0.6f * R;
+        }
+        const float body_top = y;
+
+        if (cur == "format") {
+            y += section(ui, many() ? t("Convert {n} games to", {{"n", std::to_string(entries.size())}}) : t("Convert to"),
+                         x + 0.1f * R, y, 0.2f);
             const std::string same = one_format();
-            std::vector<const Format*> offered;
-            for (const auto& f : kFormats)
-                if (f.value != same || lz4_on || unpack_on || zstd_on || zunpack_on) offered.push_back(&f);
-            const float tile_w = (lw - 1.0f * R) / 3.0f;
-            for (std::size_t row = 0; row * 3 < offered.size(); ++row) {
+            const float tile_w = (w - 1.0f * R) / 3.0f;
+            for (std::size_t row = 0; row * 3 < std::size(kFormats); ++row) {
                 float th = 0.0f;
-                for (std::size_t c = row * 3; c < std::min(offered.size(), row * 3 + 3); ++c)
-                    th = std::max(th, 1.0f * R * 1.45f +
-                                          draw::paragraph_height(ui, Face::regular, t(offered[c]->hint), tile_w - 1.8f * R,
-                                                                 0.8f * R, 0.8f * 1.45f * R));
-                const float h = th + 1.4f * R + 2.0f;
-                for (std::size_t c = row * 3; c < std::min(offered.size(), row * 3 + 3); ++c) {
-                    const Format& f = *offered[c];
+                for (std::size_t c = row * 3; c < row * 3 + 3; ++c)
+                    th = std::max(th, 1.0f * R * 1.45f + draw::paragraph_height(ui, Face::regular, t(kFormats[c].hint), tile_w - 1.8f * R,
+                                                                                0.8f * R, 0.8f * 1.45f * R));
+                const float h = std::max(5.6f * R, th + 1.4f * R + 2.0f);
+                for (std::size_t c = row * 3; c < row * 3 + 3; ++c) {
+                    const Format& f = kFormats[c];
                     const Rect r{x + static_cast<float>(c - row * 3) * (tile_w + 0.5f * R), y, tile_w, h};
                     const bool sel = target == f.value;
-                    ui.list->bordered_rect(r, 0.75f * R, sel ? accent.with_alpha(0.12f) : field, 1.0f, sel ? accent : line2);
-                    const float bw = draw::text(ui, Face::semibold, f.label, r.x + 0.9f * R,
-                                                draw::baseline(r.y + 0.7f * R + 0.725f * R, 1.0f * R), 1.0f * R, style::text);
-                    if (sel)
-                        draw::text(ui, Face::regular, " \xE2\x9C\x93", r.x + 0.9f * R + bw,
-                                   draw::baseline(r.y + 0.7f * R + 0.725f * R, 1.0f * R), 1.0f * R, accent);
-                    draw::paragraph(ui, Face::regular, t(f.hint), r.x + 0.9f * R, r.y + 0.7f * R + 1.45f * R,
-                                    tile_w - 1.8f * R, 0.8f * R, 0.8f * 1.45f * R, muted);
+                    ui.list->bordered_rect(r, 0.75f * R, sel ? accent.with_alpha(0.12f) : field, sel ? 2.0f : 1.0f, sel ? accent : line2);
+                    const float ty = r.y + (h - th) * 0.5f;
+                    const float bl = draw::baseline(ty + 0.725f * R, 1.0f * R);
+                    float lx = r.x + 0.9f * R;
+                    lx += draw::text(ui, Face::semibold, f.label, lx, bl, 1.0f * R, style::text) + 0.5f * R;
+                    if (std::string(f.value) == "ffpkg") lx += tag_at(ui, t("Recommended"), lx, ty + 0.725f * R, true) + 0.35f * R;
+                    if (f.value == same) tag_at(ui, t("Current"), lx, ty + 0.725f * R, false);
+                    draw::paragraph(ui, Face::regular, t(f.hint), r.x + 0.9f * R, ty + 1.45f * R, tile_w - 1.8f * R, 0.8f * R,
+                                    0.8f * 1.45f * R, muted);
                     if (ui.item(Id("fmt") / f.value, r, sel ? kAutofocus : 0u, 0.75f * R)) {
                         to = f.value;
                         ui.play(hui::audio::Cue::select);
+                        if (steps_now.size() > 1) go_to(steps_now[1]);
                     }
                 }
                 y += h + 0.5f * R;
             }
-        }
-        y += section(ui, t("Options"), x + 0.1f * R, y, 0.6f);
-        if (target == "ffpfsc")
-            y += choice_row(ui, "cv:level", x, y, lw, t("Compression"), t("Level 9 matches PS5PKGTool byte for byte"),
-                            {t("1 \xC2\xB7 fastest"), t("6 \xC2\xB7 balanced"), t("9 \xC2\xB7 smallest")}, &level);
-        // PS4 packages are always written stored.
-        if (target == "fpkg" && !any_ps4(app))
-            y += choice_row(ui, "cv:pkgcomp", x, y, lw, t("Compression"),
-                            t("Executables stay uncompressed; matches ProsperoPkgTool byte for byte"),
-                            {t("Stored \xC2\xB7 fastest"), t("Kraken \xC2\xB7 smaller")}, &pkg_comp);
-        if (installable(app, target))
-            y += switch_row(ui, "cv:install", x, y, lw, t("Install when done"),
-                            t("The package goes to the console's installer and is deleted once the installer has read it; it "
-                              "needs room until then"),
-                            &install);
-        if (installable(app, target) && install) {
-            const float ix = x + 1.25f * R + 0.9f * R + 2.0f, iw = lw - (ix - x);
-            const float top = y;
-            y += switch_row(ui, "cv:keep", ix, y, iw, t("Keep the package"),
-                            t("Leaves the .pkg after installing, to install again or elsewhere"), &keep_pkg);
-            ui.list->rounded_rect({x + 1.25f * R, top, 2.0f, y - top - 0.5f * R}, 0.0f, line);
-        }
-        // Switching a packed game's packs keeps its image type (exFAT stays exFAT).
-        if (lz4_offered() && !zstd_on && !zunpack_on) {
-            bool changed = false;
-            y += switch_row(ui, "cv:lz4", x, y, lw, zpacked_all() ? t("Switch to LZ4 packs") : t("Pack into LZ4 asset packs"),
-                            zpacked_all() ? t("Replaces the zstd packs; both AMPR emulators read LZ4 packs") : t("For ampr_emu games"),
-                            &lz4, &changed);
-            if (changed && lz4 && zpacked_all() && !one_format().empty()) to = one_format();
-        }
-        if (lz4_on) {
-            const float ix = x + 1.25f * R + 0.9f * R + 2.0f, iw = lw - (ix - x);
-            const float top = y;
-            std::vector<std::string> profiles = {t("Automatic")};
-            for (const auto& p : app.info["lz4_profiles"].items()) profiles.push_back(p["label"].str());
-            profiles.push_back(t("Scan (untested)"));
-            y += choice_row(ui, "cv:profile", ix, y, iw, t("Profile"), t("Automatic uses a console-tested profile when one matches"),
-                            profiles, &profile);
-            y += choice_row(ui, "cv:lz4level", ix, y, iw, t("LZ4 level"), "",
-                            {t("1 \xC2\xB7 fast"), t("9 \xC2\xB7 default"), t("12 \xC2\xB7 smallest")}, &lz4_level);
-            const JsonValue& rt = app.info["lz4_runtime"];
-            if (rt.is_object() && !rt["present"].boolean())
-                y += draw::paragraph(ui, Face::regular,
-                                     t("No ampr_emu runtime yet: only games that ship it can be packed.") + " " +
-                                         t("Get it in Components"),
-                                     ix, y, iw, 0.88f * R, 0.88f * 1.45f * R, warn) + 0.5f * R;
-            else if (rt.is_object() && !rt["pinned"].boolean())
-                y += draw::paragraph(ui, Face::regular, t("The runtime file is not the pinned ampr_emu 0.4.2.1 build."), ix, y, iw,
-                                     0.88f * R, 0.88f * 1.45f * R, warn) + 0.5f * R;
-            ui.list->rounded_rect({x + 1.25f * R, top, 2.0f, y - top - 0.5f * R}, 0.0f, line);
-        }
-        if (zstd_offered(app) && !lz4_on && !unpack_on) {
-            bool changed = false;
-            y += switch_row(ui, "cv:zstd", x, y, lw, packed_all() ? t("Switch to zstd packs") : t("Pack into zstd packs"),
-                            packed_all() ? t("Replaces the LZ4 packs with smaller zstd ones; read only by ampr-emu-ng, which goes into the game")
-                                         : t("Smaller than LZ4 and faster to make; read only by ampr-emu-ng, which goes into the game"),
-                            &zstd, &changed);
-            if (changed && zstd && packed_all() && !one_format().empty()) to = one_format();
-        }
-        if (zstd_on) {
-            const float ix = x + 1.25f * R + 0.9f * R + 2.0f, iw = lw - (ix - x);
-            const float top = y;
-            y += choice_row(ui, "cv:zstdlevel", ix, y, iw, t("zstd level"), "",
-                            {t("1 \xC2\xB7 fastest"), t("5 \xC2\xB7 default"), t("19 \xC2\xB7 smallest")}, &zstd_level);
-            y += draw::paragraph(ui, Face::regular,
-                                 t("Turn off ShadowMount+'s \xE2\x80\x9Cupdate emulators\xE2\x80\x9D: it would swap ampr-emu-ng for "
-                                   "another emulator that can't read these packs."),
-                                 ix, y, iw, 0.88f * R, 0.88f * 1.45f * R, warn) + 0.5f * R;
-            ui.list->rounded_rect({x + 1.25f * R, top, 2.0f, y - top - 0.5f * R}, 0.0f, line);
-        }
-        if (zpacked_one && !lz4_on)
-            y += switch_row(ui, "cv:zunpack", x, y, lw, t("Unpack zstd packs"),
-                            t("Turns the packs back into ordinary files; ampr-emu-ng stays in fakelib"), &zunpack);
-        if (packed && !zstd_on)
-            y += switch_row(ui, "cv:unpack", x, y, lw, t("Unpack LZ4 asset packs"),
-                            t("Turns the packs back into ordinary files; ampr_emu's runtime stays in fakelib"), &unpack);
-        if (target == "ffpfsc" && (lz4_on || (packed_any() && !unpack_on && !zstd_on)))
-            y += draw::paragraph(ui, Face::regular,
-                                 (packed && !many() ? t("This game is already LZ4-packed.") + " " : std::string()) +
-                                     t("FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data."),
-                                 x, y, lw, 0.88f * R, 0.88f * 1.45f * R, warn) + 0.5f * R;
-        if (!ampr_hidden)
-            y += switch_row(ui, "cv:ampr", x, y, lw, t("Add the AMPR emulator when the game needs it"),
-                            t("Games that use the console's APR stop at start from an image or folder without it"), &ampr);
-        if (!any_shared() && !(install && installable(app, target)))
-            y += switch_row(ui, "cv:del", x, y, lw, many() ? t("Delete the sources when done") : t("Delete the source when done"),
-                            many()                                       ? t("Each one after its conversion succeeds")
-                            : entry.kind == "fpkg" || entry.kind == "ffpkg" ? t("Frees {size} after a successful conversion", {{"size", bytes(entry.size)}})
-                                                                         : t("Frees its space after a successful conversion"),
-                            &del);
-        if (del_on) {
-            const float ix = x + 1.25f * R + 0.9f * R + 2.0f;
-            const float top = y;
-            y += switch_row(ui, "cv:verify", ix, y, lw - (ix - x), t("Check the output first"),
-                            t("Compares every file before deleting; recommended"), &verify);
-            ui.list->rounded_rect({x + 1.25f * R, top, 2.0f, y - top - 0.5f * R}, 0.0f, line);
-        }
-        if (!hide_hidden) {
-            bool changed = false;
-            y += switch_row(ui, "cv:hide", x, y, lw, t("Hide the source from ShadowMount+"),
-                            t("Renames it to .name when done, so ShadowMount+ switches to the new image"), &hide, &changed);
-            if (changed) {
-                app.prefs.set("hideSource", hide);
-                app.save_prefs();
+            if (!same.empty() && same == target && !packs_change)
+                y += note(ui, t("This is the game's own format: only its asset packs can change (next step)."), x, y, w);
+        } else if (cur == "options") {
+            y += section(ui, t("Options for {format}", {{"format", format_label(target)}}), x + 0.1f * R, y, 0.2f);
+            if (target == "ffpfsc")
+                y += choice_row(ui, "cv:level", x, y, w, t("Compression"), t("Level 9 matches PS5PKGTool byte for byte"),
+                                {t("1 \xC2\xB7 fastest"), t("6 \xC2\xB7 balanced"), t("9 \xC2\xB7 smallest")}, &level);
+            // PS4 packages are always written stored.
+            if (target == "fpkg" && !any_ps4(app))
+                y += choice_row(ui, "cv:pkgcomp", x, y, w, t("Compression"),
+                                t("Executables stay uncompressed; matches ProsperoPkgTool byte for byte"),
+                                {t("Stored \xC2\xB7 fastest"), t("Kraken \xC2\xB7 smaller")}, &pkg_comp);
+            if (!pchoices.empty()) {
+                std::vector<std::string> labels;
+                int idx = 0;
+                for (std::size_t i = 0; i < pchoices.size(); ++i) {
+                    const std::string& p = pchoices[i];
+                    labels.push_back((p == "none" ? t("None") : p == "lz4" ? std::string("LZ4") : std::string("zstd")) +
+                                     (p == now ? " \xC2\xB7 " + t("as now") : std::string()));
+                    if (p == packs_now) idx = static_cast<int>(i);
+                }
+                const std::string hint =
+                    packs_now == "lz4" ? (now == "zstd" ? t("Replaces the zstd packs; both AMPR emulators read LZ4 packs")
+                                                        : t("For ampr_emu games; both AMPR emulators read them"))
+                    : packs_now == "zstd" ? (now == "lz4" ? t("Replaces the LZ4 packs with smaller zstd ones; read only by ampr-emu-ng, which goes into the game")
+                                                          : t("Smaller than LZ4 and faster to make; read only by ampr-emu-ng, which goes into the game"))
+                    : unpack_on  ? t("Turns the packs back into ordinary files; ampr_emu's runtime stays in fakelib")
+                    : zunpack_on ? t("Turns the packs back into ordinary files; ampr-emu-ng stays in fakelib")
+                                 : t("Big files that hold the game's small ones, read by an AMPR emulator");
+                bool changed = false;
+                y += choice_row(ui, "cv:packs", x, y, w, t("Asset packs"), hint, labels, &idx, &changed);
+                if (changed) packs_want = pchoices[static_cast<std::size_t>(std::clamp(idx, 0, static_cast<int>(pchoices.size()) - 1))];
             }
-        }
-        y += section(ui, t("Output"), x + 0.1f * R, y, 0.6f);
-        {
-            std::string label = many() ? t("Next to each source") : t("Next to the source");
-            if (!dest.empty()) {
-                label = app.shown_path(dest);
-                for (const auto& l : app.locations.items())
-                    if (l["path"].str() == dest) label = place_label(l["label"].str());
+            const float ix = x + 1.25f * R + 0.9f * R + 2.0f, iw = w - (ix - x);
+            if (lz4_on) {
+                const float top = y;
+                std::vector<std::string> profiles = {t("Automatic")};
+                for (const auto& p : app.info["lz4_profiles"].items()) profiles.push_back(p["label"].str());
+                profiles.push_back(t("Scan (untested)"));
+                y += choice_row(ui, "cv:profile", ix, y, iw, t("Profile"), t("Automatic uses a console-tested profile when one matches"),
+                                profiles, &profile);
+                y += choice_row(ui, "cv:lz4level", ix, y, iw, t("LZ4 level"), "",
+                                {t("1 \xC2\xB7 fast"), t("9 \xC2\xB7 default"), t("12 \xC2\xB7 smallest")}, &lz4_level);
+                const JsonValue& rt = app.info["lz4_runtime"];
+                if (rt.is_object() && !rt["present"].boolean())
+                    y += draw::paragraph(ui, Face::regular,
+                                         t("No ampr_emu runtime yet: only games that ship it can be packed.") + " " + t("Get it in Components"),
+                                         ix, y, iw, 0.88f * R, 0.88f * 1.45f * R, warn) + 0.5f * R;
+                else if (rt.is_object() && !rt["pinned"].boolean())
+                    y += draw::paragraph(ui, Face::regular, t("The runtime file is not the pinned ampr_emu 0.4.2.1 build."), ix, y, iw,
+                                         0.88f * R, 0.88f * 1.45f * R, warn) + 0.5f * R;
+                indent_line(ui, x, top, y);
             }
+            if (zstd_on) {
+                const float top = y;
+                y += choice_row(ui, "cv:zstdlevel", ix, y, iw, t("zstd level"), "",
+                                {t("1 \xC2\xB7 fastest"), t("5 \xC2\xB7 default"), t("19 \xC2\xB7 smallest")}, &zstd_level);
+                indent_line(ui, x, top, y);
+            }
+            if (packs_now == "zstd")
+                y += note(ui, t("Turn off ShadowMount+'s \xE2\x80\x9Cupdate emulators\xE2\x80\x9D: it would swap ampr-emu-ng for "
+                                "another emulator that can't read these packs."), x, y - 0.5f * R, w) + 0.5f * R;
+            if (target == "ffpfsc" && packs_now == "lz4")
+                y += note(ui, t("FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data."),
+                          x, y - 0.5f * R, w) + 0.5f * R;
+            // ampr_emu for games that use the console's APR (not packages: installed, they have the real one).
+            if (ampr_shown)
+                y += switch_row(ui, "cv:ampr", x, y, w, t("Add the AMPR emulator"),
+                                t("This game uses the console's APR: without an emulator it stops at start from an image or folder"), &ampr);
+        } else if (cur == "where") {
+            y += section(ui, t("Output"), x + 0.1f * R, y, 0.2f);
             bool pressed = false;
-            y += link_row(ui, "cv:dest", x, y, lw, t("Save to"), "", label, &pressed);
+            y += link_row(ui, "cv:dest", x, y, w, t("Save to"), room(app), dest_label(app), &pressed);
             if (pressed) pick_dest(app);
             if (!many()) {
-                y -= 1.1f * R + 0.72f * R * 1.45f + 0.45f * R;  // the field's label is the row above
-                field_row(ui, app, "cv:name", x, &y, lw, "", &name, plan.is_object() ? base(plan["output"].str()) : "");
+                y -= 0.5f * R;
+                field_row(ui, app, "cv:name", x, &y, w, t("Name"), &name, plan.is_object() ? base(plan["output"].str()) : "");
                 y += 0.5f * R;
             }
-        }
-        y += switch_row(ui, "cv:over", x, y, lw, t("Replace the output if it exists"), "", &over);
-        {
-            const auto choices = on_choices(app);
-            if (choices.size() > 1 && !any_shared()) {
+            y += switch_row(ui, "cv:over", x, y, w, t("Replace the output if it exists"), "", &over);
+            if (!where_hidden) {
                 std::vector<std::string> labels;
                 for (const auto& c : choices) labels.push_back(c.second);
-                y += choice_row(ui, "cv:on", x, y, lw, t("Convert on"),
-                                t("The engine that does the work; the source and the output can be on any paired engine"),
-                                labels, &where);
+                y += choice_row(ui, "cv:on", x, y, w, t("Convert on"),
+                                t("The engine that does the work; the source and the output can be on any paired engine"), labels, &where);
             }
-        }
-        const float left_bottom = y;
-        if (many()) {
-            y = std::max(left_bottom, many_side(ui, app, x + lw + gap, rw, target, ampr_hidden));
-        } else
-        // ---- right: the source and the output ----
-        {
-            const float sx = x + lw + gap, top = sheet.content_top();
-            const float px = sx + 1.1f * R, pw = rw - 2.2f * R;
-            float yy = top + 1.0f * R;
-            const Meta* m = app.meta(entry.path, entry.mtime, entry.size);
-            const Rect ic{px, yy, 3.6f * R, 3.6f * R};
-            const std::string kind = entry.kind == "folder" && !entry.game ? "folder" : entry.game ? "game" : entry.kind;
-            const std::uint32_t tex = m && m->icon ? app.icon(entry.path, entry.mtime) : 0;
-            // The panel goes under: drawn after with the height known? Draw a
-            // background first with last frame's height.
-            ui.list->bordered_rect({sx, top, rw, side_h}, 0.9f * R, side, 1.0f, line);
-            static const std::map<std::string, std::string> labels = {
-                {"fpkg", "PKG"}, {"exfat", "EXFAT"}, {"ffpfsc", "FFPFSC"}, {"ffpkg", "FFPKG"}, {"ffpfs", "FFPFS"}};
-            const auto lab = labels.find(entry.kind);
-            draw::ico(ui, ic, kind, entry.game ? t("GAME") : lab != labels.end() ? lab->second : "", tex);
-            const float hx = ic.x + ic.w + 0.9f * R, hw = pw - ic.w - 0.9f * R;
-            draw::text_fit(ui, Face::semibold, m && !m->title.empty() ? m->title : entry.name, hx,
-                           draw::baseline(ic.cy() - 0.7f * R, 1.05f * R), 1.05f * R, hw, style::text);
-            if (m) {
-                // The platform pill, then the file name under the title.
-                float px = draw::platform_pill(ui, m->platform, hx, ic.cy() + 0.75f * R);
-                if (px) px += 0.45f * R;
-                if (!m->title.empty())
-                    draw::text_fit(ui, Face::mono, entry.name, hx + px, draw::baseline(ic.cy() + 0.75f * R, 0.85f * R),
-                                   0.85f * R, hw - px, muted);
+        } else if (cur == "after") {
+            y += section(ui, t("When it's done"), x + 0.1f * R, y, 0.2f);
+            const float ix = x + 1.25f * R + 0.9f * R + 2.0f, iw = w - (ix - x);
+            if (installable(app))
+                y += switch_row(ui, "cv:install", x, y, w, t("Install when done"),
+                                t("The package goes to the console's installer and is deleted once the installer has read it; it "
+                                  "needs room until then"),
+                                &install);
+            if (installable(app) && install) {
+                const float top = y;
+                y += switch_row(ui, "cv:keep", ix, y, iw, t("Keep the package"),
+                                t("Leaves the .pkg after installing, to install again or elsewhere"), &keep_pkg);
+                indent_line(ui, x, top, y);
             }
-            yy += 3.6f * R + 0.6f * R;
-            std::vector<Fact> rows;
-            if (!problem.empty())
-                rows.push_back({t("Problem"), problem, "err"});
-            else if (!inspect.is_object())
-                rows.push_back({t("Reading"), "\xE2\x80\xA6", ""});
-            else {
-                rows.push_back({t("Format"), inspect["format"].str() + (packed ? " \xC2\xB7 " + t("LZ4-packed")
-                                                                        : zpacked_one ? " \xC2\xB7 " + t("zstd-packed")
-                                                                                      : ""), ""});
-                rows.push_back({t("Title ID"), inspect["title_id"].str().empty() ? "\xE2\x80\x94" : inspect["title_id"].str(), ""});
-                rows.push_back({t("Contents"), plural(inspect["files"].integer(), "{n} file", "{n} files") + " \xC2\xB7 " +
-                                                   bytes(inspect["bytes"].number()), ""});
-                rows.push_back({t("LZ4 profile"), inspect["lz4_profile"].str() == "scan" ? t("no tested profile")
-                                                                                        : inspect["lz4_profile"].str(), ""});
+            if (del_shown)
+                y += switch_row(ui, "cv:del", x, y, w, many() ? t("Delete the sources when done") : t("Delete the source when done"),
+                                many()                                          ? t("Each one after its conversion succeeds")
+                                : entry.kind == "fpkg" || entry.kind == "ffpkg" ? t("Frees {size} after a successful conversion", {{"size", bytes(entry.size)}})
+                                                                                : t("Frees its space after a successful conversion"),
+                                &del);
+            if (del_on) {
+                const float top = y;
+                y += switch_row(ui, "cv:verify", ix, y, iw, t("Check the output first"),
+                                t("Compares every file before deleting; recommended"), &verify);
+                indent_line(ui, x, top, y);
             }
-            yy += facts(ui, px, yy, pw, rows);
-            yy += 0.9f * R;
-            yy += section(ui, t("Output"), px + 0.1f * R, yy, 0.4f) - 0.2f * R;
-            if (plan.is_object()) {
-                const std::string out = plan["output"].str();
-                yy += draw::paragraph(ui, Face::mono, app.shown_path(out), px, yy, pw, 0.85f * R, 0.85f * 1.45f * R, style::text);
-                const JsonValue* r = app.root_of(out);
-                const double need = inspect["bytes"].number();
-                std::string room;
-                if (r)
-                    room = t("{size} free on {drive}", {{"size", bytes((*r)["free"].number())},
-                                                        {"drive", app.drive_name((*r)["root"].str())}}) +
-                           (need > 0 ? " \xC2\xB7 " + t("the game is {size} unpacked", {{"size", bytes(need)}}) : "");
-                else if (const JsonValue* srv = app.server_of(out))
-                    room = App::on_server_text(*srv);
-                yy += draw::paragraph(ui, Face::regular, room, px, yy, pw, 0.88f * R, 0.88f * 1.45f * R, muted);
-                if (!ampr_hidden && plan["ampr_needed"].boolean())
-                    yy += 0.5f * R + draw::paragraph(ui, Face::regular,
-                                                     ampr ? t("This game uses the console's APR and ships no emulator: ampr_emu goes into its fakelib.")
-                                                          : t("This game uses the console's APR and ships no emulator: without it, it will likely stop at start."),
-                                                     px, yy + 0.5f * R, pw, 0.88f * R, 0.88f * 1.45f * R, warn);
-                if (const long long n = static_cast<long long>(plan["unsigned_executables"].number()); n > 0)
-                    yy += 0.5f * R + draw::paragraph(ui, Face::regular,
-                                                     plural(n, "This game has {n} unsigned executable, so it would not start: it is fake-signed on the way.", "This game has {n} unsigned executables, so it would not start: they are fake-signed on the way."),
-                                                     px, yy + 0.5f * R, pw, 0.88f * R, 0.88f * 1.45f * R, warn);
-                std::string needs;
-                for (const auto& d : plan["needs"].items())
-                    needs += (needs.empty() ? "" : ", ") + t(d["label"].str()) + " (" + bytes(d["bytes"].number()) + ")";
-                if (!needs.empty())
-                    yy += 0.5f * R + draw::paragraph(ui, Face::regular,
-                                                     t("Needs {list}. You'll be asked to download it when you add this to the queue.",
-                                                       {{"list", needs}}),
-                                                     px, yy + 0.5f * R, pw, 0.88f * R, 0.88f * 1.45f * R, warn);
+            // ShadowMount+ never scans packages, so only images and folders need hiding.
+            if (!hide_hidden) {
+                bool changed = false;
+                y += switch_row(ui, "cv:hide", x, y, w, t("Hide the source from ShadowMount+"),
+                                t("Renames it to .name when done, so ShadowMount+ switches to the new image"), &hide, &changed);
+                if (changed) {
+                    app.prefs.set("hideSource", hide);
+                    app.save_prefs();
+                }
+            }
+        } else {
+            // Review: one line per step (✕ goes back to it); the source, or the games, on the right.
+            const float gap = 1.75f * R;
+            const float lw = (w - gap) * 1.25f / 2.25f, rw = w - gap - lw;
+            float ly = y + section(ui, t("Review"), x + 0.1f * R, y, 0.2f);
+            std::vector<std::string> opt;
+            static const int levels[] = {1, 6, 9}, lz4_levels[] = {1, 9, 12}, zstd_levels[] = {1, 5, 19};
+            if (target == "ffpfsc") opt.push_back(t("zlib level {n}", {{"n", std::to_string(levels[std::clamp(level, 0, 2)])}}));
+            if (target == "fpkg" && !any_ps4(app)) opt.push_back(pkg_comp == 1 ? t("Kraken") : t("Stored"));
+            if (packs_now == "lz4")
+                opt.push_back(now == "lz4" ? t("LZ4 packs kept") : t("LZ4 packs, level {n}", {{"n", std::to_string(lz4_levels[std::clamp(lz4_level, 0, 2)])}}));
+            if (packs_now == "zstd")
+                opt.push_back(now == "zstd" ? t("zstd packs kept") : t("zstd packs, level {n}", {{"n", std::to_string(zstd_levels[std::clamp(zstd_level, 0, 2)])}}));
+            if (unpack_on || zunpack_on) opt.push_back(t("Packs unpacked"));
+            if (ampr_shown) opt.push_back(ampr ? t("AMPR emulator added") : t("No AMPR emulator"));
+            std::vector<std::string> after;
+            if (installable(app) && install) after.push_back(keep_pkg ? t("Installed; the package is kept") : t("Installed, then the package is deleted"));
+            if (del_on) after.push_back(verify ? t("The output is checked, then the source is deleted") : t("The source is deleted"));
+            else if (!hide_hidden && hide) after.push_back(t("The source is hidden from ShadowMount+"));
+            if (after.empty()) after.push_back(many() ? t("The sources are kept") : t("The source is kept"));
+            auto join = [](const std::vector<std::string>& v) {
+                std::string o;
+                for (const auto& p : v) o += (o.empty() ? "" : " \xC2\xB7 ") + p;
+                return o;
+            };
+            const std::string engine = !where_hidden && where > 0 ? choices[static_cast<std::size_t>(std::clamp(where, 0, static_cast<int>(choices.size()) - 1))].second : "";
+            const bool out_known = many() ? !dest.empty() : plan.is_object();
+            const std::string out = many() || !plan.is_object() ? dest_label(app) : app.shown_path(plan["output"].str());
+            struct Line { std::string step, main, sub; bool mono; };
+            std::vector<Line> lines = {
+                {"format", format_label(target), format_hint(target), false},
+                {"options", opt.empty() ? t("Nothing to change") : join(opt), "", false},
+                {"where", out, (engine.empty() ? "" : t("Converted on {engine}", {{"engine", engine}}) + " \xC2\xB7 ") + room(app), out_known},
+                {"after", join(after), "", false},
+            };
+            for (const auto& ln : lines) {
+                if (std::find(steps_now.begin(), steps_now.end(), ln.step) == steps_now.end()) continue;
+                const float pad_x = 0.9f * R, pad_y = 0.7f * R, kw = 7.0f * R;
+                const float tw = lw - 2.0f * pad_x - kw - 2.0f * R;
+                const Face mf = ln.mono ? Face::mono : Face::regular;
+                const float mh = draw::paragraph_height(ui, mf, ln.main, tw, 1.0f * R, 1.45f * R);
+                const float sh = ln.sub.empty() ? 0.0f : draw::paragraph_height(ui, Face::regular, ln.sub, tw, 0.8f * R, 0.8f * 1.45f * R);
+                const Rect r{x, ly, lw, std::max(3.2f * R, mh + sh + 2.0f * pad_y + 2.0f)};
+                ui.list->bordered_rect(r, 0.75f * R, field, 1.0f, line);
+                draw::text(ui, Face::regular, step_label(ln.step), r.x + pad_x, draw::baseline(r.y + pad_y + 0.85f * R * 0.725f + 0.1f * R, 0.85f * R),
+                           0.85f * R, muted);
+                draw::paragraph(ui, mf, ln.main, r.x + pad_x + kw, r.y + pad_y, tw, 1.0f * R, 1.45f * R, style::text);
+                if (sh > 0) draw::paragraph(ui, Face::regular, ln.sub, r.x + pad_x + kw, r.y + pad_y + mh, tw, 0.8f * R, 0.8f * 1.45f * R, muted);
+                draw::chevron(ui, r.x + r.w - 0.9f * R - 0.55f * R, r.y + pad_y + 0.7f * R, 1.1f * R, 1,
+                              ui.focused(Id("sum") / ln.step) ? focus : dim);
+                if (ui.item(Id("sum") / ln.step, r, 0u, 0.75f * R)) go_to(ln.step);
+                ly += r.h + 0.5f * R;
+            }
+            // What the engine found.
+            if (ampr_shown)
+                ly += note(ui, many() ? (ampr ? t("Games that use the console's APR and ship no emulator get ampr_emu in their fakelib.")
+                                              : t("Some of these games use the console's APR and ship no emulator: without it, they will likely stop at start."))
+                                      : ampr ? t("This game uses the console's APR and ships no emulator: ampr_emu goes into its fakelib.")
+                                             : t("This game uses the console's APR and ships no emulator: without it, it will likely stop at start."),
+                           x, ly - 0.5f * R, lw);
+            if (many() && any_unsigned)
+                ly += note(ui, t("Some of these games have unsigned executables, so they would not start: they are fake-signed on the way."), x, ly, lw);
+            else if (const long long n = static_cast<long long>(plan["unsigned_executables"].number()); !many() && n > 0)
+                ly += note(ui, plural(n, "This game has {n} unsigned executable, so it would not start: it is fake-signed on the way.",
+                                      "This game has {n} unsigned executables, so it would not start: they are fake-signed on the way."), x, ly, lw);
+            std::string needs;
+            std::vector<std::string> ids;
+            for (const auto& [path, p] : plans)
+                for (const auto& d : p["needs"].items())
+                    if (std::find(ids.begin(), ids.end(), d["id"].str()) == ids.end()) {
+                        ids.push_back(d["id"].str());
+                        needs += (needs.empty() ? "" : ", ") + t(d["label"].str()) + " (" + bytes(d["bytes"].number()) + ")";
+                    }
+            if (!needs.empty())
+                ly += note(ui, t("Needs {list}. You'll be asked to download it when you add this to the queue.", {{"list", needs}}), x, ly, lw);
+            if (!many() && plan.is_object()) {
                 std::string warns;
                 for (const auto& wv : plan["warnings"].items()) warns += (warns.empty() ? "" : " ") + t_msg(wv.str());
-                if (!warns.empty())
-                    yy += 0.5f * R + draw::paragraph(ui, Face::regular, warns, px, yy + 0.5f * R, pw, 0.88f * R,
-                                                     0.88f * 1.45f * R, warn);
+                ly += note(ui, warns, x, ly, lw);
             }
-            side_h = yy + 1.0f * R - top;
-            y = std::max(left_bottom, top + side_h);
+            const float ry = many() ? many_side(ui, app, x + lw + gap, rw, y, target) : source_side(ui, app, x + lw + gap, rw, y);
+            y = std::max(ly, ry);
         }
-        sheet.end_body(ui, y);
-        if (sheet.button(ui, "cv:go", t("Add to queue"), draw::Button::primary, busy || !plan_ready || !problem.empty()))
-            go(app);
-        if (sheet.button(ui, "cv:cancel", t("Cancel"), draw::Button::normal)) app.close(this);
-        std::string foot = plan_err;
-        bool foot_err = !plan_err.empty() || msg_err;
+        sheet.end_body(ui, std::max(y, body_top + 22.0f * R));
+        const bool can_go = !busy && plan_ready && problem.empty();
+        if (last) {
+            if (sheet.button(ui, "cv:go", t("Add to queue"), draw::Button::primary, !can_go, kAutofocus)) go(app);
+        } else {
+            if (sheet.button(ui, "cv:next", t("Next"), draw::Button::primary, false, at_now > 0 ? kAutofocus : 0u)) move(1);
+            if (sheet.button(ui, "cv:go", t("Add to queue"), draw::Button::normal, !can_go)) go(app);
+        }
+        if (at_now == 0) {
+            if (sheet.button(ui, "cv:cancel", t("Cancel"), draw::Button::normal)) app.close(this);
+        } else if (sheet.button(ui, "cv:back", t("Back"), draw::Button::normal)) {
+            move(-1);
+        }
+        std::string foot = !nothing.empty() ? nothing : plan_key == key_now ? plan_err : std::string();
+        bool foot_err = !foot.empty() || msg_err;
         if (foot.empty()) foot = msg;
         if (foot.empty() && waiting && !plan_ready && waited >= 2.0f) {
             const std::string n = std::to_string(static_cast<int>(waited));
@@ -1429,19 +1563,57 @@ public:
     }
     float side_h = 10.0f * R;
 
+    // One game: what it is. Returns the panel's bottom.
+    float source_side(Ui& ui, App& app, float sx, float rw, float top) {
+        const float px = sx + 1.1f * R, pw = rw - 2.2f * R;
+        float yy = top + 1.0f * R;
+        const Meta* m = app.meta(entry.path, entry.mtime, entry.size);
+        const Rect ic{px, yy, 3.6f * R, 3.6f * R};
+        const std::string kind = entry.kind == "folder" && !entry.game ? "folder" : entry.game ? "game" : entry.kind;
+        const std::uint32_t tex = m && m->icon ? app.icon(entry.path, entry.mtime) : 0;
+        // The panel goes under: drawn first with last frame's height.
+        ui.list->bordered_rect({sx, top, rw, side_h}, 0.9f * R, side, 1.0f, line);
+        static const std::map<std::string, std::string> labels = {
+            {"fpkg", "PKG"}, {"exfat", "EXFAT"}, {"ffpfsc", "FFPFSC"}, {"ffpkg", "FFPKG"}, {"ffpfs", "FFPFS"}};
+        const auto lab = labels.find(entry.kind);
+        draw::ico(ui, ic, kind, entry.game ? t("GAME") : lab != labels.end() ? lab->second : "", tex);
+        const float hx = ic.x + ic.w + 0.9f * R, hw = pw - ic.w - 0.9f * R;
+        draw::text_fit(ui, Face::semibold, m && !m->title.empty() ? m->title : entry.name, hx,
+                       draw::baseline(ic.cy() - 0.7f * R, 1.05f * R), 1.05f * R, hw, style::text);
+        if (m) {
+            // The platform pill, then the file name under the title.
+            float ppx = draw::platform_pill(ui, m->platform, hx, ic.cy() + 0.75f * R);
+            if (ppx) ppx += 0.45f * R;
+            if (!m->title.empty())
+                draw::text_fit(ui, Face::mono, entry.name, hx + ppx, draw::baseline(ic.cy() + 0.75f * R, 0.85f * R), 0.85f * R, hw - ppx, muted);
+        }
+        yy += 3.6f * R + 0.6f * R;
+        std::vector<Fact> rows;
+        if (!problem.empty())
+            rows.push_back({t("Problem"), problem, "err"});
+        else if (!inspect.is_object())
+            rows.push_back({t("Reading"), "\xE2\x80\xA6", ""});
+        else {
+            rows.push_back({t("Format"), inspect["format"].str() + (inspect["lz4_packed"].boolean()    ? " \xC2\xB7 " + t("LZ4-packed")
+                                                                   : inspect["zstd_packed"].boolean() ? " \xC2\xB7 " + t("zstd-packed")
+                                                                                                      : ""), ""});
+            rows.push_back({t("Title ID"), inspect["title_id"].str().empty() ? "\xE2\x80\x94" : inspect["title_id"].str(), ""});
+            rows.push_back({t("Contents"), plural(inspect["files"].integer(), "{n} file", "{n} files") + " \xC2\xB7 " +
+                                               bytes(inspect["bytes"].number()), ""});
+        }
+        yy += facts(ui, px, yy, pw, rows);
+        side_h = yy + 1.0f * R - top;
+        return top + side_h;
+    }
+
     // Several games: what each one becomes, or why it is left out. Returns the panel's bottom.
-    float many_side(Ui& ui, App& app, float sx, float rw, const std::string& target, bool ampr_hidden) {
-        const float top = sheet.content_top();
+    float many_side(Ui& ui, App& app, float sx, float rw, float top, const std::string& target) {
         const float px = sx + 1.1f * R, pw = rw - 2.2f * R;
         ui.list->bordered_rect({sx, top, rw, side_h}, 0.9f * R, side, 1.0f, line);
         float yy = top + 0.4f * R;
         yy += section(ui, plural(static_cast<long long>(entries.size()), "{n} game", "{n} games"), px + 0.1f * R, yy, 0.4f);
-        std::string label = target;
-        for (const auto& f : kFormats)
-            if (target == f.value) label = f.label;
+        const std::string label = format_label(target);
         const std::vector<Entry> jobs = work(app);
-        double need = 0;
-        bool any_ampr = false, any_unsigned = false;
         auto row = [&](const Entry& e, bool left_out) {
             const Meta* m = app.meta(e.path, e.mtime, e.size);
             draw::hline(ui, px, yy, pw, line);
@@ -1474,71 +1646,48 @@ public:
                 for (const auto& wv : pl->second["warnings"].items()) warns += (warns.empty() ? "" : " ") + t_msg(wv.str());
                 if (!warns.empty())
                     yy += draw::paragraph(ui, Face::regular, warns, px, yy, pw, 0.8f * R, 0.8f * 1.45f * R, warn) + 0.3f * R;
-                any_ampr = any_ampr || pl->second["ampr_needed"].boolean();
-                any_unsigned = any_unsigned || pl->second["unsigned_executables"].number() > 0;
             }
-            auto in = inspects.find(e.path);
-            if (!left_out && in != inspects.end()) need += in->second["bytes"].number();
         };
         for (const auto& e : jobs) row(e, false);
         for (const auto& e : entries)
             if (std::find_if(jobs.begin(), jobs.end(), [&](const Entry& j) { return j.path == e.path; }) == jobs.end()) row(e, true);
-        // Room where the outputs go.
-        std::string room;
-        if (!plans.empty()) {
-            const std::string out = plans.begin()->second["output"].str();
-            if (const JsonValue* r = app.root_of(out))
-                room = t("{size} free on {drive}", {{"size", bytes((*r)["free"].number())}, {"drive", app.drive_name((*r)["root"].str())}}) +
-                       (need > 0 ? " \xC2\xB7 " + t("the games are {size} unpacked", {{"size", bytes(need)}}) : "");
-            else if (const JsonValue* srv = app.server_of(out))
-                room = App::on_server_text(*srv);
-        }
-        if (!room.empty()) yy += 0.3f * R + draw::paragraph(ui, Face::regular, room, px, yy + 0.3f * R, pw, 0.88f * R, 0.88f * 1.45f * R, muted);
-        if (!ampr_hidden && any_ampr)
-            yy += 0.5f * R + draw::paragraph(ui, Face::regular,
-                                             ampr ? t("Games that use the console's APR and ship no emulator get ampr_emu in their fakelib.")
-                                                  : t("Some of these games use the console's APR and ship no emulator: without it, they will likely stop at start."),
-                                             px, yy + 0.5f * R, pw, 0.88f * R, 0.88f * 1.45f * R, warn);
-        if (any_unsigned)
-            yy += 0.5f * R + draw::paragraph(ui, Face::regular,
-                                             t("Some of these games have unsigned executables, so they would not start: they are fake-signed on the way."),
-                                             px, yy + 0.5f * R, pw, 0.88f * R, 0.88f * 1.45f * R, warn);
-        std::string needs;
-        std::vector<std::string> ids;
-        for (const auto& [path, p] : plans)
-            for (const auto& d : p["needs"].items())
-                if (std::find(ids.begin(), ids.end(), d["id"].str()) == ids.end()) {
-                    ids.push_back(d["id"].str());
-                    needs += (needs.empty() ? "" : ", ") + t(d["label"].str()) + " (" + bytes(d["bytes"].number()) + ")";
-                }
-        if (!needs.empty())
-            yy += 0.5f * R + draw::paragraph(ui, Face::regular,
-                                             t("Needs {list}. You'll be asked to download it when you add this to the queue.", {{"list", needs}}),
-                                             px, yy + 0.5f * R, pw, 0.88f * R, 0.88f * 1.45f * R, warn);
-        side_h = yy + 1.0f * R - top;
+        side_h = yy + 0.6f * R - top;
         return top + side_h;
     }
 
     std::vector<Hint> hints(App&) override {
-        return {{Glyph::dpad, t("Move, change")}, {Glyph::cross, t("Choose")}, {Glyph::circle, t("Cancel")},
+        return {{Glyph::dpad, t("Move, change")}, {Glyph::cross, t("Choose")}, {Glyph::circle, t("Back")},
                 {Glyph::square, t("Add to queue")}};
     }
-    void square(App& app) override { go(app); }
+    // ○ goes a step back; on the first step it closes.
+    void back(App& app) override {
+        if (at() == 0) app.close(this);
+        else move(-1);
+    }
+    // □ goes to Review, and queues from there.
+    void square(App& app) override {
+        if (step != "review") go_to("review");
+        else go(app);
+    }
 };
 
 }  // namespace
 
 void App::open_convert(const Entry& e, bool install) { open_convert(std::vector<Entry>{e}, install); }
 
+// `install`: opened as "Install…" (FPKG, installed when done): it opens on Review.
 void App::open_convert(const std::vector<Entry>& list, bool install) {
     if (list.empty()) return;
     const Entry& e = list.front();
     auto c = std::make_unique<Convert>();
     c->entry = e;
     c->entries = list;
-    const bool all_ffpfsc = std::all_of(list.begin(), list.end(), [](const Entry& x) { return x.kind == "ffpfsc"; });
-    c->to = install ? "fpkg" : all_ffpfsc ? "ffpkg" : "ffpfsc";
+    // ShadowMount+'s default, unless the games already are FFPKG.
+    const bool all_ffpkg = std::all_of(list.begin(), list.end(), [](const Entry& x) { return x.kind == "ffpkg"; });
+    c->to = install ? "fpkg" : all_ffpkg ? "exfat" : "ffpkg";
     c->install = install;
+    c->installing = install;
+    if (install) c->step = "review";
     std::string d = prefs["dest"].str();
     // A shared file has no folder on the console: it goes to a place here.
     if (e.shared && d.empty() && !locations.items().empty()) d = locations.items()[0]["path"].str();

@@ -250,7 +250,7 @@ http.createServer((req, res) => {
     if (p === "/api/inspect") {
       const ip = q("path"), t = titleOf(ip), kind = (Object.values(DIRS).flat().find((e) => e.path === ip) || {}).kind;
       const fmt = { exfat: "exFAT", ffpkg: "FFPKG (UFS2)", ffpfsc: "FFPFSC", ffpfs: "FFPFS (PFS)", fpkg: "FPKG", folder: "folder" }[kind] || "folder";
-      return send(res, 200, { path: ip, format: fmt, title_id: t ? GAMES[t][0] : "", files: 3184, bytes: 61.9 * GB, lz4_packed: false, lz4_profile: "scan", engine: "" });
+      return send(res, 200, { path: ip, format: fmt, title_id: t ? GAMES[t][0] : "", files: 3184, bytes: 61.9 * GB, lz4_packed: PACKS[ip] === "lz4", zstd_packed: PACKS[ip] === "zstd", lz4_profile: "scan", engine: "" });
     }
     // Rename formats: a rough stand-in for name_formats.cpp (fields, :upper/:lower, < >, spaces and letters).
     if (p === "/api/names" && req.method === "POST") { NAMES = json.reset ? DEFAULT_NAMES.slice() : json.formats; return send(res, 200, namesJson()); }

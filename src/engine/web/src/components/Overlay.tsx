@@ -17,6 +17,8 @@ export interface Overlay {
   render: () => VNode;
   hints?: Hint[];
   onSquare?: () => void;
+  // ○ inside the dialog (true: handled, the dialog stays open).
+  onBack?: () => boolean;
   back: Element | null; // where the focus was before it opened
   result: unknown;
   resolve: (v: any) => void;
@@ -27,10 +29,10 @@ export const overlays = signal<Overlay[]>([]);
 export const topOverlay = (): Overlay | null => { const o = overlays.value; return o.length ? o[o.length - 1] : null; };
 let ids = 0;
 
-export function openOverlay<T = unknown>(render: () => VNode, opts?: { hints?: Hint[]; onSquare?: () => void }): Promise<T | null> {
+export function openOverlay<T = unknown>(render: () => VNode, opts?: { hints?: Hint[]; onSquare?: () => void; onBack?: () => boolean }): Promise<T | null> {
   let resolve!: (v: T | null) => void;
   const p = new Promise<T | null>((res) => { resolve = res; });
-  const o: Overlay = { id: ++ids, render, hints: opts && opts.hints, onSquare: opts && opts.onSquare, back: document.activeElement, result: null, resolve };
+  const o: Overlay = { id: ++ids, render, hints: opts && opts.hints, onSquare: opts && opts.onSquare, onBack: opts && opts.onBack, back: document.activeElement, result: null, resolve };
   overlays.value = overlays.value.concat(o);
   pushNav({ overlay: true, view: tab.value, path: cwd.value });
   setTimeout(() => focusFirst(), 0);
@@ -73,11 +75,12 @@ export function Overlays() {
   );
 }
 
-export function Sheet(props: { title?: string; sub?: string; cls?: string; foot?: ComponentChildren; children?: ComponentChildren }) {
+export function Sheet(props: { title?: string; sub?: string; cls?: string; top?: ComponentChildren; foot?: ComponentChildren; children?: ComponentChildren }) {
   return (
     <div class={"sheet " + (props.cls || "")}>
       {props.title ? <div class="sh-head">{props.title}</div> : null}
       {props.sub ? <div class="sh-sub mono">{props.sub}</div> : null}
+      {props.top || null}
       <div class="sh-body scroll">{props.children}</div>
       {props.foot ? <div class="sh-foot">{props.foot}</div> : null}
     </div>

@@ -98,7 +98,7 @@ ou **PS4** (noire).
   identiques à l'octet à son `ampr_pack.py`, avec les profils de jeux de
   PS5-LZ4-Compression.
 - **Paquets zstd** pour [ampr-emu-ng](https://github.com/quer3q/ampr-emu-ng), de
-  quer3q (`--zstd`, ou « Empaqueter en paquets zstd » lors d'une conversion),
+  quer3q (`--zstd`, ou **Paquets de ressources** → zstd dans Convertir),
   identiques à l'octet à ceux de
   [ps5-dump-forge](https://github.com/quer3q/ps5-dump-forge) : plus petits que
   LZ4 et plus rapides à produire (un ensemble de 26 Gio de fichiers de jeu est
@@ -107,7 +107,7 @@ ou **PS4** (noire).
   l'option « update emulators » de ShadowMount+ pour qu'il ne soit pas remplacé
   par un émulateur incapable de les lire. Niveaux 1, 5 (par défaut) et 19.
   Essayé sur une PS5. Un jeu empaqueté peut passer des paquets LZ4 aux paquets
-  zstd dans Convertir (« Passer aux paquets zstd »), les anciens paquets étant
+  zstd dans Convertir (**Paquets de ressources**), les anciens paquets étant
   décodés directement dans les nouveaux.
 - **Émulateur AMPR :** les jeux qui utilisent le lecteur de fichiers APR de la
   console ont besoin du `libSceAmpr.sprx` d'un émulateur pour démarrer depuis
@@ -163,18 +163,22 @@ moteur de sa propre version depuis la version publiée sur GitHub, vérifié ave
 3. Dans **Fichiers**, choisissez un jeu sur le stockage interne, sur USB, sur un
    serveur réseau (SMB, NFS, WebDAV ou FTP) ou sur le disque d'un moteur associé
    (une pastille distingue les jeux PS5 et PS4), puis
-   **Convertir**, **Installer** (paquets), **Copier** ou **Déplacer**. La
-   conversion d'un jeu PS5 en paquet peut le confier à l'installateur de la
-   console à la fin (**Installer à la fin**) ; le paquet est alors supprimé une
-   fois lu par l'installateur, sauf si **Garder le paquet** est activé : il
-   faut donc de la place jusque-là.
+   **Convertir**, **Installer** (paquets), **Copier** ou **Déplacer**.
+   Convertir procède étape par étape : **Format**, **Options**, **Où**,
+   **Ensuite**, puis **Récapitulatif**, où ✕ sur une ligne ramène à cette
+   étape ; ✕ sur **Suivant** garde une étape telle quelle, ○ revient d'une
+   étape et □ ajoute à la file depuis n'importe quelle étape. La conversion
+   d'un jeu PS5 en paquet peut le confier à l'installateur de la console à la
+   fin (**Installer à la fin**) ; le paquet est alors supprimé une fois lu par
+   l'installateur, sauf si **Garder le paquet** est activé : il faut donc de
+   la place jusque-là.
 4. Les tâches s'exécutent une à la fois dans **File** : pause, reprise (les
    longues tâches repartent d'un point de reprise), réordonnancement,
    annulation. Une notification vous prévient quand l'une d'elles se termine.
 
 ![La page d'Alembic dans le navigateur de la PS5 : une bibliothèque de jeux en plusieurs formats, avec à gauche des disques, un partage NAS, un export NFS, un serveur FTPS et un PC associé](docs/screenshots/files.png)
 
-![La fenêtre Convertir : formats cibles, niveau de compression, les interrupteurs des paquets LZ4 et zstd, celui de l'émulateur AMPR, et le chemin de sortie sur un PC associé](docs/screenshots/convert.png)
+![L'étape Récapitulatif de la fenêtre Convertir : le format, les options, le chemin de sortie sur un PC associé et ce qui se passe ensuite, à côté des détails du jeu](docs/screenshots/convert.png)
 
 ![La file : une conversion en cours avec sa vitesse et le temps restant, une en pause qui reprend à son point de reprise, une copie vers un partage NAS, et une tâche qui tourne sur le PC associé](docs/screenshots/queue.png)
 
@@ -396,8 +400,8 @@ cet ordinateur ; les autres moteurs ne peuvent alors plus l'atteindre.
   directement sous `/data` (ou `/user`), où ShadowMount+ lit l'exFAT le plus
   vite.
 - **Peu de place :** deux moyens, qui peuvent se combiner.
-  - **Les paquets zstd** (un interrupteur dans Convertir) réduisent les
-    fichiers du jeu et gardent une image rapide à lire : 26 Gio de fichiers de
+  - **Les paquets zstd** (**Paquets de ressources** dans Convertir)
+    réduisent les fichiers du jeu et gardent une image rapide à lire : 26 Gio de fichiers de
     jeu sont devenus 11,1 Gio, environ un tiers de moins qu'avec les paquets
     LZ4. Le jeu a alors besoin d'ampr-emu-ng, et le réglage « update
     emulators » de ShadowMount+ doit être désactivé, sinon il remet ampr_emu.

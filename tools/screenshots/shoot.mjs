@@ -57,10 +57,12 @@ await sleep(1500);
 await down(); await key("ArrowUp", "ArrowUp", 38);
 await shot("files");
 
-// 2b. Convert: a package on the paired PC, opened from Files.
+// 2b. Convert: a package on the paired PC, opened from Files, on its Review step.
 await run(`__alembic.browse(${JSON.stringify("/peer/6f3c9a1e24b74d0e8c51a7f2d9e0b318/D:/Games")})`);
 await sleep(1500);
 await run(`__alembic.openConvert(__alembic.state.listing.entries.find((e) => e.name === "Glass Meridian.pkg"))`);
+await sleep(1500);
+await key("F2", "F2", 113); // □: straight to Review
 await sleep(1500);
 await shot("convert");
 await run(`__alembic.closeOverlay(null)`);

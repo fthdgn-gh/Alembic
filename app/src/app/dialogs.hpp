@@ -32,6 +32,8 @@ public:
     void message(Ui& ui, const std::string& text, bool error);
     void end(Ui& ui);
     const Rect& rect() const { return rect_; }
+    // Drawn after the title, smaller and muted (Convert: the game's name).
+    std::string title_aside;
 
 private:
     Rect rect_;

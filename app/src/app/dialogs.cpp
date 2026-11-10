@@ -36,8 +36,11 @@ void Sheet::begin(Ui& ui, const std::string& title, const std::string& sub, Size
     float y = rect_.y;
     if (!title.empty()) {
         y += 1.2f * R;
-        draw::text_fit(ui, Face::semibold, title, rect_.x + 1.5f * R, draw::baseline(y + 1.3f * R * 0.725f, 1.3f * R),
-                       1.3f * R, rect_.w - 3.0f * R, style::text);
+        const float bl = draw::baseline(y + 1.3f * R * 0.725f, 1.3f * R);
+        const float tw = draw::text_fit(ui, Face::semibold, title, rect_.x + 1.5f * R, bl, 1.3f * R, rect_.w - 3.0f * R, style::text);
+        if (!title_aside.empty())
+            draw::text_fit(ui, Face::regular, title_aside, rect_.x + 1.5f * R + tw + 0.8f * R, bl, 1.0f * R,
+                           rect_.w - 3.8f * R - tw, muted);
         y += 1.3f * R * 1.45f + 0.2f * R;
     }
     if (!sub.empty()) {
