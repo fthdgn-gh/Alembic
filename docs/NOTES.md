@@ -3800,6 +3800,35 @@ with `fself::make_prospero_fself`, ported from ProsperoPkgTool's
 - The stand-in engine (`tools/screenshots/mock.mjs`) now reports packed
   games in `/api/inspect`; `shoot.sh convert` shows the Review step.
 
+### 2026-11-11: PS5 updates, researched and shelved
+
+- **Fake-signed (debug) update packages** (`\x7FLIH`): a 64 KiB header,
+  then the patched package's FIH block, the outer blocks the update
+  changed, its CNT and a zip of PlayGo/relocation tables. FIH and CNT
+  describe the whole patched package (`imagedigs` has a SHA3 per outer
+  block); every block not carried is the base package's. So merging needs
+  the exact base FPKG, each borrowed block checked against `imagedigs`; a
+  dump or image cannot stand in for it. ps5-dump-forge (`lih.rs`, GPL-3.0)
+  reads them (layout measured on one real update) but never applied one to
+  a base. Blocked: no sample pair (base FPKG + its update FPKG); owner
+  knows of no source. Shelved (owner).
+- **Official updates** (prosperopatches.com / orbispatches.com list
+  them on Sony's servers): per version, numbered pieces (joined in manifest
+  order, one package) plus "DP" (the site's code: `packages.delta`), "SC"
+  and "CRC" (a CRC-32C per 64 KiB block, for checking only). A PS5 update
+  is the whole game at that version. They are retail: encrypted with a key
+  the console gets through the game's licence, so a PC cannot open them.
+  The sites' file links sit behind a Cloudflare check; not scraped.
+- **knutwurst/ps5-patchdl** (GPL-3.0, `.refs/ps5-patchdl`): downloads
+  only the pieces from Sony's manifest (`originalFileSize`, `pieces[]`
+  with `url`, `fileOffset`, `fileSize`, `hashValue`) and hands the package
+  to `libSceAppInstUtil` on the console; no decryption, no keys. Works only
+  for games installed from disc or the Store, so not for images: not
+  Alembic's job.
+- Possible without packages: ShadowMount+ lays a game's backport folder
+  over its mounted image, so loose update files could ride on an image.
+  Untried.
+
 ## Next session
 
 **Settled (owner, 2026-10-22):**
@@ -3809,21 +3838,21 @@ with `fself::make_prospero_fself`, ported from ProsperoPkgTool's
   without compression takes about 30 min on the console, fine for now.
 - LZ4 packs stay as they are.
 
+**Settled (owner, 2026-11-11):**
+- ✓ A zstd-packed game starts on the console.
+- Installing an Alembic-made FPKG: the owner's console cannot install
+  FPKGs, so it stays untested; no issues reported by users either. Left
+  as it is.
+- Network servers (item 8) set aside: not the main use for users.
+- PS5 updates shelved (log entry "PS5 updates, researched and shelved"):
+  official updates are retail and need the console's licence; merging
+  works only with fake-signed update packages, and we have none.
+
 **Open:**
-- **Where we left off (2026-11-03, after the zstd / ampr-emu-ng work; not
-  released, still 0.4.2):** console-tested so far: a level-5 zstd
-  exFAT -> exFAT of a 28 GB game on the console (12 min, 28.2 GB of files
-  into 11.9 GB of packs); a PC engine packing a 160 GB game for the
-  console (pass 1 ~180 MB/s on the Mac; the image went to the console at
-  ~37 MB/s over the network, cancelled by the owner partway). Still to try
-  on the console: a zstd-packed game starting through ShadowMount+ with
-  "update emulators" off; switching a game's emulator; switching packs in
-  Convert; Hide / Unhide; an emulator auto-update (needs a new upstream
-  release). Idea raised and dropped (owner, 2026-11-03): build on the PC's
-  own disk, then move; writing straight to the console while converting
-  stays. Plan: rerun the 160 GB PC-engine conversion to the console (we
-  watch it), owner tests it on the console, and if it starts, release.
-  Before a release: README screenshots for the new options, version bump.
+- **Where we left off (2026-11-11, release 0.6.3):** nothing half-done.
+  Still to try on the console: switching a game's emulator, switching
+  packs in Convert, Hide / Unhide, an emulator auto-update (needs a new
+  upstream release). Next candidate: PS4 updates (item 6).
 - **Console app (0.3.0):** ✓ first console run (owner, 2026-10-25): the
   app starts, reaches the engines, ran a PC-engine conversion to the
   console, stopped the engine and (reopened) started it through the ELF
