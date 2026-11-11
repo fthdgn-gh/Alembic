@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (2026-11-10, release 0.6.3)
+## Where we are (2026-11-11, release 0.6.4)
 
 ### What works
 
@@ -80,6 +80,11 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   main and wait for CI before tagging. Catalog PR from the fork branch
   update-alembic-0.5.0: darkxex/ps5-homebrew-catalog#1084 (opened by the
   owner: auto mode refuses it).
+- **In 0.6.4 (2026-11-11):** Update AMPR emulators asks the engine for
+  one plan per emulator, not per image (each plan opens the game and
+  hashes the emulator files: many images kept the engine busy, the app
+  sent them all at once); a run of AMPR emulator jobs gets one
+  notification (count, failures apart) once none is queued.
 - **In 0.6.3 (2026-11-10):** Convert step by step (Format with the asset
   packs, Options, Where, Afterwards, Review; ✕ Next, ○ back, □ Review),
   one Asset packs choice instead of four switches, FFPKG the recommended
