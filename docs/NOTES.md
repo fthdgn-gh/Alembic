@@ -84,7 +84,12 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   one plan per emulator, not per image (each plan opens the game and
   hashes the emulator files: many images kept the engine busy, the app
   sent them all at once); a run of AMPR emulator jobs gets one
-  notification (count, failures apart) once none is queued.
+  notification (count, failures apart) once none is queued. Not tried on
+  the console (the owner had already updated every game's emulator; to be
+  seen at the next emulator release). Main's CI green before the tag;
+  published 2026-11-11, every job green; notes cumulative. Catalog PR from
+  the fork branch update-alembic-0.6.4: darkxex/ps5-homebrew-catalog#1261
+  (opened by the owner: auto mode refuses it).
 - **In 0.6.3 (2026-11-10):** Convert step by step (Format with the asset
   packs, Options, Where, Afterwards, Review; ✕ Next, ○ back, □ Review),
   one Asset packs choice instead of four switches, FFPKG the recommended
