@@ -29,9 +29,15 @@ export function targetName(i: ImageItem) {
 const specOf = (i: ImageItem) => ({ kind: "ampr_emu", input: i.path, ampr_emu: i.ampr!.status === "missing" ? "auto" : "replace", emulator: i.ampr!.target });
 
 async function queue(list: ImageItem[]): Promise<number> {
-  // Emulators that aren't downloaded yet: one question for all of them.
+  // Emulators that aren't downloaded yet: one question for all of them. What
+  // a job needs depends only on its emulator, so one plan each (a plan reads
+  // the game; one per image kept the engine busy for long).
   const needs: Dep[] = [];
+  const asked: string[] = [];
   for (const i of list) {
+    const target = i.ampr!.target || "";
+    if (asked.indexOf(target) >= 0) continue;
+    asked.push(target);
     try { for (const d of (await api<Plan>("POST", "/api/plan", specOf(i))).needs || []) if (!needs.some((y) => y.id === d.id)) needs.push(d); }
     catch (e) { /* the job says why */ }
   }

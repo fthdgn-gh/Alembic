@@ -439,11 +439,23 @@ private:
 
     void finished(const Job& job) {
         std::string name = job.spec.input.substr(job.spec.input.rfind('/') + 1);
+        // AMPR emulator jobs come in runs (Update AMPR emulators): one
+        // notification for the run, once no other one is queued.
+        if (job.spec.kind == "ampr_emu" && (job.state == JobState::done || job.state == JobState::failed)) {
+            {
+                std::lock_guard<std::mutex> lock(ampr_run_mutex_);
+                AmprRun::Part& part = job.state == JobState::done ? ampr_run_.done : ampr_run_.failed;
+                if (part.n++ == 0) {
+                    part.name = name;
+                    part.error = job.error;
+                }
+            }
+            return ampr_run_over();
+        }
         switch (job.state) {
         case JobState::done:
             platform::notify(l10n::t(job.spec.kind == "copy" ? "Copied {name}" : job.spec.kind == "move" ? "Moved {name}"
-                                     : job.spec.kind == "install" ? "Installing {name}"
-                                     : job.spec.kind == "ampr_emu" ? "Added the AMPR emulator to {name}" : "Converted {name}",
+                                     : job.spec.kind == "install" ? "Installing {name}" : "Converted {name}",
                                      {{"name", name}}));
             break;
         case JobState::failed:
@@ -451,6 +463,24 @@ private:
             break;
         default: break;
         }
+    }
+
+    // The notification of a run of AMPR emulator jobs, once none is queued
+    // any more (also after a cancel or pause, which can end a run).
+    void ampr_run_over() {
+        for (const Job& j : queue_.list())
+            if (j.spec.kind == "ampr_emu" && j.state == JobState::queued) return;
+        AmprRun run;
+        {
+            std::lock_guard<std::mutex> lock(ampr_run_mutex_);
+            std::swap(run, ampr_run_);
+        }
+        if (run.done.n == 1) platform::notify(l10n::t("Added the AMPR emulator to {name}", {{"name", run.done.name}}));
+        if (run.done.n > 1) platform::notify(l10n::t("Added the AMPR emulator to {n} games", {{"n", std::to_string(run.done.n)}}));
+        if (run.failed.n == 1)
+            platform::notify(l10n::t("Failed: {name}: {error}", {{"name", run.failed.name}, {"error", l10n::message(with_engine_names(run.failed.error))}}));
+        if (run.failed.n > 1)
+            platform::notify(l10n::t("Could not add the AMPR emulator to {n} games; the Queue says why", {{"n", std::to_string(run.failed.n)}}));
     }
 
     // Seconds since the console app (User-Agent "Alembic-app...") last asked
@@ -2376,11 +2406,13 @@ private:
         }
         if (action == "cancel" && r.method == "POST") {
             Status s = queue_.cancel(id);
+            if (s.ok()) ampr_run_over();
             return s.ok() ? json(200, JsonValue::object()) : error(409, s.error().message);
         }
         if ((action == "pause" || action == "resume") && r.method == "POST") {
             Status s = action == "pause" ? queue_.pause(id) : queue_.resume(id);
             if (s.ok()) log_line("job " + std::to_string(id) + " " + action + " by " + r.peer);
+            if (s.ok() && action == "pause") ampr_run_over();
             return s.ok() ? json(200, JsonValue::object()) : error(409, s.error().message);
         }
         if (action == "move" && r.method == "POST") {
@@ -2428,6 +2460,14 @@ private:
     std::condition_variable quit_cv_;
     bool quit_ = false;
     mutable std::mutex app_seen_mutex_;
+    struct AmprRun {
+        struct Part {
+            int n = 0;
+            std::string name, error; // the first one's
+        } done, failed;
+    };
+    AmprRun ampr_run_; // AMPR emulator jobs finished, not told yet
+    std::mutex ampr_run_mutex_;
     std::chrono::steady_clock::time_point app_seen_ = std::chrono::steady_clock::now();
     const std::int64_t started_ms_ = std::chrono::duration_cast<std::chrono::milliseconds>(
                                          std::chrono::system_clock::now().time_since_epoch()).count();

@@ -138,6 +138,8 @@
  "Add to Places": "Konumlara ekle",
  "Add to queue": "Kuyruğa ekle",
  "Added by address": "Adresle eklendi",
+ "Added the AMPR emulator to {n} games": "AMPR öykünücüsü {n} oyuna eklendi",
+ "Could not add the AMPR emulator to {n} games; the Queue says why": "AMPR öykünücüsü {n} oyuna eklenemedi; nedeni Kuyruk'ta",
  "Added the AMPR emulator to {name}": "AMPR öykünücüsü {name} oyununa eklendi",
  "Added to Media on the home screen": "Ana ekranda Medya'ya eklendi",
  "Added to Places": "Konumlara eklendi",

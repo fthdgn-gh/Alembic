@@ -137,7 +137,7 @@ void ImagesPage::queue(App& app, std::vector<JsonValue> list, std::function<void
     struct State {
         std::vector<JsonValue> list;
         JsonValue needs = JsonValue::array();
-        std::size_t asked = 0;
+        std::size_t asked = 0, plans = 0;
     };
     auto st = std::make_shared<State>();
     st->list = std::move(list);
@@ -162,7 +162,16 @@ void ImagesPage::queue(App& app, std::vector<JsonValue> list, std::function<void
         }
     };
     if (st->list.empty()) return done(0);
+    // What a job needs depends only on its emulator: one plan each (a plan
+    // reads the game; one per image kept the engine busy for long).
+    std::vector<JsonValue> one_each;
     for (const JsonValue& i : st->list) {
+        bool seen = false;
+        for (const auto& y : one_each) seen = seen || y["ampr"]["target"].str() == i["ampr"]["target"].str();
+        if (!seen) one_each.push_back(i);
+    }
+    st->plans = one_each.size();
+    for (const JsonValue& i : one_each) {
         app.api("POST", "/api/plan", spec_of(i), [&app, st, run_jobs](const Reply& r) {
             if (r.ok())
                 for (const auto& d : r.json["needs"].items()) {
@@ -170,7 +179,7 @@ void ImagesPage::queue(App& app, std::vector<JsonValue> list, std::function<void
                     for (const auto& y : st->needs.items()) seen = seen || y["id"].str() == d["id"].str();
                     if (!seen) st->needs.push(d);
                 }
-            if (++st->asked < st->list.size()) return;
+            if (++st->asked < st->plans) return;
             JsonValue plan = JsonValue::object();
             plan.set("output", "");
             plan.set("needs", st->needs);

@@ -138,6 +138,8 @@
  "Add to Places": "Добавить в «Места»",
  "Add to queue": "Добавить в очередь",
  "Added by address": "Добавлен по адресу",
+ "Added the AMPR emulator to {n} games": "Эмулятор AMPR добавлен в игры: {n}",
+ "Could not add the AMPR emulator to {n} games; the Queue says why": "Не удалось добавить эмулятор AMPR в игры: {n}; причина — в «Очереди»",
  "Added the AMPR emulator to {name}": "Эмулятор AMPR добавлен в {name}",
  "Added to Media on the home screen": "Добавлено в «Медиа» на начальном экране",
  "Added to Places": "Добавлено в «Места»",

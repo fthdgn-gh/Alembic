@@ -138,6 +138,8 @@
  "Add to Places": "場所に追加",
  "Add to queue": "キューに追加",
  "Added by address": "アドレスで追加",
+ "Added the AMPR emulator to {n} games": "{n} 本のゲームに AMPR エミュレーターを追加しました",
+ "Could not add the AMPR emulator to {n} games; the Queue says why": "{n} 本のゲームに AMPR エミュレーターを追加できませんでした。理由はキューで確認できます",
  "Added the AMPR emulator to {name}": "{name} に AMPR エミュレーターを追加しました",
  "Added to Media on the home screen": "ホーム画面のメディアに追加しました",
  "Added to Places": "場所に追加しました",

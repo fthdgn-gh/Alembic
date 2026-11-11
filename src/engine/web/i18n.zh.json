@@ -138,6 +138,8 @@
  "Add to Places": "添加到位置",
  "Add to queue": "加入队列",
  "Added by address": "按地址添加",
+ "Added the AMPR emulator to {n} games": "已为 {n} 个游戏添加 AMPR 模拟器",
+ "Could not add the AMPR emulator to {n} games; the Queue says why": "无法为 {n} 个游戏添加 AMPR 模拟器；原因见“队列”",
  "Added the AMPR emulator to {name}": "已为 {name} 添加 AMPR 模拟器",
  "Added to Media on the home screen": "已添加到主屏幕的“媒体”",
  "Added to Places": "已添加到位置",

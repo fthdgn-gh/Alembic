@@ -138,6 +138,8 @@
  "Add to Places": "Zu Orten hinzufügen",
  "Add to queue": "In die Warteschlange",
  "Added by address": "Über die Adresse hinzugefügt",
+ "Added the AMPR emulator to {n} games": "AMPR-Emulator zu {n} Spielen hinzugefügt",
+ "Could not add the AMPR emulator to {n} games; the Queue says why": "AMPR-Emulator konnte {n} Spielen nicht hinzugefügt werden; Details in der Warteschlange",
  "Added the AMPR emulator to {name}": "AMPR-Emulator zu {name} hinzugefügt",
  "Added to Media on the home screen": "Auf dem Startbildschirm zu Medien hinzugefügt",
  "Added to Places": "Zu Orten hinzugefügt",

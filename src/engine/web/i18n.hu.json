@@ -138,6 +138,8 @@
  "Add to Places": "Hozzáadás a Helyekhez",
  "Add to queue": "Hozzáadás a várólistához",
  "Added by address": "Cím alapján hozzáadva",
+ "Added the AMPR emulator to {n} games": "AMPR-emulátor hozzáadva {n} játékhoz",
+ "Could not add the AMPR emulator to {n} games; the Queue says why": "{n} játékhoz nem sikerült hozzáadni az AMPR-emulátort; az okot a Várólista mutatja",
  "Added the AMPR emulator to {name}": "AMPR-emulátor hozzáadva ehhez: {name}",
  "Added to Media on the home screen": "Hozzáadva a kezdőképernyő Média menüjéhez",
  "Added to Places": "Hozzáadva a Helyekhez",
