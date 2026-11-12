@@ -3865,17 +3865,24 @@ With the owner, a retail game every PS5 ships with running, test engine
 (Whole file system on), read only:
 - `/mnt/sandbox/pfsmnt/<TITLE_ID>-app0` is the game's tree, mounted
   decrypted: the engine walked it all (33,270 files, 27.2 GB; plan for an
-  exFAT accepted). `<TITLE_ID>-app0-patch0-union` is the same with the
-  installed update over it. `<TITLE_ID>-app0-nest/pfs_image.dat` (and
+  exFAT accepted); ShadowMount+ (`sm_fakelib.c`) expects it as fstype
+  `ppr_pfs`, the system's mount of `/user/app/<TITLE_ID>/app.pkg` (11 GB
+  here, compressed). `<TITLE_ID>-app0-patch0-union` is the console's union of
+  an update (`patch0`) over app0; this game had no update (no /user/patch),
+  so it listed the same as app0. `<TITLE_ID>-app0-nest/pfs_image.dat` (and
   `naps_pkg_layout.dat`, same size) starts with "keystone": still the
   console's container, not a PFS Alembic can open. `/mnt/sandbox/<TITLE_ID>_000`
   is the game's own view (app0, data, dev, ...).
 - Through the mount, `eboot.bin` and the modules are SELFs (no plain ELF).
-- **ftpsrv v0.22 (port 2121) serves `eboot.bin` decrypted**: a plain ELF
-  (e_type 0xFE10), 71,614,632 bytes against the SELF's 71,736,750. The
-  kernel step is done by that payload, not Alembic.
+- **ftpsrv v0.22 (ps5-payload-dev/ftpsrv, port 2121) serves `eboot.bin`
+  decrypted**: its `SELF` command (on by default, per connection) turns
+  SELFs into ELFs on the fly, in listings too. Default: a plain ELF (e_type
+  0xFE10), 71,614,632 bytes; with `-Q SELF` (off) the same file is the SELF
+  (magic `54 14 F5 EE`, 71,736,750 bytes, what the engine sees). The kernel
+  step is that payload's, not Alembic's.
 - So, untried: the console's own FTP server (127.0.0.1:2121) as a network
-  server in Alembic, the union folder converted from it while the game runs;
+  server in Alembic, the app0 (or, with an update, the union) folder
+  converted from it while the game runs;
   Alembic fake-signs the plain ELFs and adds the AMPR emulator (the game
   imports libSceAmpr). Open: whether ftpsrv decrypts the .prx too, speed
   over FTP, whether the image starts. A later feature could read data from
