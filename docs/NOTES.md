@@ -3966,6 +3966,19 @@ are deferred until an on-console smoke test**. Not run on a console yet.
     decrypted ELF this way, so a dump's eboot/modules get the PS5 magic the
     console wants; `decrypt_self` passes game_sign. Builds clean, 140 tests,
     PS5 payload builds. **Needs the on-console retest.**
+  - **Disc games need nothing special.** ps5-app-dumper dumps every game from
+    the same `/mnt/sandbox/pfsmnt/<ID>-app0` (its `ps5_dumper.c` src_game),
+    disc or digital: once a disc game is launched (disc inserted) the console
+    mounts it there and decrypts it as read, like an install. Its disc code is
+    only UI/launch (listing, "needs its disc", size when the disc is out,
+    disc_titles.txt), not a different dump path. decrypt_self already covers
+    disc games once they are running.
+  - **The real feature worth adding (disc or digital): fold in appmeta.**
+    ps5-app-dumper also copies `/user/appmeta/<ID>` and
+    `/system_data/priv/appmeta/<ID>` into the dump's sce_sys -- the same
+    metadata gap found above. A "dump a running game" flow should merge the
+    pfsmnt app0 tree (decrypt_self) with those appmeta files automatically,
+    instead of the manual copy used in the test.
 
 ### 2026-11-12: a running retail game, looked at on the console
 
