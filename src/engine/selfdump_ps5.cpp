@@ -28,6 +28,11 @@ namespace alembic::engine::platform {
 namespace {
 
 constexpr std::uint64_t kSuperpageSize = 0x200000;
+// The authority the self pager wants to decrypt a game's own executables
+// (ftpsrv raises its process to this before dumping; without it ordinary
+// library modules still decrypt, but the main eboot and special modules such
+// as sce_sys/about/right.sprx come back wrong and fail their digest).
+constexpr std::uint64_t kDecryptAuthId = 0x4801000000000013ull;
 
 std::mutex g_mutex; // the pager swap is system-wide while in effect: one at a time
 bool g_resolved = false;
@@ -76,11 +81,19 @@ void resolve_once() {
 }
 
 // mmap one segment with the vnode pager entry swapped for the self pager's, so
-// the kernel pages it in decrypted; the entry is restored right after.
+// the kernel pages it in decrypted; the entry is restored right after. The
+// process authority is raised for the mapping (restored after) so the pager
+// will decrypt the main executable and special modules too.
 void* mmap_self(std::size_t len, int fd, off_t offset, std::uint64_t align) {
-    if (kernel_setlong(g_pager_table + 2 * 8, static_cast<std::uint64_t>(g_ops_self))) return MAP_FAILED;
-    void* data = mmap(nullptr, len, PROT_READ, MAP_PRIVATE | MAP_ALIGNED(align), fd, offset);
-    if (kernel_setlong(g_pager_table + 2 * 8, static_cast<std::uint64_t>(g_ops_vnode))) return MAP_FAILED;
+    const pid_t pid = getpid();
+    const std::uint64_t saved_authid = kernel_get_ucred_authid(pid);
+    if (kernel_set_ucred_authid(pid, kDecryptAuthId)) return MAP_FAILED;
+    void* data = MAP_FAILED;
+    if (!kernel_setlong(g_pager_table + 2 * 8, static_cast<std::uint64_t>(g_ops_self))) {
+        data = mmap(nullptr, len, PROT_READ, MAP_PRIVATE | MAP_ALIGNED(align), fd, offset);
+        if (kernel_setlong(g_pager_table + 2 * 8, static_cast<std::uint64_t>(g_ops_vnode))) data = MAP_FAILED;
+    }
+    kernel_set_ucred_authid(pid, saved_authid); // back to the engine's own authority
     return data;
 }
 
