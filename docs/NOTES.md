@@ -3839,6 +3839,31 @@ with `fself::make_prospero_fself`, ported from ProsperoPkgTool's
   over its mounted image, so loose update files could ride on an image.
   Untried.
 
+### 2026-11-12: smaller sce_sys DDS (issue #1), research
+
+- **Issue #1** (a user): re-encode the `sce_sys` DDS files to save space.
+  Our first answer (2026-10-22): they are BC7, the home screen reads them,
+  ~25-60 MB of images per game, PNG re-compression ~1%, no bundled tools,
+  no Oodle. **The reporter's console test (2026-11-12): BC1 works**, the
+  pic0/pic1/pic2 animation included, at half the size; **BC3 showed only
+  pic0** (and is BC7's size anyway). Owner's reply on the issue: an opt-in
+  image optimisation, probably in the next release.
+- Measured on three sample games: `pic0/1/2.dds` 3840x2160 and `icon0.dds`
+  512x512, all `DX10` header, DXGI 98 (BC7_UNORM), one mip level; 8,294,548
+  and 262,292 bytes. The PNGs are the same size, RGB without alpha (colour
+  type 2), so they are the lossless source to encode BC1 from (BC7 -> BC1
+  would compress twice). BC1 at 4 bits a pixel: 4,147,348 bytes a picture,
+  ~12.4 MB saved per game before compression (less inside an FFPFSC, whose
+  zlib already takes 3-27% off BC7).
+- Not known yet (ask the reporter): the BC1 files' header (DX10 with DXGI
+  71 BC1_UNORM / 72 sRGB, or legacy `DXT1`), mip levels, whether icon0.dds
+  was converted too, and which encoder. BC3 failing while BC1 works is odd
+  for a format the GPU reads natively, so the header may matter.
+- Plan if done: opt-in conversion option; PNG decode (vendored zlib) ->
+  BC1 encoder (4-colour blocks only, no 1-bit alpha) -> same DX10 header
+  with the BC1 format; only when the PNG matches the DDS size, else leave
+  the file; verify allows those files to differ; page and app option.
+
 ### 2026-11-12: Whole file system (owner's request)
 
 - **Settings → Whole file system** (page and app, `POST /api/whole_filesystem
