@@ -190,6 +190,12 @@ También en la página:
   prueba del mando. En un PC: flechas, Intro, Esc, S, Q/E y Re Pág/Av Pág.
 - **Lugares:** añade cualquier carpeta a Lugares desde sus Opciones; aparecen
   en la barra lateral, en Guardar en y en los motores emparejados.
+- **Todo el sistema de archivos:** Archivos muestra el almacenamiento interno
+  y las unidades; **Ajustes → Todo el sistema de archivos** añade todas las
+  demás carpetas bajo `/` (`/system`, `/user`, `/mnt`, …), que se pueden
+  cambiar como cualquier otra. Los motores emparejados siguen viendo solo las
+  unidades. Cuidado: cambiar archivos del sistema puede impedir que la
+  consola arranque.
 - **Renombrar** (desde la 0.4.1): al renombrar un juego se ofrecen, junto al
   nombre actual, nombres formados con su título, ID de título, versión y
   formato (`Title [ABCD12345].ffpfsc`, …); el elegido se puede seguir

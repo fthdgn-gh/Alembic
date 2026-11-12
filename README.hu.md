@@ -195,6 +195,11 @@ Az oldalon még:
 - **Helyek:** bármely mappa hozzáadható a Helyekhez a Beállításaiból;
   megjelennek az oldalsávban, a Mentés ide listában és a párosított
   motorokon.
+- **Teljes fájlrendszer:** a Fájlok a belső tárhelyet és a meghajtókat
+  listázza; a **Beállítások → Teljes fájlrendszer** a `/` alatti összes többi
+  mappát is hozzáadja (`/system`, `/user`, `/mnt`, …), és ezek ugyanúgy
+  módosíthatók. A párosított motorok továbbra is csak a meghajtókat látják.
+  Vigyázat: a rendszerfájlok módosítása megakadályozhatja a konzol indulását.
 - **Átnevezés** (0.4.1-től): egy játék átnevezésekor a jelenlegi név mellett
   a címéből, címazonosítójából, verziójából és formátumából összeállított
   neveket is felajánl (`Title [ABCD12345].ffpfsc`, …); a kiválasztott név még

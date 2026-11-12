@@ -187,6 +187,11 @@ Sayfada ayrıca:
   testi var. PC'de: ok tuşları, Enter, Esc, S, Q/E ve Page Up/Down.
 - **Konumlar:** herhangi bir klasörü Seçenekler'inden Konumlar'a ekleyin; yan
   çubukta, Kayıt yeri'nde ve eşleştirilmiş motorlarda görünürler.
+- **Tüm dosya sistemi:** Dosyalar dahili depolamayı ve sürücüleri listeler;
+  **Ayarlar → Tüm dosya sistemi** `/` altındaki diğer tüm klasörleri de ekler
+  (`/system`, `/user`, `/mnt`, …) ve bunlar diğerleri gibi değiştirilebilir.
+  Eşleştirilmiş motorlar yine yalnızca sürücüleri görür. Dikkat: sistem
+  dosyalarını değiştirmek konsolun açılmasını engelleyebilir.
 - **Yeniden adlandır** (0.4.1'den beri): bir oyunu yeniden adlandırırken,
   mevcut adın yanında oyunun başlığından, Title ID'sinden, sürümünden ve
   biçiminden yapılmış adlar önerilir (`Title [ABCD12345].ffpfsc`, …); seçilen

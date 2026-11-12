@@ -13,7 +13,9 @@ export interface Info {
   network_urls: string[];
   local_url: string;
   open_to_network: boolean;
-  roots: string[];
+  roots: string[]; // what Files lists at the top
+  shared_roots?: string[]; // what paired engines see: roots without the whole file system (none before v0.6.5)
+  whole_filesystem?: { supported: boolean; on: boolean }; // Settings > Whole file system (none before v0.6.5)
   lz4_runtime: { path: string; present: boolean; sha256: string; pinned: boolean; name?: string };
   lz4_profiles: { id: string; label: string; tested: string }[];
   busy: boolean;

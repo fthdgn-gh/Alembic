@@ -8,7 +8,9 @@
 #include "alembic/convert.hpp"
 #include "alembic/resume.hpp"
 
+#include <atomic>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -19,6 +21,10 @@ struct EngineConfig {
     std::string state_dir;
     std::uint16_t http_port = 5940; // the page and API; packages for the installer (pkg_sources.hpp)
     std::vector<std::string> roots; // inputs, outputs and browsing stay below these
+    // Settings > "Whole file system": the top-level folders of "/" count as
+    // roots too (read and written like the others). Shared by every copy and
+    // thread; <state>/whole-filesystem.on keeps it across starts.
+    std::shared_ptr<std::atomic<bool>> whole_filesystem = std::make_shared<std::atomic<bool>>(false);
     std::string runtime_override;   // --runtime: this libSceAmpr.sprx instead of the Components one
     // Where "ampr_emu" jobs put ShadowMount+ backport folders for images:
     // /data/homebrew/backports on the console (ShadowMount+'s fallback,
@@ -44,8 +50,12 @@ struct EngineConfig {
                                                            const ProgressFn& progress)>
         digest_elsewhere;
 
-    // The roots that can be used right now (mounted drives only).
+    // The roots that can be used right now: shared_roots(), then, with
+    // whole_filesystem, every other top-level folder of "/".
     std::vector<std::string> available_roots() const;
+    // `roots` that can be used right now (mounted drives only): what paired
+    // engines see, whatever whole_filesystem says.
+    std::vector<std::string> shared_roots() const;
     // The AMPR emulator (fakelib/libSceAmpr.sprx, which also reads LZ4 packs)
     // conversions add: runtime_override, else the one in use in Components
     // (ampr_runtime_in_use), else where ampr_emu's would be (not there).
@@ -56,6 +66,9 @@ struct EngineConfig {
     // An "ampr_emu" job's emulator: the chosen component's file, else runtime_path().
     std::string emulator_path(const std::string& emulator_id) const;
 };
+
+// Whether "Whole file system" can be offered here (not on Windows: no single "/").
+bool whole_filesystem_supported();
 
 // The output a job writes: spec.output, or next to the input with the
 // target's extension ("-lz4" added when packing).

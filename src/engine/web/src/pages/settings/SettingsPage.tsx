@@ -39,6 +39,7 @@ export function SettingsPage(props: { hidden: boolean }) {
       <div class="page" data-zone="settings" id="settings">
         <Head text={t("Console")} />
         <Launcher />
+        <WholeFilesystem />
         <Head text={t("Page")} />
         <ChoiceRow dataKey="s:lang" label={t("Language")} options={LANGS.map((l) => ({ value: l[0], label: l[1] }))} value={lang.value} onChange={setLang} />
         <ChoiceRow dataKey="s:scale" label={t("Text size")} hint={t("For reading from the couch")} options={SCALES.map((x) => ({ value: x.value, label: t(x.label) }))} value={scale}
@@ -58,7 +59,7 @@ export function SettingsPage(props: { hidden: boolean }) {
             i.host_name && i.platform !== "ps5" ? [t("Computer"), i.host_name] : null,
             [t("Address"), location.host, "mono"],
             [t("From other devices"), i.network_urls && i.network_urls.length ? i.network_urls.join("\n") : i.open_to_network ? "–" : t("This computer only"), "mono"],
-            i.roots && i.roots.length ? [t("Shared folders"), i.roots.join("\n"), "mono"] : null,
+            (i.shared_roots || i.roots || []).length ? [t("Shared folders"), (i.shared_roots || i.roots).join("\n"), "mono"] : null,
             [t("State folder"), i.state_dir, "mono"],
             i.cpu_instructions ? [t("CPU instructions"), i.cpu_instructions === "none" ? "–" : i.cpu_instructions] : null,
             [t("LZ4 runtime"), i.lz4_runtime && i.lz4_runtime.present ? (i.lz4_runtime.pinned ? i.lz4_runtime.name || "ampr_emu 0.4.2.1" : t("present, not a build Alembic knows")) : t("not downloaded")],
@@ -99,6 +100,20 @@ function Launcher() {
         }} /></div>
       </div>
     </>
+  );
+}
+
+// Files lists every top-level folder of "/" next to the drives, and they can
+// be changed like the drives (the engine keeps the choice).
+function WholeFilesystem() {
+  const w = info.value && info.value.whole_filesystem;
+  if (!(w && w.supported)) return null;
+  return (
+    <SwitchRow dataKey="s:wholefs" label={t("Whole file system")} hint={t("Files also lists every folder under /, not only the drives, and they can be changed like any other. Changing system files can stop the system from starting.")} on={w.on}
+      onChange={async (on) => {
+        try { info.value = await api("POST", "/api/whole_filesystem", { on }); toast(on ? t("Files shows the whole file system") : t("Files shows the drives only"), "ok"); }
+        catch (e: any) { toast(tMsg(e.message), "bad"); }
+      }} />
   );
 }
 

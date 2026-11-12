@@ -661,6 +661,22 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
                          launcher_busy_}});
             y = card_end("launcher", top, yy);
         }
+        // Files lists every top-level folder of "/" next to the drives (as the page).
+        const JsonValue& wf = i["whole_filesystem"];
+        if (wf.is_object() && wf["supported"].boolean()) {
+            bool on = wf["on"].boolean(), changed = false;
+            y += switch_row(ui, "s:wholefs", x, y, w, t("Whole file system"),
+                            t("Files also lists every folder under /, not only the drives, and they can be changed like any other. Changing system files can stop the system from starting."),
+                            &on, &changed);
+            if (changed) {
+                JsonValue body = JsonValue::object();
+                body.set("on", on);
+                app.post("/api/whole_filesystem", body, app.or_toast([&app, on](const Reply& r) {
+                    app.info = r.json;
+                    app.toast(on ? t("Files shows the whole file system") : t("Files shows the drives only"), App::Toast::ok);
+                }));
+            }
+        }
     }
 
     // ---- The app ----
@@ -967,7 +983,8 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
             rows.push_back({t("From other devices"),
                             !urls.empty() ? urls : i["open_to_network"].boolean() ? "\xE2\x80\x93" : t("This computer only"), "mono"});
             std::string roots;
-            for (const auto& u : i["roots"].items()) roots += (roots.empty() ? "" : "\n") + u.str();
+            const JsonValue& shared = !i["shared_roots"].is_null() ? i["shared_roots"] : i["roots"]; // shared_roots: 0.6.5
+            for (const auto& u : shared.items()) roots += (roots.empty() ? "" : "\n") + u.str();
             if (!roots.empty()) rows.push_back({t("Shared folders"), roots, "mono"});
             rows.push_back({t("State folder"), i["state_dir"].str(), "mono"});
             if (!i["cpu_instructions"].str().empty())

@@ -174,11 +174,36 @@ Result<std::string> resolve_output(const JobSpec& spec) {
     return out;
 }
 
-std::vector<std::string> EngineConfig::available_roots() const {
+std::vector<std::string> EngineConfig::shared_roots() const {
     std::vector<std::string> out;
     for (const std::string& r : roots)
         if (platform::root_available(strip_slashes(r))) out.push_back(strip_slashes(r));
     return out;
+}
+
+std::vector<std::string> EngineConfig::available_roots() const {
+    std::vector<std::string> out = shared_roots();
+    if (!whole_filesystem || !whole_filesystem->load() || !whole_filesystem_supported()) return out;
+    // "/" itself stays the page's list of drives; its folders are listed there.
+    auto top = list_directory_entries("/");
+    if (!top.ok()) return out;
+    std::vector<std::string> more;
+    for (const DirEntry& e : *top) {
+        if (!e.stat.is_directory() || e.name.empty() || e.name == "." || e.name == "..") continue;
+        std::string path = "/" + e.name;
+        if (std::find(out.begin(), out.end(), path) == out.end()) more.push_back(std::move(path));
+    }
+    std::sort(more.begin(), more.end());
+    out.insert(out.end(), more.begin(), more.end());
+    return out;
+}
+
+bool whole_filesystem_supported() {
+#ifdef _WIN32
+    return false;
+#else
+    return true;
+#endif
 }
 
 std::string EngineConfig::zstd_runtime_path() const {

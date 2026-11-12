@@ -33,7 +33,7 @@
 //   GET  /api/meta?path=P             title, title ID, version of a package, image or game folder
 //   GET  /api/icon?path=P             its sce_sys/icon0.png
 //   GET  /api/locations               suggested destinations (mounted drives only)
-//   GET  /api/fs/space                free and total bytes of each root
+//   GET  /api/fs/space                free and total bytes of each drive (not the whole file system's folders)
 //   POST /api/fs/mkdir   {path}       new folder
 //   POST /api/fs/rename  {path, name} rename in place
 //   POST /api/fs/delete  {path}       delete a file or a folder with its contents
@@ -48,6 +48,7 @@
 //                                     fitted}]}: one format for many games (name "": no value)
 //   POST /api/names/check  {path, name}   {warning}: "" or why ShadowMount+ could not mount it
 //   POST /api/launcher   {enabled}    add or remove the Media-tab shortcut (PS5)
+//   POST /api/whole_filesystem {on}   also list (and allow) every top-level folder of "/"; answers as /api/info
 //   POST /api/cache/clear             delete the cached game info and icons
 //   POST /api/lang       {lang}       the language of the engine's notifications
 //   POST /api/smp/scan                ask ShadowMount+ to rescan (retry counters reset)
@@ -292,7 +293,7 @@ public:
         u.get = [](const std::string& url, std::size_t max) { return platform::http_get(url, max); };
         u.log = [](const std::string& m) { log_line(m); };
         u.quit = [this] { request_quit(); };
-        u.roots = [this] { return config_.available_roots(); };
+        u.roots = [this] { return config_.shared_roots(); };
         u.smp_source = [this](const std::string& id) { return shadowmount_source(config_, id); };
         u.smp_rescan = [this] { (void)shadowmount_rescan(config_); };
         // ShadowMount+'s default scan folders on the console; on a PC (tests
@@ -629,6 +630,21 @@ private:
         if (r.path.rfind("/api/update", 0) == 0) return update_action(r);
         if (r.path == "/api/app/closing" && r.method == "POST") return json(200, JsonValue::object());
         if (r.path == "/api/launcher" && r.method == "POST") return launcher(r);
+        if (r.path == "/api/whole_filesystem" && r.method == "POST") {
+            auto body = parse_json(r.body);
+            if (!body.ok()) return error(400, body.error().message);
+            if (!whole_filesystem_supported()) return error(409, "not available on this platform");
+            const bool on = (*body)["on"].boolean();
+            if (on) {
+                if (std::FILE* f = alembic::open_stdio(whole_filesystem_path(), "w")) std::fclose(f);
+                else return error(500, "cannot write " + whole_filesystem_path());
+            } else if (path_exists(whole_filesystem_path()) && !remove_file(whole_filesystem_path()).ok()) {
+                return error(500, "cannot remove " + whole_filesystem_path());
+            }
+            config_.whole_filesystem->store(on);
+            log_line(std::string("whole file system: ") + (on ? "on" : "off") + " (" + r.peer + ")");
+            return info();
+        }
         if (r.path == "/api/lang" && r.method == "POST") {
             auto body = parse_json(r.body);
             if (!body.ok()) return error(400, body.error().message);
@@ -686,6 +702,7 @@ private:
     }
     std::string lang_path() const { return config_.state_dir + "/lang"; }
     std::string launcher_off_path() const { return config_.state_dir + "/launcher.off"; }
+    std::string whole_filesystem_path() const { return config_.state_dir + "/whole-filesystem.on"; }
 
     // The last shortcut result, shown in Settings: on the console it is the
     // only place to see why the shortcut is missing.
@@ -762,6 +779,14 @@ private:
         for (const std::string& root : config_.available_roots())
             if (is_directory(root)) roots.push(root);
         v.set("roots", std::move(roots));
+        JsonValue shared = JsonValue::array(); // what paired engines see (roots without the whole file system)
+        for (const std::string& root : config_.shared_roots())
+            if (is_directory(root)) shared.push(root);
+        v.set("shared_roots", std::move(shared));
+        JsonValue whole = JsonValue::object();
+        whole.set("supported", whole_filesystem_supported());
+        whole.set("on", whole_filesystem_supported() && config_.whole_filesystem->load());
+        v.set("whole_filesystem", std::move(whole));
         JsonValue runtime = JsonValue::object();
         const std::string runtime_path = config_.runtime_path();
         runtime.set("path", runtime_path);
@@ -910,8 +935,8 @@ private:
         v.set("path", path);
         std::string parent = path.substr(0, path.rfind('/'));
         if (parent.size() == 2 && parent[1] == ':') parent += '/'; // "C:/x" -> "C:/"
-        bool is_root = std::any_of(config_.roots.begin(), config_.roots.end(),
-                                   [&](const std::string& root) { return strip_slashes(root) == path; });
+        const std::vector<std::string> roots = config_.available_roots();
+        bool is_root = std::any_of(roots.begin(), roots.end(), [&](const std::string& root) { return root == path; });
         if (elsewhere) { // another engine's: up to its drive, then to the list of drives
             auto drives = peer_drives().first;
             is_root = std::none_of(drives.begin(), drives.end(), [&](const PeerDrive& d) { return is_within(parent, d.path); });
@@ -1266,7 +1291,7 @@ private:
         }
         auto q = [&](const char* k) { auto it = r.query.find(k); return it == r.query.end() ? std::string() : it->second; };
         auto number = [&](const char* k) { return static_cast<std::uint64_t>(std::strtoull(q(k).c_str(), nullptr, 10)); };
-        const std::vector<std::string> roots = config_.available_roots();
+        const std::vector<std::string> roots = config_.shared_roots(); // never the whole file system
         // Work done here for another engine (peer_fs.cpp asks): a package's
         // read-back checksums, or a game's file digests. Started, asked about
         // until finished, results fetched in pieces, dropped.
@@ -1694,7 +1719,8 @@ private:
 
     HttpResponse fs_space() {
         JsonValue list = JsonValue::array();
-        for (const std::string& root : config_.available_roots()) {
+        // The drives only: the whole file system's folders stay out of Files' drive column.
+        for (const std::string& root : config_.shared_roots()) {
             if (!is_directory(root)) continue;
             auto s = space(root);
             if (!s.ok()) continue;
@@ -2061,7 +2087,7 @@ private:
         }
         std::vector<platform::Location> suggested = platform::suggested_locations();
         if (suggested.empty())
-            for (const std::string& root : roots) suggested.push_back({root.substr(root.rfind('/') + 1), root});
+            for (const std::string& root : config_.shared_roots()) suggested.push_back({root.substr(root.rfind('/') + 1), root});
         for (const platform::Location& l : suggested) {
             if (!path_allowed(l.path, roots)) continue;
             JsonValue e = JsonValue::object();
@@ -2575,6 +2601,7 @@ int main(int argc, char** argv) {
     }
     config.roots = roots.empty() ? platform::default_roots() : roots;
     config.http_port = port;
+    config.whole_filesystem->store(whole_filesystem_supported() && alembic::path_exists(config.state_dir + "/whole-filesystem.on"));
     config.runtime_override = runtime;
     config.backports_root = std::string(platform::name()) == "ps5" ? "/data/homebrew/backports" : config.state_dir + "/backports";
     if (std::string(platform::name()) == "ps5") config.shadowmount_config = "/data/shadowmount/config.ini";
@@ -2624,7 +2651,7 @@ int main(int argc, char** argv) {
         log_line("open the page: " + engine.local_url());
         for (const std::string& u : engine.network_urls()) log_line("  from other devices: " + u);
         std::string shared;
-        for (const std::string& r : engine.config().available_roots()) shared += (shared.empty() ? "" : ", ") + r;
+        for (const std::string& r : engine.config().shared_roots()) shared += (shared.empty() ? "" : ", ") + r;
         log_line("shared folders: " + (shared.empty() ? std::string("none available") : shared));
         log_line("state folder: " + engine.config().state_dir);
         if (engine.open_to_network() && std::string(platform::name()) != "ps5")

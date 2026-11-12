@@ -3839,6 +3839,25 @@ with `fself::make_prospero_fself`, ported from ProsperoPkgTool's
   over its mounted image, so loose update files could ride on an image.
   Untried.
 
+### 2026-11-12: Whole file system (owner's request)
+
+- **Settings → Whole file system** (page and app, `POST /api/whole_filesystem
+  {on}`, kept as `<state>/whole-filesystem.on`): Files' top list ("/",
+  still the virtual list of drives, servers and engines) adds every other
+  top-level folder of `/`, and everything below them can be read and
+  changed like the drives (owner: writing allowed, not read-only). Not on
+  Windows (no single `/`).
+- `EngineConfig::available_roots()` = `shared_roots()` (the drives, as
+  before) + those folders; the top-level folders themselves are roots, so
+  they cannot be renamed or deleted. `shared_roots()` stays for what must
+  not grow: paired engines (`/api/peer/fs/*`, protocol unchanged), the
+  update's payload search, `/api/fs/space` (Files' drive column) and the
+  PC's suggested places. `/api/info` adds `shared_roots` and
+  `whole_filesystem {supported, on}`.
+- Checked on the Mac: on/off, survives a restart, browsing and mkdir/delete
+  outside the old roots, a root refused for delete; app pictures of
+  Settings and the drives list. Not tried on a console yet.
+
 ## Next session
 
 **Settled (owner, 2026-10-22):**

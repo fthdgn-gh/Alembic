@@ -194,6 +194,12 @@ Außerdem auf der Seite:
 - **Orte:** Füge einen beliebigen Ordner über seine Optionen zu den Orten
   hinzu; sie erscheinen in der Seitenleiste, unter Speichern unter und auf
   gekoppelten Engines.
+- **Gesamtes Dateisystem:** Dateien zeigt den internen Speicher und die
+  Laufwerke; **Einstellungen → Gesamtes Dateisystem** fügt jeden anderen
+  Ordner unter `/` hinzu (`/system`, `/user`, `/mnt`, …), und sie lassen sich
+  wie alle anderen ändern. Gekoppelte Engines sehen weiterhin nur die
+  Laufwerke. Vorsicht: Änderungen an Systemdateien können verhindern, dass
+  die Konsole startet.
 - **Umbenennen** (ab 0.4.1): Beim Umbenennen eines Spiels werden neben dem
   aktuellen Namen Namen aus Titel, Titel-ID, Version und Format angeboten
   (`Title [ABCD12345].ffpfsc`, …); der gewählte lässt sich noch bearbeiten.

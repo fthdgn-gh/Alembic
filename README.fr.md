@@ -193,6 +193,12 @@ Aussi sur la page :
 - **Emplacements :** ajoutez n'importe quel dossier aux Emplacements depuis ses
   Options ; ils apparaissent dans la barre latérale, dans Enregistrer dans et
   sur les moteurs associés.
+- **Tout le système de fichiers :** Fichiers affiche le stockage interne et
+  les lecteurs ; **Réglages → Tout le système de fichiers** ajoute tous les
+  autres dossiers sous `/` (`/system`, `/user`, `/mnt`, …), modifiables comme
+  les autres. Les moteurs associés ne voient toujours que les lecteurs.
+  Attention : modifier des fichiers système peut empêcher la console de
+  démarrer.
 - **Renommer** (depuis 0.4.1) : renommer un jeu propose, à côté du nom actuel,
   des noms construits à partir de son titre, de son ID de titre, de sa version
   et de son format (`Title [ABCD12345].ffpfsc`, …) ; celui qui est choisi reste
