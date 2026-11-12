@@ -84,6 +84,9 @@ void usage() {
         "                              by default they become fake-signed SELFs, as\n"
         "                              make_fself.py --ptype fake writes them (for .pkg as\n"
         "                              ProsperoPkgTool img_create does, unless --no_fself)\n"
+        "        --bc1-pictures        encode sce_sys/pic*.dds again as BC1 from their PNGs\n"
+        "                              (half the size; the home screen showed them in a\n"
+        "                              console test); others are left as they are\n"
         "  ampr-emu <input> [--ampr-emu FILE [--replace]] [--backports DIR] [--passcode P]\n"
         "        tell whether a game needs ampr_emu; with --ampr-emu, add it: into a game\n"
         "        folder directly, or for an image as a ShadowMount+ backport folder\n"
@@ -416,6 +419,7 @@ int cmd_convert(const Args& args) {
     }
     options.ampr_emulator_always = args.get("--ampr-emu-always").has_value();
     options.fake_sign = !args.get("--no-fake-sign").has_value();
+    options.bc1_pictures = args.get("--bc1-pictures").has_value();
     if (options.ampr_emulator_always && !options.ampr_emulator)
         return std::fputs("error: --ampr-emu-always needs --ampr-emu FILE\n", stderr), 2;
     // FFPKG (UFS2): fixed time stamp and process ID for reproducible images.
@@ -532,6 +536,11 @@ int cmd_convert(const Args& args) {
         if (report->fake_sign_index_records) std::printf(" (%zu ampr_emu.index records resized)", report->fake_sign_index_records);
         std::printf("\n");
         for (const std::string& p : report->fake_signed) std::printf("  %s\n", p.c_str());
+    }
+    if (!report->bc1_pictures.empty()) {
+        std::printf("BC1 pictures:  %zu, %.1f MiB smaller\n", report->bc1_pictures.size(),
+                    static_cast<double>(report->bc1_saved) / (1024.0 * 1024.0));
+        for (const std::string& p : report->bc1_pictures) std::printf("  %s\n", p.c_str());
     }
     for (const std::string& w : report->warnings) std::fprintf(stderr, "warning: %s\n", w.c_str());
     if (report->lz4) {
@@ -1083,7 +1092,8 @@ int main(int argc, char** argv) {
     if (command == "convert")
         return cmd_convert(
             parse(argc, argv, {"--no-ampr", "--case-sensitive", "--overwrite", "--rebuild", "--lz4", "--lz4-unpack",
-                                    "--zstd", "--zstd-unpack", "--ampr-emu-always", "--no-fake-sign"}));
+                                    "--zstd", "--zstd-unpack", "--ampr-emu-always", "--no-fake-sign",
+                                    "--bc1-pictures"}));
     if (command == "fself") return cmd_fself(parse(argc, argv, {"--prospero"}));
     if (command == "ampr-emu") return cmd_ampr_emu(parse(argc, argv, {"--replace"}));
     if (command == "lz4-verify") return cmd_lz4_verify(parse(argc, argv, {}));

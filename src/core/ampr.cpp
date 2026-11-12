@@ -212,6 +212,25 @@ Result<std::vector<std::uint8_t>> build(const std::vector<FileRecord>& files, Sc
     return out;
 }
 
+std::size_t resize_records(std::vector<std::uint8_t>& index,
+                           const std::function<std::optional<std::uint64_t>(std::string_view path, std::uint64_t size)>& resize) {
+    auto info = inspect(index);
+    if (!info.ok()) return 0;
+    const std::size_t paths = 48 + std::size_t{info->record_count} * 24;
+    std::size_t changed = 0;
+    for (std::size_t i = 0; i < info->record_count; ++i) {
+        std::uint8_t* record = index.data() + 48 + i * 24;
+        std::string_view path(reinterpret_cast<const char*>(index.data() + paths + get_u32(record)), get_u32(record + 4));
+        if (path.substr(0, 6) != "/app0/") continue;
+        path.remove_prefix(6);
+        if (auto size = resize(path, get_u64(record + 8)); size && *size != get_u64(record + 8)) {
+            put_u64(record + 8, *size);
+            ++changed;
+        }
+    }
+    return changed;
+}
+
 Result<IndexInfo> inspect(const std::vector<std::uint8_t>& data) {
     if (data.size() < kHeaderSize || std::memcmp(data.data(), "AMPRIDX3", 8) != 0)
         return invalid("AMPRIDX3 magic is missing");

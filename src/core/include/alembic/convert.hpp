@@ -120,6 +120,9 @@ struct Options {
     // (fself.hpp): the console refuses to start them otherwise. FPKG output
     // signs its modules as img_create does (ProsperoPkgTool's flavour).
     bool fake_sign = true;
+    // Encode sce_sys/pic*.dds again as BC1 from their PNGs (dds.hpp): half
+    // the size; a console test showed the home screen takes them. PS5 games.
+    bool bc1_pictures = false;
 };
 
 struct Report {
@@ -138,7 +141,9 @@ struct Report {
     std::string ampr_emulator_path; // where it went, e.g. "fakelib/libSceAmpr.sprx"
     std::string title_id;           // from sce_sys/param.json, when it has one
     std::vector<std::string> fake_signed; // executables served as fake-signed SELFs
-    std::size_t fake_sign_index_records = 0; // ampr_emu.index records set to their SELF sizes
+    std::size_t fake_sign_index_records = 0;
+    std::vector<std::string> bc1_pictures; // re-encoded as BC1 (bc1_pictures)
+    std::uint64_t bc1_saved = 0;           // bytes they lost // ampr_emu.index records set to their SELF sizes
 };
 
 Result<Report> run(const std::string& input, const std::string& output, Format to, const Options& options = {},

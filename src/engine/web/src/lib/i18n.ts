@@ -92,7 +92,7 @@ export function placeLabel(s: string): string {
 // How the engine did a conversion ("LZ4-packed and built a new exFAT image ...").
 export function tMethod(m: string | undefined): string {
   if (!m) return "";
-  const p = /^(fake-signed the executables|LZ4-packed|LZ4-unpacked|zstd-packed|zstd-unpacked|added the AMPR emulator) and (.*)$/.exec(m);
+  const p = /^(made the home-screen pictures BC1|fake-signed the executables|LZ4-packed|LZ4-unpacked|zstd-packed|zstd-unpacked|added the AMPR emulator) and (.*)$/.exec(m);
   if (p) return t(p[1] + " and {rest}", { rest: tMethod(p[2]) });
   const c = /^(re)?compressed the (exFAT|UFS2|PFS) image unchanged$/.exec(m);
   if (c) return t(c[1] ? "recompressed the {kind} image unchanged" : "compressed the {kind} image unchanged", { kind: c[2] });

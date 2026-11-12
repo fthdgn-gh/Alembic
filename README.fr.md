@@ -200,6 +200,11 @@ Aussi sur la page :
   ni supprimés. Les moteurs associés ne voient toujours que les lecteurs.
   Attention : modifier des fichiers système peut empêcher la console de
   démarrer.
+- **Images d'accueil plus légères** (expérimental, désactivé par défaut) :
+  les Options de Convertir peuvent réencoder les `sce_sys/pic0-2.dds` d'un
+  jeu en BC1 à partir de leurs PNG, environ 12 Mo de moins par jeu et un peu
+  moins nettes (CLI : `--bc1-pictures`). Une console les a bien affichées ;
+  dites-nous ce qu'il en est sur la vôtre dans l'issue #1.
 - **Renommer** (depuis 0.4.1) : renommer un jeu propose, à côté du nom actuel,
   des noms construits à partir de son titre, de son ID de titre, de sa version
   et de son format (`Title [ABCD12345].ffpfsc`, …) ; celui qui est choisi reste

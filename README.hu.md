@@ -201,6 +201,11 @@ Az oldalon még:
   meghajtók; a közvetlenül `/` alatti mappák nem nevezhetők át és nem
   törölhetők. A párosított motorok továbbra is csak a meghajtókat látják.
   Vigyázat: a rendszerfájlok módosítása megakadályozhatja a konzol indulását.
+- **Kisebb kezdőképernyő-képek** (kísérleti, alapból ki): az Átalakítás
+  beállításai a játék `sce_sys/pic0-2.dds` fájljait a PNG-jeikből BC1-be
+  kódolhatják újra, játékonként kb. 12 MB-tal kevesebb, kicsit kevésbé éles
+  (CLI: `--bc1-pictures`). Egy konzolon rendben megjelentek; írd meg az
+  #1-es issue-ban, nálad hogy működik.
 - **Átnevezés** (0.4.1-től): egy játék átnevezésekor a jelenlegi név mellett
   a címéből, címazonosítójából, verziójából és formátumából összeállított
   neveket is felajánl (`Title [ABCD12345].ffpfsc`, …); a kiválasztott név még

@@ -3,6 +3,7 @@
 #include "alembic/sha256.hpp"
 
 #include "alembic/bytes.hpp"
+#include "alembic/dds.hpp"
 #include "alembic/exfat_reader.hpp"
 #include "alembic/fpkg_inner.hpp"
 #include "alembic/fself.hpp"
@@ -320,6 +321,18 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         return make_error(Errc::unsupported, "LZ4 asset packs are for PS5 games; this is a PS4 game");
     if (ps4 && options.zstd)
         return make_error(Errc::unsupported, "zstd asset packs are for PS5 games; this is a PS4 game");
+    // Smaller home-screen pictures, first: what follows sees their new sizes.
+    std::unique_ptr<tree::Source> bc1_tree;
+    if (options.bc1_pictures && !ps4) {
+        ALEMBIC_ASSIGN(dds::Smaller sm, dds::smaller_pictures(*tree_ptr, progress, options.ffpfsc.compression.threads));
+        for (const auto& [path, why] : sm.skipped) report.warnings.push_back("cannot make " + path + " BC1 (" + why + "); it is left as it is");
+        if (sm.tree) {
+            bc1_tree = std::move(sm.tree);
+            tree_ptr = bc1_tree.get();
+            report.bc1_pictures = std::move(sm.paths);
+            report.bc1_saved = sm.saved;
+        }
+    }
     // Unsigned executables served fake-signed, before anything sizes the tree
     // (packers and image writers list the SELF sizes in ampr_emu.index).
     std::unique_ptr<tree::Source> signed_tree;
@@ -446,7 +459,8 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
                             : unpacked      ? "LZ4-unpacked and "
                             : zstd_unpacked ? "zstd-unpacked and "
                                             : "";
-    std::string prefix_text = std::string(signed_tree ? "fake-signed the executables and " : "") + pack_text +
+    std::string prefix_text = std::string(bc1_tree ? "made the home-screen pictures BC1 and " : "") +
+                              (signed_tree ? "fake-signed the executables and " : "") + pack_text +
                               (with_emulator ? "added the AMPR emulator and " : "");
     const char* prefix = prefix_text.c_str();
     resume::Session* session = packed ? (options.resume ? &packed_session : nullptr) : options.resume;

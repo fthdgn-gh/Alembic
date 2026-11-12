@@ -806,6 +806,7 @@ public:
     int zstd_level = 1; // index: 1 / 5 / 19
     std::string packs_want;  // "none" | "lz4" | "zstd"; "": as the games are
     bool ampr = true, verify = true, del = false, hide = false, over = false;
+    bool bc1 = false; // smaller home-screen pictures (opt-in; not for PS4 games)
     std::string name;
     int where = 0;  // index into on-choices
     JsonValue plan;
@@ -955,6 +956,7 @@ public:
         s.set("overwrite", over);
         s.set("ampr_emu", ampr ? "auto" : "off");
         s.set("hide_source", !hide_hidden && hide && !del_on);
+        if (bc1 && !any_ps4(app)) s.set("bc1_pictures", true);
         if (key_out) *key_out = s.dump();
         return s;
     }
@@ -1245,7 +1247,7 @@ public:
         // What each step holds; empty ones are left out.
         const bool comp_shown = target == "ffpfsc" || (target == "fpkg" && !any_ps4(app));
         const bool del_shown = !any_shared() && !(installable(app) && install);
-        const bool has_options = comp_shown || lz4_on || zstd_on || ampr_shown;
+        const bool has_options = comp_shown || lz4_on || zstd_on || ampr_shown || !any_ps4(app); // PS5 games: the pictures switch
         const bool has_after = installable(app) || del_shown || !hide_hidden;
         steps_now.clear();
         for (const char* st : kSteps) {
@@ -1399,6 +1401,12 @@ public:
             if (ampr_shown)
                 y += switch_row(ui, "cv:ampr", x, y, w, t("Add the AMPR emulator"),
                                 t("This game uses the console's APR: without an emulator it stops at start from an image or folder"), &ampr);
+            // Issue #1: BC1 instead of BC7 for pic0, pic1, pic2; tried on one console so far.
+            if (!any_ps4(app))
+                y += switch_row(ui, "cv:bc1", x, y, w, t("Smaller home-screen pictures"),
+                                t("Encodes the background pictures again as BC1 from their PNGs: about 12 MB less per game, a little less sharp. "
+                                  "Experimental: tried on one console."),
+                                &bc1);
         } else if (cur == "where") {
             y += section(ui, t("Output"), x + 0.1f * R, y, 0.2f);
             bool pressed = false;
@@ -1467,6 +1475,7 @@ public:
                 opt.push_back(now == "zstd" ? t("zstd packs kept") : t("zstd packs, level {n}", {{"n", std::to_string(zstd_levels[std::clamp(zstd_level, 0, 2)])}}));
             if (unpack_on || zunpack_on) opt.push_back(t("Packs unpacked"));
             if (ampr_shown) opt.push_back(ampr ? t("AMPR emulator added") : t("No AMPR emulator"));
+            if (bc1 && !any_ps4(app)) opt.push_back(t("Smaller home-screen pictures"));
             std::vector<std::string> after;
             if (installable(app) && install) after.push_back(keep_pkg ? t("Installed; the package is kept") : t("Installed, then the package is deleted"));
             if (del_on) after.push_back(verify ? t("The output is checked, then the source is deleted") : t("The source is deleted"));

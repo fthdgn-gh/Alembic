@@ -124,6 +124,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   const [packsWant, setPacks] = useState<Packs | "">(""); // "": as the game is
   const [zstdLevel, setZstdLevel] = useState(5);
   const [ampr, setAmpr] = useState(true);
+  const [bc1Want, setBc1] = useState(false); // smaller home-screen pictures (opt-in)
   const [verify, setVerify] = useState(true);
   const [delWant, setDel] = useState(false);
   const [hideWant, setHide] = useState(!!store.get("hideSource"));
@@ -169,12 +170,14 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   const hideHiddenFor = (e: Entry) => e.kind === "fpkg" || isHiddenName(e.name) || del || target === "fpkg" || !!e.shared;
   const hideHidden = entries.every(hideHiddenFor);
   const amprHidden = target === "fpkg" || packs === "lz4" || packs === "zstd"; // packs bring their emulator anyway
+  const bc1 = bc1Want && !anyPs4; // PS4 games have no DDS pictures
   const specFor = (e: Entry) => ({
     input: e.path, to: target, output_dir: dest, output_name: many ? "" : name.trim(), level, pkg_compression: anyPs4 ? "stored" : pkgComp,
     install_after: installable && installWant, keep_package: keepPkg, lz4, lz4_unpack: unpack,
     lz4_profile: profile, lz4_level: lz4Level, delete_source: del,
     ...(zstd || zunpack ? { zstd, zstd_level: zstdLevel, zstd_unpack: zunpack } : {}), verify, overwrite: over,
     ampr_emu: ampr ? "auto" : "off", hide_source: !hideHiddenFor(e) && hideWant && !del,
+    ...(bc1 ? { bc1_pictures: true } : {}),
   });
   const specs = work.map(specFor);
   const specKey = JSON.stringify(specs);
@@ -291,7 +294,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   const installShown = installable;
   const delShown = !anyShared && !(installable && installWant);
   const has: Record<Step, boolean> = {
-    format: true, options: compShown || lz4 || zstd || amprShown, where: true,
+    format: true, options: compShown || lz4 || zstd || amprShown || !anyPs4, where: true, // PS5 games: the pictures switch
     after: installShown || delShown || !hideHidden, review: true,
   };
   const steps = (["format", "options", "where", "after", "review"] as Step[]).filter((s) => has[s]);
@@ -313,6 +316,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   if (packs === "zstd") optionBits.push(nowPacks === "zstd" ? t("zstd packs kept") : t("zstd packs, level {n}", { n: zstdLevel }));
   if (unpack || zunpack) optionBits.push(t("Packs unpacked"));
   if (amprShown) optionBits.push(ampr ? t("AMPR emulator added") : t("No AMPR emulator"));
+  if (bc1) optionBits.push(t("Smaller home-screen pictures"));
   const afterBits: string[] = [];
   if (installable && installWant) afterBits.push(keepPkg ? t("Installed; the package is kept") : t("Installed, then the package is deleted"));
   if (del) afterBits.push(verify ? t("The output is checked, then the source is deleted") : t("The source is deleted"));
@@ -386,6 +390,9 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
       <ChoiceRow label={t("zstd level")} hidden={!zstd} options={[{ value: 1, label: t("1 · fastest") }, { value: 5, label: t("5 · default") }, { value: 19, label: t("19 · smallest") }]} value={zstdLevel} onChange={setZstdLevel} />
       {/* ampr_emu for games that use the console's APR (not packages: installed, they have the real one). */}
       <SwitchRow label={t("Add the AMPR emulator")} hint={t("This game uses the console's APR: without an emulator it stops at start from an image or folder")} on={ampr} onChange={setAmpr} hidden={!amprShown} />
+      {/* Issue #1: BC1 instead of BC7 for pic0, pic1, pic2; tried on one console so far. */}
+      <SwitchRow label={t("Smaller home-screen pictures")} hint={t("Encodes the background pictures again as BC1 from their PNGs: about 12 MB less per game, a little less sharp. Experimental: tried on one console.")}
+        on={bc1Want} onChange={setBc1} hidden={anyPs4} dataKey="cv:bc1" />
     </>
     : cur === "where" ? <>
       <div class="lbl">{t("Output")}</div>

@@ -315,25 +315,12 @@ Result<std::pair<std::vector<std::uint8_t>, std::size_t>> resized_index(const tr
     ALEMBIC_ASSIGN(std::shared_ptr<const RandomAccess> file, source.open(node));
     std::vector<std::uint8_t> bytes(static_cast<std::size_t>(node.size));
     ALEMBIC_TRY(file->read_at(0, bytes));
-    auto info = ampr::inspect(bytes);
-    if (!info.ok()) return none;
-    const std::size_t paths = 48 + std::size_t{info->record_count} * 24;
-    std::size_t resized = 0;
-    for (std::size_t i = 0; i < info->record_count; ++i) {
-        std::uint8_t* record = bytes.data() + 48 + i * 24;
-        std::string_view path(reinterpret_cast<const char*>(bytes.data() + paths + get_u32(record)), get_u32(record + 4));
-        if (path.substr(0, 6) != "/app0/") continue;
-        path.remove_prefix(6);
-        // The runtime folds ASCII case.
+    // The runtime folds ASCII case.
+    const std::size_t resized = ampr::resize_records(bytes, [&](std::string_view path, std::uint64_t size) -> std::optional<std::uint64_t> {
         for (const auto& [rel, plan] : plans)
-            if (unicode::ascii_iequals(rel, path)) {
-                if (get_u64(record + 8) == plan->elf_size) {
-                    put_u64(record + 8, plan->size);
-                    ++resized;
-                }
-                break;
-            }
-    }
+            if (unicode::ascii_iequals(rel, path)) return size == plan->elf_size ? std::optional<std::uint64_t>(plan->size) : std::nullopt;
+        return std::nullopt;
+    });
     if (!resized) return none;
     return std::pair{std::move(bytes), resized};
 }

@@ -95,6 +95,7 @@ add_library(alembic_core STATIC
     src/core/fself.cpp
     src/core/convert.cpp
     src/core/crypto.cpp
+    src/core/dds.cpp
     src/core/exfat_image.cpp
     src/core/exfat_reader.cpp
     src/core/ffpfsc.cpp
@@ -111,6 +112,7 @@ add_library(alembic_core STATIC
     src/core/lz4pack_profile.cpp
     src/core/lz4pack_read.cpp
     src/core/pfsc.cpp
+    src/core/png.cpp
     src/core/rsa.cpp
     src/core/sfo.cpp
     src/core/sha256.cpp
@@ -297,6 +299,7 @@ if(ALEMBIC_BUILD_TESTS)
         tests/test_fself.cpp
         tests/test_convert.cpp
         tests/test_crypto.cpp
+        tests/test_dds.cpp
         tests/test_exfat.cpp
         tests/test_ffpfsc.cpp
         tests/test_fpkg_build.cpp

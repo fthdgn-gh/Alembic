@@ -196,6 +196,11 @@ También en la página:
   como las unidades; las carpetas justo bajo `/` no se pueden renombrar ni
   eliminar. Los motores emparejados siguen viendo solo las unidades. Cuidado:
   cambiar archivos del sistema puede impedir que la consola arranque.
+- **Imágenes de inicio más pequeñas** (experimental, desactivado por
+  defecto): las Opciones de Convertir pueden volver a codificar los
+  `sce_sys/pic0-2.dds` de un juego en BC1 a partir de sus PNG, unos 12 MB
+  menos por juego y algo menos nítidas (CLI: `--bc1-pictures`). Una consola
+  las mostró bien; cuéntanos cómo va en la tuya en el issue #1.
 - **Renombrar** (desde la 0.4.1): al renombrar un juego se ofrecen, junto al
   nombre actual, nombres formados con su título, ID de título, versión y
   formato (`Title [ABCD12345].ffpfsc`, …); el elegido se puede seguir

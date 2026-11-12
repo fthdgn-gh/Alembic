@@ -84,6 +84,7 @@ JsonValue JobSpec::to_json() const {
     j.set("zstd_unpack", zstd_unpack);
     j.set("ampr_emu", ampr_emu);
     if (!emulator.empty()) j.set("emulator", emulator);
+    if (bc1_pictures) j.set("bc1_pictures", true);
     j.set("delete_source", delete_source);
     j.set("verify", verify);
     if (hide_source) j.set("hide_source", true);
@@ -132,6 +133,7 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
     if (s.ampr_emu == "replace" && s.kind != "ampr_emu")
         return make_error(Errc::invalid_argument, "ampr_emu replace is only for ampr_emu jobs");
     s.emulator = j["emulator"].str();
+    s.bc1_pictures = j["bc1_pictures"].boolean();
     if (!s.emulator.empty() && s.kind != "ampr_emu")
         return make_error(Errc::invalid_argument, "emulator is only for ampr_emu jobs");
     if (!s.emulator.empty() && s.emulator != "ampr_runtime" && s.emulator != "ampr_runtime_ng")

@@ -179,6 +179,11 @@ Also on the page:
   `/mnt`, …), read and changed like the drives; the folders right under `/`
   cannot be renamed or deleted. Paired engines still see only the drives.
   Careful: changing system files can stop the console from starting.
+- **Smaller home-screen pictures** (experimental, off by default): Convert's
+  Options can encode a game's `sce_sys/pic0-2.dds` again as BC1 from their
+  PNGs, about 12 MB less per game and a little less sharp (CLI:
+  `--bc1-pictures`). One console showed them fine; tell us how yours does
+  in issue #1.
 - **Rename** (from 0.4.1): renaming a game offers names made from its title,
   title ID, version and format (`Title [ABCD12345].ffpfsc`, …) next to the
   current one; the one picked can still be edited. The formats are yours to

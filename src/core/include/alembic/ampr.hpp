@@ -13,7 +13,10 @@
 #include "alembic/result.hpp"
 
 #include <cstdint>
+#include <functional>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace alembic::ampr {
@@ -48,6 +51,13 @@ Result<std::vector<std::uint8_t>> build(const std::vector<FileRecord>& files, Sc
 
 // Structural validation.
 Result<IndexInfo> inspect(const std::vector<std::uint8_t>& data);
+
+// Changes the sizes an index lists, in place (a size is a plain u64; the
+// index has no checksum). `resize` is asked for each record of "/app0/<path>"
+// with <path> and its recorded size, and returns the new size or nothing to
+// leave it. Returns how many records changed; 0 when `index` does not read.
+std::size_t resize_records(std::vector<std::uint8_t>& index,
+                           const std::function<std::optional<std::uint64_t>(std::string_view path, std::uint64_t size)>& resize);
 
 // FNV-1a-style hash of the folded path; never 0. Both schemes use the offset
 // basis 1469598103934665603 (the standard one with a digit missing), which is

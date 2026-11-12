@@ -200,6 +200,11 @@ Außerdem auf der Seite:
   Ordner direkt unter `/` lassen sich nicht umbenennen oder löschen. Gekoppelte
   Engines sehen weiterhin nur die Laufwerke. Vorsicht: Änderungen an
   Systemdateien können verhindern, dass die Konsole startet.
+- **Kleinere Startbildschirm-Bilder** (experimentell, standardmäßig aus): Die
+  Optionen beim Umwandeln können `sce_sys/pic0-2.dds` eines Spiels aus ihren
+  PNGs neu als BC1 kodieren, etwa 12 MB weniger pro Spiel und etwas weniger
+  scharf (CLI: `--bc1-pictures`). Eine Konsole zeigte sie problemlos; wie es
+  bei deiner aussieht, gern in Issue #1.
 - **Umbenennen** (ab 0.4.1): Beim Umbenennen eines Spiels werden neben dem
   aktuellen Namen Namen aus Titel, Titel-ID, Version und Format angeboten
   (`Title [ABCD12345].ffpfsc`, …); der gewählte lässt sich noch bearbeiten.

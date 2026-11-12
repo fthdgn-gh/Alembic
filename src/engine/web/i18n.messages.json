@@ -2,6 +2,7 @@
  "could not fake-sign {path}: {reason}; packing it unchanged",
  "could not read the eboot sceversion record ({reason})",
  "cannot fake-sign {path} ({reason}); it is left as it is",
+ "cannot make {path} BC1 ({reason}); it is left as it is",
  "a format is empty",
  "a format has at most 200 characters",
  "unknown field {field}: use title, titleid, contentid, version, format, platform or name",

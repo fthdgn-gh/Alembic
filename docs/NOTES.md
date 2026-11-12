@@ -3859,10 +3859,24 @@ with `fself::make_prospero_fself`, ported from ProsperoPkgTool's
   71 BC1_UNORM / 72 sRGB, or legacy `DXT1`), mip levels, whether icon0.dds
   was converted too, and which encoder. BC3 failing while BC1 works is odd
   for a format the GPU reads natively, so the header may matter.
-- Plan if done: opt-in conversion option; PNG decode (vendored zlib) ->
-  BC1 encoder (4-colour blocks only, no 1-bit alpha) -> same DX10 header
-  with the BC1 format; only when the PNG matches the DDS size, else leave
-  the file; verify allows those files to differ; page and app option.
+- **Built the same day (owner: opt-in, let the reporter experiment):**
+  `convert::Options::bc1_pictures`, CLI `--bc1-pictures`, job field
+  `bc1_pictures`, Convert's Options step on the page and in the app
+  ("Smaller home-screen pictures", off; the step now shows for every PS5
+  game). `alembic/png.hpp` (decoder from the PNG spec, vendored zlib, CRCs
+  checked, no Adam7) and `alembic/dds.hpp` (BC1 encoder: principal axis,
+  least squares, then one-565-step search; all cores, same bytes on any
+  thread count; tree step `smaller_pictures`). Only `sce_sys/pic<N>.dds`
+  that are single-level BC7 with a DX10 header and a same-size PNG; the
+  header is kept with DXGI 71 (72 for sRGB) and the linear size; icon0
+  untouched. Runs before fake-signing; `ampr_emu.index` records of those
+  files resized (`ampr::resize_records`, now shared with fself). Verify
+  allows them to differ; in the checkpoint fingerprint when on.
+- Checked on the Mac: package A to a folder, 3 pictures 8,294,548 ->
+  4,147,348 bytes in ~1 s; an independent Python BC1 decoder against the
+  PNGs: 43-44 dB PSNR. Engine job with delete_source + verify passes.
+  Unit tests `test_dds.cpp`. Not yet on a console (the reporter's test
+  used their own BC1 files; header differences are the open question).
 
 ### 2026-11-12: Whole file system (owner's request)
 

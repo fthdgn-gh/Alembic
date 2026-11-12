@@ -278,6 +278,7 @@ std::string fingerprint(const JobSpec& spec, const std::string& output, const En
     }
     v.set("passcode", spec.passcode);
     v.set("ampr_emu", spec.ampr_emu);
+    if (spec.bc1_pictures) v.set("bc1_pictures", true); // older checkpoints had none
     if (spec.lz4) {
         // Packing: its settings, and the runtime file it puts in the game.
         v.set("lz4_profile", spec.lz4_profile);
@@ -474,6 +475,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     options.ffpfsc.compression.threads = config.threads;
     options.lz4_unpack = spec.lz4_unpack;
     options.zstd_unpack = spec.zstd_unpack;
+    options.bc1_pictures = spec.bc1_pictures;
     options.fpkg.keys_folder = config.state_dir + "/keys"; // the fpkg_keys component
     if (spec.pkg_compression == "kraken") options.fpkg.compression = fpkg::build::Compression::kraken;
     options.fpkg_ps4.keys_file = config.state_dir + "/keys/ps4/Keys.cs"; // the ps4_keys component
@@ -627,6 +629,13 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
         for (const std::string& p : report.fake_signed) paths.push(p);
         r.set("fake_signed", std::move(paths));
     }
+    if (!report.bc1_pictures.empty()) {
+        JsonValue b = JsonValue::object(), paths = JsonValue::array();
+        for (const std::string& p : report.bc1_pictures) paths.push(p);
+        b.set("paths", std::move(paths));
+        b.set("saved", report.bc1_saved);
+        r.set("bc1_pictures", std::move(b));
+    }
     if (!report.title_id.empty()) r.set("title_id", report.title_id);
     if (!report.warnings.empty()) {
         JsonValue warnings = JsonValue::array();
@@ -685,9 +694,10 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
                 if (!(spec.lz4 && p == lz4pack::kRuntimeRelativePath) && !(spec.zstd && p == zstdpack::kRuntimeRelativePath) &&
                     p != report.ampr_emulator_path)
                     extra.push_back(p);
-            // Fake-signed executables are SELFs now, by design.
+            // Fake-signed executables are SELFs now, and BC1 pictures smaller, by design.
             std::erase_if(cmp.different, [&](const std::string& p) {
-                return std::find(report.fake_signed.begin(), report.fake_signed.end(), p) != report.fake_signed.end();
+                return std::find(report.fake_signed.begin(), report.fake_signed.end(), p) != report.fake_signed.end() ||
+                       std::find(report.bc1_pictures.begin(), report.bc1_pictures.end(), p) != report.bc1_pictures.end();
             });
             // A package build writes its own sce_sys/playgo-chunk.dat (as ProsperoPkgTool does).
             if (to == convert::Format::fpkg)

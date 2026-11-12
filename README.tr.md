@@ -193,6 +193,11 @@ Sayfada ayrıca:
   altındaki klasörler yeniden adlandırılamaz veya silinemez. Eşleştirilmiş
   motorlar yine yalnızca sürücüleri görür. Dikkat: sistem dosyalarını
   değiştirmek konsolun açılmasını engelleyebilir.
+- **Daha küçük ana ekran resimleri** (deneysel, varsayılan olarak kapalı):
+  Dönüştür'ün Seçenekler adımı bir oyunun `sce_sys/pic0-2.dds` dosyalarını
+  PNG'lerinden BC1 olarak yeniden kodlayabilir; oyun başına yaklaşık 12 MB
+  daha az, biraz daha az keskin (CLI: `--bc1-pictures`). Bir konsolda sorunsuz
+  göründüler; sizinkinde nasıl olduğunu #1 numaralı issue'da yazın.
 - **Yeniden adlandır** (0.4.1'den beri): bir oyunu yeniden adlandırırken,
   mevcut adın yanında oyunun başlığından, Title ID'sinden, sürümünden ve
   biçiminden yapılmış adlar önerilir (`Title [ABCD12345].ffpfsc`, …); seçilen

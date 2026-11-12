@@ -65,6 +65,9 @@ struct JobSpec {
     // For "ampr_emu" jobs: which AMPR emulator (a component id,
     // "ampr_runtime" or "ampr_runtime_ng"); "" for the one in use.
     std::string emulator;
+    // Encode sce_sys/pic*.dds again as BC1 from their PNGs (dds.hpp): half
+    // the size, shown by the home screen in a console test. Opt-in.
+    bool bc1_pictures = false;
     // After a successful conversion: compare the output with the input file
     // by file, then delete the input (only if they match).
     bool delete_source = false;
