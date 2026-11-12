@@ -3892,10 +3892,28 @@ are deferred until an on-console smoke test**. Not run on a console yet.
   reason; verify tolerates the decrypted files differing; in the checkpoint
   fingerprint. Builds clean on Mac (138 tests) and PS5 (`tools/ps5/build.sh`,
   selfdump compiled, no warnings).
-- **Smoke test (owner, with go-ahead):** load the new payload, then on the
-  running game `POST /api/jobs {kind:convert, input:/mnt/sandbox/pfsmnt/
-  <ID>-app0, to:ffpkg|exfat, decrypt_self:true, ...}`; check the executables
-  come out plain then fake-signed, and whether the image starts.
+- **On-console (2026-11-12, owner's console, a game every PS5 ships with,
+  running):** it works. A folder conversion of `/mnt/sandbox/pfsmnt/<ID>-app0`
+  with `decrypt_self` decrypted `eboot.bin` and the `sce_module` libraries,
+  which then fake-signed (output eboot magic 0x1d3d154f) with the AMPR
+  emulator added. Two fixes the first runs found:
+  - **Hash region:** the ex-info SHA-256 covers the ELF only up to the end of
+    the last data-bearing segment (a block entry or PT_SCE_VERSION), not the
+    max segment end. eboot has a trailing PT_NOTE left zero; hashing to the
+    max end (as ftpsrv also does, which is why it serves eboot even though its
+    own digest check would fail) broke it. Ordinary libraries passed because
+    their version segment is last. Confirmed by brute-forcing the stored
+    digest against ftpsrv's decrypted output: it equals sha256(elf[:version
+    end]). Fixed; regression test with the eboot shape.
+  - **authid:** ftpsrv raises its process authid to 0x4801000000000013 before
+    dumping; we do the same around each map (saved/restored). It was NOT the
+    cause of the eboot failure (the hash was), but kept as it matches ftpsrv
+    and may matter for other games' privileged modules.
+  - **right.sprx** (`sce_sys/about/right.sprx`): cannot be decrypted this way
+    -- ftpsrv's own output matches no prefix of its stored digest (ftpsrv's
+    README warns some SELFs can't be). Left encrypted with a warning; it is
+    rights metadata, not loaded code, so the game should still run. **Untested:
+    whether the output folder actually launches via ShadowMount+.**
 
 ### 2026-11-12: a running retail game, looked at on the console
 
