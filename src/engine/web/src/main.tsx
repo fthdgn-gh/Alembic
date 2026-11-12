@@ -14,7 +14,7 @@ import { App } from "./app/App";
 import "./debug";
 import { effect } from "@preact/signals";
 import { info, loadInfo, notConnected } from "./state/engine";
-import { tab, homeTab } from "./state/view";
+import { tab, homeTab, TOP } from "./state/view";
 import { refreshJobs } from "./state/jobs";
 import { lang, loadTranslations, t, tMsg } from "./lib/i18n";
 import { browse } from "./pages/files/browse";
@@ -28,7 +28,7 @@ applyScale();
 window.addEventListener("resize", applyScale);
 // A reload keeps its place in the history: the entries before it are the
 // page's too, and leaving (L2 + R2) goes back through them.
-history.replaceState({ view: tab.value, path: "/", depth: depth() }, "");
+history.replaceState({ view: tab.value, path: TOP, depth: depth() }, "");
 // Drawn once the translations are in, so the page never starts in English.
 loadTranslations(lang.value).then(() => {
   render(<App />, document.getElementById("app")!);
@@ -36,10 +36,10 @@ loadTranslations(lang.value).then(() => {
     // The engine said what it runs on: start on its home tab when this first
     // view is still the one guessed (nothing chosen yet).
     const home = homeTab();
-    if (home !== tab.value && depth() === 0) { tab.value = home; history.replaceState({ view: home, path: "/", depth: 0 }, ""); }
-    browse("/", false);
+    if (home !== tab.value && depth() === 0) { tab.value = home; history.replaceState({ view: home, path: TOP, depth: 0 }, ""); }
+    browse(TOP, false);
   })
-    .catch((e) => { notConnected.value = t("Engine not reachable: {error}", { error: tMsg(e.message) }); browse("/", false); });
+    .catch((e) => { notConnected.value = t("Engine not reachable: {error}", { error: tMsg(e.message) }); browse(TOP, false); });
   refreshJobs();
   setInterval(refreshJobs, 1000);
   setInterval(() => loadInfo().catch(() => {}), 15000);

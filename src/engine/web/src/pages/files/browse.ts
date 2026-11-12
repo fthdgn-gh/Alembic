@@ -2,7 +2,7 @@
 // Moving around in Files: open a folder and put the focus where it belongs.
 import type { Listing } from "../../api/types";
 import { api } from "../../api/client";
-import { cwd, listing, focusEntry, tab } from "../../state/view";
+import { cwd, listing, focusEntry, tab, TOP } from "../../state/view";
 import { loadInfo } from "../../state/engine";
 import { dir } from "../../lib/format";
 import { tMsg } from "../../lib/i18n";
@@ -15,12 +15,12 @@ import { selecting, endSelecting } from "../../state/selection";
 
 export async function browse(path: string, push?: boolean, focusKey?: string | null) {
   let data: Listing;
-  try { data = await api<Listing>("GET", "/api/browse?path=" + encodeURIComponent(path || "/")); }
+  try { data = await api<Listing>("GET", "/api/browse?path=" + encodeURIComponent(path)); }
   catch (e: any) {
     toast(tMsg(e.message), "bad");
     // Another engine went away while we were on it: back to the drives.
-    const peer = peerRoot(path || "/");
-    if (peer && cwd.value && peerRoot(cwd.value) === peer) browse("/", false);
+    const peer = peerRoot(path);
+    if (peer && cwd.value && peerRoot(cwd.value) === peer) browse(TOP, false);
     return;
   }
   const from = cwd.value;
@@ -30,7 +30,7 @@ export async function browse(path: string, push?: boolean, focusKey?: string | n
   const same = data.path === from;
   // Back from a folder: land on that folder's row.
   const a = document.activeElement;
-  const key = same ? (a && a.getAttribute("data-key")) : (focusKey || (from && dir(from) === data.path ? from : null));
+  const key = same ? (a && a.getAttribute("data-key")) : (focusKey || (from && (dir(from) === data.path || data.path === TOP) ? from : null));
   cwd.value = data.path;
   listing.value = data;
   setTimeout(() => placeFocus(data, key, same), 0); // once the list is drawn
@@ -52,4 +52,4 @@ function placeFocus(data: Listing, focusKey: string | null, keepPlace: boolean) 
   else focusEl(first);
 }
 
-export function refresh() { if (cwd.value) browse(cwd.value, false); loadInfo().catch(() => {}); }
+export function refresh() { if (cwd.value !== null) browse(cwd.value, false); loadInfo().catch(() => {}); }

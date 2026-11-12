@@ -14,6 +14,8 @@ std::string duration(double seconds);
 std::string date(std::int64_t when, bool full = false);
 std::string base(std::string_view path);
 std::string dir(std::string_view path);
+// `name` in folder `folder` ("/name" in "/").
+std::string child(std::string_view folder, std::string_view name);
 // "01.004.000" -> "1.004.000"
 std::string version_text(std::string_view v);
 // < 0, 0, > 0 like strcmp, by number ("0.2.10" > "0.2.9"; a leading "v" is ignored).

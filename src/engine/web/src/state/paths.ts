@@ -9,6 +9,8 @@ export function rootOf(path: string): (Space & { engine?: string }) | (PeerDrive
   let best: any = null;
   const all: any[] = (space.value as any[]).concat(peerDrives.value);
   for (const s of all) if (path === s.root || path.indexOf(s.root + "/") === 0) if (!best || s.root.length > best.root.length) best = s;
+  // "/" (Settings > Whole file system): whatever is on no other drive, server or engine.
+  if (!best && path && path[0] === "/" && !serverOf(path) && !peerRoot(path)) best = all.find((s) => s.root === "/") || null;
   return best;
 }
 // The paired engine's drive a path is on (null for this engine's own).
@@ -58,6 +60,7 @@ export function driveName(root: string): string {
   if (pd) return pd.engine + " · " + placeLabel(pd.label);
   // A whole engine (one that is offline: its drives are not known).
   if (peerRoot(root) === root) { const e = ((peers.value && peers.value.engines) || []).find((x) => "/peer/" + x.id === root); return e ? e.name : t("another engine"); }
+  if (root === "/") return t("File system root");
   if (root === "/data") return t("Internal");
   if ((m = /^\/mnt\/usb(\d+)$/.exec(root))) return t("USB {n}", { n: m[1] });
   if ((m = /^\/mnt\/ext(\d+)$/.exec(root))) return t("Extended {n}", { n: m[1] });

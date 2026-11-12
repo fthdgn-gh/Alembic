@@ -21,8 +21,8 @@ struct EngineConfig {
     std::string state_dir;
     std::uint16_t http_port = 5940; // the page and API; packages for the installer (pkg_sources.hpp)
     std::vector<std::string> roots; // inputs, outputs and browsing stay below these
-    // Settings > "Whole file system": the top-level folders of "/" count as
-    // roots too (read and written like the others). Shared by every copy and
+    // Settings > "Whole file system": "/" is a root too (read and written
+    // like the others; its own folders cannot be renamed or deleted). Shared by every copy and
     // thread; <state>/whole-filesystem.on keeps it across starts.
     std::shared_ptr<std::atomic<bool>> whole_filesystem = std::make_shared<std::atomic<bool>>(false);
     std::string runtime_override;   // --runtime: this libSceAmpr.sprx instead of the Components one
@@ -50,8 +50,8 @@ struct EngineConfig {
                                                            const ProgressFn& progress)>
         digest_elsewhere;
 
-    // The roots that can be used right now: shared_roots(), then, with
-    // whole_filesystem, every other top-level folder of "/".
+    // The roots that can be used right now: shared_roots(), then "/" with
+    // whole_filesystem.
     std::vector<std::string> available_roots() const;
     // `roots` that can be used right now (mounted drives only): what paired
     // engines see, whatever whole_filesystem says.

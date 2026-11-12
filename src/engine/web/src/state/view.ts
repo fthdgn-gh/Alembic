@@ -28,6 +28,10 @@ export function setViewMode(which: "files" | "images", mode: ViewMode) {
   viewModes.value = { ...viewModes.value, [which]: mode };
   store.set("view." + which, mode);
 }
+// The folder Files shows: TOP is the list of drives ("": "/" can be a drive
+// itself, "File system root", with Settings > Whole file system); null before
+// the first listing.
+export const TOP = "";
 export const cwd = signal<string | null>(null);
 export const listing = signal<Listing | null>(null);
 export const focusEntry = signal<Entry | null>(null); // the focused row in Files

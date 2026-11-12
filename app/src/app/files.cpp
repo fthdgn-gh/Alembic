@@ -33,7 +33,11 @@ bool is_convertible(const Entry& e) {
 void FilesPage::rail(Ui& ui, App& app, const Rect& area) {
     DrawList& l = *ui.list;
     const std::string& c = app.cwd;
-    auto within = [&](const std::string& root) { return c == root || starts_with(c, root + "/"); };
+    // The drive the shown folder is on ("File system root" only for folders on no other drive).
+    auto within = [&](const std::string& root) {
+        const JsonValue* r = c.empty() ? nullptr : app.root_of(c);
+        return r && (*r)["root"].str() == root;
+    };
     ui.begin_zone("rail", true, true);
     const float offset = ui.begin_scroll("rail", area);
     float y = area.y + 0.25f * R - offset;
@@ -192,7 +196,7 @@ void FilesPage::rail(Ui& ui, App& app, const Rect& area) {
 
 void FilesPage::list(Ui& ui, App& app, const Rect& area) {
     DrawList& l = *ui.list;
-    const bool top = app.cwd == "/";
+    const bool top = app.cwd.empty(); // the list of drives
     // ---- bar1: crumbs, summary, tools ----
     float y = area.y + 0.2f * R;
     const float cs = 1.35f * R;
@@ -215,9 +219,9 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
             ask_text(app, t("New folder"), t("New folder"), t("Create"), [&app, where](const std::string& name) {
                 if (name.empty()) return;
                 JsonValue body = JsonValue::object();
-                body.set("path", where + "/" + name);
+                body.set("path", child(where, name));
                 app.post("/api/fs/mkdir", body, app.or_toast([&app, where, name](const Reply&) {
-                    app.browse(where, where + "/" + name);
+                    app.browse(where, child(where, name));
                 }));
             });
         }
@@ -231,7 +235,7 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
         ui.end_zone();
         // Crumbs: Drives › drive › folder › ...
         ui.begin_zone("crumbs", false, false);
-        std::vector<std::pair<std::string, std::string>> parts = {{"/", t("Drives")}};
+        std::vector<std::pair<std::string, std::string>> parts = {{"", t("Drives")}};
         if (!top) {
             const JsonValue* r = app.root_of(app.cwd);
             const JsonValue* f = r ? nullptr : app.server_of(app.cwd);
@@ -239,7 +243,7 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
             const std::string peer = App::peer_root(app.cwd);
             const std::string root = r ? (*r)["root"].str() : f ? (*f)["path"].str() : !peer.empty() ? peer : app.cwd;
             parts.push_back({root, app.drive_name(root)});
-            std::string acc = root;
+            std::string acc = root == "/" ? "" : root; // "File system root": /system, not //system
             std::string rest = app.cwd.substr(std::min(root.size(), app.cwd.size()));
             std::size_t at = 0;
             while (at < rest.size()) {
@@ -529,14 +533,14 @@ std::vector<Hint> FilesPage::hints(App& app) {
                                        : is_convertible(*e)             ? t("Convert")
                                                                         : t("Options"))
                                     : t("Choose")});
-    if (app.cwd != "/") list.push_back({Glyph::circle, t("Back")});
-    if (e && app.cwd != "/") list.push_back({Glyph::square, t("Options")});
+    if (!app.cwd.empty()) list.push_back({Glyph::circle, t("Back")});
+    if (e && !app.cwd.empty()) list.push_back({Glyph::square, t("Options")});
     return list;
 }
 
 void FilesPage::square(App& app) {
     if (app.selecting) return app.open_bulk_actions();
-    if (app.cwd == "/" || !in_list_) return;
+    if (app.cwd.empty() || !in_list_) return;
     for (const auto& e : app.entries)
         if (e.path == focused_path) {
             app.open_actions(e);

@@ -57,7 +57,7 @@ export function press(action: string): void {
     if (top) { if (top.onSquare) top.onSquare(); return; }
     if ((tab.value === "files" || tab.value === "images") && selecting.value) { openBulkActions(); return; }
     const z = zoneOf(document.activeElement);
-    if (tab.value === "files" && focusEntry.value && cwd.value !== "/" && z === "list") openActions(focusEntry.value);
+    if (tab.value === "files" && focusEntry.value && cwd.value && z === "list") openActions(focusEntry.value);
     if (tab.value === "images" && focusImage.value && z === "images") openActions(focusImage.value, focusImage.value);
   }
 }

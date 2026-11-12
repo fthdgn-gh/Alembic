@@ -84,6 +84,10 @@ std::string dir(std::string_view p) {
     return std::string(p.substr(0, slash));
 }
 
+std::string child(std::string_view folder, std::string_view name) {
+    return (folder == "/" ? std::string() : std::string(folder)) + "/" + std::string(name);
+}
+
 std::string version_text(std::string_view v) {
     std::size_t i = 0;
     while (i + 1 < v.size() && v[i] == '0' && v[i + 1] >= '0' && v[i + 1] <= '9') ++i;

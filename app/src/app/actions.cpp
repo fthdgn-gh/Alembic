@@ -85,7 +85,7 @@ void switch_ampr(App& app, const Entry& e, const JsonValue& plan) {
 // ---------------------------------------------------------------- Options
 
 void App::open_actions(const Entry& e, const JsonValue* lib) {
-    if (!lib && cwd == "/") return;
+    if (!lib && cwd.empty()) return;
     const bool conv = is_convertible(e);
     std::vector<Choice> items;
     auto add = [&](std::string label, std::string sub, bool danger, std::function<void()> act) {
@@ -299,7 +299,7 @@ void App::rename_entry(const Entry& e) {
                 post("/api/fs/rename", body, or_toast([this, e, name](const Reply&) {
                     toast(t("Renamed to {name}", {{"name", name}}), Toast::ok);
                     if (tab == Tab::images) refresh_images();
-                    else browse(cwd, dir(e.path) + "/" + name);
+                    else browse(cwd, child(dir(e.path), name));
                 }));
             };
             if (e.kind == "folder") return rename();
@@ -351,7 +351,7 @@ void App::toggle_hidden(const std::string& path, bool quiet, bool smp) {
     post("/api/fs/rename", body, or_toast([this, path, name, quiet, smp](const Reply&) {
         if (!smp) {
             if (!quiet) toast(t("Renamed to {name}", {{"name", name}}), Toast::ok);
-            if (tab == Tab::files && cwd == dir(path)) browse(cwd, dir(path) + "/" + name);
+            if (tab == Tab::files && cwd == dir(path)) browse(cwd, child(dir(path), name));
             if (tab == Tab::images) refresh_images();
             return;
         }
@@ -365,7 +365,7 @@ void App::toggle_hidden(const std::string& path, bool quiet, bool smp) {
                     toast(scanned ? t("Visible to ShadowMount+ again; it is rescanning") : t("Visible to ShadowMount+ again"),
                           Toast::ok);
             }
-            if (tab == Tab::files && cwd == dir(path)) browse(cwd, dir(path) + "/" + name);
+            if (tab == Tab::files && cwd == dir(path)) browse(cwd, child(dir(path), name));
             if (tab == Tab::images) refresh_images();
         });
     }));
@@ -447,7 +447,7 @@ public:
 
     void load(App& app, const std::string& path) {
         const int k = key;
-        app.get(url("/api/browse", {{"path", path.empty() ? "/" : path}}), [this, &app, k](const Reply& r) {
+        app.get(url("/api/browse", {{"path", path}}), [this, &app, k](const Reply& r) {
             if (!app.overlay_alive(k)) return;
             if (!r.ok()) {
                 msg = t_msg(r.error());
@@ -476,7 +476,7 @@ public:
             JsonValue body = JsonValue::object();
             body.set("kind", kind);
             body.set("input", e.path);
-            body.set("output", folder + "/" + e.name);
+            body.set("output", child(folder, e.name));
             body.set("overwrite", over);
             const std::string name = e.name;
             app.post("/api/jobs", body, [&app, count, name, done](const Reply& r) {
@@ -503,7 +503,7 @@ public:
 
     void go(App& app) {
         const std::string c = cur();
-        if (c.empty() || c == "/") return;
+        if (c.empty()) return; // not loaded, or the list of drives
         app.close(this);
         if (kind == "pick") {
             if (picked) picked(c);
@@ -519,7 +519,7 @@ public:
         JsonValue body = JsonValue::object();
         body.set("kind", kind);
         body.set("input", entry.path);
-        body.set("output", c + "/" + n);
+        body.set("output", child(c, n));
         body.set("overwrite", over);
         const std::string k = kind;
         app.post("/api/jobs", body, app.or_toast([&app, k](const Reply&) {
@@ -587,13 +587,13 @@ public:
         // Crumbs.
         {
             const float cs = 1.0f * R;
-            std::vector<std::pair<std::string, std::string>> parts = {{"/", t("Drives")}};
-            if (!c.empty() && c != "/") {
+            std::vector<std::pair<std::string, std::string>> parts = {{"", t("Drives")}};
+            if (!c.empty()) {
                 const JsonValue* r = app.root_of(c);
                 const JsonValue* f = r ? nullptr : app.server_of(c);
                 const std::string root = r ? (*r)["root"].str() : f ? (*f)["path"].str() : c;
                 parts.push_back({root, app.drive_name(root)});
-                std::string acc = root, rest = c.substr(std::min(root.size(), c.size()));
+                std::string acc = root == "/" ? "" : root, rest = c.substr(std::min(root.size(), c.size()));
                 std::size_t at = 0;
                 while (at < rest.size()) {
                     std::size_t slash = rest.find('/', at);
@@ -642,7 +642,7 @@ public:
             const float off = ui.begin_scroll("picker", box.inset(1.0f));
             float ry = box.y + 0.3f * R - off;
             if (data.is_object() && folders.empty())
-                draw::text(ui, Face::regular, c == "/" ? t("No drives.") : t("No folders here."), box.cx(),
+                draw::text(ui, Face::regular, c.empty() ? t("No drives.") : t("No folders here."), box.cx(),
                            draw::baseline(ry + 1.2f * R + 0.725f * R, 1.0f * R), 1.0f * R, muted, Align::center);
             for (const auto& f : folders) {
                 const std::string fp = f["path"].str();
@@ -656,8 +656,8 @@ public:
                     Color fill, ink;
                     draw::kind_colors("folder", &fill, &ink);
                     ui.list->rounded_rect(ic, 0.5f * R, fill);
-                    draw::icon(ui, c == "/" ? draw::Icon::drive : draw::Icon::folder, ic.inset(ic.w * 0.225f), ink);
-                    draw::text_fit(ui, Face::regular, c == "/" ? app.drive_name(fp) : f["name"].str(),
+                    draw::icon(ui, c.empty() ? draw::Icon::drive : draw::Icon::folder, ic.inset(ic.w * 0.225f), ink);
+                    draw::text_fit(ui, Face::regular, c.empty() ? app.drive_name(fp) : f["name"].str(),
                                    ic.x + ic.w + 1.0f * R, draw::baseline(r.cy(), 1.05f * R), 1.05f * R,
                                    r.w - ic.w - 2.6f * R, style::text);
                 }
@@ -683,7 +683,7 @@ public:
         for (const auto& e : many) need += std::max(0.0, e.size);
         std::string space;
         if (data.is_object()) {
-            const JsonValue* r = c.empty() || c == "/" ? nullptr : app.root_of(c);
+            const JsonValue* r = c.empty() ? nullptr : app.root_of(c);
             const JsonValue* srv = r ? nullptr : app.server_of(c);
             if (srv)
                 space = App::on_server_text(*srv) + "  \xC2\xB7  " + c;
@@ -698,7 +698,7 @@ public:
         y += draw::paragraph(ui, Face::regular, space, x, y, w, 0.88f * R, 0.88f * 1.45f * R, muted);
         sheet.end_body(ui, y);
         const std::string go_label = pick ? t("Use this folder") : kind == "copy" ? t("Copy here") : t("Move here");
-        if (sheet.button(ui, "pick:go", go_label, draw::Button::primary, !data.is_object() || c == "/")) go(app);
+        if (sheet.button(ui, "pick:go", go_label, draw::Button::primary, !data.is_object() || c.empty())) go(app);
         if (sheet.button(ui, "pick:cancel", t("Cancel"), draw::Button::normal)) app.close(this);
         sheet.message(ui, msg, err);
         sheet.end(ui);
@@ -721,7 +721,7 @@ void App::open_dest(const Entry* e, const std::string& kind, const std::string& 
         p->name = e->name;
     }
     p->kind = kind;
-    p->start = !start.empty() ? start : e ? dir(e->path) : "/";
+    p->start = !start.empty() ? start : e ? dir(e->path) : std::string();
     p->picked = std::move(picked);
     open(std::move(p));
 }

@@ -69,7 +69,7 @@ App::App(Engine& e, Platform p) : engine(e), platform(std::move(p)) {
         auto parsed = engine::parse_json(saved);
         if (parsed && parsed->is_object()) prefs = std::move(parsed.value());
     }
-    cwd = "/";
+    cwd.clear(); // the list of drives
     refresh_jobs();
 }
 
@@ -205,7 +205,7 @@ void App::load_info() {
                             // Files on a PC; only when nothing has been chosen yet.
                             if (!home_chosen_) {
                                 home_chosen_ = true;
-                                if (i["platform"].str() == "ps5" && tab == Tab::files && (cwd.empty() || cwd == "/") && overlays_.empty())
+                                if (i["platform"].str() == "ps5" && tab == Tab::files && cwd.empty() && overlays_.empty())
                                     show_tab(Tab::images);
                             }
                             if (sp.ok()) space = sp.json;
@@ -216,7 +216,7 @@ void App::load_info() {
                                 // again when they change (one went offline, or came back).
                                 const bool changed = peer_drives.dump() != pd.json.dump();
                                 peer_drives = pd.json;
-                                if (changed && cwd == "/" && listing_loaded) browse("/");
+                                if (changed && cwd.empty() && listing_loaded) browse("");
                             }
                             if (p.ok()) peers = p.json;
                             not_connected.clear();
@@ -224,7 +224,7 @@ void App::load_info() {
                             notice_update();
                             if (!first_browse_) {
                                 first_browse_ = true;
-                                browse("/");
+                                browse("");
                             }
                         });
                     });
@@ -364,7 +364,7 @@ void App::refresh_jobs(bool remote_now) {
                 const std::string name = base((*newest)["spec"]["input"].str());
                 if ((*newest)["state"].str() == "done") toast(t("Finished: {name}", {{"name", name}}), Toast::ok);
                 if ((*newest)["state"].str() == "failed") toast(t("Failed: {name}", {{"name", name}}), Toast::bad);
-                if (cwd != "/" && overlays_.empty()) refresh_listing();
+                if (!cwd.empty() && overlays_.empty()) refresh_listing();
                 load_info();
             }
             was_active_.clear();
@@ -391,6 +391,10 @@ const JsonValue* App::root_of(const std::string& path) const {
     };
     for (const auto& s : space.items()) consider(s);
     for (const auto& s : peer_drives.items()) consider(s);
+    // "/" (Settings > Whole file system): whatever is on no other drive, server or engine.
+    if (!best && !path.empty() && path[0] == '/' && !server_of(path) && peer_root(path).empty())
+        for (const auto& s : space.items())
+            if (s["root"].str() == "/") best = &s;
     return best;
 }
 
@@ -462,6 +466,7 @@ std::string App::drive_name(const std::string& root) const {
             if ("/peer/" + e["id"].str() == root) return e["name"].str();
         return t("another engine");
     }
+    if (root == "/") return t("File system root");
     if (root == "/data") return t("Internal");
     auto numbered = [&](const char* prefix, const char* key) -> std::string {
         const std::string p = prefix;
@@ -604,22 +609,22 @@ void App::clear_meta() {
 
 void App::browse(const std::string& path, const std::string& focus_key) {
     const std::string from = cwd;
-    get(url("/api/browse", {{"path", path.empty() ? "/" : path}}), [this, from, focus_key, path](const Reply& r) {
+    get(url("/api/browse", {{"path", path}}), [this, from, focus_key, path](const Reply& r) {
         if (!r.ok()) {
             toast(t_msg(r.error()), Toast::bad);
             // Another engine went away while we were on it: back to the drives.
             const std::string peer = peer_root(path);
-            if (!peer.empty() && peer_root(cwd) == peer) browse("/");
+            if (!peer.empty() && peer_root(cwd) == peer) browse("");
             return;
         }
-        const std::string p = r.json["path"].str("/");
+        const std::string p = r.json["path"].str(); // "": the list of drives
         const bool same = p == from;
         const bool listing_loaded_before = listing_loaded;
         std::vector<Entry> list;
         for (const auto& e : r.json["entries"].items()) list.push_back(entry_from(e));
         // Back from a folder: land on that folder's row.
         std::string key = focus_key;
-        if (key.empty() && !same && !from.empty() && dir(from) == p && from != "/") key = from;
+        if (key.empty() && !same && !from.empty() && (dir(from) == p || p.empty())) key = from;
         if (key.empty() && same) key = files_->focused_path;
         if (p != from) stop_selecting();  // a selection is one folder's
         cwd = p;
@@ -632,7 +637,7 @@ void App::browse(const std::string& path, const std::string& focus_key) {
 }
 
 void App::refresh_listing() {
-    if (!cwd.empty()) browse(cwd);
+    if (listing_loaded) browse(cwd);
     load_info();
 }
 
@@ -909,12 +914,12 @@ void App::handle_global(Ui& ui) {
         if (ui.pressed(Action::back) && selecting) {  // ○ ends selecting, in the same folder
             ui.play(hui::audio::Cue::back);
             stop_selecting();
-        } else if (ui.pressed(Action::back) && cwd != "/") {
+        } else if (ui.pressed(Action::back) && !cwd.empty()) {
             ui.play(hui::audio::Cue::back);
             const JsonValue* r = root_of(cwd);
             const JsonValue* f = server_of(cwd);
             const bool at_root = (r && (*r)["root"].str() == cwd) || (f && (*f)["path"].str() == cwd);
-            browse(at_root ? "/" : dir(cwd));
+            browse(at_root ? std::string() : dir(cwd));
         }
     }
 }

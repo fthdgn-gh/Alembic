@@ -103,15 +103,14 @@ function Launcher() {
   );
 }
 
-// Files lists every top-level folder of "/" next to the drives, and they can
-// be changed like the drives (the engine keeps the choice).
+// "/" as one more drive in Files, "File system root" (the engine keeps the choice).
 function WholeFilesystem() {
   const w = info.value && info.value.whole_filesystem;
   if (!(w && w.supported)) return null;
   return (
-    <SwitchRow dataKey="s:wholefs" label={t("Whole file system")} hint={t("Files also lists every folder under /, not only the drives, and they can be changed like any other. Changing system files can stop the system from starting.")} on={w.on}
+    <SwitchRow dataKey="s:wholefs" label={t("Whole file system")} hint={t("Adds File system root (/) to the drives in Files: every folder, readable and writable like the drives. Changing system files can stop the system from starting.")} on={w.on}
       onChange={async (on) => {
-        try { info.value = await api("POST", "/api/whole_filesystem", { on }); toast(on ? t("Files shows the whole file system") : t("Files shows the drives only"), "ok"); }
+        try { info.value = await api("POST", "/api/whole_filesystem", { on }); toast(on ? t("File system root added to the drives") : t("File system root removed from the drives"), "ok"); }
         catch (e: any) { toast(tMsg(e.message), "bad"); }
       }} />
   );

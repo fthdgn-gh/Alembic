@@ -661,19 +661,19 @@ void SettingsPage::build(Ui& ui, App& app, const Rect& area) {
                          launcher_busy_}});
             y = card_end("launcher", top, yy);
         }
-        // Files lists every top-level folder of "/" next to the drives (as the page).
+        // "/" as one more drive in Files, "File system root" (as the page).
         const JsonValue& wf = i["whole_filesystem"];
         if (wf.is_object() && wf["supported"].boolean()) {
             bool on = wf["on"].boolean(), changed = false;
             y += switch_row(ui, "s:wholefs", x, y, w, t("Whole file system"),
-                            t("Files also lists every folder under /, not only the drives, and they can be changed like any other. Changing system files can stop the system from starting."),
+                            t("Adds File system root (/) to the drives in Files: every folder, readable and writable like the drives. Changing system files can stop the system from starting."),
                             &on, &changed);
             if (changed) {
                 JsonValue body = JsonValue::object();
                 body.set("on", on);
                 app.post("/api/whole_filesystem", body, app.or_toast([&app, on](const Reply& r) {
                     app.info = r.json;
-                    app.toast(on ? t("Files shows the whole file system") : t("Files shows the drives only"), App::Toast::ok);
+                    app.toast(on ? t("File system root added to the drives") : t("File system root removed from the drives"), App::Toast::ok);
                 }));
             }
         }

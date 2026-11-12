@@ -23,7 +23,8 @@ function Meter(props: { free: number; total: number }) {
   const used = props.total ? 1 - props.free / props.total : 0;
   return <div class={"meter" + (props.free < 20e9 ? " low" : "")}><div style={"width:" + (used * 100).toFixed(1) + "%"} /></div>;
 }
-const within = (root: string) => !!cwd.value && (cwd.value === root || cwd.value.indexOf(root + "/") === 0);
+// The drive the shown folder is on ("File system root" only for folders on no other drive).
+const within = (root: string) => { const r = cwd.value ? rootOf(cwd.value) : null; return !!r && r.root === root; };
 
 export function Rail() {
   const c = cwd.value;

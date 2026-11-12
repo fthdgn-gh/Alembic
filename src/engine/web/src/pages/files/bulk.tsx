@@ -74,7 +74,7 @@ function names(list: Entry[], max = 6) {
   const shown = list.slice(0, max).map((e) => e.name).join("\n");
   return list.length > max ? shown + "\n" + t("and {n} more", { n: list.length - max }) : shown;
 }
-function done() { stopSelecting(); if (tab.value === "images") loadImages(true); else if (cwd.value) browse(cwd.value, false); }
+function done() { stopSelecting(); if (tab.value === "images") loadImages(true); else if (cwd.value !== null) browse(cwd.value, false); }
 function failures(failed: string[]) {
   if (failed.length) toast(failed.length > 1 ? t("{first} (and {n} more)", { first: failed[0], n: failed.length - 1 }) : failed[0], "bad");
 }

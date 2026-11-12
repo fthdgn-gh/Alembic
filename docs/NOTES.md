@@ -3842,21 +3842,25 @@ with `fself::make_prospero_fself`, ported from ProsperoPkgTool's
 ### 2026-11-12: Whole file system (owner's request)
 
 - **Settings → Whole file system** (page and app, `POST /api/whole_filesystem
-  {on}`, kept as `<state>/whole-filesystem.on`): Files' top list ("/",
-  still the virtual list of drives, servers and engines) adds every other
-  top-level folder of `/`, and everything below them can be read and
-  changed like the drives (owner: writing allowed, not read-only). Not on
-  Windows (no single `/`).
-- `EngineConfig::available_roots()` = `shared_roots()` (the drives, as
-  before) + those folders; the top-level folders themselves are roots, so
-  they cannot be renamed or deleted. `shared_roots()` stays for what must
-  not grow: paired engines (`/api/peer/fs/*`, protocol unchanged), the
-  update's payload search, `/api/fs/space` (Files' drive column) and the
-  PC's suggested places. `/api/info` adds `shared_roots` and
+  {on}`, kept as `<state>/whole-filesystem.on`): "/" becomes one more root,
+  shown in Files as the drive **File system root**; everything under it can
+  be read and changed like the drives (owner: writing allowed). The folders
+  right under "/" (/data, /system, /mnt, ...) cannot be renamed or deleted.
+  Not on Windows (no single "/").
+- A first try listed every top-level folder next to the drives; the owner
+  asked for one entry instead. So **the list of drives is now path ""** in
+  the page (`TOP` in state/view.ts) and the app (`cwd` empty), and "/" can
+  be a real folder. `/api/browse`: `path=` is the list; `/` (or no path) is
+  still the list unless "/" is a root, so older pages and apps keep working
+  while the switch is off.
+- `EngineConfig::shared_roots()` (the drives) stays for what must not grow:
+  paired engines (`/api/peer/fs/*`, protocol unchanged), the update's payload
+  search and the PC's suggested places. `/api/fs/space` includes "/" (the
+  drive column shows it). `/api/info` adds `shared_roots` and
   `whole_filesystem {supported, on}`.
-- Checked on the Mac: on/off, survives a restart, browsing and mkdir/delete
-  outside the old roots, a root refused for delete; app pictures of
-  Settings and the drives list. Not tried on a console yet.
+- Checked on the Mac: on/off, survives a restart, browsing in and out of "/"
+  in the app (pictures) and the page (headless browser), back and crumbs
+  land on the right rows. Not tried on a console yet.
 
 ## Next session
 

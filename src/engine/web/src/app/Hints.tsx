@@ -24,8 +24,8 @@ export function Hints() {
   } else if (tab.value === "files") {
     const e = focusEntry.value, c = cwd.value;
     list = [["x", e ? (e.kind === "folder" ? t("Open") : isConvertible(e) ? t("Convert") : t("Options")) : t("Choose")]];
-    if (c && c !== "/") list.push(["o", t("Back"), goBack]);
-    if (e && c !== "/") list.push(["s", t("Options"), () => openActions(e)]);
+    if (c) list.push(["o", t("Back"), goBack]);
+    if (e && c) list.push(["s", t("Options"), () => openActions(e)]);
     list.push(["lr", t("Sections"), () => cycleTab(1)]);
   } else if (tab.value === "images") {
     // As in Files: ✕ converts, □ the focused one's options.

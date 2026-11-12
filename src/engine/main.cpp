@@ -14,7 +14,7 @@
 //
 // API (JSON):
 //   GET  /api/info                    engine, folders, LZ4 runtime state
-//   GET  /api/browse?path=P           folder listing (the roots for "/" or no path)
+//   GET  /api/browse?path=P           folder listing (the roots for "", or for "/" unless "/" is a root)
 //   GET  /api/inspect?path=P          format, title ID, file count and size of an input
 //   POST /api/plan                    a job's resolved target and output, not queued
 //   GET  /api/jobs                    every job, oldest first
@@ -33,7 +33,7 @@
 //   GET  /api/meta?path=P             title, title ID, version of a package, image or game folder
 //   GET  /api/icon?path=P             its sce_sys/icon0.png
 //   GET  /api/locations               suggested destinations (mounted drives only)
-//   GET  /api/fs/space                free and total bytes of each drive (not the whole file system's folders)
+//   GET  /api/fs/space                free and total bytes of each root
 //   POST /api/fs/mkdir   {path}       new folder
 //   POST /api/fs/rename  {path, name} rename in place
 //   POST /api/fs/delete  {path}       delete a file or a folder with its contents
@@ -48,7 +48,7 @@
 //                                     fitted}]}: one format for many games (name "": no value)
 //   POST /api/names/check  {path, name}   {warning}: "" or why ShadowMount+ could not mount it
 //   POST /api/launcher   {enabled}    add or remove the Media-tab shortcut (PS5)
-//   POST /api/whole_filesystem {on}   also list (and allow) every top-level folder of "/"; answers as /api/info
+//   POST /api/whole_filesystem {on}   make "/" a root ("File system root"); answers as /api/info
 //   POST /api/cache/clear             delete the cached game info and icons
 //   POST /api/lang       {lang}       the language of the engine's notifications
 //   POST /api/smp/scan                ask ShadowMount+ to rescan (retry counters reset)
@@ -832,13 +832,19 @@ private:
 
     HttpResponse browse(const HttpRequest& r) {
         auto it = r.query.find("path");
-        std::string path = it == r.query.end() ? "" : strip_slashes(it->second);
+        // The list of drives is "" (pages and apps from 0.6.5); earlier ones
+        // ask for "/" (or nothing), which stays the list unless "/" is a root
+        // itself (Whole file system, which only later ones can switch on).
+        const bool new_top = it != r.query.end() && it->second.empty();
+        std::string path = it == r.query.end() ? "/" : strip_slashes(it->second);
+        const std::vector<std::string> roots = config_.available_roots();
+        const bool root_is_root = std::find(roots.begin(), roots.end(), "/") != roots.end();
         JsonValue v = JsonValue::object();
         JsonValue entries = JsonValue::array();
-        if (path.empty() || path == "/") {
-            v.set("path", "/");
+        if (path.empty() || it == r.query.end() || (path == "/" && !root_is_root)) {
+            v.set("path", new_top ? "" : "/");
             v.set("parent", nullptr);
-            for (const std::string& root : config_.available_roots()) {
+            for (const std::string& root : roots) {
                 if (!is_directory(root)) continue;
                 JsonValue e = JsonValue::object();
                 e.set("name", root);
@@ -892,7 +898,7 @@ private:
             v.set("entries", std::move(entries));
             return json(200, v);
         }
-        if (!path_allowed(path, config_.available_roots())) return error(403, "outside the allowed folders");
+        if (!path_allowed(path, roots)) return error(403, "outside the allowed folders");
         auto names = list_directory_entries(path); // one request for another engine's folder
         if (!names.ok())
             // Another engine's folder: its reason ("<name> is offline", ...), with names for paths.
@@ -935,14 +941,13 @@ private:
         v.set("path", path);
         std::string parent = path.substr(0, path.rfind('/'));
         if (parent.size() == 2 && parent[1] == ':') parent += '/'; // "C:/x" -> "C:/"
-        const std::vector<std::string> roots = config_.available_roots();
         bool is_root = std::any_of(roots.begin(), roots.end(), [&](const std::string& root) { return root == path; });
         if (elsewhere) { // another engine's: up to its drive, then to the list of drives
             auto drives = peer_drives().first;
             is_root = std::none_of(drives.begin(), drives.end(), [&](const PeerDrive& d) { return is_within(parent, d.path); });
         }
-        if (is_root || parent.empty() || !path_allowed(parent, config_.available_roots()))
-            v.set("parent", "/");
+        if (is_root || parent.empty() || !path_allowed(parent, roots))
+            v.set("parent", new_top || root_is_root ? "" : "/"); // the list of drives
         else
             v.set("parent", parent);
         v.set("entries", std::move(entries));
@@ -1719,8 +1724,8 @@ private:
 
     HttpResponse fs_space() {
         JsonValue list = JsonValue::array();
-        // The drives only: the whole file system's folders stay out of Files' drive column.
-        for (const std::string& root : config_.shared_roots()) {
+        // The drives, and "/" with the whole file system (Files' drive column).
+        for (const std::string& root : config_.available_roots()) {
             if (!is_directory(root)) continue;
             auto s = space(root);
             if (!s.ok()) continue;
@@ -2132,6 +2137,8 @@ private:
         if (!path_allowed(path, config_.available_roots())) return "outside the allowed folders";
         for (const std::string& root : config_.available_roots())
             if (strip_slashes(root) == path) return "a top-level folder cannot be changed";
+        // With the whole file system: /data, /system, /mnt, ... themselves.
+        if (path.size() > 1 && path.rfind('/') == 0) return "a top-level folder cannot be changed";
         if (is_within(config_.state_dir, path)) return "the engine keeps its queue there";
         for (const Job& j : queue_.list()) {
             if (j.state != JobState::queued && j.state != JobState::running) continue;

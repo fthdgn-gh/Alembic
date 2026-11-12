@@ -2,13 +2,13 @@
 // What can be done to a file or folder: its Options menu and each action.
 import type { Entry, NameSuggestion, Plan, PlanEmulator } from "../../api/types";
 import { api } from "../../api/client";
-import { cwd, tab } from "../../state/view";
+import { cwd, tab, TOP } from "../../state/view";
 import { info, locations, peerDrives, loadInfo } from "../../state/engine";
 import { shownPath } from "../../state/paths";
 import { refreshJobs } from "../../state/jobs";
 import { isConvertible, isHiddenName, isAlembicTitle } from "../../lib/kinds";
 import { cachedMeta } from "../../api/meta";
-import { base, bytes, dir } from "../../lib/format";
+import { base, bytes, dir, join } from "../../lib/format";
 import { t, tMsg } from "../../lib/i18n";
 import { ask, choose } from "../../components/Dialogs";
 import type { ChoiceItem } from "../../components/Dialogs";
@@ -28,7 +28,7 @@ import type { ImageItem } from "../../api/types";
 // Hide, plus the update of the game's AMPR emulator when a newer build is
 // out, and Show in Files.
 export async function openActions(e: Entry, lib?: ImageItem) {
-  if (!lib && cwd.value === "/") return;
+  if (!lib && cwd.value === TOP) return;
   const conv = isConvertible(e);
   const items: { label: string; sub?: string; danger?: boolean; value: () => void }[] = [];
   if (!lib && e.kind === "folder" && e.path !== cwd.value) items.push({ label: t("Open"), value: () => browse(e.path) });
@@ -52,7 +52,7 @@ export async function openActions(e: Entry, lib?: ImageItem) {
     ? { label: t("Unhide"), sub: t("Renames it back to {name}", { name: e.name.slice(1) }), value: () => toggleHidden(e.path, false, false) }
     : { label: t("Hide"), sub: t("Renames it to .{name}", { name: e.name }), value: () => toggleHidden(e.path, false, false) });
   // Places (this engine's or a paired one's): shared with every paired engine.
-  if (!lib && e.kind === "folder" && cwd.value !== "/") {
+  if (!lib && e.kind === "folder" && cwd.value !== TOP) {
     const isPlace = locations.value.some((l) => l.custom && l.path === e.path);
     items.push(isPlace ? { label: t("Remove from Places"), value: () => setPlace(e.path, false) }
       : { label: t("Add to Places"), sub: t("Shows it in Places and Save to, here and on paired engines"), value: () => setPlace(e.path, true) });
@@ -103,7 +103,7 @@ export async function toggleHidden(path: string, quiet?: boolean, smp = true) {
     await api("POST", "/api/fs/rename", { path, name });
     if (!smp) {
       if (!quiet) toast(t("Renamed to {name}", { name }), "ok");
-      if (tab.value === "files" && cwd.value === dir(path)) browse(cwd.value, false, dir(path) + "/" + name);
+      if (tab.value === "files" && cwd.value === dir(path)) browse(cwd.value, false, join(dir(path), name));
       if (tab.value === "images") loadImages(true);
       return true;
     }
@@ -111,7 +111,7 @@ export async function toggleHidden(path: string, quiet?: boolean, smp = true) {
     try { await api("POST", "/api/smp/scan"); } catch (e) { scanned = false; }
     if (!quiet) toast(isHiddenName(name) ? (scanned ? t("Hidden from ShadowMount+; it is rescanning") : t("Hidden from ShadowMount+"))
       : (scanned ? t("Visible to ShadowMount+ again; it is rescanning") : t("Visible to ShadowMount+ again")), "ok");
-    if (tab.value === "files" && cwd.value === dir(path)) browse(cwd.value, false, dir(path) + "/" + name);
+    if (tab.value === "files" && cwd.value === dir(path)) browse(cwd.value, false, join(dir(path), name));
     if (tab.value === "images") loadImages(true);
     return true;
   } catch (err: any) { toast(tMsg(err.message), "bad"); return false; }
@@ -226,7 +226,7 @@ async function renameEntry(e: Entry) {
     catch (err) { warning = ""; } // an engine before rename formats
     if (warning && !await ask({ title: t("Too long for ShadowMount+"), body: <p>{tMsg(warning)}</p>, ok: t("Rename anyway") })) return;
   }
-  try { await api("POST", "/api/fs/rename", { path: e.path, name }); toast(t("Renamed to {name}", { name }), "ok"); if (tab.value === "images") loadImages(true); else browse(cwd.value!, false, dir(e.path) + "/" + name); }
+  try { await api("POST", "/api/fs/rename", { path: e.path, name }); toast(t("Renamed to {name}", { name }), "ok"); if (tab.value === "images") loadImages(true); else browse(cwd.value!, false, join(dir(e.path), name)); }
   catch (err: any) { toast(tMsg(err.message), "bad"); }
 }
 

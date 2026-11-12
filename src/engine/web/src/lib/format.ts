@@ -26,4 +26,6 @@ export function date(when: number | undefined, full?: boolean): string {
 }
 
 export const base = (p: string) => p.replace(/\/+$/, "").split("/").pop() || "";
+// `name` in folder `d` ("/" + name in "/").
+export const join = (d: string, n: string) => (d === "/" ? "" : d) + "/" + n;
 export const dir = (p: string) => { const s = p.replace(/\/+$/, ""); const i = s.lastIndexOf("/"); return i <= 0 ? "/" : s.slice(0, i); };

@@ -183,18 +183,8 @@ std::vector<std::string> EngineConfig::shared_roots() const {
 
 std::vector<std::string> EngineConfig::available_roots() const {
     std::vector<std::string> out = shared_roots();
-    if (!whole_filesystem || !whole_filesystem->load() || !whole_filesystem_supported()) return out;
-    // "/" itself stays the page's list of drives; its folders are listed there.
-    auto top = list_directory_entries("/");
-    if (!top.ok()) return out;
-    std::vector<std::string> more;
-    for (const DirEntry& e : *top) {
-        if (!e.stat.is_directory() || e.name.empty() || e.name == "." || e.name == "..") continue;
-        std::string path = "/" + e.name;
-        if (std::find(out.begin(), out.end(), path) == out.end()) more.push_back(std::move(path));
-    }
-    std::sort(more.begin(), more.end());
-    out.insert(out.end(), more.begin(), more.end());
+    // "/" itself: Files lists it as one more drive, "File system root".
+    if (whole_filesystem && whole_filesystem->load() && whole_filesystem_supported()) out.push_back("/");
     return out;
 }
 

@@ -174,11 +174,11 @@ Also on the page:
   Enter, Esc, S, Q/E and Page Up/Down.
 - **Places:** add any folder to Places from its Options; they show in the
   rail, in Save to, and on paired engines.
-- **Whole file system:** Files lists the internal storage and the drives;
-  **Settings → Whole file system** adds every other folder under `/`
-  (`/system`, `/user`, `/mnt`, …), and they can be changed like any other.
-  Paired engines still see only the drives. Careful: changing system files
-  can stop the console from starting.
+- **Whole file system:** **Settings → Whole file system** adds **File system
+  root** (`/`) to the drives in Files: every folder (`/system`, `/user`,
+  `/mnt`, …), read and changed like the drives; the folders right under `/`
+  cannot be renamed or deleted. Paired engines still see only the drives.
+  Careful: changing system files can stop the console from starting.
 - **Rename** (from 0.4.1): renaming a game offers names made from its title,
   title ID, version and format (`Title [ABCD12345].ffpfsc`, …) next to the
   current one; the one picked can still be edited. The formats are yours to

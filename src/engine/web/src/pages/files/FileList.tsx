@@ -2,7 +2,7 @@
 // The folder's contents: a row per entry, with game info once it has loaded.
 import { useRef } from "preact/hooks";
 import type { Entry } from "../../api/types";
-import { cwd, listing, focusEntry, viewModes } from "../../state/view";
+import { cwd, listing, focusEntry, viewModes, TOP } from "../../state/view";
 import { Tile } from "../../components/Tile";
 import { rootOf, serverOf, serverAddress, driveName, offlinePeer, shownPath } from "../../state/paths";
 import { isConvertible, KIND_LABEL } from "../../lib/kinds";
@@ -17,7 +17,7 @@ import { openActions } from "./actions";
 import { selecting, isSelected, toggleSelected } from "../../state/selection";
 
 function openEntry(e: Entry) {
-  if (cwd.value === "/" || (e.kind === "folder" && !e.game)) return browse(e.path);
+  if (cwd.value === TOP || (e.kind === "folder" && !e.game)) return browse(e.path);
   if (isConvertible(e)) return openConvert(e);
   openActions(e);
 }
@@ -91,12 +91,12 @@ function Cell(props: { e: Entry }) {
 export function FileList() {
   const data = listing.value;
   const grid = viewModes.value.files === "grid" && !!data;
-  const top = !!data && data.path === "/";
+  const top = !!data && data.path === TOP;
   return (
     <div class={"list scroll" + (grid ? " grid" : "")} id="list" data-zone="list" data-column={grid ? undefined : true}>
       {!data ? null : !data.entries.length ? <div class="empty">{t("This folder is empty.")}</div>
         : grid ? data.entries.map((e) => (top ? <DriveCell key={e.path} e={e} /> : <Cell key={e.path} e={e} />))
-        : data.entries.map((e) => <Row key={e.path} e={e} top={data.path === "/"} />)}
+        : data.entries.map((e) => <Row key={e.path} e={e} top={data.path === TOP} />)}
     </div>
   );
 }

@@ -5,8 +5,9 @@ import type { Entry, Listing } from "../api/types";
 import { api } from "../api/client";
 import { locations } from "../state/engine";
 import { rootOf, serverOf, onServerText, driveName, shownPath, hereName } from "../state/paths";
+import { TOP } from "../state/view";
 import { refreshJobs } from "../state/jobs";
-import { bytes, dir } from "../lib/format";
+import { bytes, dir, join } from "../lib/format";
 import { t, tMsg, plural, placeLabel } from "../lib/i18n";
 import { ICONS } from "../components/Icons";
 import { SwitchRow } from "../components/Rows";
@@ -27,13 +28,13 @@ export async function openDest(entry: Entry | null, kind: Kind, start?: string):
   const pick = kind === "pick";
   const ctl: Control = { go: () => {} };
   const goLabel = pick ? t("Use this folder") : kind === "copy" ? t("Copy here") : t("Move here");
-  const chosen = await openOverlay<Chosen>(() => <Picker entry={entry} kind={kind} start={start || (entry ? dir(entry.path) : "/")} ctl={ctl} />,
+  const chosen = await openOverlay<Chosen>(() => <Picker entry={entry} kind={kind} start={start || (entry ? dir(entry.path) : TOP)} ctl={ctl} />,
     { hints: [["x", t("Open folder")], ["o", t("Cancel"), goBack], ["s", goLabel, () => ctl.go()]], onSquare: () => ctl.go() });
   if (!chosen || pick || !entry) return chosen ? chosen.folder : null;
   const n = chosen.name.trim();
   if (!n || n.indexOf("/") >= 0) { toast(t("Enter a plain name"), "bad"); return null; }
   try {
-    await api("POST", "/api/jobs", { kind, input: entry.path, output: chosen.folder + "/" + n, overwrite: chosen.overwrite });
+    await api("POST", "/api/jobs", { kind, input: entry.path, output: join(chosen.folder, n), overwrite: chosen.overwrite });
     toast(kind === "copy" ? t("Copy queued") : t("Move queued"), "ok"); refreshJobs();
   } catch (e: any) { toast(tMsg(e.message), "bad"); }
   return chosen.folder;
@@ -50,7 +51,7 @@ export async function openDestMany(entries: Entry[], kind: "copy" | "move", star
   let queued = 0;
   const failed: string[] = [];
   for (const e of entries) {
-    try { await api("POST", "/api/jobs", { kind, input: e.path, output: chosen.folder + "/" + e.name, overwrite: chosen.overwrite }); queued++; }
+    try { await api("POST", "/api/jobs", { kind, input: e.path, output: join(chosen.folder, e.name), overwrite: chosen.overwrite }); queued++; }
     catch (err: any) { failed.push(e.name + ": " + tMsg(err.message)); }
   }
   if (queued) { toast(plural(queued, "{n} job queued", "{n} jobs queued"), "ok"); refreshJobs(); }
@@ -70,7 +71,7 @@ function Picker(props: { entry: Entry | null; many?: Entry[]; kind: Kind; start:
 
   async function load(path: string) {
     let d: Listing;
-    try { d = await api<Listing>("GET", "/api/browse?path=" + encodeURIComponent(path || "/")); }
+    try { d = await api<Listing>("GET", "/api/browse?path=" + encodeURIComponent(path || TOP)); }
     catch (e: any) { setMsg({ text: tMsg(e.message), err: true }); return; }
     setMsg({ text: "", err: false });
     setData(d);
@@ -82,7 +83,7 @@ function Picker(props: { entry: Entry | null; many?: Entry[]; kind: Kind; start:
     if (box && !box.contains(document.activeElement)) { const f = box.querySelector(".row") as HTMLElement | null; if (f) focusEl(f); }
   }, [data]);
 
-  const go = () => { if (cur && cur !== "/") closeOverlay(pick ? { folder: cur, name: "", overwrite: false } : { folder: cur, name, overwrite: over }); };
+  const go = () => { if (cur) closeOverlay(pick ? { folder: cur, name: "", overwrite: false } : { folder: cur, name, overwrite: over }); };
   const need = many ? many.reduce((n, e) => n + (e.size || 0), 0) : entry ? entry.size || 0 : 0;
   props.ctl.go = go;
 
@@ -95,7 +96,7 @@ function Picker(props: { entry: Entry | null; many?: Entry[]; kind: Kind; start:
     g.list.push(l);
   }
   const folders = data ? data.entries.filter((x) => x.kind === "folder") : [];
-  const r: any = !cur || cur === "/" ? null : rootOf(cur);
+  const r: any = !cur ? null : rootOf(cur);
   const srv = !r ? serverOf(cur) : null;
   const space = !data ? "" : srv ? onServerText(srv) + "  ·  " + cur
     : r ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) }) + (need ? " · " + t("needs {size}", { size: bytes(need) }) : "") + "  ·  " + shownPath(cur)
@@ -106,7 +107,7 @@ function Picker(props: { entry: Entry | null; many?: Entry[]; kind: Kind; start:
     <Sheet title={title} foot={<>
       <span class={"msg" + (msg.err ? " err" : "")}>{msg.text}</span>
       <button class="btn" onClick={() => closeOverlay(null)}>{t("Cancel")}</button>
-      <button class="btn primary" disabled={!data || cur === "/"} onClick={go}>{pick ? t("Use this folder") : kind === "copy" ? t("Copy here") : t("Move here")}</button>
+      <button class="btn primary" disabled={!data || !cur} onClick={go}>{pick ? t("Use this folder") : kind === "copy" ? t("Copy here") : t("Move here")}</button>
     </>}>
       <div>
         <div class="chips">
@@ -120,11 +121,11 @@ function Picker(props: { entry: Entry | null; many?: Entry[]; kind: Kind; start:
         </div>
         {data ? <Crumbs path={cur} onPick={load} style="font-size:1rem;margin-bottom:.5rem" /> : <div class="crumbs" style="font-size:1rem;margin-bottom:.5rem" />}
         <div ref={list} class="picker scroll">
-          {data && !folders.length ? <div class="empty" style="padding:1.2rem">{cur === "/" ? t("No drives.") : t("No folders here.")}</div> : null}
+          {data && !folders.length ? <div class="empty" style="padding:1.2rem">{cur === TOP ? t("No drives.") : t("No folders here.")}</div> : null}
           {folders.map((f) => (
             <div class="row" tabIndex={0} onClick={() => load(f.path)}>
-              <div class="ico folder">{cur === "/" ? ICONS.drive() : ICONS.folder()}</div>
-              <div class="t ellip">{cur === "/" ? driveName(f.path) : f.name}</div>
+              <div class="ico folder">{cur === TOP ? ICONS.drive() : ICONS.folder()}</div>
+              <div class="t ellip">{cur === TOP ? driveName(f.path) : f.name}</div>
             </div>
           ))}
         </div>
