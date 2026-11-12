@@ -3943,6 +3943,31 @@ are deferred until an on-console smoke test**. Not run on a console yet.
     is outside Alembic's conversion job and likely not solvable here. The
     decryption + conversion pipeline itself is correct and useful; booting a
     retail dump is a separate, largely-unsolved problem.
+  - **Root-caused the launch crash (2026-11-12): the eboot is fake-signed with
+    the wrong authority and magic.** The dumped executables go through
+    `fself::sign` -> `make_fself` (ampr-emu-ng's make_fself.py flavour), which
+    stamps PS4/fake magic 0x1d3d154f and authority `kPaid=0x3100000000000002`
+    (a *library* authority, ...0002) on everything. A game *main executable*
+    (eboot, ELF e_type 0xFE10) needs the PS5 SELF magic 0xEEF51454 and an
+    *executable* authority (...0001). That is exactly what `make_prospero_fself`
+    (ProsperoPkgTool's flavour, `DeriveAuthorityId`) produces -- and what
+    debug-package games that DO launch via ShadowMount+ are signed with. So the
+    fix is to sign the decrypted executables the prospero way, not the make_fself
+    way. Confirmed by comparing the retail eboot's ex-info (authid
+    0x4400001084c2052d, type 0x4) with what each signer stamps.
+  - **Blocker for the fix:** `make_prospero_fself` currently refuses our
+    reconstructed ELF ("ELF section headers overrun the file") because the ELF
+    keeps its original `e_shoff`/`e_shnum` pointing at section headers that live
+    past the segments (not reconstructable, and the ex-info digest does not
+    cover them, so we cannot change the ehdr either). It reads the `.sceversion`
+    *section*; our ELF only has the PT_SCE_VERSION *segment* (same bytes).
+    make_fself uses the segment, which is why it works structurally. The fix
+    needs a game-authority signer that sources the version from the segment:
+    either extend make_prospero_fself to fall back to the PT_SCE_VERSION segment
+    when sections are absent/dangling (keeping its package oracle intact), or a
+    make_fself variant with PS5 magic + executable authority. Not yet built;
+    needs on-console validation (console was offline after this session's
+    tests).
 
 ### 2026-11-12: a running retail game, looked at on the console
 
