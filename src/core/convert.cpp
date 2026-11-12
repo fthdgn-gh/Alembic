@@ -22,6 +22,80 @@ namespace alembic::convert {
 
 namespace {
 
+// The input tree with extra files added (or replaced) under the game's
+// sce_sys/ -- a running-game dump's param.json, icon and pics from
+// /user/appmeta, which the mounted tree lacks (convert::Options::sce_sys_files).
+class WithSceSysFiles final : public tree::Source {
+public:
+    using Files = std::vector<std::pair<std::string, std::shared_ptr<const RandomAccess>>>;
+    WithSceSysFiles(const tree::Source& base, const std::string& game_rel, const Files& files, std::int64_t mtime,
+                    std::vector<std::string>* added)
+        : base_(base) {
+        root_ = copy(base_.root());
+        tree::Node* dir = &root_;
+        for (std::size_t at = 0; dir && at < game_rel.size();) { // walk game_rel to the game root
+            std::size_t slash = game_rel.find('/', at);
+            if (slash == std::string::npos) slash = game_rel.size();
+            dir = child_dir(dir, game_rel.substr(at, slash - at), mtime);
+            at = slash + 1;
+        }
+        tree::Node* sce = dir ? child_dir(dir, "sce_sys", mtime) : nullptr;
+        if (!sce) return;
+        for (const auto& [name, content] : files) {
+            if (!content) continue;
+            std::erase_if(sce->children, [&](const tree::Node& n) { return !n.is_directory && unicode::ascii_iequals(n.name, name); });
+            tree::Node f;
+            f.name = name;
+            f.mtime = mtime;
+            if (auto sz = content->size(); sz.ok()) f.size = *sz;
+            f.id = kOverlayBase + overlays_.size();
+            overlays_.push_back(content);
+            sce->children.push_back(std::move(f));
+            if (added) added->push_back((game_rel.empty() ? "" : game_rel + "/") + "sce_sys/" + name);
+        }
+    }
+    const tree::Node& root() const override { return root_; }
+    const std::string& label() const override { return base_.label(); }
+    Result<std::shared_ptr<const RandomAccess>> open(const tree::Node& file) const override {
+        if (file.is_directory) return make_error(Errc::invalid_argument, "not a file");
+        if (file.id >= kOverlayBase) return overlays_[static_cast<std::size_t>(file.id - kOverlayBase)];
+        if (file.id >= nodes_.size()) return make_error(Errc::invalid_argument, "not a file of this tree");
+        return base_.open(*nodes_[static_cast<std::size_t>(file.id)]);
+    }
+
+private:
+    static constexpr std::uint64_t kOverlayBase = std::uint64_t{1} << 48;
+    tree::Node* child_dir(tree::Node* parent, const std::string& name, std::int64_t mtime) {
+        for (tree::Node& c : parent->children)
+            if (c.is_directory && unicode::ascii_iequals(c.name, name)) return &c;
+        tree::Node d;
+        d.name = name;
+        d.is_directory = true;
+        d.mtime = mtime;
+        parent->children.push_back(std::move(d));
+        return &parent->children.back();
+    }
+    tree::Node copy(const tree::Node& in) {
+        tree::Node out;
+        out.name = in.name;
+        out.is_directory = in.is_directory;
+        out.size = in.size;
+        out.mtime = in.mtime;
+        if (in.is_directory) {
+            out.children.reserve(in.children.size());
+            for (const tree::Node& c : in.children) out.children.push_back(copy(c));
+        } else {
+            nodes_.push_back(&in);
+            out.id = nodes_.size() - 1;
+        }
+        return out;
+    }
+    const tree::Source& base_;
+    tree::Node root_;
+    std::vector<const tree::Node*> nodes_;
+    std::vector<std::shared_ptr<const RandomAccess>> overlays_;
+};
+
 constexpr std::uint64_t kPfsMagic = 20130315;
 
 bool ends_with_icase(const std::string& s, const char* suffix) {
@@ -462,6 +536,16 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         } else if (check.needed()) {
             report.warnings.push_back("eboot.bin uses the console's APR (libSceAmpr) and the game ships no ampr_emu: "
                                       "it will likely not start from an image or folder (add the emulator)");
+        }
+    }
+    // Extra sce_sys files (a running-game dump's metadata from /user/appmeta).
+    std::unique_ptr<tree::Source> with_meta;
+    if (!options.sce_sys_files.empty()) {
+        std::string game_rel;
+        if (auto gr = ffpfsc::resolve_game_root(tree_ptr->root(), &game_rel); gr.ok()) {
+            with_meta = std::make_unique<WithSceSysFiles>(*tree_ptr, game_rel, options.sce_sys_files,
+                                                          tree_ptr->root().mtime, &report.sce_sys_added);
+            tree_ptr = with_meta.get();
         }
     }
     const tree::Source& tree = *tree_ptr;

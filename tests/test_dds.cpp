@@ -313,3 +313,30 @@ TEST_CASE(bc1_pictures_in_conversions) {
     REQUIRE_OK(plain);
     CHECK(plain->bc1_pictures.empty());
 }
+
+TEST_CASE(sce_sys_files_added_to_a_conversion) {
+    // convert::Options::sce_sys_files adds or replaces files under the game's
+    // sce_sys (a running-game dump's /user/appmeta metadata).
+    auto dir = test::make_temp_dir();
+    std::string root = dir + "/game";
+    for (const char* d : {"", "/sce_sys"}) test::make_dir(root + d);
+    const char* orig = "{\"titleId\":\"OLD0\"}";
+    test::write_file(root + "/sce_sys/param.json", std::vector<std::uint8_t>(orig, orig + std::strlen(orig)));
+    std::vector<std::uint8_t> icon(64, 0xAB), newparam(40, 0xCD);
+    test::write_file(dir + "/icon0.png", icon);
+    test::write_file(dir + "/param.json", newparam);
+    auto icon_f = File::open(dir + "/icon0.png", File::Mode::read);
+    auto np_f = File::open(dir + "/param.json", File::Mode::read);
+    REQUIRE_OK(icon_f);
+    REQUIRE_OK(np_f);
+    convert::Options o;
+    o.sce_sys_files.emplace_back("icon0.png", std::make_shared<File>(std::move(*icon_f))); // new
+    o.sce_sys_files.emplace_back("param.json", std::make_shared<File>(std::move(*np_f)));  // replaces
+    auto report = convert::run(root, dir + "/g.exfat", convert::Format::exfat, o);
+    REQUIRE_OK(report);
+    CHECK_EQ(report->sce_sys_added.size(), 2u);
+    auto image = convert::open(dir + "/g.exfat");
+    REQUIRE_OK(image);
+    CHECK(read(*image->tree, "sce_sys/icon0.png") == icon);
+    CHECK(read(*image->tree, "sce_sys/param.json") == newparam); // replaced, not the original
+}

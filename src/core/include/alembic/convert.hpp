@@ -130,6 +130,10 @@ struct Options {
     // (a mounted game under /mnt/sandbox/pfsmnt/...) have the real paths it
     // needs. The plain ELFs are fake-signed afterwards.
     self_extract::Decryptor decrypt_self;
+    // Files to add (or replace) under the game's sce_sys/. A running-game dump
+    // uses it for the param.json, icon and pics that live in /user/appmeta, not
+    // in the mounted tree. Name (no path) -> contents.
+    std::vector<std::pair<std::string, std::shared_ptr<const RandomAccess>>> sce_sys_files;
 };
 
 struct Report {
@@ -151,7 +155,8 @@ struct Report {
     std::size_t fake_sign_index_records = 0;
     std::vector<std::string> bc1_pictures; // re-encoded as BC1 (bc1_pictures)
     std::uint64_t bc1_saved = 0;           // bytes they lost
-    std::vector<std::string> decrypted_self; // encrypted executables turned into plain ELF (decrypt_self) // ampr_emu.index records set to their SELF sizes
+    std::vector<std::string> decrypted_self; // encrypted executables turned into plain ELF (decrypt_self)
+    std::vector<std::string> sce_sys_added;  // files added under sce_sys (sce_sys_files) // ampr_emu.index records set to their SELF sizes
 };
 
 Result<Report> run(const std::string& input, const std::string& output, Format to, const Options& options = {},

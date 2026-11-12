@@ -481,6 +481,25 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
         std::string why;
         options.decrypt_self = platform::self_decryptor(&why);
         if (!options.decrypt_self) return make_error(Errc::unsupported, why.empty() ? "decrypting executables is not available here" : why);
+        // A running game's display metadata (param.json, icon, pics) is in
+        // /user/appmeta, not the mounted tree: fold it into sce_sys so the dump
+        // is identified and can launch (as ps5-app-dumper does). The title ID
+        // is the mount folder's name before "-app0".
+        std::string id = base_name(strip_slashes(spec.input));
+        if (auto cut = id.find("-app0"); cut != std::string::npos) id.erase(cut);
+        if (!id.empty())
+            for (const std::string& dir : {"/user/appmeta/" + id, "/system_data/priv/appmeta/" + id}) {
+                auto entries = list_directory_entries(dir);
+                if (!entries.ok()) continue;
+                for (const DirEntry& e : *entries) {
+                    if (e.stat.is_directory()) continue;
+                    const bool have = std::any_of(options.sce_sys_files.begin(), options.sce_sys_files.end(),
+                                                  [&](const auto& f) { return f.first == e.name; });
+                    if (have) continue; // /user/appmeta wins over /system_data
+                    auto f = File::open(dir + "/" + e.name, File::Mode::read);
+                    if (f.ok()) options.sce_sys_files.emplace_back(e.name, std::make_shared<File>(std::move(*f)));
+                }
+            }
     }
     options.fpkg.keys_folder = config.state_dir + "/keys"; // the fpkg_keys component
     if (spec.pkg_compression == "kraken") options.fpkg.compression = fpkg::build::Compression::kraken;
@@ -647,6 +666,11 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
         for (const std::string& p : report.decrypted_self) paths.push(p);
         r.set("decrypted_self", std::move(paths));
     }
+    if (!report.sce_sys_added.empty()) {
+        JsonValue paths = JsonValue::array();
+        for (const std::string& p : report.sce_sys_added) paths.push(p);
+        r.set("sce_sys_added", std::move(paths));
+    }
     if (!report.title_id.empty()) r.set("title_id", report.title_id);
     if (!report.warnings.empty()) {
         JsonValue warnings = JsonValue::array();
@@ -703,7 +727,8 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
             std::vector<std::string> extra;
             for (const std::string& p : cmp.only_in_b)
                 if (!(spec.lz4 && p == lz4pack::kRuntimeRelativePath) && !(spec.zstd && p == zstdpack::kRuntimeRelativePath) &&
-                    p != report.ampr_emulator_path)
+                    p != report.ampr_emulator_path &&
+                    std::find(report.sce_sys_added.begin(), report.sce_sys_added.end(), p) == report.sce_sys_added.end())
                     extra.push_back(p);
             // Fake-signed executables are SELFs, BC1 pictures smaller, and
             // decrypted executables plain ELFs now, all by design.
