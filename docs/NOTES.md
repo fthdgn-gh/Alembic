@@ -3880,6 +3880,20 @@ With the owner, a retail game every PS5 ships with running, test engine
   0xFE10), 71,614,632 bytes; with `-Q SELF` (off) the same file is the SELF
   (magic `54 14 F5 EE`, 71,736,750 bytes, what the engine sees). The kernel
   step is that payload's, not Alembic's.
+- **How ftpsrv decrypts** (`.refs/ftpsrv` at 92072f2, GPL-3.0, John
+  Törnblom; `self-prospero.c`, `self.c`; derived from idlesauce/
+  ps5-self-pager): no crypto of its own. With kernel R/W it swaps, for one
+  `mmap`, the vnode entry of the kernel's pager table (per-firmware offset,
+  table for 1.00-14.20; `PAGER_TABLE + 2*8`) for the self pager's (`+ 7*8`),
+  maps one segment (index << 32 in the offset; from 9.00 plus the aligned
+  vaddr's low bits) and gets it decrypted as the program loader would, then
+  restores it. ELF header, program headers, plain segments and
+  PT_SCE_VERSION (after the SELF's end) are copied; the ELF's SHA-256 must
+  match the SELF's ex-info digest. A global lock: while swapped, every vnode
+  mmap in the system goes through the self pager. Options discussed: (1)
+  convert from the console's own ftpsrv; (2) data from the mount, only the
+  executables from ftpsrv (recommended); (3) port the pager swap into the
+  engine (kernel patching, per-firmware table). Not decided.
 - So, untried: the console's own FTP server (127.0.0.1:2121) as a network
   server in Alembic, the app0 (or, with an update, the union) folder
   converted from it while the game runs;
