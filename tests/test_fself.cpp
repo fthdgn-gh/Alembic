@@ -98,6 +98,22 @@ TEST_CASE(fself_refuses_what_make_fself_refuses) {
     CHECK(!fself::make_fself(elf).ok());
 }
 
+TEST_CASE(fself_ps5_magic_only_changes_the_magic) {
+    // decrypt_self needs the PS5 SELF magic so the console launches a dumped
+    // game; nothing else about make_fself's output changes.
+    const std::vector<std::uint8_t> elf = forge_elf(kExecAslr);
+    auto fake = fself::make_fself(elf);              // make_fself.py's fake magic
+    auto game = fself::make_fself(elf, true);        // the PS5 game magic
+    REQUIRE_OK(fake);
+    REQUIRE_OK(game);
+    CHECK_EQ(fake->size(), game->size());
+    CHECK_EQ(get_u32(fake->data()), 0x1D3D154Fu);
+    CHECK_EQ(get_u32(game->data()), 0xEEF51454u);
+    std::vector<std::uint8_t> a = *fake, b = *game;
+    for (int i = 0; i < 4; ++i) a[i] = b[i] = 0; // zero the magic; the rest must match
+    CHECK(a == b);
+}
+
 TEST_CASE(fself_signs_a_tree_as_it_is_read) {
     auto dir = test::make_temp_dir();
     std::string root = dir + "/game";

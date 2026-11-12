@@ -54,6 +54,10 @@ struct Decrypted {
     std::vector<std::string> paths;     // tree paths turned into plain ELF
     std::vector<std::pair<std::string, std::string>> skipped; // path, why
 };
-Result<Decrypted> decrypt_executables(const tree::Source& source, const Decryptor& decrypt, const ProgressFn& progress = {});
+// `game_sign` fake-signs each decrypted ELF the game way
+// (fself::make_prospero_fself: PS5 magic, an executable authority for the
+// eboot) so the console will launch it; off serves the plain ELF.
+Result<Decrypted> decrypt_executables(const tree::Source& source, const Decryptor& decrypt, bool game_sign = true,
+                                      const ProgressFn& progress = {});
 
 } // namespace alembic::self_extract

@@ -189,7 +189,7 @@ TEST_CASE(self_extract_over_a_folder_tree) {
         CHECK(!path.empty()); // the real on-disk path
         return b.enc;
     };
-    auto d = self_extract::decrypt_executables(**folder, decrypt);
+    auto d = self_extract::decrypt_executables(**folder, decrypt, false);
     REQUIRE_OK(d);
     REQUIRE_OK(d->tree ? Status{} : Status(make_error(Errc::invalid_data, "nothing decrypted")));
     CHECK_EQ(d->paths.size(), 2u);       // eboot.bin and libc.prx

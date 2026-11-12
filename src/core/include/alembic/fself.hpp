@@ -39,7 +39,11 @@ bool is_unsigned_elf(Bytes head);
 Result<std::vector<std::string>> find_unsigned(const tree::Source& source);
 
 // The SELF of a whole ELF in memory (tests, and a small file's way).
-Result<std::vector<std::uint8_t>> make_fself(Bytes elf);
+// `ps5_magic` writes the PS5 SELF magic (0xEEF51454) in place of make_fself.py's
+// fake magic (0x1D3D154F); nothing else changes. A game launched by the console
+// (ShellCore / ShadowMount+) needs the PS5 magic to start, as ps5-app-dumper's
+// elf2fself writes it; used by decrypt_self for a dumped game's executables.
+Result<std::vector<std::uint8_t>> make_fself(Bytes elf, bool ps5_magic = false);
 
 struct Signed {
     // `source` with its unsigned executables served as SELFs at their SELF

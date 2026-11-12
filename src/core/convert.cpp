@@ -328,7 +328,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     std::unique_ptr<tree::Source> decrypted_tree;
     if (options.decrypt_self && !ps4) {
         if (progress && !progress({"Decrypting executables", 0, 0})) return make_error(Errc::cancelled, "cancelled");
-        ALEMBIC_ASSIGN(self_extract::Decrypted d, self_extract::decrypt_executables(*tree_ptr, options.decrypt_self, progress));
+        ALEMBIC_ASSIGN(self_extract::Decrypted d, self_extract::decrypt_executables(*tree_ptr, options.decrypt_self, true, progress));
         for (const auto& [path, why] : d.skipped) report.warnings.push_back("cannot decrypt " + path + " (" + why + "); it is left as it is");
         if (d.tree) {
             decrypted_tree = std::move(d.tree);

@@ -235,7 +235,7 @@ void walk(const tree::Node& dir, const std::string& prefix, const std::function<
 
 } // namespace
 
-Result<Decrypted> decrypt_executables(const tree::Source& source, const Decryptor& decrypt, const ProgressFn& progress) {
+Result<Decrypted> decrypt_executables(const tree::Source& source, const Decryptor& decrypt, bool game_sign, const ProgressFn& progress) {
     Decrypted result;
     std::vector<std::pair<const tree::Node*, std::string>> executables;
     walk(source.root(), "", [&](const tree::Node& n, const std::string& rel) {
@@ -253,7 +253,18 @@ Result<Decrypted> decrypt_executables(const tree::Source& source, const Decrypto
         if (!is_self(Bytes(head, sizeof head))) continue; // already a plain ELF or not one
         auto elf = extract_elf(*file, path, decrypt);
         if (!elf.ok()) { result.skipped.emplace_back(rel, elf.error().message); continue; }
-        contents[rel] = std::make_shared<const std::vector<std::uint8_t>>(std::move(*elf));
+        std::vector<std::uint8_t> bytes = std::move(*elf);
+        if (game_sign) {
+            // Fake-sign it so the console will launch it, with the PS5 SELF
+            // magic (0xEEF51454) a game process needs -- make_fself.py's fake
+            // magic (0x1D3D154F) is for standalone homebrew and the console
+            // does not start a game from it. Same format otherwise, as
+            // ps5-app-dumper's elf2fself writes it.
+            auto signed_elf = fself::make_fself(Bytes(bytes.data(), bytes.size()), /*ps5_magic=*/true);
+            if (!signed_elf.ok()) { result.skipped.emplace_back(rel, "fake-sign: " + signed_elf.error().message); continue; }
+            bytes = std::move(*signed_elf);
+        }
+        contents[rel] = std::make_shared<const std::vector<std::uint8_t>>(std::move(bytes));
         result.paths.push_back(rel);
     }
     if (contents.empty()) return result;

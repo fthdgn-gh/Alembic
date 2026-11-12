@@ -66,7 +66,7 @@ Status read_exact(const RandomAccess& file, std::uint64_t offset, MutableBytes o
     return file.read_at(offset, out);
 }
 
-Result<std::unique_ptr<Plan>> make_plan(const RandomAccess& elf, std::uint64_t elf_size) {
+Result<std::unique_ptr<Plan>> make_plan(const RandomAccess& elf, std::uint64_t elf_size, bool ps5_magic = false) {
     std::vector<std::uint8_t> first(static_cast<std::size_t>(std::min(elf_size, kHead)));
     ALEMBIC_TRY(read_exact(elf, 0, first, elf_size));
     if (first.size() < 0x40 || !is_unsigned_elf(first)) return refuse("not a whole PS5 ELF header");
@@ -140,7 +140,12 @@ Result<std::unique_ptr<Plan>> make_plan(const RandomAccess& elf, std::uint64_t e
     }
     const std::uint64_t file_size = offset;
     // Common and extended header.
-    const std::uint8_t common[8] = {0x4F, 0x15, 0x3D, 0x1D, 0x00, 0x01, 0x01, 0x12};
+    // make_fself.py's fake magic 0x1D3D154F, or the PS5 SELF magic 0xEEF51454
+    // for a game the console must launch (same bytes otherwise).
+    const std::uint8_t common[8] = {ps5_magic ? std::uint8_t{0x54} : std::uint8_t{0x4F},
+                                    ps5_magic ? std::uint8_t{0x14} : std::uint8_t{0x15},
+                                    ps5_magic ? std::uint8_t{0xF5} : std::uint8_t{0x3D},
+                                    ps5_magic ? std::uint8_t{0xEE} : std::uint8_t{0x1D}, 0x00, 0x01, 0x01, 0x12};
     std::memcpy(out, common, sizeof common);
     put_u32(out + 8, 0x101);
     put_u16(out + 0xC, static_cast<std::uint16_t>(header_size));
@@ -360,9 +365,9 @@ Result<std::vector<std::string>> find_unsigned(const tree::Source& source) {
     return found;
 }
 
-Result<std::vector<std::uint8_t>> make_fself(Bytes elf) {
+Result<std::vector<std::uint8_t>> make_fself(Bytes elf, bool ps5_magic) {
     auto file = std::make_shared<MemoryFile>(elf);
-    ALEMBIC_ASSIGN(std::unique_ptr<Plan> plan, make_plan(*file, elf.size()));
+    ALEMBIC_ASSIGN(std::unique_ptr<Plan> plan, make_plan(*file, elf.size(), ps5_magic));
     std::shared_ptr<Plan> shared(std::move(plan));
     SelfFile self(shared, file);
     std::vector<std::uint8_t> out(static_cast<std::size_t>(shared->size));
@@ -574,7 +579,6 @@ Result<std::vector<std::uint8_t>> make_prospero_fself(Bytes elf, const ProsperoO
         std::memcpy(trailer.data() + 5 + name.size(), options.sceversion_record->data(), 8);
         std::memcpy(trailer.data() + 13 + name.size(), options.sceversion_record->data(), 8);
     }
-
     std::vector<std::uint8_t> out(static_cast<std::size_t>(file_size + trailer.size()), 0);
     std::uint8_t* o = out.data();
     put_u32(o, kProsperoMagic);
