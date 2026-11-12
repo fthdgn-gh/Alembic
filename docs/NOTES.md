@@ -3926,6 +3926,23 @@ are deferred until an on-console smoke test**. Not run on a console yet.
     game" feature must merge app0 (code+data, executables decrypted) with the
     appmeta `sce_sys` files -- the generic `decrypt_self` convert does not do
     this on its own.
+  - **Launch result: it mounts and is identified, but does not run** (owner,
+    CE-107750-0 "error while playing"). ShadowMount+'s own log
+    (`/data/shadowmount/debug.log`) shows the dump mounted fine
+    (`nullfs ... alembic-smoke -> /system_ex/app/<ID>`, `launch mount ready`,
+    `fakelib ... mounted`, `sandbox ready handled`) then immediately
+    `runtime release` -- with NO `[MDBG] monitoring game errors pid=...` line,
+    i.e. the process dies in earliest init before it even gets a monitored
+    pid. The *installed* copy of the same title ran fine for 14-43 min
+    sessions in the same log, so the console, ShadowMount+ and the
+    install-duplicate handling are not the problem (SM+ prefers/mounts the
+    dumped source, it does not ignore it). The decrypted ELF is digest-correct
+    and fake-signed as any homebrew is, so this is the known-hard frontier: a
+    decrypted + fake-signed *retail* main executable does not boot from an
+    image (anti-tamper / authority / something in the reconstructed ELF). That
+    is outside Alembic's conversion job and likely not solvable here. The
+    decryption + conversion pipeline itself is correct and useful; booting a
+    retail dump is a separate, largely-unsolved problem.
 
 ### 2026-11-12: a running retail game, looked at on the console
 
