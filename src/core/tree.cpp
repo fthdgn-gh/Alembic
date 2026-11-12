@@ -21,6 +21,9 @@ class FolderSource final : public Source {
 public:
     const Node& root() const override { return root_; }
     const std::string& label() const override { return label_; }
+    std::string real_path(const Node& file) const override {
+        return !file.is_directory && file.id < paths_.size() ? paths_[file.id] : std::string();
+    }
 
     Result<std::shared_ptr<const RandomAccess>> open(const Node& file) const override {
         if (file.is_directory || file.id >= paths_.size())

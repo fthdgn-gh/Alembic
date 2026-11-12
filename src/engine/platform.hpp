@@ -3,6 +3,7 @@
 #pragma once
 
 #include "alembic/result.hpp"
+#include "alembic/self_extract.hpp"
 
 #include <cstdint>
 #include <string>
@@ -59,6 +60,13 @@ void set_process_name(const char* name);
 // Fills `out` from the system's random generator (for keys); fails rather
 // than give weaker bytes.
 Status secure_random(std::uint8_t* out, std::size_t size);
+
+// Decrypts a game's SELF executables through the console's own loader, for the
+// convert `decrypt_self` option (self_extract.hpp). Returns a callback on the
+// PS5 when the firmware is known; null otherwise, with `why` set (a PC, or an
+// unrecognised firmware). The callback patches live kernel memory for each
+// segment it maps, under a lock; use it only on a folder of a running game.
+self_extract::Decryptor self_decryptor(std::string* why);
 
 // The CPUs this thread may run on ("0-3,8"), or "" when the system does not say.
 std::string cpu_affinity();

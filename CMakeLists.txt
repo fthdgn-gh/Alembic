@@ -113,6 +113,7 @@ add_library(alembic_core STATIC
     src/core/lz4pack_read.cpp
     src/core/pfsc.cpp
     src/core/png.cpp
+    src/core/self_extract.cpp
     src/core/rsa.cpp
     src/core/sfo.cpp
     src/core/sha256.cpp
@@ -227,7 +228,7 @@ if(ALEMBIC_BUILD_ENGINE)
         COMMENT "Embedding the notification icon"
         VERBATIM)
     if(PS5)
-        set(ALEMBIC_ENGINE_PLATFORM src/engine/platform_ps5.cpp src/engine/https_ps5.cpp)
+        set(ALEMBIC_ENGINE_PLATFORM src/engine/platform_ps5.cpp src/engine/https_ps5.cpp src/engine/selfdump_ps5.cpp)
     else()
         set(ALEMBIC_ENGINE_PLATFORM src/engine/platform_host.cpp)
     endif()
@@ -302,6 +303,7 @@ if(ALEMBIC_BUILD_TESTS)
         tests/test_convert.cpp
         tests/test_crypto.cpp
         tests/test_dds.cpp
+        tests/test_self_extract.cpp
         tests/test_exfat.cpp
         tests/test_ffpfsc.cpp
         tests/test_fpkg_build.cpp

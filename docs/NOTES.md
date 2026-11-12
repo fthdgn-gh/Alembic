@@ -3859,6 +3859,44 @@ Owner's question; nothing tried on a console. To pick up later (owner).
   converts what it produces. Possible later: offer to convert a dumper's
   fresh output (owner: not now).
 
+### 2026-11-12: decrypt a running game's executables (self-pager port, phase 1)
+
+Owner chose to port ftpsrv's self-pager into the engine (option 3) so a
+conversion can turn a running game's encrypted SELFs into plain ELFs itself.
+Built the core + kernel + engine job hook; **page/app UI, i18n and a CLI flag
+are deferred until an on-console smoke test**. Not run on a console yet.
+- **`src/core/self_extract.{hpp,cpp}`** (portable, GPL-3.0 from ftpsrv `self.c`):
+  parse the SELF (0x20 header, 0x20 entries, embedded ELF), copy plaintext
+  segments and the PT_SCE_VERSION tail (at the SELF's `file_size`), write the
+  program-header table, and get each encrypted segment from a `Decryptor`
+  callback; verify the ELF's SHA-256 against the ex-info digest. Entry bitfield
+  read explicitly (is_encrypted bit 1, is_compressed bit 3, has_blocks bit 11,
+  segment_index bits 20-35). `decrypt_executables(tree, cb)` serves every
+  encrypted-SELF executable as its ELF via a replaced-contents wrapper; needs a
+  real on-disk path, so folder inputs only. Unit test `test_self_extract.cpp`
+  (synthetic SELF + stand-in callback, digest pass/fail, folder walk).
+- **`tree::Source::real_path(node)`** added: FolderSource returns
+  `paths_[id]`, everything else "" (the only way the step learns a file's path).
+- **`src/engine/selfdump_ps5.cpp`** (PS5 only, GPL-3.0 from ftpsrv
+  `self-prospero.c`; host stub in platform_host.cpp): the `Decryptor` maps one
+  segment with the vnode pager-table entry swapped for the self pager's
+  (`kernel_getlong`/`setlong` at the per-firmware offset, full 1.00-14.20
+  table), under a global mutex; restores it immediately, mlock + copy out.
+  Lazy-resolves the table on first use; refuses unknown firmware. Untested:
+  whether `kernel_set_ucred_authid` is needed first (ftpsrv sets it, but for
+  /dev/sflash0, not the pager).
+- **convert**: `Options::decrypt_self` callback, runs first (before bc1 /
+  fake_sign) so the plain ELFs get fake-signed; `Report::decrypted_self`.
+  **runner/jobs**: `decrypt_self` job field; the engine sets the callback from
+  `platform::self_decryptor` and fails the job (PC / unknown firmware) with the
+  reason; verify tolerates the decrypted files differing; in the checkpoint
+  fingerprint. Builds clean on Mac (138 tests) and PS5 (`tools/ps5/build.sh`,
+  selfdump compiled, no warnings).
+- **Smoke test (owner, with go-ahead):** load the new payload, then on the
+  running game `POST /api/jobs {kind:convert, input:/mnt/sandbox/pfsmnt/
+  <ID>-app0, to:ffpkg|exfat, decrypt_self:true, ...}`; check the executables
+  come out plain then fake-signed, and whether the image starts.
+
 ### 2026-11-12: a running retail game, looked at on the console
 
 With the owner, a retail game every PS5 ships with running, test engine

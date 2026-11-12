@@ -37,6 +37,11 @@ public:
     // A human name for the tree (folder or image file name), used when a
     // payload name has to be made up.
     virtual const std::string& label() const = 0;
+    // The file's real path on disk, when the source is a folder; "" for an
+    // image, a package or any wrapper (their files have no on-disk path). Used
+    // only where a step needs a real file descriptor (self_extract.hpp, which
+    // maps a SELF through the console kernel).
+    virtual std::string real_path(const Node&) const { return {}; }
 };
 
 // A folder on disk. Skips symlinks and OS junk files (.DS_Store, ._*,

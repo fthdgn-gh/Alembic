@@ -68,6 +68,10 @@ struct JobSpec {
     // Encode sce_sys/pic*.dds again as BC1 from their PNGs (dds.hpp): half
     // the size, shown by the home screen in a console test. Opt-in.
     bool bc1_pictures = false;
+    // Turn a running game's encrypted executables into plain ELFs on the way
+    // (self_extract.hpp; the console decrypts them). PS5 only, folder input
+    // (a mounted game under /mnt/sandbox/pfsmnt/...). Opt-in, experimental.
+    bool decrypt_self = false;
     // After a successful conversion: compare the output with the input file
     // by file, then delete the input (only if they match).
     bool delete_source = false;

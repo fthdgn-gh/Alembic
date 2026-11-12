@@ -4,6 +4,7 @@
 
 #include "alembic/bytes.hpp"
 #include "alembic/dds.hpp"
+#include "alembic/self_extract.hpp"
 #include "alembic/exfat_reader.hpp"
 #include "alembic/fpkg_inner.hpp"
 #include "alembic/fself.hpp"
@@ -321,6 +322,20 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         return make_error(Errc::unsupported, "LZ4 asset packs are for PS5 games; this is a PS4 game");
     if (ps4 && options.zstd)
         return make_error(Errc::unsupported, "zstd asset packs are for PS5 games; this is a PS4 game");
+    // A running game's encrypted executables turned into plain ELFs, first and
+    // on the raw folder source (only its files have the real paths the console
+    // decryptor maps); fake-signing below then re-signs them.
+    std::unique_ptr<tree::Source> decrypted_tree;
+    if (options.decrypt_self && !ps4) {
+        if (progress && !progress({"Decrypting executables", 0, 0})) return make_error(Errc::cancelled, "cancelled");
+        ALEMBIC_ASSIGN(self_extract::Decrypted d, self_extract::decrypt_executables(*tree_ptr, options.decrypt_self, progress));
+        for (const auto& [path, why] : d.skipped) report.warnings.push_back("cannot decrypt " + path + " (" + why + "); it is left as it is");
+        if (d.tree) {
+            decrypted_tree = std::move(d.tree);
+            tree_ptr = decrypted_tree.get();
+            report.decrypted_self = std::move(d.paths);
+        }
+    }
     // Smaller home-screen pictures, first: what follows sees their new sizes.
     std::unique_ptr<tree::Source> bc1_tree;
     if (options.bc1_pictures && !ps4) {
@@ -459,7 +474,8 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
                             : unpacked      ? "LZ4-unpacked and "
                             : zstd_unpacked ? "zstd-unpacked and "
                                             : "";
-    std::string prefix_text = std::string(bc1_tree ? "made the home-screen pictures BC1 and " : "") +
+    std::string prefix_text = std::string(decrypted_tree ? "decrypted the executables and " : "") +
+                              (bc1_tree ? "made the home-screen pictures BC1 and " : "") +
                               (signed_tree ? "fake-signed the executables and " : "") + pack_text +
                               (with_emulator ? "added the AMPR emulator and " : "");
     const char* prefix = prefix_text.c_str();

@@ -11,6 +11,7 @@
 #include "alembic/io.hpp"
 #include "alembic/lz4pack.hpp"
 #include "alembic/resume.hpp"
+#include "alembic/self_extract.hpp"
 #include "alembic/tree.hpp"
 #include "alembic/ufs2.hpp"
 #include "alembic/zstdpack.hpp"
@@ -123,6 +124,12 @@ struct Options {
     // Encode sce_sys/pic*.dds again as BC1 from their PNGs (dds.hpp): half
     // the size; a console test showed the home screen takes them. PS5 games.
     bool bc1_pictures = false;
+    // Turn a running game's encrypted executables (eboot.bin, sce_module/*.prx)
+    // back into plain ELFs on the way (self_extract.hpp): the console decrypts
+    // them through this callback. Set only on the PS5, and only folder inputs
+    // (a mounted game under /mnt/sandbox/pfsmnt/...) have the real paths it
+    // needs. The plain ELFs are fake-signed afterwards.
+    self_extract::Decryptor decrypt_self;
 };
 
 struct Report {
@@ -143,7 +150,8 @@ struct Report {
     std::vector<std::string> fake_signed; // executables served as fake-signed SELFs
     std::size_t fake_sign_index_records = 0;
     std::vector<std::string> bc1_pictures; // re-encoded as BC1 (bc1_pictures)
-    std::uint64_t bc1_saved = 0;           // bytes they lost // ampr_emu.index records set to their SELF sizes
+    std::uint64_t bc1_saved = 0;           // bytes they lost
+    std::vector<std::string> decrypted_self; // encrypted executables turned into plain ELF (decrypt_self) // ampr_emu.index records set to their SELF sizes
 };
 
 Result<Report> run(const std::string& input, const std::string& output, Format to, const Options& options = {},
