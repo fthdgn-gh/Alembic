@@ -3859,6 +3859,29 @@ Owner's question; nothing tried on a console. To pick up later (owner).
   converts what it produces. Possible later: offer to convert a dumper's
   fresh output (owner: not now).
 
+### 2026-11-12: a running retail game, looked at on the console
+
+With the owner, a retail game every PS5 ships with running, test engine
+(Whole file system on), read only:
+- `/mnt/sandbox/pfsmnt/<TITLE_ID>-app0` is the game's tree, mounted
+  decrypted: the engine walked it all (33,270 files, 27.2 GB; plan for an
+  exFAT accepted). `<TITLE_ID>-app0-patch0-union` is the same with the
+  installed update over it. `<TITLE_ID>-app0-nest/pfs_image.dat` (and
+  `naps_pkg_layout.dat`, same size) starts with "keystone": still the
+  console's container, not a PFS Alembic can open. `/mnt/sandbox/<TITLE_ID>_000`
+  is the game's own view (app0, data, dev, ...).
+- Through the mount, `eboot.bin` and the modules are SELFs (no plain ELF).
+- **ftpsrv v0.22 (port 2121) serves `eboot.bin` decrypted**: a plain ELF
+  (e_type 0xFE10), 71,614,632 bytes against the SELF's 71,736,750. The
+  kernel step is done by that payload, not Alembic.
+- So, untried: the console's own FTP server (127.0.0.1:2121) as a network
+  server in Alembic, the union folder converted from it while the game runs;
+  Alembic fake-signs the plain ELFs and adds the AMPR emulator (the game
+  imports libSceAmpr). Open: whether ftpsrv decrypts the .prx too, speed
+  over FTP, whether the image starts. A later feature could read data from
+  the mount and only the executables from ftpsrv. Still no kernel code in
+  Alembic.
+
 ### 2026-11-12: smaller sce_sys DDS (issue #1), research
 
 - **Issue #1** (a user): re-encode the `sce_sys` DDS files to save space.
