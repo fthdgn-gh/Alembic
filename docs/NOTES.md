@@ -3839,6 +3839,26 @@ with `fself::make_prospero_fself`, ported from ProsperoPkgTool's
   over its mounted image, so loose update files could ride on an image.
   Untried.
 
+### 2026-11-12: images from installed games, discussed and shelved
+
+Owner's question; nothing tried on a console. To pick up later (owner).
+- **Installed fake packages:** the console keeps the package under
+  `/user/app/<TITLE_ID>/` (probably `app.pkg`; not checked). If it is the
+  debug FPKG itself, Alembic reads it as any package (zero passcode) and can
+  convert it; the work would be an "installed games" list. First step: look
+  in that folder with Whole file system on (read only).
+- **Retail games:** their packages are encrypted with the console's keys.
+  While a game runs, its files are mounted decrypted, likely under
+  `/mnt/sandbox/pfsmnt/<TITLE_ID>-app0` and `/mnt/sandbox/<TITLE_ID>_000/app0`
+  (what dumpers use; not checked here; the engine sees `/mnt/sandbox`). Data
+  files are readable there, but `eboot.bin` and `sce_module/*.prx` stay
+  encrypted SELFs: the kernel decrypts them only while loading, so a dump
+  needs kernel read/write (etaHEN's and other dumpers). The executables are
+  the game's compiled code and cannot be made from its data. Decided: no
+  kernel code in Alembic (risk, firmware churn); a dumper dumps, Alembic
+  converts what it produces. Possible later: offer to convert a dumper's
+  fresh output (owner: not now).
+
 ### 2026-11-12: smaller sce_sys DDS (issue #1), research
 
 - **Issue #1** (a user): re-encode the `sce_sys` DDS files to save space.
