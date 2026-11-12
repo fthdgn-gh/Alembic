@@ -1228,7 +1228,6 @@ public:
         const std::string now = now_packs(), packs_now = packs(app);
         const bool lz4_on = s["lz4"].boolean(), unpack_on = s["lz4_unpack"].boolean();
         const bool zstd_on = s["zstd"].boolean(), zunpack_on = s["zstd_unpack"].boolean();
-        const bool packs_change = lz4_on || unpack_on || zstd_on || zunpack_on;
         const bool del_on = s["delete_source"].boolean();
         bool hide_hidden = true;
         for (const auto& e : entries)

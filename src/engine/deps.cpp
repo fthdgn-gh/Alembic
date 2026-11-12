@@ -244,6 +244,7 @@ const std::vector<Dependency>& dependencies() {
                 {ppt_key("metadata_modulus.bin"), "4a585ee47fea88d6b121d5e8afc9829438a27ee325cebec56a2ff537129a37c5",
                  384, "keys/metadata_modulus.bin"},
             },
+            "", "", {}, "", // fixed files: no group, no followed release
         },
         {
             "ps4_keys",
@@ -256,6 +257,7 @@ const std::vector<Dependency>& dependencies() {
             "distributed by LibOrbisPkg (LGPL-3.0); not part of Alembic",
             {{"https://raw.githubusercontent.com/maxton/LibOrbisPkg/" + kLibOrbisPkgCommit + "/LibOrbisPkg/Util/Keys.cs",
               "48b44dd03e653a5c0991b0a2975477802ea2639c4e6ea3270b2ff20a1856f8a7", 38180, "keys/ps4/Keys.cs"}},
+            "", "", {}, "", // fixed files: no group, no followed release
         },
     };
     return list;

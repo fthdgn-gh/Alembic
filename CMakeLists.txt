@@ -142,7 +142,9 @@ target_include_directories(alembic_core
     PRIVATE src/core
 )
 target_compile_options(alembic_core PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
-target_link_libraries(alembic_core PUBLIC ZLIB::ZLIB Threads::Threads PRIVATE alembic_lz4 alembic_zstd)
+# libzstd is public: the zstd pack tests look at frames with it directly (linking
+# it again there put it twice on the link line, which Apple's linker warns about).
+target_link_libraries(alembic_core PUBLIC ZLIB::ZLIB Threads::Threads alembic_zstd PRIVATE alembic_lz4)
 if(WIN32)
     target_link_libraries(alembic_core PUBLIC shell32)
 endif()
@@ -325,7 +327,6 @@ if(ALEMBIC_BUILD_TESTS)
     else()
         target_link_libraries(alembic_tests PRIVATE alembic_core)
     endif()
-    # The zstd pack tests look at frames with libzstd and CRCs with zlib directly.
-    target_link_libraries(alembic_tests PRIVATE alembic_zstd ZLIB::ZLIB)
+    # The zstd pack tests use libzstd and zlib directly: both come with alembic_core.
     add_test(NAME alembic_tests COMMAND alembic_tests)
 endif()

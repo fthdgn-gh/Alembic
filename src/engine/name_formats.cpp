@@ -327,11 +327,6 @@ NameParts parts_of(const std::string& entry_name, bool folder) {
     if (!folder && dot != std::string::npos && dot > 0) p.ext = plain.substr(dot);
     return p;
 }
-std::size_t char_count(const std::string& s) {
-    std::size_t n = 0;
-    for (char c : s) n += (static_cast<unsigned char>(c) & 0xC0) != 0x80;
-    return n;
-}
 // Without spaces, dots, dashes or commas at the end (left by a cut).
 std::string trim_cut(std::string s) {
     while (!s.empty() && std::string_view(" .-,_").find(s.back()) != std::string_view::npos) s.pop_back();
