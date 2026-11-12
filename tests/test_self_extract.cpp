@@ -40,30 +40,37 @@ struct Built {
     std::vector<std::uint8_t> elf;
     std::vector<std::uint8_t> enc; // the plaintext the callback must return
 };
-Built build_self(bool good_digest = true) {
-    const std::uint16_t num_entries = 3, phnum = 3;
+// `trailing_note` adds a PT_NOTE after the version segment with no stored data
+// (the eboot shape): it is left zero and must NOT be part of the digest.
+Built build_self(bool good_digest = true, bool trailing_note = false) {
+    const std::uint16_t num_entries = 3;
+    const std::uint16_t phnum = trailing_note ? 4 : 3;
     const std::size_t elf_off = 0x20 + std::size_t{num_entries} * 0x20;
     const std::size_t phoff = 0x40;
+    const std::size_t version_end = 0x310;
 
     // The ELF the SELF should produce.
-    std::vector<std::uint8_t> elf(0x310, 0);
+    std::vector<std::uint8_t> elf(trailing_note ? 0x330 : 0x310, 0);
     std::memcpy(elf.data(), "\x7F""ELF\x02\x01\x01\x09", 8);
     put_u64(elf.data() + 0x20, phoff);
     put_u16(elf.data() + 0x36, 0x38); // e_phentsize
     put_u16(elf.data() + 0x38, phnum);
-    put_phdr(elf, phoff + 0 * 0x38, kPtLoad, 0x100, 0x30);       // encrypted
+    put_phdr(elf, phoff + 0 * 0x38, kPtLoad, 0x140, 0x30);       // encrypted (past the phdr table)
     put_phdr(elf, phoff + 1 * 0x38, kPtLoad, 0x200, 0x20);       // plaintext
     put_phdr(elf, phoff + 2 * 0x38, kPtSceVersion, 0x300, 0x10); // version tail
+    if (trailing_note) put_phdr(elf, phoff + 3 * 0x38, 0x4 /*PT_NOTE*/, 0x320, 0x10); // no entry: stays zero
     std::vector<std::uint8_t> enc(0x30), plain(0x20), version(0x10);
     for (std::size_t i = 0; i < enc.size(); ++i) enc[i] = static_cast<std::uint8_t>(0xA0 + i);
     for (std::size_t i = 0; i < plain.size(); ++i) plain[i] = static_cast<std::uint8_t>(0x50 + i);
     for (std::size_t i = 0; i < version.size(); ++i) version[i] = static_cast<std::uint8_t>(0x10 + i);
-    std::memcpy(elf.data() + 0x100, enc.data(), enc.size());
+    std::memcpy(elf.data() + 0x140, enc.data(), enc.size());
     std::memcpy(elf.data() + 0x200, plain.data(), plain.size());
     std::memcpy(elf.data() + 0x300, version.data(), version.size());
 
+    // The digest covers only up to the end of the last data-bearing segment
+    // (the version tail), not the trailing note.
     Sha256 sha;
-    sha.update(Bytes(elf.data(), elf.size()));
+    sha.update(Bytes(elf.data(), version_end));
     Sha256::Digest digest = sha.finish();
 
     // Lay out the SELF: header, entries, ELF (ehdr+phdrs), ex-info, stored
@@ -129,6 +136,21 @@ TEST_CASE(self_extract_assembles_the_elf) {
     CHECK(*elf == b.elf);
     CHECK(self_extract::is_self(Bytes(b.self.data(), 8)));
     CHECK(!self_extract::is_self(Bytes(b.elf.data(), 8))); // a plain ELF is not a SELF
+}
+
+TEST_CASE(self_extract_ignores_a_trailing_no_data_segment) {
+    // The eboot shape: a PT_NOTE after the version segment, left zero and not
+    // part of the digest. The hash must stop at the version-segment end.
+    Built b = build_self(true, true);
+    MemFile self(b.self);
+    auto decrypt = [&](const std::string&, const self_extract::Segment&) -> Result<std::vector<std::uint8_t>> { return b.enc; };
+    auto elf = self_extract::extract_elf(self, "/x/eboot.bin", decrypt);
+    REQUIRE_OK(elf);
+    CHECK_EQ(elf->size(), b.elf.size()); // full size, note region kept but zero
+    CHECK(*elf == b.elf);
+    bool tail_zero = true;
+    for (std::size_t i = 0x320; i < 0x330; ++i) tail_zero = tail_zero && (*elf)[i] == 0;
+    CHECK(tail_zero);
 }
 
 TEST_CASE(self_extract_rejects_a_bad_digest) {

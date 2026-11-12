@@ -100,6 +100,11 @@ Result<std::vector<std::uint8_t>> extract_elf(const RandomAccess& self, const st
     // here keeps the ELF correct when none does, and matches the bytes a
     // covering segment would carry, so the digest still checks out).
     std::memcpy(out.data() + phoff, phdrs.data(), phdrs.size());
+    // The ex-info digest covers the ELF only up to the end of the last segment
+    // that has stored data (a block entry or PT_SCE_VERSION); a trailing
+    // segment with no data of its own, such as a PT_NOTE after the version
+    // segment, is left zero and not part of the hash.
+    std::uint64_t data_end = phoff + std::uint64_t{phnum} * kPhdrSize;
 
     // Copy or decrypt each segment into the output ELF.
     for (std::uint16_t i = 0; i < phnum; ++i) {
@@ -116,6 +121,7 @@ Result<std::vector<std::uint8_t>> extract_elf(const RandomAccess& self, const st
             // Its bytes are appended at the end of the SELF file.
             if (self_file_size + p_filesz > self_size) continue; // some fake SELFs omit it
             ALEMBIC_TRY(read_exact(self, self_file_size, out.data() + p_offset, static_cast<std::size_t>(p_filesz)));
+            data_end = std::max(data_end, p_offset + p_filesz);
             continue;
         }
         // The entry that describes this segment's stored data.
@@ -126,6 +132,7 @@ Result<std::vector<std::uint8_t>> extract_elf(const RandomAccess& self, const st
             if (e.segment_index == i && e.has_blocks) { held = e; seg = &held; break; }
         }
         if (!seg) continue; // no stored data for this header
+        data_end = std::max(data_end, p_offset + p_filesz);
         if (seg->is_encrypted || seg->is_compressed) {
             if (!decrypt) return make_error(Errc::unsupported, "this SELF is encrypted; decryption is only available on the PS5");
             Segment req{i, p_filesz, p_vaddr, p_align};
@@ -145,7 +152,7 @@ Result<std::vector<std::uint8_t>> extract_elf(const RandomAccess& self, const st
         std::uint8_t exinfo[kExinfoSize];
         ALEMBIC_TRY(read_exact(self, exinfo_at, exinfo, sizeof exinfo));
         Sha256 sha;
-        sha.update(Bytes(out.data(), out.size()));
+        sha.update(Bytes(out.data(), static_cast<std::size_t>(std::min<std::uint64_t>(data_end, out.size()))));
         Sha256::Digest digest = sha.finish();
         if (std::memcmp(digest.data(), exinfo + 0x20, 32) != 0)
             return bad("the decrypted ELF does not match the SELF's digest");
