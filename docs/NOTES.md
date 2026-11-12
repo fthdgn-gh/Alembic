@@ -3914,6 +3914,18 @@ are deferred until an on-console smoke test**. Not run on a console yet.
     README warns some SELFs can't be). Left encrypted with a warning; it is
     rights metadata, not loaded code, so the game should still run. **Untested:
     whether the output folder actually launches via ShadowMount+.**
+  - **Metadata is not in the mount.** The mounted `app0` tree's `sce_sys` has
+    only `about/trophy2/uds/keystone` -- no `param.json`, icon or pics, so a
+    straight conversion is unidentifiable (empty `/api/meta`; clear the cache
+    after adding them, it had cached the empty result). The display metadata
+    lives decrypted in **`/user/appmeta/<TITLE_ID>/`** (`param.json`,
+    `icon0.png/.dds`, `icon0_11.*`, `pic0/1/2.*`, `snd0.at9`) and
+    `/system_data/priv/appmeta/<TITLE_ID>/` (`nptitle.dat`, trophy2, uds).
+    Copying `param.json` + icon/pics from appmeta into the output `sce_sys`
+    made Alembic identify it (ASTRO's PLAYROOM). So a proper "dump a running
+    game" feature must merge app0 (code+data, executables decrypted) with the
+    appmeta `sce_sys` files -- the generic `decrypt_self` convert does not do
+    this on its own.
 
 ### 2026-11-12: a running retail game, looked at on the console
 
