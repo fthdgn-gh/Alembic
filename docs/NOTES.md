@@ -3966,6 +3966,28 @@ are deferred until an on-console smoke test**. Not run on a console yet.
     decrypted ELF this way, so a dump's eboot/modules get the PS5 magic the
     console wants; `decrypt_self` passes game_sign. Builds clean, 140 tests,
     PS5 payload builds. **Needs the on-console retest.**
+  - **PS5-magic retest (2026-11-12): still does not boot.** The new dump's
+    eboot has the PS5 magic (0xeef51454, confirmed over ftpsrv) + metadata +
+    emulator, and ShadowMount+ mounts it, but the log shows the same
+    `sandbox ready handled` -> immediate `runtime release`, no
+    `[GAME] started pid=` -- the process dies in earliest init, as before. So
+    the magic was necessary-looking but not sufficient. Remaining known
+    differences from ps5-app-dumper's elf2fself: its meta_size is 0x100 larger
+    (an extra block past the signature footer; ours n*0x50+0x150, its
+    n*0x50+0x250) -- unmatched, likely signature-area the jailbreak bypasses.
+  - **Reality check:** ps5-app-dumper's README frames it as a **backup** dumper
+    (to USB) with a **backport** setting for running on *other* firmwares via
+    ShadowMount+, not "decrypt and it boots." Three fix rounds (authid, the
+    digest hash region which fixed decryption, PS5 magic) all leave the same
+    earliest-init crash. The decryption + dump + metadata pipeline is correct
+    and verified; **booting a decrypted retail main executable from a dump by
+    fake-signing alone looks unachievable** -- the console appears to enforce
+    something on the game's main process the jailbreak does not bypass the way
+    it does for homebrew/modules. Decisive open test (owner): dump the same
+    title with ps5-app-dumper and try to boot THAT -- if it also fails, the goal
+    is not reachable this way and is not an Alembic defect; if it boots, byte-
+    compare its eboot FSELF with ours.
+
   - **Disc games need nothing special.** ps5-app-dumper dumps every game from
     the same `/mnt/sandbox/pfsmnt/<ID>-app0` (its `ps5_dumper.c` src_game),
     disc or digital: once a disc game is launched (disc inserted) the console
