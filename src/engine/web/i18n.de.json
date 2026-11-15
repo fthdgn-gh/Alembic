@@ -947,5 +947,10 @@
  "Alembic: {title}: {stage} {percent}% ({done} of {total}, about {minutes} min left)": "Alembic: {title}: {stage} {percent} % ({done} von {total}, noch etwa {minutes} Min.)",
  "Dumped {name}": "Dump von {name} fertig",
  "Decrypting executables": "Programmdateien werden entschlüsselt",
- "Waiting for the game to start": "Wartet auf den Start des Spiels"
+ "Waiting for the game to start": "Wartet auf den Start des Spiels",
+ "Waiting for a game to start": "Wartet auf den Start eines Spiels",
+ "Game closed: continues at its next launch": "Spiel geschlossen: geht beim nächsten Start weiter",
+ "Game closed: starts over at its next launch": "Spiel geschlossen: beginnt beim nächsten Start von vorn",
+ "Alembic: {title} closed. The dump continues when you start it again.": "Alembic: {title} wurde geschlossen. Der Dump geht weiter, wenn du es wieder startest.",
+ "Alembic: {title} closed. The dump starts over when you start it again.": "Alembic: {title} wurde geschlossen. Der Dump beginnt von vorn, wenn du es wieder startest."
 }

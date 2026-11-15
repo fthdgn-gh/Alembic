@@ -164,10 +164,93 @@ TEST_CASE(games_dump_spec_checks_the_title_id) {
     REQUIRE_OK(s);
     CHECK(s->game == "ZZZZ00001");
     CHECK(s->to_json()["game"].str() == "ZZZZ00001");
+    auto next = parse_json(R"({"kind":"convert","game":"next"})");
+    REQUIRE_OK(next);
+    CHECK(JobSpec::from_json(*next).ok());
     for (const char* bad : {R"({"kind":"convert","game":"../x"})", R"({"kind":"convert","game":"zzzz00001"})",
                             R"({"kind":"copy","game":"ZZZZ00001"})"}) {
         auto j = parse_json(bad);
         REQUIRE_OK(j);
         CHECK(!JobSpec::from_json(*j).ok());
     }
+}
+
+TEST_CASE(games_closed_game_sends_the_dump_back_to_waiting) {
+    const std::string dir = test::make_temp_dir();
+    std::atomic<bool> running{true};
+    std::atomic<int> runs{0}, closed{0};
+    QueueHooks hooks;
+    hooks.run = [&](const JobSpec&, const ProgressFn&) -> Result<JsonValue> {
+        if (runs++ == 0) {
+            running = false; // the game closes mid-dump: its tree is gone
+            return make_error(Errc::io, "cannot read the game's files");
+        }
+        return JsonValue::object();
+    };
+    hooks.ready = [&](const JobSpec& s) { return s.game.empty() || running.load(); };
+    hooks.game_running = [&](const JobSpec&) { return running.load(); };
+    hooks.on_game_closed = [&](const Job&) { ++closed; };
+    JobQueue q(dir, hooks);
+    REQUIRE_OK(q.start());
+    JobSpec dump;
+    dump.game = "ZZZZ00001";
+    dump.input = "/game";
+    auto d = q.add(dump);
+    REQUIRE_OK(d);
+    auto wait_for = [&](auto pred) {
+        for (int i = 0; i < 200 && !pred(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return pred();
+    };
+    // Not failed: queued again, saying why, until the game runs again.
+    CHECK(wait_for([&] { return closed.load() == 1; }));
+    auto j = q.get(d->id);
+    CHECK(j->state == JobState::queued);
+    CHECK(j->stage == "Game closed: starts over at its next launch"); // no checkpoint here
+    CHECK(j->error.empty());
+    running = true;
+    q.poke();
+    CHECK(wait_for([&] { return q.get(d->id)->state == JobState::done; }));
+    CHECK_EQ(runs.load(), 2);
+    q.stop();
+}
+
+TEST_CASE(games_next_game_dump_takes_the_game_that_started) {
+    const std::string dir = test::make_temp_dir();
+    std::atomic<bool> started{false};
+    std::string ran_game;
+    std::mutex m;
+    QueueHooks hooks;
+    hooks.run = [&](const JobSpec& s, const ProgressFn&) -> Result<JsonValue> {
+        std::lock_guard<std::mutex> lock(m);
+        ran_game = s.game;
+        return JsonValue::object();
+    };
+    hooks.ready = [&](const JobSpec& s) { return s.game.empty() || started.load(); };
+    hooks.prepare = [&](JobSpec& s) -> Status {
+        if (s.game == "next") {
+            s.game = "ZZZZ00009";
+            s.input = "/game9";
+        }
+        return {};
+    };
+    JobQueue q(dir, hooks);
+    REQUIRE_OK(q.start());
+    JobSpec next;
+    next.game = "next";
+    auto d = q.add(next);
+    REQUIRE_OK(d);
+    CHECK(d->stage == "Waiting for a game to start");
+    started = true;
+    q.poke();
+    auto wait_for = [&](auto pred) {
+        for (int i = 0; i < 200 && !pred(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return pred();
+    };
+    CHECK(wait_for([&] { return q.get(d->id)->state == JobState::done; }));
+    CHECK(q.get(d->id)->spec.game == "ZZZZ00009"); // kept with the job
+    {
+        std::lock_guard<std::mutex> lock(m);
+        CHECK(ran_game == "ZZZZ00009");
+    }
+    q.stop();
 }

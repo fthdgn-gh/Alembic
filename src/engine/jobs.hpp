@@ -68,6 +68,8 @@ struct JobSpec {
     // Encode sce_sys/pic*.dds again as BC1 from their PNGs (dds.hpp): half
     // the size, shown by the home screen in a console test. Opt-in.
     bool bc1_pictures = false;
+    // (game: "next" waits for whichever game starts first, then becomes
+    // that game's title ID.)
     // Turn a running game's encrypted executables into plain ELFs on the way
     // (self_extract.hpp; the console decrypts them). PS5 only, folder input
     // (a mounted game under /mnt/sandbox/pfsmnt/...). Opt-in, experimental.
@@ -141,6 +143,16 @@ struct QueueHooks {
     std::function<bool(const JobSpec&)> ready;
     // Every progress report of a running job (outside the lock).
     std::function<void(const Job&)> on_progress;
+    // Called as a job starts, outside the lock: may fill in its spec (a dump
+    // of "the next game" learns which game); kept with the job. An error
+    // fails the job.
+    std::function<Status(JobSpec&)> prepare;
+    // Whether a game dump's game still runs (checked while it runs and after
+    // it fails, outside the lock). A dump whose game closed goes back to
+    // waiting, keeping its checkpoint, instead of failing.
+    std::function<bool(const JobSpec&)> game_running;
+    // A dump that went back to waiting because its game closed.
+    std::function<void(const Job&)> on_game_closed;
 };
 
 class JobQueue {

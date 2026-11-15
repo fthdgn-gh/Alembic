@@ -947,5 +947,10 @@
  "Alembic: {title}: {stage} {percent}% ({done} of {total}, about {minutes} min left)": "Alembic: {title}: {stage} %{percent} ({done} / {total}, yaklaşık {minutes} dk kaldı)",
  "Dumped {name}": "{name} dökümü alındı",
  "Decrypting executables": "Çalıştırılabilir dosyaların şifresi çözülüyor",
- "Waiting for the game to start": "Oyunun başlaması bekleniyor"
+ "Waiting for the game to start": "Oyunun başlaması bekleniyor",
+ "Waiting for a game to start": "Bir oyunun başlaması bekleniyor",
+ "Game closed: continues at its next launch": "Oyun kapandı: bir sonraki açılışta devam eder",
+ "Game closed: starts over at its next launch": "Oyun kapandı: bir sonraki açılışta baştan başlar",
+ "Alembic: {title} closed. The dump continues when you start it again.": "Alembic: {title} kapandı. Döküm, oyunu tekrar başlattığında devam eder.",
+ "Alembic: {title} closed. The dump starts over when you start it again.": "Alembic: {title} kapandı. Döküm, oyunu tekrar başlattığında baştan başlar."
 }

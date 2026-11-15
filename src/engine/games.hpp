@@ -64,6 +64,9 @@ public:
     bool running(const std::string& id) const;
     bool settled(const std::string& id) const;
     std::vector<std::string> running() const; // sorted
+    // Takes the game as not running until the next poll finds it again (then
+    // it settles anew): after a dump saw it close, before the watcher did.
+    void forget(const std::string& id);
     const Paths& paths() const { return paths_; }
 
 private:

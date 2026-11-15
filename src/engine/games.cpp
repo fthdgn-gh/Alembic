@@ -107,6 +107,12 @@ std::vector<std::string> Watcher::running() const {
     return ids;
 }
 
+void Watcher::forget(const std::string& id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    since_.erase(id);
+    settled_.erase(id);
+}
+
 std::optional<int> ProgressSteps::update(std::uint64_t job, const std::string& stage, std::uint64_t done,
                                          std::uint64_t total, std::int64_t now) {
     if (total == 0) return std::nullopt;

@@ -947,5 +947,10 @@
  "Alembic: {title}: {stage} {percent}% ({done} of {total}, about {minutes} min left)": "Alembic: {title}: {stage} {percent}% ({done} / {total}, még kb. {minutes} perc)",
  "Dumped {name}": "{name} mentve",
  "Decrypting executables": "Futtatható fájlok visszafejtése",
- "Waiting for the game to start": "Várakozás a játék indítására"
+ "Waiting for the game to start": "Várakozás a játék indítására",
+ "Waiting for a game to start": "Várakozás egy játék indítására",
+ "Game closed: continues at its next launch": "A játék bezárult: a következő indításkor folytatódik",
+ "Game closed: starts over at its next launch": "A játék bezárult: a következő indításkor elölről kezdődik",
+ "Alembic: {title} closed. The dump continues when you start it again.": "Alembic: a(z) {title} bezárult. A mentés folytatódik, ha újra elindítod.",
+ "Alembic: {title} closed. The dump starts over when you start it again.": "Alembic: a(z) {title} bezárult. A mentés elölről kezdődik, ha újra elindítod."
 }

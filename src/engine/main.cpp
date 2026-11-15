@@ -229,8 +229,11 @@ public:
                                         [this](const JobSpec& s) { return checkpoint_info(s, config_).has_value(); },
                                         [this](const JobSpec& s) { discard_checkpoint(s, config_); },
                                         // A game dump starts once its game has run a while.
-                                        [this](const JobSpec& s) { return s.game.empty() || games_.settled(s.game); },
+                                        [this](const JobSpec& s) { return s.game.empty() || (s.game == "next" ? next_game().has_value() : games_.settled(s.game)); },
                                         [this](const Job& j) { dump_progress(j); },
+                                        [this](JobSpec& s) { return bind_dump(s); },
+                                        [this](const JobSpec& s) { return is_directory(games_.paths().pfsmnt + "/" + s.game + "-app0"); },
+                                        [this](const Job& j) { dump_closed(j); },
                                     }) {
         // Inputs under /remote/ come from a browser on another computer.
         convert::set_file_provider([this](const std::string& path) -> std::shared_ptr<const RandomAccess> {
@@ -2413,34 +2416,91 @@ private:
         if (!spec.origin.empty()) return error(409, "another engine cannot dump this console's games");
         // PS4 games run through backward compatibility: not tried.
         if (spec.game.rfind("CUSA", 0) == 0) return error(409, "PS4 games cannot be dumped yet");
-        const games::Info info = games::info(games_.paths(), spec.game);
-        const bool running = games_.running(spec.game) || is_directory(games_.paths().pfsmnt + "/" + spec.game + "-app0");
-        if (!running && info.title.empty()) return error(404, "no game " + spec.game + " on this console");
-        if (queue)
-            for (const Job& j : queue_.list())
-                if (j.spec.game == spec.game && (j.state == JobState::queued || j.state == JobState::running || j.state == JobState::paused))
-                    return error(409, "this game already has a dump in the queue");
-        spec.input = games::source_tree(games_.paths(), spec.game);
         spec.decrypt_self = true;
         spec.decrypt_self_plain = false; // the console starts only fake-signed executables
         spec.delete_source = spec.hide_source = spec.install_after = false;
         if (spec.output.empty() && spec.output_dir.empty()) return error(400, "choose where to save it");
-        if (spec.output.empty() && spec.output_name.empty()) {
+        if (queue)
+            for (const Job& j : queue_.list())
+                if (j.spec.game == spec.game && (j.state == JobState::queued || j.state == JobState::running || j.state == JobState::paused))
+                    return error(409, spec.game == "next" ? "a dump of the next game is already in the queue"
+                                                          : "this game already has a dump in the queue");
+        if (spec.game == "next") {
+            // Which game, and so its input and name, is known once one starts.
+            if (!spec.output.empty()) return error(400, "a dump of the next game takes a folder (output_dir), not an output");
+            spec.input.clear();
+            spec.output_name.clear();
             auto target = resolve_target(spec);
             if (!target.ok()) return error(400, target.error().message);
-            const std::string kind = *target;
-            const NameValues values = name_values(info.title, spec.game, info.content_id, info.version, "ps5", spec.game, kind);
-            std::optional<std::string> name;
-            for (const NameFormat& f : name_formats_.list())
-                if ((name = render_name(f, values))) break;
-            std::string n = name ? *name : (info.title.empty() ? spec.game : safe_name(info.title) + " [" + spec.game + "]");
-            if (spec.lz4) n += "-lz4";
-            if (spec.zstd) n += "-zstd";
-            const std::string ext = kind == "folder" ? "" : kind == "fpkg" ? ".pkg" : "." + kind;
-            if (std::size_t limit = mount_name_limit(n + ext)) n = shorten_name(n, limit);
-            spec.output_name = n + ext;
+            if (!output_allowed(strip_slashes(spec.output_dir), config_.available_roots()))
+                return error(403, "the output is outside the allowed folders");
+            return std::nullopt;
         }
+        const games::Info info = games::info(games_.paths(), spec.game);
+        const bool running = games_.running(spec.game) || is_directory(games_.paths().pfsmnt + "/" + spec.game + "-app0");
+        if (!running && info.title.empty()) return error(404, "no game " + spec.game + " on this console");
+        Status filled = fill_dump(spec, info);
+        if (!filled.ok()) return error(400, filled.error().message);
         return std::nullopt;
+    }
+
+    // A dump's input (the game's tree) and, unless given, its output name
+    // from the first rename format that applies.
+    Status fill_dump(JobSpec& spec, const games::Info& info) {
+        spec.input = games::source_tree(games_.paths(), spec.game);
+        if (!spec.output.empty() || !spec.output_name.empty()) return {};
+        ALEMBIC_ASSIGN(std::string kind, resolve_target(spec));
+        const NameValues values = name_values(info.title, spec.game, info.content_id, info.version, "ps5", spec.game, kind);
+        std::optional<std::string> name;
+        for (const NameFormat& f : name_formats_.list())
+            if ((name = render_name(f, values))) break;
+        std::string n = name ? *name : (info.title.empty() ? spec.game : safe_name(info.title) + " [" + spec.game + "]");
+        if (spec.lz4) n += "-lz4";
+        if (spec.zstd) n += "-zstd";
+        const std::string ext = kind == "folder" ? "" : kind == "fpkg" ? ".pkg" : "." + kind;
+        if (std::size_t limit = mount_name_limit(n + ext)) n = shorten_name(n, limit);
+        spec.output_name = n + ext;
+        return {};
+    }
+
+    // The game a dump of "the next game" takes: the first one running long
+    // enough that is not a PS4 game (one already running when it was queued
+    // counts too). Called with the queue locked (by `ready`): the watcher
+    // only, no I/O, so a game with its own dump queued can be taken as well.
+    std::optional<std::string> next_game() const {
+        for (const std::string& id : games_.running())
+            if (games_.settled(id) && id.rfind("CUSA", 0) != 0) return id;
+        return std::nullopt;
+    }
+
+    // As a dump of "the next game" starts: it becomes that game's dump.
+    Status bind_dump(JobSpec& spec) {
+        if (spec.game != "next") return {};
+        auto id = next_game();
+        if (!id) return make_error(Errc::invalid_argument, "no game is running any more");
+        spec.game = *id;
+        ALEMBIC_TRY(fill_dump(spec, games::info(games_.paths(), spec.game)));
+        // The output, as resolve_output makes it for any convert job.
+        ALEMBIC_ASSIGN(spec.output, resolve_output(spec));
+        log_line("the next-game dump took " + spec.game + ": " + spec.output);
+        return {};
+    }
+
+    // A dump whose game closed went back to waiting: say so once, and let
+    // the game settle again when it starts.
+    void dump_closed(const Job& job) {
+        games_.forget(job.spec.game);
+        std::string title;
+        {
+            std::lock_guard<std::mutex> lock(dump_mutex_);
+            auto it = dump_titles_.find(job.id);
+            title = it != dump_titles_.end() ? it->second.title : job.spec.game;
+            dump_steps_.forget(job.id);
+            dump_titles_.erase(job.id); // "dumping ..." again when it continues
+        }
+        platform::debug_notify(job.stage == "Game closed: continues at its next launch"
+                                   ? l10n::t("Alembic: {title} closed. The dump continues when you start it again.", {{"title", title}})
+                                   : l10n::t("Alembic: {title} closed. The dump starts over when you start it again.", {{"title", title}}));
     }
 
     HttpResponse plan(const HttpRequest& r, bool queue) {
@@ -2453,6 +2513,13 @@ private:
         const bool dump = !spec->game.empty();
         if (dump)
             if (auto refused = prepare_dump(*spec, queue)) return *refused;
+        if (spec->game == "next") {
+            if (!queue) return json(200, spec->to_json());
+            auto job = queue_.add(std::move(*spec));
+            if (!job.ok()) return error(500, job.error().message);
+            log_line("job " + std::to_string(job->id) + " (dump of the next game) queued by " + r.peer + " -> " + job->spec.output_dir);
+            return json(201, job->to_json());
+        }
         const bool shared = convert::is_provided(spec->input);
         if (!shared && !dump && !path_allowed(spec->input, config_.available_roots())) return error(403, "the input is outside the allowed folders");
         if (!shared && !dump && !path_exists(spec->input)) return error(400, "the input does not exist: " + spec->input);

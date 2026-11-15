@@ -947,5 +947,10 @@
  "Alembic: {title}: {stage} {percent}% ({done} of {total}, about {minutes} min left)": "Alembic: {title}: {stage} {percent}% ({done} из {total}, осталось около {minutes} мин)",
  "Dumped {name}": "Дамп {name} готов",
  "Decrypting executables": "Расшифровка исполняемых файлов",
- "Waiting for the game to start": "Ожидание запуска игры"
+ "Waiting for the game to start": "Ожидание запуска игры",
+ "Waiting for a game to start": "Ожидание запуска игры",
+ "Game closed: continues at its next launch": "Игра закрыта: продолжится при следующем запуске",
+ "Game closed: starts over at its next launch": "Игра закрыта: начнётся заново при следующем запуске",
+ "Alembic: {title} closed. The dump continues when you start it again.": "Alembic: {title} закрыта. Дамп продолжится, когда вы снова её запустите.",
+ "Alembic: {title} closed. The dump starts over when you start it again.": "Alembic: {title} закрыта. Дамп начнётся заново, когда вы снова её запустите."
 }

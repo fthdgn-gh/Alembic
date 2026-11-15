@@ -4270,9 +4270,17 @@ john-tornblom's klogsrv (port 3232) while launching.
   plain debug toasts (`platform::debug_notify`: started, then the
   percentage every 15 s (owner, after the first console run: 5% steps, about
   30 s apart on a 27 GB game, were too sparse), with time left), "Dumped {name}" as the rich
-  toast, `GET /api/games/running` and `/api/games/icon?id=`. A dump whose
-  game is not running fails ("start it to dump it"); slice 2 makes it wait
-  again instead. Tests: `tests/test_games.cpp`. Owner, 2026-11-15: a kernel
+  toast, `GET /api/games/running` and `/api/games/icon?id=`.
+- **Slice 2 built (2026-11-15, engine only, not console-tested):** a dump
+  whose game closes (seen every 2 s while it runs, or after a read fails)
+  goes back to queued, "Game closed: continues at its next launch" (its
+  checkpoint kept; "starts over" without one), with a plain toast, and the
+  watcher forgets the game so a relaunch settles 30 s again. A person's
+  cancel or pause still wins. `game: "next"` waits for whichever game runs
+  settled (not CUSA; one already running counts), then the queue's
+  `prepare` hook binds it (title ID, input, name from the rename format,
+  output) and keeps that with the job. One "next" dump at a time; it takes
+  `output_dir`, not `output`. Tests: `tests/test_games.cpp`. Owner, 2026-11-15: a kernel
   panic after loading the execute-bit engine (owner thinks unrelated; no
   dump ran then?): watch for it around decrypting.
 - **Dumping, the agreed design (owner, 2026-11-15; not built yet):**

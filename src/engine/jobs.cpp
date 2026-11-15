@@ -143,7 +143,8 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
     s.game = j["game"].str();
     if (!s.game.empty()) {
         // Goes into paths: nothing but a title ID.
-        if (!games::valid_title_id(s.game)) return make_error(Errc::invalid_argument, "game must be a title ID such as PPSA01234");
+        if (s.game != "next" && !games::valid_title_id(s.game))
+            return make_error(Errc::invalid_argument, "game must be a title ID such as PPSA01234, or next");
         if (s.kind != "convert") return make_error(Errc::invalid_argument, "game is only for convert jobs");
     }
     if (!s.emulator.empty() && s.kind != "ampr_emu")
@@ -308,7 +309,7 @@ Result<Job> JobQueue::add(JobSpec spec) {
     job.id = next_id_++;
     job.spec = std::move(spec);
     job.created = unix_now();
-    if (!job.spec.game.empty()) job.stage = "Waiting for the game to start";
+    if (!job.spec.game.empty()) job.stage = job.spec.game == "next" ? "Waiting for a game to start" : "Waiting for the game to start";
     jobs_.push_back(job);
     // Keep the newest finished jobs only.
     std::size_t finished_count = std::count_if(jobs_.begin(), jobs_.end(), [](const Job& j) { return finished(j.state); });
@@ -494,8 +495,36 @@ void JobQueue::worker() {
             pause_running_ = false;
             save_locked();
         }
+        if (hooks_.prepare) {
+            Status ready = hooks_.prepare(spec);
+            std::optional<Job> failed;
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                if (Job* job = find_locked(id)) {
+                    if (ready.ok()) {
+                        job->spec = spec;
+                    } else {
+                        job->state = JobState::failed;
+                        job->error = ready.error().message;
+                        job->finished = unix_now();
+                        failed = *job;
+                    }
+                }
+                if (!ready.ok()) running_id_ = 0;
+                save_locked();
+            }
+            if (failed) {
+                if (hooks_.log) hooks_.log("job " + std::to_string(id) + " failed: " + failed->error);
+                if (hooks_.on_finished) hooks_.on_finished(*failed);
+                continue;
+            }
+            if (!ready.ok()) continue; // the job was removed meanwhile
+        }
         if (hooks_.log) hooks_.log("job " + std::to_string(id) + " started: " + spec.input);
 
+        // A dump stops when its game closes (looked at every 2 s at most).
+        bool game_gone = false;
+        auto last_look = std::chrono::steady_clock::now();
         ProgressFn progress = [&](const ProgressEvent& e) {
             {
                 std::lock_guard<std::mutex> lock(mutex_);
@@ -510,12 +539,25 @@ void JobQueue::worker() {
                 if (now) hooks_.on_progress(*now);
             }
             if (hooks_.while_running) hooks_.while_running();
-            return !cancel_running_.load();
+            if (!spec.game.empty() && hooks_.game_running && !game_gone) {
+                const auto now = std::chrono::steady_clock::now();
+                if (now - last_look >= std::chrono::seconds(2)) {
+                    last_look = now;
+                    game_gone = !hooks_.game_running(spec);
+                }
+            }
+            return !cancel_running_.load() && !game_gone;
         };
         Result<JsonValue> result = hooks_.run(spec, progress);
 
+        // A dump whose game closed (stopped by the check above, or failed
+        // reading a tree that went away) waits for the game again; a
+        // cancel or pause the person asked for still counts as that.
+        if (!result.ok() && !spec.game.empty() && !stopping_ && !pause_running_ && !cancel_running_ && !game_gone &&
+            hooks_.game_running && !hooks_.game_running(spec))
+            game_gone = true;
         // Whether the job left a checkpoint (asked before taking the lock).
-        bool stopped = !result.ok() && (result.error().code == Errc::cancelled || cancel_running_);
+        bool stopped = !result.ok() && (result.error().code == Errc::cancelled || cancel_running_ || game_gone);
         bool kept = stopped && hooks_.has_checkpoint && hooks_.has_checkpoint(spec);
         Job copy;
         bool drop = false;
@@ -535,6 +577,11 @@ void JobQueue::worker() {
                 job->error = kept ? "" : "the engine was stopped";
                 job->stage = kept ? "Continues when the engine starts" : job->stage;
                 if (kept) set_aside(*job);
+            } else if (game_gone && !cancel_running_ && !pause_running_) {
+                job->state = JobState::queued;
+                job->error.clear();
+                job->stage = kept ? "Game closed: continues at its next launch" : "Game closed: starts over at its next launch";
+                set_aside(*job, kept);
             } else if (stopped && pause_running_) {
                 job->state = JobState::paused;
                 job->stage = kept ? "Paused" : "Paused; starts over when resumed";
@@ -553,7 +600,8 @@ void JobQueue::worker() {
         }
         if (drop) discard(copy.spec);
         if (copy.state == JobState::paused || copy.state == JobState::queued) {
-            if (hooks_.log) hooks_.log("job " + std::to_string(id) + " " + state_name(copy.state));
+            if (hooks_.log) hooks_.log("job " + std::to_string(id) + " " + state_name(copy.state) + (game_gone ? " (its game closed)" : ""));
+            if (game_gone && hooks_.on_game_closed) hooks_.on_game_closed(copy);
             continue;
         }
         if (hooks_.log)
