@@ -4228,8 +4228,13 @@ john-tornblom's klogsrv (port 3232) while launching.
   PT_SCE_PROCPARAM / PT_SCE_MODULE_PARAM and patches system libraries into
   fakelib for older firmware. Its Kernel Log Viewer (port 9081, etaHEN)
   pointed us to the kernel log.
-- Console state: `/data/homebrew/alembic-dump-A` (27 GB) runs (elf2fself
-  executables, 0777, DRM `free`).
+- **Fixed engine, console-tested (owner, 2026-11-15):** a fresh decrypt_self
+  folder dump by the fixed engine, nothing changed by hand (files 0755,
+  eboot PS5-magic elf2fself), **starts**. The right.sprx "cannot decrypt"
+  warning is no longer given (convert.cpp; test
+  `decrypt_self_in_a_conversion_signed_or_plain`); other executables that
+  fail still warn.
+- Console state: `/data/homebrew/alembic-dump-fix` (27 GB) runs.
 
 ## Next session
 
@@ -4271,8 +4276,8 @@ john-tornblom's klogsrv (port 3232) while launching.
   - Base game plus its update, merged (the `-app0-patch0-union` tree, or
     the update's files over app0); untestable on the owner's console.
   - Executables always fake-signed (plain ELFs do not boot), appmeta
-    merged; no delete-source, install-after or plain option; the
-    right.sprx warning dropped (harmless).
+    merged; no delete-source, install-after or plain option. (The
+    right.sprx warning is already gone.)
   - Progress as plain kernel text toasts (`sceKernelSendNotificationRequest`,
     as ampr-emu-ng): not kept in the notification list, not too invasive.
     Rich toasts stay for everything else. Progress every 5% (owner), at

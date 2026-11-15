@@ -209,9 +209,12 @@ TEST_CASE(decrypt_self_in_a_conversion_signed_or_plain) {
     // ones stay plain although fake_sign (on by default) signs unsigned ELFs.
     auto dir = test::make_temp_dir();
     std::string root = dir + "/game";
-    for (const char* d : {"", "/sce_sys"}) test::make_dir(root + d);
+    for (const char* d : {"", "/sce_sys", "/sce_sys/about", "/sce_module"}) test::make_dir(root + d);
     Built b = build_self();
     test::write_file(root + "/eboot.bin", b.self);
+    // Two that fail their digest: right.sprx (expected, no warning) and a module (warned).
+    test::write_file(root + "/sce_sys/about/right.sprx", b.self);
+    test::write_file(root + "/sce_module/bad.prx", b.self);
     const char* j = "{\"titleId\":\"ABCD99999\",\"contentVersion\":\"01.000.000\"}";
     test::write_file(root + "/sce_sys/param.json", std::vector<std::uint8_t>(j, j + std::strlen(j)));
     auto first4 = [](const std::string& path) {
@@ -222,13 +225,23 @@ TEST_CASE(decrypt_self_in_a_conversion_signed_or_plain) {
     };
     for (bool plain : {false, true}) {
         convert::Options o;
-        o.decrypt_self = [&](const std::string&, const self_extract::Segment&) -> Result<std::vector<std::uint8_t>> { return b.enc; };
+        o.decrypt_self = [&](const std::string& path, const self_extract::Segment&) -> Result<std::vector<std::uint8_t>> {
+            if (path.find("eboot.bin") != std::string::npos) return b.enc;
+            return std::vector<std::uint8_t>(b.enc.size(), 0); // decrypts wrong: the digest fails
+        };
         o.decrypt_self_signing = plain ? self_extract::Signing::plain : self_extract::Signing::elf2fself;
         const std::string out = dir + (plain ? "/plain/" : "/signed/");
         auto r = convert::run(root, out, convert::Format::folder, o);
         REQUIRE_OK(r);
         CHECK_EQ(r->decrypted_self.size(), 1u);
         CHECK(r->fake_signed.empty()); // nothing left for fake_sign either way
+        bool right_warned = false, bad_warned = false;
+        for (const std::string& w : r->warnings) {
+            right_warned = right_warned || w.find("right.sprx") != std::string::npos;
+            bad_warned = bad_warned || w.find("bad.prx") != std::string::npos;
+        }
+        CHECK(!right_warned);
+        CHECK(bad_warned);
         CHECK_EQ(first4(out + "eboot.bin"), plain ? 0x464C457Fu : kSelfPs5Magic);
     }
 }
