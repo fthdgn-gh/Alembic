@@ -87,8 +87,8 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   running game (`decrypt_self`) ships in the engine but is not on the page
   or in the app; the notes call it a work in progress (owner). Main's CI
   green before the tag; published 2026-11-15, every job green; notes
-  cumulative. Catalog branch update-alembic-0.6.5 pushed to the fork; the
-  PR is for the owner to open (auto mode refuses it). Issue #1 (2026-11-12):
+  cumulative. Catalog PR from the fork branch update-alembic-0.6.5:
+  darkxex/ps5-homebrew-catalog#1305 (opened by Claude on the owner's OK). Issue #1 (2026-11-12):
   the reporter made their BC1 files with IceStorm TextureTools and
   converted icon0.dds too (shown fine); most of the system's own XMB icons
   (priv_ex/etc) are BC3. Still unknown: DX10 or legacy DXT1 header.
