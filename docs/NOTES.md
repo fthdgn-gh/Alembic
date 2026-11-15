@@ -4301,8 +4301,14 @@ john-tornblom's klogsrv (port 3232) while launching.
   (owner, 2026-11-15):** the pid is found (sceKernelGetAppInfo works on
   12.60); closing the game 27 s into a dump did not restart the console,
   the job went back to waiting ("queued (its game closed)") and started
-  again when the game did. Not yet tried: a close deep into writing (the
-  checkpoint resume). The first progress toast now also waits 15 s (owner).
+  again when the game did. The first progress toast now also waits 15 s
+  (owner). **Checkpoint resume, console-tested:** an FFPKG dump closed by
+  the owner at 27%, 50% and 83% of writing continued each time from its
+  checkpoint (`resumed: true`); the new `compare` job (kind "compare",
+  input and output are the two games) found it identical to an
+  uninterrupted dump of the same game: 33,282 files, 27.19 GB, 0
+  differences, 7 min 19 s on the console. Images of the same game and
+  settings come out the same size (28,967,415,808 bytes).
   The two earlier crashes on loading an engine (Payload Manager is a page
   in the browser: the game was not closed then) stay unexplained; the
   pager-swap hazard is a candidate. Record the kernel log (klogsrv, port
