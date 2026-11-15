@@ -490,6 +490,12 @@ private:
             }
             return ampr_run_over();
         }
+        if (job.spec.kind == "compare" && job.state == JobState::done) {
+            const std::string differences = std::to_string(job.result["differences"].integer());
+            return platform::notify(job.result["same"].boolean()
+                                        ? l10n::t("Compared {name}: every file is the same", {{"name", name}})
+                                        : l10n::t("Compared {name}: {n} differences", {{"name", name}, {"n", differences}}));
+        }
         switch (job.state) {
         case JobState::done:
             platform::notify(l10n::t(job.spec.kind == "copy" ? "Copied {name}" : job.spec.kind == "move" ? "Moved {name}"
@@ -2599,6 +2605,16 @@ private:
             auto job = queue_.add(std::move(*spec));
             if (!job.ok()) return error(500, job.error().message);
             log_line("job " + std::to_string(job->id) + " (install) queued by " + r.peer + ": " + job->spec.input);
+            return json(201, job->to_json());
+        }
+        if (spec->kind == "compare") {
+            spec->output = strip_slashes(spec->output);
+            if (!path_allowed(spec->output, config_.available_roots())) return error(403, "the second game is outside the allowed folders");
+            if (!path_exists(spec->output)) return error(400, "the second game does not exist: " + spec->output);
+            if (!queue) return json(200, spec->to_json());
+            auto job = queue_.add(std::move(*spec));
+            if (!job.ok()) return error(500, job.error().message);
+            log_line("job " + std::to_string(job->id) + " (compare) queued by " + r.peer + ": " + job->spec.input + " with " + job->spec.output);
             return json(201, job->to_json());
         }
         if (spec->kind != "convert") {

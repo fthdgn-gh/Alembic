@@ -1190,6 +1190,24 @@ Result<JsonValue> run_job(const JobSpec& spec, const EngineConfig& config, const
     if (spec.kind == "install") return run_install(spec, config, progress);
     if (spec.kind == "ampr_emu") return run_ampr_emu(spec, config, progress);
     if (spec.kind == "copy" || spec.kind == "move") return run_transfer(spec, config, progress);
+    if (spec.kind == "compare") {
+        ALEMBIC_ASSIGN(convert::Comparison cmp, check_output(spec.input, spec.output, spec.passcode.empty() ? std::string(32, '0') : spec.passcode,
+                                                             config, progress));
+        JsonValue r = JsonValue::object();
+        r.set("files", cmp.files);
+        r.set("bytes", cmp.bytes);
+        r.set("same", cmp.same());
+        auto list = [](const std::vector<std::string>& paths) {
+            JsonValue a = JsonValue::array();
+            for (std::size_t i = 0; i < paths.size() && i < 50; ++i) a.push(paths[i]);
+            return a;
+        };
+        r.set("only_in_first", list(cmp.only_in_a));
+        r.set("only_in_second", list(cmp.only_in_b));
+        r.set("different", list(cmp.different));
+        r.set("differences", static_cast<std::uint64_t>(cmp.only_in_a.size() + cmp.only_in_b.size() + cmp.different.size()));
+        return r;
+    }
     // A game dump reads the game's mounted tree: only while it runs.
     if (!spec.game.empty() && !is_directory(spec.input))
         return make_error(Errc::io, "the game is not running: start it to dump it");

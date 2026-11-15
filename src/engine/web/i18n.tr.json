@@ -952,5 +952,7 @@
  "Game closed: continues at its next launch": "Oyun kapandı: bir sonraki açılışta devam eder",
  "Game closed: starts over at its next launch": "Oyun kapandı: bir sonraki açılışta baştan başlar",
  "Alembic: {title} closed. The dump continues when you start it again.": "Alembic: {title} kapandı. Döküm, oyunu tekrar başlattığında devam eder.",
- "Alembic: {title} closed. The dump starts over when you start it again.": "Alembic: {title} kapandı. Döküm, oyunu tekrar başlattığında baştan başlar."
+ "Alembic: {title} closed. The dump starts over when you start it again.": "Alembic: {title} kapandı. Döküm, oyunu tekrar başlattığında baştan başlar.",
+ "Compared {name}: every file is the same": "{name} karşılaştırıldı: tüm dosyalar aynı",
+ "Compared {name}: {n} differences": "{name} karşılaştırıldı: {n} fark"
 }

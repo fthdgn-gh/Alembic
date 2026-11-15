@@ -26,7 +26,9 @@ namespace alembic::engine {
 // What to do. "convert" mirrors the CLI's `convert` options; "copy" and
 // "move" take `input` to `output` (the new path) for the file manager;
 // "install" hands a package to the system; "ampr_emu" adds ampr_emu to an
-// existing game (a folder in place, an image through a backport folder).
+// existing game (a folder in place, an image through a backport folder);
+// "compare" reads two games (`input`, `output`: any formats) and reports
+// whether every file is the same, byte for byte.
 struct JobSpec {
     std::string kind = "convert";
     std::string input;

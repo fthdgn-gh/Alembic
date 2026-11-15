@@ -101,8 +101,8 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
     if (!j.is_object()) return make_error(Errc::invalid_argument, "a job must be a JSON object");
     JobSpec s;
     s.kind = j["kind"].str("convert");
-    if (s.kind != "convert" && s.kind != "copy" && s.kind != "move" && s.kind != "install" && s.kind != "ampr_emu")
-        return make_error(Errc::invalid_argument, "kind must be convert, copy, move, install or ampr_emu");
+    if (s.kind != "convert" && s.kind != "copy" && s.kind != "move" && s.kind != "install" && s.kind != "ampr_emu" && s.kind != "compare")
+        return make_error(Errc::invalid_argument, "kind must be convert, copy, move, install, ampr_emu or compare");
     s.input = j["input"].str();
     s.output = j["output"].str();
     s.output_dir = j["output_dir"].str();
@@ -160,8 +160,8 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
     s.seed = j["seed"].str();
     if (!s.seed.empty() && (s.seed.size() != 32 || s.seed.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos))
         return make_error(Errc::invalid_argument, "seed must be 32 hex digits");
-    if ((s.kind == "copy" || s.kind == "move") && s.output.empty())
-        return make_error(Errc::invalid_argument, "copy and move need an output");
+    if ((s.kind == "copy" || s.kind == "move" || s.kind == "compare") && s.output.empty())
+        return make_error(Errc::invalid_argument, "copy, move and compare need an output (compare: the second game)");
     if (s.input.empty() && s.game.empty()) return make_error(Errc::invalid_argument, "the job has no input"); // a dump: the engine picks it
     if (s.level < 0 || s.level > 9) return make_error(Errc::invalid_argument, "level must be 0-9");
     if (s.lz4_level < 1 || s.lz4_level > 12) return make_error(Errc::invalid_argument, "lz4_level must be 1-12");

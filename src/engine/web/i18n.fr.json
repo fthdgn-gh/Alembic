@@ -952,5 +952,7 @@
  "Game closed: continues at its next launch": "Jeu fermé : reprend à son prochain lancement",
  "Game closed: starts over at its next launch": "Jeu fermé : recommence à son prochain lancement",
  "Alembic: {title} closed. The dump continues when you start it again.": "Alembic : {title} a été fermé. La copie reprend quand vous le relancez.",
- "Alembic: {title} closed. The dump starts over when you start it again.": "Alembic : {title} a été fermé. La copie recommence quand vous le relancez."
+ "Alembic: {title} closed. The dump starts over when you start it again.": "Alembic : {title} a été fermé. La copie recommence quand vous le relancez.",
+ "Compared {name}: every file is the same": "{name} comparé : tous les fichiers sont identiques",
+ "Compared {name}: {n} differences": "{name} comparé : {n} différences"
 }

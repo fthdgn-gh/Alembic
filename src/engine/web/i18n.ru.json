@@ -952,5 +952,7 @@
  "Game closed: continues at its next launch": "Игра закрыта: продолжится при следующем запуске",
  "Game closed: starts over at its next launch": "Игра закрыта: начнётся заново при следующем запуске",
  "Alembic: {title} closed. The dump continues when you start it again.": "Alembic: {title} закрыта. Дамп продолжится, когда вы снова её запустите.",
- "Alembic: {title} closed. The dump starts over when you start it again.": "Alembic: {title} закрыта. Дамп начнётся заново, когда вы снова её запустите."
+ "Alembic: {title} closed. The dump starts over when you start it again.": "Alembic: {title} закрыта. Дамп начнётся заново, когда вы снова её запустите.",
+ "Compared {name}: every file is the same": "{name} сравнено: все файлы совпадают",
+ "Compared {name}: {n} differences": "{name} сравнено: различий: {n}"
 }

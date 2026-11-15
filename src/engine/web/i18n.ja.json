@@ -952,5 +952,7 @@
  "Game closed: continues at its next launch": "ゲームが閉じられました: 次回の起動時に続行します",
  "Game closed: starts over at its next launch": "ゲームが閉じられました: 次回の起動時に最初からやり直します",
  "Alembic: {title} closed. The dump continues when you start it again.": "Alembic: {title} が閉じられました。再び起動するとダンプを続行します。",
- "Alembic: {title} closed. The dump starts over when you start it again.": "Alembic: {title} が閉じられました。再び起動するとダンプを最初からやり直します。"
+ "Alembic: {title} closed. The dump starts over when you start it again.": "Alembic: {title} が閉じられました。再び起動するとダンプを最初からやり直します。",
+ "Compared {name}: every file is the same": "{name} を比較しました: すべてのファイルが同じです",
+ "Compared {name}: {n} differences": "{name} を比較しました: {n} 件の違い"
 }

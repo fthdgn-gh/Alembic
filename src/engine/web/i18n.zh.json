@@ -952,5 +952,7 @@
  "Game closed: continues at its next launch": "游戏已关闭：下次启动时继续",
  "Game closed: starts over at its next launch": "游戏已关闭：下次启动时从头开始",
  "Alembic: {title} closed. The dump continues when you start it again.": "Alembic：{title} 已关闭。再次启动时将继续转储。",
- "Alembic: {title} closed. The dump starts over when you start it again.": "Alembic：{title} 已关闭。再次启动时将从头开始转储。"
+ "Alembic: {title} closed. The dump starts over when you start it again.": "Alembic：{title} 已关闭。再次启动时将从头开始转储。",
+ "Compared {name}: every file is the same": "已比较 {name}：所有文件都相同",
+ "Compared {name}: {n} differences": "已比较 {name}：{n} 处不同"
 }
