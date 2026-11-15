@@ -97,7 +97,15 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   job lists its steps with one overall bar. Folder outputs get the execute
   bit (folder games written by 0.6.5 and older cannot start). A compare
   job (API). Console-tested: the engine flows (see the 2026-11-15 entries);
-  the page's and app's dump screens only in previews before the tag.
+  the page's Convert at a larger text size (owner). Also fixed before the
+  tag: Convert's buttons fell off the screen with a larger browser text
+  size (min-height 27rem; now a flex basis), and `place_step` read
+  `plan.begin()` before the insert (CI's GCC). Main's CI green before the
+  tag; published 2026-11-15, every job green, the release .elf checked
+  (SHA256SUMS, the CSS fix, 0.7.0 marker; the app .zip carries it). Notes
+  start a new minor (0.6 summarized below them). Catalog PR from the fork
+  branch update-alembic-0.7.0: darkxex/ps5-homebrew-catalog#1310 (opened
+  by Claude; its body tells the reviewers about the kernel pager use).
 - **In 0.6.5 (2026-11-15):** Settings → Whole file system (the drive
   "File system root", "/", read and changed like the drives; page and
   app), Convert's opt-in "Smaller home-screen pictures" (BC1
@@ -4267,6 +4275,10 @@ john-tornblom's klogsrv (port 3232) while launching.
   works only with fake-signed update packages, and we have none.
 
 **Open:**
+- **Next for dumping (after 0.7.0):** zstd pass-1 checkpoints (a zstd dump
+  starts over after a close or engine restart while packing); the page's
+  and app's dump screens on the console (only previews so far); games with
+  an update (union tree) and disc games untested; PS4 dumps.
 - **Dumping a running game (2026-11-15): it works** once the files are
   executable (log entry "a dump of a running game starts"). Next: a fresh
   dump with the fixed engine on the console, then the page/app flow below.
