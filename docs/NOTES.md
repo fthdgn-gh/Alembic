@@ -4176,6 +4176,14 @@ settings) and boot that; if it boots, byte-compare its eboot with ours.
 **Open:**
 - **Dumping a running game (2026-11-15):** console test of plain vs
   elf2fself executables, see the log entry "decrypt_self checked again".
+- **Deleting a big folder looks hung (owner, 2026-11-15; later):**
+  `POST /api/fs/delete` removes the whole tree before it answers, with no
+  progress; the page shows nothing meanwhile, the app times out at 120 s
+  while the engine keeps deleting, and it is not in the queue. Proposed:
+  a background mode (new page/app only; the old request stays as it is for
+  older apps) that lists running deletes in the queue at once (not behind
+  conversions) with files done/total, a toast at the end, bulk delete too,
+  and the path protected while it runs. Owner: not now, tests first.
 - **Where we left off (2026-11-11, release 0.6.3):** nothing half-done.
   Still to try on the console: switching a game's emulator, switching
   packs in Convert, Hide / Unhide, an emulator auto-update (needs a new
