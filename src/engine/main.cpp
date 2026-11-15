@@ -18,6 +18,7 @@
 //   GET  /api/inspect?path=P          format, title ID, file count and size of an input
 //   POST /api/plan                    a job's resolved target and output, not queued
 //   GET  /api/games/running           games running now that can be dumped (PS5)
+//   GET  /api/games/installed         installed games, for dumping when launched
 //   GET  /api/games/icon?id=TITLEID   a game's icon from /user/appmeta
 //   GET  /api/jobs                    every job, oldest first
 //   POST /api/jobs                    queue a job (JobSpec as JSON; kind convert, copy, move,
@@ -751,6 +752,7 @@ private:
         if (r.path == "/api/names" || r.path.rfind("/api/names/", 0) == 0) return names_action(r);
         if ((r.path == "/api/meta" || r.path == "/api/icon") && r.method == "GET") return game_meta(r);
         if (r.path == "/api/games/running" && r.method == "GET") return running_games();
+        if (r.path == "/api/games/installed" && r.method == "GET") return installed_games();
         if (r.path == "/api/games/icon" && r.method == "GET") return game_icon(r);
         if (r.path == "/api/deps" && r.method == "GET") {
             JsonValue list = JsonValue::array();
@@ -1861,6 +1863,41 @@ private:
         }
         JsonValue v = JsonValue::object();
         v.set("games", std::move(list));
+        return json(200, v);
+    }
+
+    // Installed games, for "Dump when launched": what the list shows of each,
+    // whether it runs now, and the dump already queued for it.
+    HttpResponse installed_games() {
+        std::map<std::string, std::uint64_t> queued; // title ID -> job
+        std::uint64_t next_job = 0;
+        for (const Job& j : queue_.list()) {
+            if (j.spec.game.empty() || (j.state != JobState::queued && j.state != JobState::running && j.state != JobState::paused)) continue;
+            if (j.spec.game == "next") next_job = j.id;
+            else queued[j.spec.game] = j.id;
+        }
+        JsonValue list = JsonValue::array();
+        for (const std::string& id : games::installed(games_.paths())) {
+            const games::Info info = games::info(games_.paths(), id);
+            JsonValue g = JsonValue::object();
+            g.set("title_id", id);
+            g.set("title", info.title);
+            g.set("version", info.version);
+            g.set("icon", !info.icon.empty());
+            g.set("running", games_.running(id));
+            bool update = false;
+            (void)games::source_tree(games_.paths(), id, &update);
+            g.set("update", update);
+            const bool ps4 = id.rfind("CUSA", 0) == 0;
+            g.set("dumpable", !ps4);
+            if (ps4) g.set("why", "PS4 games cannot be dumped yet");
+            if (auto it = queued.find(id); it != queued.end()) g.set("job", it->second);
+            list.push(std::move(g));
+        }
+        JsonValue v = JsonValue::object();
+        v.set("games", std::move(list));
+        v.set("next_job", next_job); // a "dump the next game" job waiting, or 0
+        v.set("supported", std::string(platform::name()) == "ps5");
         return json(200, v);
     }
 

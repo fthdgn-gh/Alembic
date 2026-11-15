@@ -47,6 +47,16 @@ std::vector<std::string> mounted(const Paths& paths) {
     return ids;
 }
 
+std::vector<std::string> installed(const Paths& paths) {
+    std::vector<std::string> ids;
+    auto names = list_directory(paths.user_app);
+    if (!names.ok()) return ids;
+    for (const std::string& n : *names)
+        if (valid_title_id(n) && n.rfind("NPXS", 0) != 0 && is_regular_file(paths.user_app + "/" + n + "/app.pkg")) ids.push_back(n);
+    std::sort(ids.begin(), ids.end());
+    return ids;
+}
+
 std::string source_tree(const Paths& paths, const std::string& id, bool* with_update) {
     const bool update = is_directory(paths.user_patch + "/" + id);
     if (with_update) *with_update = update;

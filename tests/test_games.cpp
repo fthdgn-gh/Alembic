@@ -24,7 +24,8 @@ games::Paths fake_console(const std::string& dir) {
     p.pfsmnt = dir + "/pfsmnt";
     p.appmeta = dir + "/appmeta";
     p.user_patch = dir + "/patch";
-    for (const std::string& d : {p.pfsmnt, p.appmeta, p.user_patch}) test::make_dir(d);
+    p.user_app = dir + "/app";
+    for (const std::string& d : {p.pfsmnt, p.appmeta, p.user_patch, p.user_app}) test::make_dir(d);
     return p;
 }
 
@@ -291,4 +292,14 @@ TEST_CASE(job_steps_plan_and_overall) {
     CHECK_EQ(overall_permille(2, 5, 50, 100), 500u);
     CHECK_EQ(overall_permille(0, 5, 0, 0), 0u);
     CHECK_EQ(overall_permille(5, 5, 0, 0), 1000u);
+}
+
+TEST_CASE(games_installed_are_the_packages) {
+    const std::string dir = test::make_temp_dir();
+    const games::Paths p = fake_console(dir);
+    for (const char* id : {"ZZZZ00001", "ZZZZ00002", "NPXS00001", "YYYY00003"}) test::make_dir(p.user_app + "/" + id);
+    write_text(p.user_app + "/ZZZZ00001/app.pkg", "x");  // installed
+    write_text(p.user_app + "/NPXS00001/app.pkg", "x");  // the system's own
+    write_text(p.user_app + "/YYYY00003/mount.lnk", "x"); // an image ShadowMount+ registered
+    CHECK(games::installed(p) == (std::vector<std::string>{"ZZZZ00001"}));
 }

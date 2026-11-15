@@ -25,6 +25,7 @@ struct Paths {
     std::string pfsmnt = "/mnt/sandbox/pfsmnt";
     std::string appmeta = "/user/appmeta";
     std::string user_patch = "/user/patch";
+    std::string user_app = "/user/app";
 };
 
 // Four capital letters and five digits (PPSA01234): the only form a title ID
@@ -33,6 +34,11 @@ bool valid_title_id(std::string_view id);
 
 // The title IDs with a mounted app0 now, sorted.
 std::vector<std::string> mounted(const Paths& paths);
+
+// Installed games: a folder in /user/app with the package in it (titles that
+// ShadowMount+ registers for images have only links there); not the
+// system's own titles (NPXS). Sorted by title ID.
+std::vector<std::string> installed(const Paths& paths);
 
 // The tree a dump reads: the base with its update laid over it (the union)
 // when the game has an update installed, else the base. `with_update` says
