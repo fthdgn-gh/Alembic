@@ -2487,8 +2487,22 @@ private:
         if (!id) return make_error(Errc::invalid_argument, "no game is running any more");
         spec.game = *id;
         ALEMBIC_TRY(fill_dump(spec, games::info(games_.paths(), spec.game)));
-        // The output, as resolve_output makes it for any convert job.
+        // The output, as resolve_output makes it for any convert job. Its name
+        // is known only now, so one already there is not refused (it was
+        // queued ahead): " (2)", " (3)", ... before the extension instead.
         ALEMBIC_ASSIGN(spec.output, resolve_output(spec));
+        if (!spec.overwrite && convert::output_exists(spec.output)) {
+            ALEMBIC_ASSIGN(std::string kind, resolve_target(spec));
+            const std::string ext = kind == "folder" ? "" : kind == "fpkg" ? ".pkg" : "." + kind;
+            const std::string name = spec.output_name;
+            const bool has_ext = !ext.empty() && name.size() > ext.size() && name.compare(name.size() - ext.size(), ext.size(), ext) == 0;
+            const std::string stem = has_ext ? name.substr(0, name.size() - ext.size()) : name;
+            for (int n = 2; n < 100 && convert::output_exists(spec.output); ++n) {
+                spec.output_name = stem + " (" + std::to_string(n) + ")" + (has_ext ? ext : "");
+                spec.output.clear();
+                ALEMBIC_ASSIGN(spec.output, resolve_output(spec));
+            }
+        }
         log_line("the next-game dump took " + spec.game + ": " + spec.output);
         return {};
     }
