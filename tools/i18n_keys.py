@@ -32,6 +32,10 @@ ENGINE = [
     "Decoding PFSC", "Deleting the source", "Decrypting executables", "Waiting for the game to start", "Waiting for a game to start",
     "Game closed: continues at its next launch", "Game closed: starts over at its next launch", "Extracting", "Handing it to the system installer", "Installing (the console reads the package)", "LZ4 pass 1",
     "LZ4 planning", "zstd pass 1", "Measuring", "Checking eboot.bin", "Writing the emulator", "Verifying LZ4 packs", "Verifying", "Writing PFS image", "Writing UFS2 image",
+    # job steps (job_steps.cpp)
+    "Wait for the game", "Check the package", "Decrypt executables", "Re-encode pictures", "Pack assets", "Compress",
+    "Check the packs", "Install", "Hide the source", "Compare", "Compare with the source", "Delete the package",
+    "Delete the source", "Copy", "Move", "Add the AMPR emulator", "Write the folder", "Build the package", "Write the image",
     # how a conversion was done
     "LZ4-packed and {rest}", "LZ4-unpacked and {rest}", "zstd-packed and {rest}", "zstd-unpacked and {rest}", "added the AMPR emulator and {rest}",
     "fake-signed the executables and {rest}", "Checking executables",

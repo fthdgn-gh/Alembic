@@ -4357,7 +4357,14 @@ john-tornblom's klogsrv (port 3232) while launching.
     The main progress bar is the whole job (owner, 2026-11-15): every step
     an equal share (5 steps: 20% each), the running step's own percentage
     filling its share; the engine reports this overall figure with the
-    steps, so page, app and toasts agree.
+    steps, so page, app and toasts agree. **Engine side built
+    (2026-11-15):** `job_steps.hpp` (a catalogue: wait, check, decrypt,
+    pictures, pack, write, compress, packs, compare, install, delete, hide;
+    a plan from the spec, stages mapped onto steps, an unpredicted stage's
+    step placed in catalogue order, brief stages leave the bar alone), job
+    JSON `steps` [{id, label}], `step` (its size when done) and `overall`
+    (thousandths, never going back during a run; reset when a job starts
+    over). Dump toasts now say "45%, step 3 of 4: Write the image".
 - **Console runs (2026-11-15, owner), slice 1:** a dump queued by title
   ID while the game was closed waited ("Waiting for the game to start"),
   started once the game had run 30 s, and wrote an FFPKG that starts. A

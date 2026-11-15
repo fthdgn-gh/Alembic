@@ -2,6 +2,7 @@
 #include "jobs.hpp"
 
 #include "games.hpp"
+#include "job_steps.hpp"
 #include "text_file.hpp"
 
 #include "alembic/io.hpp"
@@ -189,6 +190,22 @@ JsonValue Job::to_json() const {
     j.set("error", error);
     j.set("result", result);
     if (auto_resumes) j.set("auto_resumes", static_cast<std::uint64_t>(auto_resumes));
+    // The steps for the Queue (0.6.6): labels in English, the page and app
+    // translate them; `step` is the one it is at (steps' size when done).
+    JsonValue steps = JsonValue::array();
+    for (const std::string& s : plan) {
+        JsonValue o = JsonValue::object();
+        o.set("id", s);
+        o.set("label", step_label(s, spec));
+        steps.push(std::move(o));
+    }
+    j.set("steps", std::move(steps));
+    const int count = static_cast<int>(plan.size());
+    int at = step;
+    if (state == JobState::done) at = count;
+    else if (at < 0 && state == JobState::queued && !plan.empty() && plan[0] == "wait") at = 0;
+    j.set("step", static_cast<std::int64_t>(at));
+    j.set("overall", static_cast<std::uint64_t>(state == JobState::done ? 1000 : overall));
     return j;
 }
 
@@ -210,6 +227,10 @@ Result<Job> Job::from_json(const JsonValue& j) {
     job.error = j["error"].str();
     job.result = j["result"];
     job.auto_resumes = static_cast<std::uint32_t>(j["auto_resumes"].integer(0));
+    for (const JsonValue& s : j["steps"].items()) job.plan.push_back(s["id"].str());
+    if (job.plan.empty()) job.plan = plan_steps(job.spec); // saved by an engine before 0.6.6
+    job.step = static_cast<int>(j["step"].integer(-1));
+    job.overall = static_cast<std::uint32_t>(j["overall"].integer(0));
     if (job.id == 0) return make_error(Errc::invalid_data, "a saved job has no id");
     return job;
 }
@@ -220,6 +241,10 @@ namespace {
 void set_aside(Job& job, bool continues = true) {
     job.ran_before = continues ? job.ran_before + std::max<std::int64_t>(0, job.finished - job.started) : 0;
     job.finished = 0;
+    if (!continues) { // starts over: so does its progress
+        job.step = -1;
+        job.overall = 0;
+    }
 }
 } // namespace
 
@@ -310,6 +335,7 @@ Result<Job> JobQueue::add(JobSpec spec) {
     job.spec = std::move(spec);
     job.created = unix_now();
     if (!job.spec.game.empty()) job.stage = job.spec.game == "next" ? "Waiting for a game to start" : "Waiting for the game to start";
+    job.plan = plan_steps(job.spec);
     jobs_.push_back(job);
     // Keep the newest finished jobs only.
     std::size_t finished_count = std::count_if(jobs_.begin(), jobs_.end(), [](const Job& j) { return finished(j.state); });
@@ -532,6 +558,14 @@ void JobQueue::worker() {
                     job->stage = std::string(e.stage);
                     job->done = e.done;
                     job->total = e.total;
+                    if (auto s = step_for_stage(job->stage)) job->step = static_cast<int>(place_step(job->plan, *s));
+                    if (job->step >= 0) {
+                        // A stage only counts within its own step: a brief one in between leaves the bar alone.
+                        const bool in_step = step_for_stage(job->stage).has_value();
+                        const std::uint32_t now = overall_permille(static_cast<std::size_t>(job->step), job->plan.size(),
+                                                                   in_step ? e.done : 0, in_step ? e.total : 0);
+                        job->overall = std::max(job->overall, now);
+                    }
                 }
             }
             if (hooks_.on_progress && !spec.game.empty()) { // game dumps only: a copy per report

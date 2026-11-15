@@ -243,6 +243,7 @@ if(ALEMBIC_BUILD_ENGINE)
         src/engine/ftp.cpp
         src/engine/game_meta.cpp
         src/engine/games.cpp
+        src/engine/job_steps.cpp
         src/engine/http.cpp
         src/engine/images.cpp
         src/engine/jobs.cpp

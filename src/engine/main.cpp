@@ -84,6 +84,7 @@
 #include "fs_ops.hpp"
 #include "game_meta.hpp"
 #include "games.hpp"
+#include "job_steps.hpp"
 #include "http.hpp"
 #include "images.hpp"
 #include "jobs.hpp"
@@ -509,20 +510,13 @@ private:
         }
     }
 
-    // "9.5 GB", "512 MB": sizes in a dump's toasts.
-    static std::string size_text(std::uint64_t bytes) {
-        char buf[32];
-        if (bytes >= (1ull << 30)) std::snprintf(buf, sizeof buf, "%.1f GB", bytes / double(1ull << 30));
-        else std::snprintf(buf, sizeof buf, "%llu MB", static_cast<unsigned long long>(bytes >> 20));
-        return buf;
-    }
-
     // A running game dump's toasts (plain debug ones, not kept in the
-    // notification list): once when it starts, then the percentage every 15 s.
+    // notification list): once when it starts, then the overall percentage
+    // (the Queue's bar: every step an equal share) every 15 s, with the step.
     void dump_progress(const Job& job) {
         const std::int64_t now = unix_now();
-        std::string title, stage_key;
-        std::optional<int> step;
+        std::string title;
+        std::optional<int> percent;
         std::int64_t eta = -1;
         bool started = false;
         {
@@ -530,34 +524,28 @@ private:
             auto it = dump_titles_.find(job.id);
             if (it == dump_titles_.end()) {
                 const games::Info info = games::info(games_.paths(), job.spec.game);
-                it = dump_titles_.emplace(job.id, DumpTitle{info.title.empty() ? job.spec.game : info.title, "", 0, 0}).first;
+                it = dump_titles_.emplace(job.id, DumpTitle{info.title.empty() ? job.spec.game : info.title, now, job.overall}).first;
                 started = true;
             }
             DumpTitle& d = it->second;
-            if (d.stage != job.stage) d = DumpTitle{d.title, job.stage, now, job.done};
             title = d.title;
-            stage_key = job.stage;
-            step = dump_steps_.update(job.id, job.stage, job.done, job.total, now);
-            // Time left at this stage's pace so far.
-            if (step && now > d.stage_started && job.done > d.stage_done && job.total > job.done) {
-                const double rate = double(job.done - d.stage_done) / double(now - d.stage_started);
-                if (rate > 0) eta = static_cast<std::int64_t>(double(job.total - job.done) / rate);
+            percent = dump_steps_.update(job.id, "job", job.overall, 1000, now);
+            // Time left at the pace since this run started.
+            if (percent && now > d.since && job.overall > d.overall_then && job.overall < 1000) {
+                const double rate = double(job.overall - d.overall_then) / double(now - d.since);
+                if (rate > 0) eta = static_cast<std::int64_t>(double(1000 - job.overall) / rate);
             }
         }
         if (started) platform::debug_notify(l10n::t("Alembic: dumping {title}. Keep the game running.", {{"title", title}}));
-        if (!step) return;
-        const std::string percent = std::to_string(*step);
-        const std::string stage = l10n::t(stage_key);
-        if (eta >= 0) {
-            const std::string minutes = std::to_string(std::max<std::int64_t>(1, (eta + 59) / 60));
-            platform::debug_notify(l10n::t("Alembic: {title}: {stage} {percent}% ({done} of {total}, about {minutes} min left)",
-                                           {{"title", title}, {"stage", stage}, {"percent", percent}, {"done", size_text(job.done)},
-                                            {"total", size_text(job.total)}, {"minutes", minutes}}));
-        } else {
-            platform::debug_notify(l10n::t("Alembic: {title}: {stage} {percent}% ({done} of {total})",
-                                           {{"title", title}, {"stage", stage}, {"percent", percent}, {"done", size_text(job.done)},
-                                            {"total", size_text(job.total)}}));
-        }
+        if (!percent || job.step < 0 || job.step >= static_cast<int>(job.plan.size())) return;
+        const l10n::Vars vars = {{"title", title},
+                                 {"percent", std::to_string(*percent)},
+                                 {"step", std::to_string(job.step + 1)},
+                                 {"steps", std::to_string(job.plan.size())},
+                                 {"label", l10n::t(step_label(job.plan[static_cast<std::size_t>(job.step)], job.spec))},
+                                 {"minutes", std::to_string(std::max<std::int64_t>(1, (eta + 59) / 60))}};
+        platform::debug_notify(eta >= 0 ? l10n::t("Alembic: {title}: {percent}%, step {step} of {steps}: {label}, about {minutes} min left", vars)
+                                        : l10n::t("Alembic: {title}: {percent}%, step {step} of {steps}: {label}", vars));
     }
 
     // The notification of a run of AMPR emulator jobs, once none is queued
@@ -2769,9 +2757,8 @@ private:
     games::ProgressSteps dump_steps_;
     struct DumpTitle {
         std::string title;
-        std::string stage;
-        std::int64_t stage_started = 0;
-        std::uint64_t stage_done = 0; // bytes done when the stage was first seen
+        std::int64_t since = 0;          // when this run's first report came
+        std::uint32_t overall_then = 0;  // the overall figure then
     };
     std::map<std::uint64_t, DumpTitle> dump_titles_;
     JobQueue queue_;

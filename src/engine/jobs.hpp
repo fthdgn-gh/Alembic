@@ -121,6 +121,12 @@ struct Job {
     std::string error;
     JsonValue result; // the conversion report
     std::uint32_t auto_resumes = 0; // times it was continued after the engine stopped mid-run
+    // Its steps (job_steps.hpp), the one it is at (-1: none yet, the size
+    // when it is done) and the overall progress in thousandths, which never
+    // goes back while it runs.
+    std::vector<std::string> plan;
+    int step = -1;
+    std::uint32_t overall = 0;
 
     JsonValue to_json() const;
     static Result<Job> from_json(const JsonValue& json);

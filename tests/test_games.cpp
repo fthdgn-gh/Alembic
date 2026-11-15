@@ -3,6 +3,7 @@
 // progress toasts, and a waiting dump never holding up the queue.
 // Title IDs here are invented.
 #include "games.hpp"
+#include "job_steps.hpp"
 #include "jobs.hpp"
 #include "test.hpp"
 
@@ -255,4 +256,39 @@ TEST_CASE(games_next_game_dump_takes_the_game_that_started) {
         CHECK(ran_game == "ZZZZ00009");
     }
     q.stop();
+}
+
+TEST_CASE(job_steps_plan_and_overall) {
+    JobSpec dump;
+    dump.game = "ZZZZ00001";
+    dump.decrypt_self = true;
+    dump.to = "ffpkg";
+    CHECK(plan_steps(dump) == (std::vector<std::string>{"wait", "decrypt", "write"}));
+    CHECK(step_label("write", dump) == "Write the image");
+    JobSpec pkg;
+    pkg.input = "/x";
+    pkg.to = "fpkg";
+    pkg.install_after = true;
+    CHECK(plan_steps(pkg) == (std::vector<std::string>{"write", "install", "delete"}));
+    CHECK(step_label("write", pkg) == "Build the package");
+    CHECK(step_label("delete", pkg) == "Delete the package");
+    JobSpec zstd;
+    zstd.input = "/x";
+    zstd.to = "exfat";
+    zstd.zstd = true;
+    zstd.delete_source = true;
+    CHECK(plan_steps(zstd) == (std::vector<std::string>{"pack", "write", "compare", "delete"}));
+
+    // A stage the spec did not predict goes in its place.
+    std::vector<std::string> plan = plan_steps(zstd);
+    CHECK_EQ(place_step(plan, "check"), 0u);
+    CHECK_EQ(place_step(plan, "packs"), 3u);
+    CHECK(plan == (std::vector<std::string>{"check", "pack", "write", "packs", "compare", "delete"}));
+    CHECK(step_for_stage("zstd pass 1") == std::optional<std::string>("pack"));
+    CHECK(!step_for_stage("Checking eboot.bin").has_value()); // brief: no step of its own
+
+    // Equal shares: step 2 of 5 half done is 50%.
+    CHECK_EQ(overall_permille(2, 5, 50, 100), 500u);
+    CHECK_EQ(overall_permille(0, 5, 0, 0), 0u);
+    CHECK_EQ(overall_permille(5, 5, 0, 0), 1000u);
 }
