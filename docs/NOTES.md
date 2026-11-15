@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (2026-11-15, release 0.6.5)
+## Where we are (2026-11-15, release 0.7.0)
 
 ### What works
 
@@ -87,6 +87,17 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   made again or chmodded. With it, a decrypt_self dump of a running game
   starts (log entry "a dump of a running game starts"). For the release
   notes.
+- **In 0.7.0 (2026-11-15):** dumping an installed or disc game while it
+  runs (Images → Dump a game: the running game, Dump when launched from
+  Installed games, Dump the next game that starts; page and app), to any
+  format, executables decrypted and fake-signed, the console's metadata
+  added, components downloaded by themselves; a dump waits for its game,
+  survives the game closing (no console restart; continues from its
+  checkpoint, except zstd packing), plain progress toasts every 15 s. Every
+  job lists its steps with one overall bar. Folder outputs get the execute
+  bit (folder games written by 0.6.5 and older cannot start). A compare
+  job (API). Console-tested: the engine flows (see the 2026-11-15 entries);
+  the page's and app's dump screens only in previews before the tag.
 - **In 0.6.5 (2026-11-15):** Settings → Whole file system (the drive
   "File system root", "/", read and changed like the drives; page and
   app), Convert's opt-in "Smaller home-screen pictures" (BC1
