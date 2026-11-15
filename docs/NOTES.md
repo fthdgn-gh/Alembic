@@ -4267,8 +4267,9 @@ john-tornblom's klogsrv (port 3232) while launching.
   fake-signing and a name from the first rename format filled in by the
   engine; PS5 only, not from peers, not CUSA, one per title), the queue's
   `ready` hook (a waiting dump never blocks the jobs behind it) and `poke`,
-  plain debug toasts (`platform::debug_notify`: started, every 5% of a
-  stage at most every 30 s, with time left), "Dumped {name}" as the rich
+  plain debug toasts (`platform::debug_notify`: started, then the
+  percentage every 15 s (owner, after the first console run: 5% steps, about
+  30 s apart on a 27 GB game, were too sparse), with time left), "Dumped {name}" as the rich
   toast, `GET /api/games/running` and `/api/games/icon?id=`. A dump whose
   game is not running fails ("start it to dump it"); slice 2 makes it wait
   again instead. Tests: `tests/test_games.cpp`. Owner, 2026-11-15: a kernel
@@ -4295,8 +4296,8 @@ john-tornblom's klogsrv (port 3232) while launching.
     right.sprx warning is already gone.)
   - Progress as plain kernel text toasts (`sceKernelSendNotificationRequest`,
     as ampr-emu-ng): not kept in the notification list, not too invasive.
-    Rich toasts stay for everything else. Progress every 5% (owner), at
-    most one every 30 s (a fast dump shows the latest number), short:
+    Rich toasts stay for everything else. Progress every 15 s (owner; first
+    5% steps, too sparse on the console), short:
     "Alembic: dumping <title> 35% (9.5 / 27.2 GB, ~6 min left)"; plus
     started, game closed (continues at the next launch), finished/failed;
     none while waiting.

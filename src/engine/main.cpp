@@ -509,8 +509,7 @@ private:
     }
 
     // A running game dump's toasts (plain debug ones, not kept in the
-    // notification list): once when it starts, then every 5% of a stage, at
-    // most one every 30 s.
+    // notification list): once when it starts, then the percentage every 15 s.
     void dump_progress(const Job& job) {
         const std::int64_t now = unix_now();
         std::string title, stage_key;

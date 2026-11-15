@@ -97,16 +97,16 @@ TEST_CASE(games_source_tree_and_info) {
     CHECK(none.icon.empty());
 }
 
-TEST_CASE(games_progress_every_five_percent) {
-    games::ProgressSteps s(30);
+TEST_CASE(games_progress_every_fifteen_seconds) {
+    games::ProgressSteps s(15);
     const std::uint64_t total = 1000;
-    CHECK(!s.update(1, "Extracting", 10, total, 100));         // under 5%
-    CHECK(s.update(1, "Extracting", 50, total, 100) == 5);     // the first step at once
-    CHECK(!s.update(1, "Extracting", 120, total, 110));        // 10%, but 10 s after: wait
-    CHECK(s.update(1, "Extracting", 230, total, 131) == 20);   // the latest step once 30 s passed
-    CHECK(!s.update(1, "Extracting", 240, total, 200));        // the same step: never twice
+    CHECK(!s.update(1, "Extracting", 5, total, 100));          // under 1%
+    CHECK(s.update(1, "Extracting", 30, total, 100) == 3);     // the first one at once
+    CHECK(!s.update(1, "Extracting", 120, total, 110));        // 10 s after: wait
+    CHECK(s.update(1, "Extracting", 230, total, 115) == 23);   // 15 s passed: where it is now
+    CHECK(!s.update(1, "Extracting", 235, total, 200));        // no further: nothing new to say
     CHECK(!s.update(1, "Extracting", 10, 0, 300));             // no total: nothing
-    CHECK(s.update(1, "Compressing", 60, total, 301) == 5);    // a new stage starts over
+    CHECK(s.update(1, "Compressing", 60, total, 301) == 6);    // a new stage starts over
     CHECK(s.update(2, "Extracting", 500, total, 301) == 50);   // jobs apart
     CHECK(s.update(1, "Compressing", 1000, total, 302) == 100); // the end is never held back
 }
