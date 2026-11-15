@@ -1000,5 +1000,6 @@
  "no game is running any more": "már nem fut játék",
  "Downloading components": "Összetevők letöltése",
  "The AMPR emulator goes in only if the game turns out to use the console's APR; the engine can tell once the game runs.": "Az AMPR-emulátor csak akkor kerül bele, ha a játék a konzol APR-jét használja; ezt a motor a játék futásakor látja.",
- "No AMPR emulator, even if the game turns out to use the console's APR.": "Nincs AMPR-emulátor, akkor sem, ha a játék a konzol APR-jét használja."
+ "No AMPR emulator, even if the game turns out to use the console's APR.": "Nincs AMPR-emulátor, akkor sem, ha a játék a konzol APR-jét használja.",
+ "With zstd packs, closing the game or restarting the engine while it packs starts the dump over.": "zstd-csomagokkal a mentés elölről kezdődik, ha csomagolás közben bezárod a játékot vagy újraindul a motor."
 }

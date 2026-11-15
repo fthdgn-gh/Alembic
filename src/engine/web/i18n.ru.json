@@ -1000,5 +1000,6 @@
  "no game is running any more": "запущенной игры больше нет",
  "Downloading components": "Загрузка компонентов",
  "The AMPR emulator goes in only if the game turns out to use the console's APR; the engine can tell once the game runs.": "Эмулятор AMPR добавляется, только если игра использует APR консоли; движок узнает это после запуска игры.",
- "No AMPR emulator, even if the game turns out to use the console's APR.": "Без эмулятора AMPR, даже если игра использует APR консоли."
+ "No AMPR emulator, even if the game turns out to use the console's APR.": "Без эмулятора AMPR, даже если игра использует APR консоли.",
+ "With zstd packs, closing the game or restarting the engine while it packs starts the dump over.": "С пакетами zstd дамп начнётся заново, если закрыть игру или перезапустить движок во время упаковки."
 }

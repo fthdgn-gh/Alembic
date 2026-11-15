@@ -1000,5 +1000,6 @@
  "no game is running any more": "起動中のゲームがなくなりました",
  "Downloading components": "コンポーネントをダウンロードしています",
  "The AMPR emulator goes in only if the game turns out to use the console's APR; the engine can tell once the game runs.": "AMPR エミュレーターは、ゲームが本体の APR を使う場合にだけ追加されます。ゲームの起動後にエンジンが判断します。",
- "No AMPR emulator, even if the game turns out to use the console's APR.": "ゲームが本体の APR を使う場合でも、AMPR エミュレーターは追加しません。"
+ "No AMPR emulator, even if the game turns out to use the console's APR.": "ゲームが本体の APR を使う場合でも、AMPR エミュレーターは追加しません。",
+ "With zstd packs, closing the game or restarting the engine while it packs starts the dump over.": "zstd パックでは、パック中にゲームを閉じたりエンジンを再起動したりすると、ダンプは最初からやり直しになります。"
 }

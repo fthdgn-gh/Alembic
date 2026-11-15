@@ -1000,5 +1000,6 @@
  "no game is running any more": "已没有正在运行的游戏",
  "Downloading components": "正在下载组件",
  "The AMPR emulator goes in only if the game turns out to use the console's APR; the engine can tell once the game runs.": "仅当游戏使用主机的 APR 时才加入 AMPR 模拟器；游戏运行后引擎即可判断。",
- "No AMPR emulator, even if the game turns out to use the console's APR.": "不加入 AMPR 模拟器，即使游戏使用主机的 APR。"
+ "No AMPR emulator, even if the game turns out to use the console's APR.": "不加入 AMPR 模拟器，即使游戏使用主机的 APR。",
+ "With zstd packs, closing the game or restarting the engine while it packs starts the dump over.": "使用 zstd 资源包时，在打包过程中关闭游戏或重启引擎会让转储从头开始。"
 }

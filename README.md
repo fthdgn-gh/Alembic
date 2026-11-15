@@ -2,7 +2,7 @@
 
 **English** · [Türkçe](README.tr.md) · [Deutsch](README.de.md) · [Español](README.es.md) · [Français](README.fr.md) · [Magyar](README.hu.md) · [Русский](README.ru.md) · [日本語](README.ja.md) · [简体中文](README.zh.md)
 
-![Images: the games in ShadowMount+'s folders as a grid, two AMPR emulators to update, one game without one and one with a build Alembic doesn't know](docs/screenshots/images.png)
+![Images: a game running now, ready to dump, above the games in ShadowMount+'s folders as a grid with their AMPR emulator states](docs/screenshots/images.png)
 
 Alembic converts PS5 and PS4 games between the formats homebrew loaders use:
 packages (PS5 debug FPKG, PS4 fake PKG), dump folders, exFAT images, FFPKG
@@ -163,7 +163,7 @@ GitHub release first, checked against `SHA256SUMS`).
 
 ![The Convert dialog's Review step: the format, the options, the output path on a paired PC and what happens afterwards, next to the game's details](docs/screenshots/convert.png)
 
-![The queue: a running conversion with speed and time left, a paused one that continues from its checkpoint, a copy to a NAS share, and a job running on the paired PC](docs/screenshots/queue.png)
+![The queue: a package being converted and a dump of a running game, each with its steps, and two dumps waiting for a game to start](docs/screenshots/queue.png)
 
 Also on the page:
 
@@ -252,7 +252,7 @@ Also on the page:
   only on a PS5, for its own games.
   On a PS5 the page and the app open on Images; on a PC, on Files.
 
-  ![Images: the games in ShadowMount+'s folders as a list, two AMPR emulators to update, one game without one and one with a build Alembic doesn't know](docs/screenshots/images-list.png)
+  ![Images: a game running now, ready to dump, above the games in ShadowMount+'s folders as a list with their AMPR emulator states](docs/screenshots/images-list.png)
 - **Components:** third-party files Alembic needs but doesn't ship (the AMPR
   emulators ampr_emu and ampr-emu-ng, ProsperoPkgTool's FPKG key files,
   LibOrbisPkg's licence and PS4 package keys) are downloaded on request from

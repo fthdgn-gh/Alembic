@@ -409,6 +409,8 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump
         })}
       </div>
       <div class="note" hidden={packs !== "zstd"}>{t("Turn off ShadowMount+'s “update emulators”: it would swap ampr-emu-ng for another emulator that can't read these packs.")}</div>
+      {/* zstd pass 1 keeps no checkpoints yet: a dump cannot continue from it. */}
+      <div class="note" hidden={packs !== "zstd" || !dump}>{t("With zstd packs, closing the game or restarting the engine while it packs starts the dump over.")}</div>
       <div class="note" hidden={!lz4NoteShown}>{t("FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data.")}</div>
     </>
     : cur === "options" ? <>

@@ -4,7 +4,7 @@
 
 *これは [英語の README](README.md) の翻訳です。内容が異なる場合は、英語版が最新です。*
 
-![イメージ: ShadowMount+ のフォルダーにあるゲームのグリッド、アップデートできる AMPR エミュレーター 2 件、エミュレーターのないゲーム、Alembic が知らないビルドのゲーム](docs/screenshots/images.png)
+![イメージ: 実行中でダンプできるゲームと、その下に ShadowMount+ のフォルダーにあるゲームのグリッド表示（AMPR エミュレーターの状態つき）](docs/screenshots/images.png)
 
 Alembic は、PS5 と PS4 のゲームを homebrew ローダーが使う形式のあいだで変換します。
 対応形式は、パッケージ（PS5 のデバッグ FPKG、PS4 の fake PKG）、ダンプフォルダー、exFAT イメージ、FFPKG
@@ -162,7 +162,7 @@ PS5 のデバッグ FPKG に、PS4 ゲーム（`sce_sys/param.sfo`）は PS4 の
 
 ![変換ダイアログの確認ステップ: 形式、オプション、ペアリングした PC 上の出力先、完了後の処理と、その横のゲームの詳細](docs/screenshots/convert.png)
 
-![キュー: 速度と残り時間を表示した実行中の変換、チェックポイントから続行する一時停止中の変換、NAS の共有フォルダーへのコピー、ペアリングした PC で実行中のジョブ](docs/screenshots/queue.png)
+![キュー: 変換中のパッケージと実行中のゲームのダンプ（それぞれステップつき）、ゲームの起動を待つ 2 件のダンプ](docs/screenshots/queue.png)
 
 ページにはほかにも次の機能があります。
 
@@ -253,7 +253,7 @@ PS5 のデバッグ FPKG に、PS4 ゲーム（`sce_sys/param.sfo`）は PS4 の
   アップデートされます。
   PS5 ではページとアプリがイメージで開き、PC ではファイルで開きます。
 
-  ![イメージ: ShadowMount+ のフォルダーにあるゲームのリスト、アップデートできる AMPR エミュレーター 2 件、エミュレーターのないゲーム、Alembic が知らないビルドのゲーム](docs/screenshots/images-list.png)
+  ![イメージ: 実行中でダンプできるゲームと、その下に ShadowMount+ のフォルダーにあるゲームのリスト表示（AMPR エミュレーターの状態つき）](docs/screenshots/images-list.png)
 - **コンポーネント:** Alembic が必要とするものの同梱していないサードパーティのファイル（AMPR
   エミュレーターの ampr_emu と ampr-emu-ng、ProsperoPkgTool の FPKG 鍵ファイル、
   LibOrbisPkg のライセンスと PS4 パッケージの鍵）は、求めに応じて

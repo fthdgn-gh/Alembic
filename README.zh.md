@@ -4,7 +4,7 @@
 
 *本文是[英文 README](README.md) 的译文；两者不一致时，以英文版为准。*
 
-![镜像：ShadowMount+ 文件夹中的游戏网格，两个可更新的 AMPR 模拟器，一个没有模拟器的游戏，以及一个使用 Alembic 不认识的版本的游戏](docs/screenshots/images.png)
+![镜像：一个正在运行、可以转储的游戏，下方是 ShadowMount+ 文件夹中的游戏（网格视图，附 AMPR 模拟器状态）](docs/screenshots/images.png)
 
 Alembic 在自制加载器所用的各种格式之间转换 PS5 和 PS4 游戏：
 安装包（PS5 debug FPKG、PS4 fake PKG）、转储文件夹、exFAT 镜像、FFPKG
@@ -138,7 +138,7 @@ LZ4 资源包对部分游戏有效，对另一些无效。
 
 ![“转换”对话框的“确认”步骤：格式、选项、位于已配对 PC 上的输出路径以及完成后的操作，旁边是游戏详情](docs/screenshots/convert.png)
 
-![队列：一个显示速度和剩余时间的运行中转换、一个将从检查点继续的已暂停任务、一个复制到 NAS 共享的任务，以及一个在已配对 PC 上运行的任务](docs/screenshots/queue.png)
+![队列：一个正在转换的软件包和一个正在运行的游戏的转储（各带步骤），以及两个等待游戏启动的转储](docs/screenshots/queue.png)
 
 页面还有：
 
@@ -204,7 +204,7 @@ LZ4 资源包对部分游戏有效，对另一些无效。
   AMPR 模拟器只在 PS5 上针对它自己的游戏显示和更新。
   在 PS5 上，页面和应用会打开“镜像”；在电脑上则打开“文件”。
 
-  ![镜像：ShadowMount+ 文件夹中的游戏列表，两个可更新的 AMPR 模拟器，一个没有模拟器的游戏，以及一个使用 Alembic 不认识的版本的游戏](docs/screenshots/images-list.png)
+  ![镜像：一个正在运行、可以转储的游戏，下方是 ShadowMount+ 文件夹中的游戏（列表视图，附 AMPR 模拟器状态）](docs/screenshots/images-list.png)
 - **组件：** Alembic 需要但不随附的第三方文件（AMPR 模拟器 ampr_emu 和
   ampr-emu-ng、ProsperoPkgTool 的 FPKG 密钥文件、LibOrbisPkg 的许可证密钥和
   PS4 安装包密钥）会按需从官方来源下载，只有 SHA-256 匹配时才保留。

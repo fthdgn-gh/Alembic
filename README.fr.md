@@ -4,7 +4,7 @@
 
 *Ceci est une traduction du [README anglais](README.md) ; en cas de différence, c'est la version anglaise qui fait foi.*
 
-![Images : les jeux des dossiers de ShadowMount+ en grille, deux émulateurs AMPR à mettre à jour, un jeu sans émulateur et un autre avec une version qu'Alembic ne connaît pas](docs/screenshots/images.png)
+![Images : un jeu en cours, prêt à être copié, au-dessus des jeux des dossiers de ShadowMount+ en grille avec l'état de leur émulateur AMPR](docs/screenshots/images.png)
 
 Alembic convertit les jeux PS5 et PS4 entre les formats qu'utilisent les
 chargeurs homebrew : paquets (FPKG debug PS5, fake PKG PS4), dossiers de dump,
@@ -180,7 +180,7 @@ moteur de sa propre version depuis la version publiée sur GitHub, vérifié ave
 
 ![L'étape Récapitulatif de la fenêtre Convertir : le format, les options, le chemin de sortie sur un PC associé et ce qui se passe ensuite, à côté des détails du jeu](docs/screenshots/convert.png)
 
-![La file : une conversion en cours avec sa vitesse et le temps restant, une en pause qui reprend à son point de reprise, une copie vers un partage NAS, et une tâche qui tourne sur le PC associé](docs/screenshots/queue.png)
+![La file : un paquet en cours de conversion et la copie d'un jeu en cours, chacun avec ses étapes, et deux copies qui attendent le lancement d'un jeu](docs/screenshots/queue.png)
 
 Aussi sur la page :
 
@@ -283,7 +283,7 @@ Aussi sur la page :
   propres jeux.
   Sur une PS5, la page et l'app s'ouvrent sur Images ; sur un PC, sur Fichiers.
 
-  ![Images : les jeux des dossiers de ShadowMount+ en liste, deux émulateurs AMPR à mettre à jour, un jeu sans émulateur et un autre avec une version qu'Alembic ne connaît pas](docs/screenshots/images-list.png)
+  ![Images : un jeu en cours, prêt à être copié, au-dessus des jeux des dossiers de ShadowMount+ en liste avec l'état de leur émulateur AMPR](docs/screenshots/images-list.png)
 - **Composants :** les fichiers tiers dont Alembic a besoin mais qu'il ne
   fournit pas (les émulateurs AMPR ampr_emu et ampr-emu-ng, les fichiers de clés
   FPKG de ProsperoPkgTool, les clés de licence et de paquets PS4 de

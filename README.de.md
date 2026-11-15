@@ -4,7 +4,7 @@
 
 *Dies ist eine Übersetzung der [englischen README](README.md); wenn beide voneinander abweichen, gilt die englische.*
 
-![Images: die Spiele in den Ordnern von ShadowMount+ als Raster, zwei AMPR-Emulatoren zu aktualisieren, ein Spiel ohne Emulator und eines mit einem Build, den Alembic nicht kennt](docs/screenshots/images.png)
+![Images: ein laufendes Spiel, bereit zum Dump, über den Spielen in den Ordnern von ShadowMount+ als Raster mit dem Zustand ihrer AMPR-Emulatoren](docs/screenshots/images.png)
 
 Alembic wandelt PS5- und PS4-Spiele zwischen den Formaten um, die
 Homebrew-Loader verwenden: Pakete (PS5-Debug-FPKG, PS4-Fake-PKG),
@@ -181,7 +181,7 @@ ihrer eigenen Version aus dem GitHub-Release herunter, geprüft gegen
 
 ![Der Schritt Übersicht des Dialogs Umwandeln: das Format, die Optionen, der Ausgabepfad auf einem gekoppelten PC und was danach passiert, neben den Details des Spiels](docs/screenshots/convert.png)
 
-![Die Warteschlange: eine laufende Umwandlung mit Geschwindigkeit und Restzeit, eine pausierte, die am Sicherungspunkt weitermacht, eine Kopie auf eine NAS-Freigabe und ein Auftrag auf dem gekoppelten PC](docs/screenshots/queue.png)
+![Die Warteschlange: ein Paket wird umgewandelt und ein laufendes Spiel gesichert, jeweils mit ihren Schritten, und zwei Dumps warten auf den Start eines Spiels](docs/screenshots/queue.png)
 
 Außerdem auf der Seite:
 
@@ -283,7 +283,7 @@ Außerdem auf der Seite:
   und aktualisiert.
   Auf einer PS5 öffnen Seite und App mit Images, auf einem PC mit Dateien.
 
-  ![Images: die Spiele in den Ordnern von ShadowMount+ als Liste, zwei AMPR-Emulatoren zu aktualisieren, ein Spiel ohne Emulator und eines mit einem Build, den Alembic nicht kennt](docs/screenshots/images-list.png)
+  ![Images: ein laufendes Spiel, bereit zum Dump, über den Spielen in den Ordnern von ShadowMount+ als Liste mit dem Zustand ihrer AMPR-Emulatoren](docs/screenshots/images-list.png)
 - **Komponenten:** Dateien von Dritten, die Alembic braucht, aber nicht
   mitliefert (die AMPR-Emulatoren ampr_emu und ampr-emu-ng, die FPKG-Schlüsseldateien
   von ProsperoPkgTool, die Lizenz- und PS4-Paketschlüssel von LibOrbisPkg),

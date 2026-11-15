@@ -4,7 +4,7 @@
 
 *Bu metin [İngilizce README](README.md)'nin çevirisidir; aralarında fark varsa güncel olan İngilizcesidir.*
 
-![İmajlar: ShadowMount+ klasörlerindeki oyunlar ızgara olarak, güncellenecek iki AMPR öykünücüsü, öykünücüsü olmayan bir oyun ve Alembic'in tanımadığı bir derlemeye sahip bir oyun](docs/screenshots/images.png)
+![İmajlar: dökümü alınmaya hazır, şu an çalışan bir oyun; altında ShadowMount+ klasörlerindeki oyunlar, AMPR öykünücü durumlarıyla ızgara görünümünde](docs/screenshots/images.png)
 
 Alembic, PS5 ve PS4 oyunlarını homebrew yükleyicilerin kullandığı biçimler
 arasında dönüştürür: paketler (PS5 debug FPKG, PS4 fake PKG), döküm
@@ -176,7 +176,7 @@ sürümünün motorunu GitHub sürümünden indirir ve `SHA256SUMS` ile denetler
 
 ![Dönüştür penceresinin Gözden geçir adımı: biçim, seçenekler, eşleştirilmiş bir PC'deki çıktı yolu ve sonrasında olacaklar, oyunun ayrıntılarının yanında](docs/screenshots/convert.png)
 
-![Kuyruk: hızı ve kalan süresiyle çalışan bir dönüştürme, son kayıt noktasından devam edecek duraklatılmış bir dönüştürme, bir NAS paylaşımına kopyalama ve eşleştirilmiş PC'de çalışan bir iş](docs/screenshots/queue.png)
+![Kuyruk: dönüştürülen bir paket ve çalışan bir oyunun dökümü, her biri adımlarıyla, ve bir oyunun başlamasını bekleyen iki döküm](docs/screenshots/queue.png)
 
 Sayfada ayrıca:
 
@@ -274,7 +274,7 @@ Sayfada ayrıca:
   güncellenir.
   Bir PS5'te sayfa ve uygulama İmajlar ile açılır; bilgisayarda Dosyalar ile.
 
-  ![İmajlar: ShadowMount+ klasörlerindeki oyunlar liste olarak, güncellenecek iki AMPR öykünücüsü, öykünücüsü olmayan bir oyun ve Alembic'in tanımadığı bir derlemeye sahip bir oyun](docs/screenshots/images-list.png)
+  ![İmajlar: dökümü alınmaya hazır, şu an çalışan bir oyun; altında ShadowMount+ klasörlerindeki oyunlar, AMPR öykünücü durumlarıyla liste görünümünde](docs/screenshots/images-list.png)
 - **Bileşenler:** Alembic'in ihtiyaç duyduğu ama kendisiyle gelmeyen üçüncü
   taraf dosyalar (AMPR öykünücüleri ampr_emu ve ampr-emu-ng,
   ProsperoPkgTool'un FPKG anahtar dosyaları, LibOrbisPkg'nin lisans ve PS4

@@ -1410,6 +1410,10 @@ public:
             if (packs_now == "zstd")
                 y += note(ui, t("Turn off ShadowMount+'s \xE2\x80\x9Cupdate emulators\xE2\x80\x9D: it would swap ampr-emu-ng for "
                                 "another emulator that can't read these packs."), x, y - 0.5f * R, w) + 0.5f * R;
+            // zstd pass 1 keeps no checkpoints yet: a dump cannot continue from it.
+            if (packs_now == "zstd" && dump)
+                y += note(ui, t("With zstd packs, closing the game or restarting the engine while it packs starts the dump over."),
+                          x, y - 0.5f * R, w) + 0.5f * R;
             if (target == "ffpfsc" && packs_now == "lz4")
                 y += note(ui, t("FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data."),
                           x, y - 0.5f * R, w) + 0.5f * R;

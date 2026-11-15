@@ -1000,5 +1000,6 @@
  "no game is running any more": "ya no hay ningún juego en ejecución",
  "Downloading components": "Descargando componentes",
  "The AMPR emulator goes in only if the game turns out to use the console's APR; the engine can tell once the game runs.": "El emulador AMPR se añade solo si el juego usa el APR de la consola; el motor lo sabe cuando el juego se ejecuta.",
- "No AMPR emulator, even if the game turns out to use the console's APR.": "Sin emulador AMPR, aunque el juego use el APR de la consola."
+ "No AMPR emulator, even if the game turns out to use the console's APR.": "Sin emulador AMPR, aunque el juego use el APR de la consola.",
+ "With zstd packs, closing the game or restarting the engine while it packs starts the dump over.": "Con paquetes zstd, cerrar el juego o reiniciar el motor mientras empaqueta hace que el volcado empiece de nuevo."
 }

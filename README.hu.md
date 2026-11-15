@@ -4,7 +4,7 @@
 
 *Ez az [angol nyelvű README](README.md) fordítása; ha eltérnek, az angol a mérvadó.*
 
-![Image-ek: a ShadowMount+ mappáiban lévő játékok rácsban, két frissítendő AMPR-emulátor, egy emulátor nélküli játék és egy olyan, amelynek a buildjét az Alembic nem ismeri](docs/screenshots/images.png)
+![Image-ek: egy éppen futó, menthető játék a ShadowMount+ mappáinak játékai fölött, rácsban, az AMPR-emulátoruk állapotával](docs/screenshots/images.png)
 
 Az Alembic a PS5- és PS4-játékokat alakítja át a homebrew betöltők által
 használt formátumok között: csomagok (PS5 debug FPKG, PS4 fake PKG), dump
@@ -182,7 +182,7 @@ ellenőrzi).
 
 ![Az Átalakítás ablak Áttekintés lépése: a formátum, a beállítások, a kimeneti útvonal egy párosított PC-n és az, ami utána történik, a játék adatai mellett](docs/screenshots/convert.png)
 
-![A várólista: egy futó átalakítás sebességgel és hátralévő idővel, egy szüneteltetett, amely a mentési pontjától folytatódik, egy másolás egy NAS-megosztásra, és egy feladat, amely a párosított PC-n fut](docs/screenshots/queue.png)
+![A várólista: egy csomag átalakítása és egy futó játék mentése, mindkettő a lépéseivel, és két mentés, amely egy játék indítására vár](docs/screenshots/queue.png)
 
 Az oldalon még:
 
@@ -288,7 +288,7 @@ Az oldalon még:
   PS5-ön az oldal és az alkalmazás az Image-ekkel nyílik meg, számítógépen a
   Fájlokkal.
 
-  ![Image-ek: a ShadowMount+ mappáiban lévő játékok listában, két frissítendő AMPR-emulátor, egy emulátor nélküli játék és egy olyan, amelynek a buildjét az Alembic nem ismeri](docs/screenshots/images-list.png)
+  ![Image-ek: egy éppen futó, menthető játék a ShadowMount+ mappáinak játékai fölött, listában, az AMPR-emulátoruk állapotával](docs/screenshots/images-list.png)
 - **Komponensek:** azokat a külső fájlokat, amelyekre az Alembicnek szüksége
   van, de nem tartalmazza (az ampr_emu és ampr-emu-ng AMPR-emulátorok, a
   ProsperoPkgTool FPKG-kulcsfájljai, a LibOrbisPkg licenc- és
