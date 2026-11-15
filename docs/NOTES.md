@@ -4354,6 +4354,10 @@ john-tornblom's klogsrv (port 3232) while launching.
     stage it reports), in the job JSON, so page and app draw the same list:
     done steps ticked, the current one with its percentage, later ones
     grey. Dump toasts can say "step 2 of 3". Not dumps only. With slice 3.
+    The main progress bar is the whole job (owner, 2026-11-15): every step
+    an equal share (5 steps: 20% each), the running step's own percentage
+    filling its share; the engine reports this overall figure with the
+    steps, so page, app and toasts agree.
 - **Console runs (2026-11-15, owner), slice 1:** a dump queued by title
   ID while the game was closed waited ("Waiting for the game to start"),
   started once the game had run 30 s, and wrote an FFPKG that starts. A
