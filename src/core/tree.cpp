@@ -119,7 +119,7 @@ Status write_one(const Source& source, const Node& file, const std::string& path
         ALEMBIC_ASSIGN(out, File::open(path, File::Mode::create_new));
         // Every file, as the PFS and exFAT images have it: the console will not
         // start a game whose eboot.bin or modules lack the execute bit.
-        ALEMBIC_TRY(make_executable(path));
+        (void)make_executable(path); // best effort: some drives (FAT, exFAT) have no modes
     }
     x.current = from;
     x.done += from;

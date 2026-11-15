@@ -298,7 +298,9 @@ Status write_copy(const RandomAccess& data, const std::string& path, bool overwr
         ALEMBIC_TRY(out.file().write_at(at, Bytes(buffer.data(), n)));
         at += n;
     }
-    return out.commit();
+    ALEMBIC_TRY(out.commit());
+    (void)make_executable(path); // a module in a game folder: the console loads it only with the execute bit
+    return {};
 }
 
 Status write_bytes(const std::vector<std::uint8_t>& data, const std::string& path) {

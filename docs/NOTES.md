@@ -80,6 +80,13 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   main and wait for CI before tagging. Catalog PR from the fork branch
   update-alembic-0.5.0: darkxex/ps5-homebrew-catalog#1084 (opened by the
   owner: auto mode refuses it).
+- **Unreleased (after 0.6.5):** folder outputs, engine copies and the
+  emulator added in place now get the execute bit (every file on the
+  console). Up to 0.6.5 a folder written by Alembic had 0644 files and
+  could not start from a folder (EACCES); such folders stay broken until
+  made again or chmodded. With it, a decrypt_self dump of a running game
+  starts (log entry "a dump of a running game starts"). For the release
+  notes.
 - **In 0.6.5 (2026-11-15):** Settings → Whole file system (the drive
   "File system root", "/", read and changed like the drives; page and
   app), Convert's opt-in "Smaller home-screen pictures" (BC1
@@ -4198,9 +4205,12 @@ john-tornblom's klogsrv (port 3232) while launching.
   file systems) and `io::is_executable`; `tree::extract` makes every
   extracted file executable (as the images do); engine copies keep the
   source's execute bit; and in the PS5 build (`ALEMBIC_PS5`, set on
-  alembic_core by CMake) every file the engine creates is opened 0755, which
-  also covers in-place emulator/fake-sign writes and files a paired engine
-  writes to the console. Test: folder output's eboot.bin and param.json are
+  alembic_core by CMake) every file the engine creates through `File::open`
+  is opened 0755, which also covers files a paired engine writes to the
+  console. The emulator added in place (`ampr_emu.cpp` write_copy) is made
+  executable on every platform. All chmods are best effort (FAT/exFAT drives
+  have no modes). Left at 0644: files created over NFS (`nfs.cpp`), and
+  files a 0.6.5 checkpoint already wrote when the new engine resumes it. Test: folder output's eboot.bin and param.json are
   executable (POSIX). 142 tests, PS5 and Windows builds clean. **Not yet
   tried on the console:** a fresh dump by the fixed engine, its modes listed
   over FTP, launched.

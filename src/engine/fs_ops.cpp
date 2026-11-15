@@ -30,7 +30,7 @@ struct Copier {
         ALEMBIC_ASSIGN(File in, File::open(from, File::Mode::read));
         if (path_exists(partial)) ALEMBIC_TRY(remove_file(partial));
         ALEMBIC_ASSIGN(File out, File::open(partial, File::Mode::create_new));
-        if (is_executable(from)) ALEMBIC_TRY(make_executable(partial)); // a game's eboot.bin must stay startable
+        if (is_executable(from)) (void)make_executable(partial); // keeps a game startable; best effort
         created.push_back(partial);
         ALEMBIC_ASSIGN(std::uint64_t size, in.size());
         for (std::uint64_t at = 0; at < size;) {
