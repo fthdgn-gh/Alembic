@@ -56,7 +56,10 @@
 .wz-step.cur .n { background: var(--accent); border-color: var(--accent); color: #fff; }
 .wz-step.done { color: var(--muted); }
 .wz-step.done .n { border-color: var(--accent); color: var(--accent); }
-.wz .sh-body { min-height: 27rem; }
+/* The same height on every step (no jumping), but only as a wish: with a
+   larger text size 27rem can be taller than the screen, and a min-height
+   would push the buttons off it. A flex basis gives way and the body scrolls. */
+.wz .sh-body { -webkit-flex: 1 1 27rem; flex: 1 1 27rem; min-height: 0; }
 .wz .opt { min-height: 5.6rem; }
 .opt .tag { vertical-align: .1rem; }
 .opt .tag.rec { color: var(--accent); border-color: var(--accent); }
