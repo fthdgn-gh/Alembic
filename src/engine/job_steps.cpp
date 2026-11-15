@@ -109,7 +109,10 @@ std::size_t place_step(std::vector<std::string>& plan, const std::string& id) {
     if (it != plan.end()) return static_cast<std::size_t>(it - plan.begin());
     const std::size_t order = order_of(id);
     auto at = std::find_if(plan.begin(), plan.end(), [&](const std::string& s) { return order_of(s) > order; });
-    return static_cast<std::size_t>(plan.insert(at, id) - plan.begin());
+    // Insert first, then measure: the insert may move the vector, so
+    // plan.begin() must not be read before it (GCC did, in one expression).
+    const auto placed = plan.insert(at, id);
+    return static_cast<std::size_t>(placed - plan.begin());
 }
 
 std::uint32_t overall_permille(std::size_t index, std::size_t count, std::uint64_t done, std::uint64_t total) {
