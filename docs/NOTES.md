@@ -85,7 +85,13 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   app), Convert's opt-in "Smaller home-screen pictures" (BC1
   `sce_sys/pic*.dds`, issue #1), no build warnings in our code. Dumping a
   running game (`decrypt_self`) ships in the engine but is not on the page
-  or in the app; the notes call it a work in progress (owner).
+  or in the app; the notes call it a work in progress (owner). Main's CI
+  green before the tag; published 2026-11-15, every job green; notes
+  cumulative. Catalog branch update-alembic-0.6.5 pushed to the fork; the
+  PR is for the owner to open (auto mode refuses it). Issue #1 (2026-11-12):
+  the reporter made their BC1 files with IceStorm TextureTools and
+  converted icon0.dds too (shown fine); most of the system's own XMB icons
+  (priv_ex/etc) are BC3. Still unknown: DX10 or legacy DXT1 header.
 - **In 0.6.4 (2026-11-11):** Update AMPR emulators asks the engine for
   one plan per emulator, not per image (each plan opens the game and
   hashes the emulator files: many images kept the engine busy, the app
