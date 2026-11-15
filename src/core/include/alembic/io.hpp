@@ -198,6 +198,12 @@ Status remove_directory(const std::string& path); // must be empty
 Status rename_path(const std::string& from, const std::string& to);
 // Sets the access and modification times (Unix seconds).
 Status set_file_times(const std::string& path, std::int64_t atime, std::int64_t mtime);
+// Gives a file the execute bits (0755) where the system has them; nothing on
+// Windows or on mounted (network, peer) file systems. A game folder needs it:
+// the PS5 refuses to start an eboot.bin or load a module without it (EACCES).
+Status make_executable(const std::string& path);
+// Whether a file has any execute bit (false on Windows and mounted file systems).
+bool is_executable(const std::string& path);
 // Sets both to now.
 Status touch_file(const std::string& path);
 // Pushes written data to the drives (sync(2)). Windows has no such call for

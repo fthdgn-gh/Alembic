@@ -76,6 +76,12 @@ TEST_CASE(convert_round_trips) {
     // exfat -> folder, exfat --rebuild -> exfat (same layout, so same bytes)
     REQUIRE_OK(convert::run(tmp + "/direct.exfat", tmp + "/from_exfat", convert::Format::folder, options));
     check_same_tree(game, tmp + "/from_exfat");
+#ifndef _WIN32
+    // A folder game must keep the execute bit: the PS5 will not start an
+    // eboot.bin without it (EACCES), nor load a module.
+    CHECK(is_executable(tmp + "/from_exfat/eboot.bin"));
+    CHECK(is_executable(tmp + "/from_exfat/sce_sys/param.json"));
+#endif
     CHECK(!convert::run(tmp + "/direct.exfat", tmp + "/again.exfat", convert::Format::exfat, options).ok());
     options.rebuild = true;
     REQUIRE_OK(convert::run(tmp + "/direct.exfat", tmp + "/again.exfat", convert::Format::exfat, options));

@@ -3938,6 +3938,8 @@ are deferred until an on-console smoke test**. Not run on a console yet.
     game" feature must merge app0 (code+data, executables decrypted) with the
     appmeta `sce_sys` files -- the generic `decrypt_self` convert does not do
     this on its own.
+  - **(Corrected 2026-11-15: every failed launch below was the folder's file
+    modes, 0644 with no execute bit; see "a dump of a running game starts".)**
   - **Launch result: it mounts and is identified, but does not run** (owner,
     CE-107750-0 "error while playing"). ShadowMount+'s own log
     (`/data/shadowmount/debug.log`) shows the dump mounted fine
@@ -4166,50 +4168,58 @@ Launch each through ShadowMount+ and read `/data/shadowmount/debug.log` for
 the one below: dump with ps5-app-dumper itself (both of its FSELF
 settings) and boot that; if it boots, byte-compare its eboot with ours.
 
-### 2026-11-15: the A/B dump test, run (neither boots)
+### 2026-11-15: a dump of a running game starts (it was the file modes)
 
-Same pre-installed game (applicationDrmType `free`), engine 0.6.5 on the
-console, launched by the owner through ShadowMount+ 1.7beta11 (FW 12.60).
-- **One dump, swapped executables:** A and B differ only in eboot.bin and
-  the two decrypted modules, so one 27 GB folder dump (A, plain) was made
-  and B made from it on the Mac (`alembic fself --elf2fself` on the plain
-  ELFs pulled over ftpsrv with its SELF conversion off, uploaded back,
-  read back and SHA-256 checked). Worth keeping in mind for any future
-  variant test: change the executables, not the dump.
-- The engine now adds the appmeta files itself (`sce_sys_added`: param.json,
-  icons, pics, snd0.at9, nptitle.dat); no hand copy.
-- **A (plain ELFs): CE-100008-9.** SM+ mounts the folder and releases it
-  in the same second, three times, without `sandbox ready handled`: the
-  system will not start a plain-ELF eboot from an image at all (so
-  ps5-app-dumper's plain default is a backup format, not a bootable one).
-- **B (elf2fself layout): CE-107750-0**, exactly as the make_fself PS5-magic
-  dump of 2026-11-12: fakelib and sandbox mounted, then `runtime release`
-  with no `[GAME] started pid=`.
-- **B without the dump's fakelib (AMPR emulator hidden): the same.** Not the
-  emulator.
-- **What the owner's working images rule out** (all nine samples boot as
-  Alembic images): every sample eboot is fake-signed with no encrypted
-  segment, in three styles (make_fself.py magic 0x1D3D154F x6, PS5 magic
-  with make_fself.py's header x1, PS5 magic with a version-0x10 header and
-  0x530 header size x2) -> the FSELF style is not it. Three keep the
-  retail-encrypted `sce_sys/about/right.sprx` (one byte-identical to this
-  game's) -> not right.sprx (which is a real module, `SceGameRight`, not
-  just metadata). Two dumps among them have no PlayGo files, no
-  pfs-version.dat, no licence, drm `upgradable` -> not those either.
-  Conversions keep right.sprx as it is (only FPKG output skips injecting
-  ProsperoPkgTool's debug one).
+Same pre-installed game, engine 0.6.5 on the console (FW 12.60,
+ShadowMount+ 1.7beta11), launched by the owner; the kernel log read from
+john-tornblom's klogsrv (port 3232) while launching.
+- **The cause of every failed dump launch:** folder output wrote every file
+  as 0644 (`io.cpp`, `open(..., 0644)`). The kernel log at launch:
+  `[Syscore App] An error occured while creating new process.
+  error=0x80aa001a errno=13` (EACCES; ShellCore's child exits on signal 12)
+  -> CE-107750-0. Alembic's own app folder has 0777. After `SITE CHMOD 777`
+  (ftpsrv) on eboot.bin, the two modules and fakelib's emulator, **the dump
+  runs**. Images never showed it: exFAT has no modes and our PFS gives every
+  file 0555, which is why every converted sample always started.
+- **What it needs, tried one at a time (all with the execute bit):**
+  elf2fself-layout executables + DRM `free` (as dumped): runs. The same with
+  `standard`: runs (no difference). **Plain decrypted ELFs: CE-100008-9**,
+  `launchApp: LNC_ISOK::0x80020008` (ENOEXEC): a game's executables must be
+  fake-signed; `decrypt_self_plain` is for backups, not for booting.
+- **So the earlier conclusions were wrong** ("booting a decrypted retail
+  executable looks unachievable", "the pre-installed title is the suspect"):
+  decrypt_self + fake-signing works; the 2026-11-12 make_fself PS5-magic dump
+  probably would have run with the execute bit too (untried; the samples run
+  with all three FSELF styles). Not the cause either: `right.sprx` (left
+  retail-encrypted; three working samples keep theirs; it is a real module,
+  `SceGameRight`), PlayGo files, pfs-version.dat, the licence, the DRM type,
+  the AMPR emulator.
+- **Fix:** `io::make_executable` (chmod 0755; nothing on Windows or mounted
+  file systems) and `io::is_executable`; `tree::extract` makes every
+  extracted file executable (as the images do); engine copies keep the
+  source's execute bit; and in the PS5 build (`ALEMBIC_PS5`, set on
+  alembic_core by CMake) every file the engine creates is opened 0755, which
+  also covers in-place emulator/fake-sign writes and files a paired engine
+  writes to the console. Test: folder output's eboot.bin and param.json are
+  executable (POSIX). 142 tests, PS5 and Windows builds clean. **Not yet
+  tried on the console:** a fresh dump by the fixed engine, its modes listed
+  over FTP, launched.
+- Faster variant tests: one dump, then only the executables swapped over
+  ftpsrv (`-Q SELF` to read SELFs as stored, `SITE CHMOD`); a running
+  executable cannot be overwritten (close the game first).
+- The engine already merges appmeta into the dump (`sce_sys_added`).
 - PlayGo files of a PS5 game are outer package entries, absent from the
-  app0 mount; the installed `/user/app/<ID>/app.pkg` starts with
-  `\x7FFIH` but its container has no CNT magic for our reader. Not needed
-  (see above).
-- **Left:** the pre-installed title itself (drm `free`, attribute
-  0x20000000, lives with the system's titles) is the main suspect. Next:
-  dump a game the owner bought, the same way (B layout, appmeta added), and
-  launch it. If that boots, decrypt_self works and this title is the
-  exception; if not, byte-compare with one of the working samples' eboots
-  (the version-0x10 style) and try ps5-app-dumper's own dump.
-- Console state: `/data/homebrew/alembic-dump-A` holds the B executables
-  (the plain ones are in the session scratchpad only).
+  app0 mount; the installed `/user/app/<ID>/app.pkg` starts with `\x7FFIH`
+  but its container has no CNT magic for our reader. Not needed.
+- **Reference: SvenGDK/PS-Multi-Tools** (`.refs/PS-Multi-Tools`, AGPL-3.0:
+  read only, nothing ported). Dumps over FTP from pfsmnt plus appmeta,
+  `/user/np_uds/nobackup/conf/`, `/user/trophy2/nobackup/conf/`; fake-signs
+  with a bundled make_fself_ps5; its Backporter lowers SDK versions in
+  PT_SCE_PROCPARAM / PT_SCE_MODULE_PARAM and patches system libraries into
+  fakelib for older firmware. Its Kernel Log Viewer (port 9081, etaHEN)
+  pointed us to the kernel log.
+- Console state: `/data/homebrew/alembic-dump-A` (27 GB) runs (elf2fself
+  executables, 0777, DRM `free`).
 
 ## Next session
 
@@ -4231,9 +4241,10 @@ console, launched by the owner through ShadowMount+ 1.7beta11 (FW 12.60).
   works only with fake-signed update packages, and we have none.
 
 **Open:**
-- **Dumping a running game (2026-11-15):** plain and elf2fself dumps of the
-  pre-installed game both fail (log entry "the A/B dump test, run"). Next:
-  the same dump of a game the owner bought.
+- **Dumping a running game (2026-11-15): it works** once the files are
+  executable (log entry "a dump of a running game starts"). Next: a fresh
+  dump with the fixed engine on the console, then the page/app flow (pick a
+  running game, dump with decrypt_self fake-signed, to a folder or image).
 - **Deleting a big folder looks hung (owner, 2026-11-15; later):**
   `POST /api/fs/delete` removes the whole tree before it answers, with no
   progress; the page shows nothing meanwhile, the app times out at 120 s

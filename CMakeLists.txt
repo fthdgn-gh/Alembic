@@ -149,6 +149,11 @@ target_link_libraries(alembic_core PUBLIC ZLIB::ZLIB Threads::Threads alembic_zs
 if(WIN32)
     target_link_libraries(alembic_core PUBLIC shell32)
 endif()
+# On the console every file the engine makes is executable (io.cpp): a game's
+# eboot.bin and modules without the execute bit fail to start (EACCES).
+if(PS5)
+    target_compile_definitions(alembic_core PRIVATE ALEMBIC_PS5=1)
+endif()
 
 if(ALEMBIC_BUILD_CLI)
     add_executable(alembic src/cli/main.cpp)

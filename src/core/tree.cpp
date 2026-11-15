@@ -117,6 +117,9 @@ Status write_one(const Source& source, const Node& file, const std::string& path
         if (path_exists(path) && !overwrite) return make_error(Errc::invalid_argument, "the output file already exists: " + path);
         if (path_exists(path)) ALEMBIC_TRY(remove_file(path));
         ALEMBIC_ASSIGN(out, File::open(path, File::Mode::create_new));
+        // Every file, as the PFS and exFAT images have it: the console will not
+        // start a game whose eboot.bin or modules lack the execute bit.
+        ALEMBIC_TRY(make_executable(path));
     }
     x.current = from;
     x.done += from;

@@ -286,7 +286,13 @@ Result<File> File::open(const std::string& path, Mode mode) {
 #ifdef O_CLOEXEC
     flags |= O_CLOEXEC;
 #endif
+#ifdef ALEMBIC_PS5
+    // On the console every file is made executable: game files land in folders
+    // the system starts games from, written by any job (or a paired engine).
+    int fd = ::open(path.c_str(), flags, 0755);
+#else
     int fd = ::open(path.c_str(), flags, 0644);
+#endif
     if (fd < 0) return io_error("cannot open", path);
     File file;
     file.fd_ = fd;
@@ -448,6 +454,18 @@ Status set_file_times(const std::string& path, std::int64_t atime, std::int64_t 
     times[1].tv_sec = static_cast<time_t>(mtime);
     if (::utimes(path.c_str(), times) != 0) return io_error("cannot set the times of", path);
     return {};
+}
+
+Status make_executable(const std::string& path) {
+    if (detail::mounted(path)) return {};
+    if (::chmod(path.c_str(), 0755) != 0) return io_error("cannot make executable", path);
+    return {};
+}
+
+bool is_executable(const std::string& path) {
+    if (detail::mounted(path)) return false;
+    struct stat st {};
+    return ::stat(path.c_str(), &st) == 0 && (st.st_mode & 0111) != 0;
 }
 
 void flush_file_system() { ::sync(); }

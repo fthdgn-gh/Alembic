@@ -363,6 +363,9 @@ Status rename_path(const std::string& from, const std::string& to) {
     return e;
 }
 
+Status make_executable(const std::string&) { return {}; }
+bool is_executable(const std::string&) { return false; }
+
 Status set_file_times(const std::string& path, std::int64_t atime, std::int64_t mtime) {
     if (auto fs = detail::mounted(path)) return fs->set_times(path, atime, mtime);
 
