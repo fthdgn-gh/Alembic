@@ -340,4 +340,10 @@ Status GameMetaCache::clear() {
     return {};
 }
 
+GameMeta parse_param_json(const std::string& text) {
+    GameMeta m = parse_param(text);
+    if (!m.title_id.empty()) m.platform = "ps5";
+    return m;
+}
+
 } // namespace alembic::engine

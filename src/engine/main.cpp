@@ -17,6 +17,8 @@
 //   GET  /api/browse?path=P           folder listing (the roots for "", or for "/" unless "/" is a root)
 //   GET  /api/inspect?path=P          format, title ID, file count and size of an input
 //   POST /api/plan                    a job's resolved target and output, not queued
+//   GET  /api/games/running           games running now that can be dumped (PS5)
+//   GET  /api/games/icon?id=TITLEID   a game's icon from /user/appmeta
 //   GET  /api/jobs                    every job, oldest first
 //   POST /api/jobs                    queue a job (JobSpec as JSON; kind convert, copy, move,
 //                                     install, or ampr_emu: add ampr_emu to an existing game)
@@ -81,6 +83,7 @@
 #include "l10n.hpp"
 #include "fs_ops.hpp"
 #include "game_meta.hpp"
+#include "games.hpp"
 #include "http.hpp"
 #include "images.hpp"
 #include "jobs.hpp"
@@ -117,6 +120,7 @@
 #include <charconv>
 #include <chrono>
 #include <condition_variable>
+#include <map>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -224,6 +228,9 @@ public:
                                         [](const std::string& m) { log_line(m); },
                                         [this](const JobSpec& s) { return checkpoint_info(s, config_).has_value(); },
                                         [this](const JobSpec& s) { discard_checkpoint(s, config_); },
+                                        // A game dump starts once its game has run a while.
+                                        [this](const JobSpec& s) { return s.game.empty() || games_.settled(s.game); },
+                                        [this](const Job& j) { dump_progress(j); },
                                     }) {
         // Inputs under /remote/ come from a browser on another computer.
         convert::set_file_provider([this](const std::string& path) -> std::shared_ptr<const RandomAccess> {
@@ -258,6 +265,17 @@ public:
             return peer_fs::digest_tree(*discovery_, *pairing_, path, passcode, progress);
         };
         ALEMBIC_TRY(queue_.start());
+        // Running games, for dumps waiting on theirs (only the console mounts any).
+        if (std::string(platform::name()) == "ps5")
+            games_thread_ = std::thread([this] {
+                std::unique_lock<std::mutex> lock(games_mutex_);
+                while (!games_stop_) {
+                    lock.unlock();
+                    if (games_.poll(unix_now())) queue_.poke();
+                    lock.lock();
+                    games_cv_.wait_for(lock, std::chrono::seconds(3), [this] { return games_stop_; });
+                }
+            });
         listen_address_ = address;
         ALEMBIC_TRY(server_.start(address, port, [this](const HttpRequest& r) { return handle(r); }));
         // Other engines on the network (peers.hpp); it needs the port we got.
@@ -372,6 +390,12 @@ public:
     }
 
     void stop() {
+        {
+            std::lock_guard<std::mutex> lock(games_mutex_);
+            games_stop_ = true;
+        }
+        games_cv_.notify_all();
+        if (games_thread_.joinable()) games_thread_.join();
         alembic::unmount(peer_fs::kPrefix);
         if (discovery_) discovery_->stop();
         server_.stop();
@@ -440,6 +464,16 @@ private:
 
     void finished(const Job& job) {
         std::string name = job.spec.input.substr(job.spec.input.rfind('/') + 1);
+        if (!job.spec.game.empty()) {
+            {
+                std::lock_guard<std::mutex> lock(dump_mutex_);
+                dump_steps_.forget(job.id);
+                dump_titles_.erase(job.id);
+            }
+            const games::Info info = games::info(games_.paths(), job.spec.game);
+            name = info.title.empty() ? job.spec.game : info.title;
+            if (job.state == JobState::done) return platform::notify(l10n::t("Dumped {name}", {{"name", name}}));
+        }
         // AMPR emulator jobs come in runs (Update AMPR emulators): one
         // notification for the run, once no other one is queued.
         if (job.spec.kind == "ampr_emu" && (job.state == JobState::done || job.state == JobState::failed)) {
@@ -463,6 +497,58 @@ private:
             platform::notify(l10n::t("Failed: {name}: {error}", {{"name", name}, {"error", l10n::message(with_engine_names(job.error))}}));
             break;
         default: break;
+        }
+    }
+
+    // "9.5 GB", "512 MB": sizes in a dump's toasts.
+    static std::string size_text(std::uint64_t bytes) {
+        char buf[32];
+        if (bytes >= (1ull << 30)) std::snprintf(buf, sizeof buf, "%.1f GB", bytes / double(1ull << 30));
+        else std::snprintf(buf, sizeof buf, "%llu MB", static_cast<unsigned long long>(bytes >> 20));
+        return buf;
+    }
+
+    // A running game dump's toasts (plain debug ones, not kept in the
+    // notification list): once when it starts, then every 5% of a stage, at
+    // most one every 30 s.
+    void dump_progress(const Job& job) {
+        const std::int64_t now = unix_now();
+        std::string title, stage_key;
+        std::optional<int> step;
+        std::int64_t eta = -1;
+        bool started = false;
+        {
+            std::lock_guard<std::mutex> lock(dump_mutex_);
+            auto it = dump_titles_.find(job.id);
+            if (it == dump_titles_.end()) {
+                const games::Info info = games::info(games_.paths(), job.spec.game);
+                it = dump_titles_.emplace(job.id, DumpTitle{info.title.empty() ? job.spec.game : info.title, "", 0, 0}).first;
+                started = true;
+            }
+            DumpTitle& d = it->second;
+            if (d.stage != job.stage) d = DumpTitle{d.title, job.stage, now, job.done};
+            title = d.title;
+            stage_key = job.stage;
+            step = dump_steps_.update(job.id, job.stage, job.done, job.total, now);
+            // Time left at this stage's pace so far.
+            if (step && now > d.stage_started && job.done > d.stage_done && job.total > job.done) {
+                const double rate = double(job.done - d.stage_done) / double(now - d.stage_started);
+                if (rate > 0) eta = static_cast<std::int64_t>(double(job.total - job.done) / rate);
+            }
+        }
+        if (started) platform::debug_notify(l10n::t("Alembic: dumping {title}. Keep the game running.", {{"title", title}}));
+        if (!step) return;
+        const std::string percent = std::to_string(*step);
+        const std::string stage = l10n::t(stage_key);
+        if (eta >= 0) {
+            const std::string minutes = std::to_string(std::max<std::int64_t>(1, (eta + 59) / 60));
+            platform::debug_notify(l10n::t("Alembic: {title}: {stage} {percent}% ({done} of {total}, about {minutes} min left)",
+                                           {{"title", title}, {"stage", stage}, {"percent", percent}, {"done", size_text(job.done)},
+                                            {"total", size_text(job.total)}, {"minutes", minutes}}));
+        } else {
+            platform::debug_notify(l10n::t("Alembic: {title}: {stage} {percent}% ({done} of {total})",
+                                           {{"title", title}, {"stage", stage}, {"percent", percent}, {"done", size_text(job.done)},
+                                            {"total", size_text(job.total)}}));
         }
     }
 
@@ -668,6 +754,8 @@ private:
         if (r.path == "/api/places") return places_action(r);
         if (r.path == "/api/names" || r.path.rfind("/api/names/", 0) == 0) return names_action(r);
         if ((r.path == "/api/meta" || r.path == "/api/icon") && r.method == "GET") return game_meta(r);
+        if (r.path == "/api/games/running" && r.method == "GET") return running_games();
+        if (r.path == "/api/games/icon" && r.method == "GET") return game_icon(r);
         if (r.path == "/api/deps" && r.method == "GET") {
             JsonValue list = JsonValue::array();
             for (const Dependency& d : dependencies()) list.push(dependency_json(d, config_.state_dir));
@@ -1757,6 +1845,48 @@ private:
         return json(200, dependency_json(*dep, config_.state_dir));
     }
 
+    // The games running now that can be dumped (installed or disc games; not
+    // ones started from an image), with what the Queue shows of them.
+    HttpResponse running_games() {
+        JsonValue list = JsonValue::array();
+        for (const std::string& id : games_.running()) {
+            const games::Info info = games::info(games_.paths(), id);
+            JsonValue g = JsonValue::object();
+            g.set("title_id", id);
+            g.set("title", info.title);
+            g.set("version", info.version);
+            g.set("icon", !info.icon.empty());
+            g.set("settled", games_.settled(id));
+            bool update = false;
+            (void)games::source_tree(games_.paths(), id, &update);
+            g.set("update", update);
+            list.push(std::move(g));
+        }
+        JsonValue v = JsonValue::object();
+        v.set("games", std::move(list));
+        return json(200, v);
+    }
+
+    // A game's icon0.png from appmeta, by title ID (never by path).
+    HttpResponse game_icon(const HttpRequest& r) {
+        auto it = r.query.find("id");
+        const std::string id = it == r.query.end() ? "" : it->second;
+        if (!games::valid_title_id(id)) return error(400, "id must be a title ID");
+        const games::Info info = games::info(games_.paths(), id);
+        if (info.icon.empty()) return error(404, "no icon");
+        auto f = File::open(info.icon, File::Mode::read);
+        if (!f.ok()) return error(404, f.error().message);
+        auto size = f->size();
+        if (!size.ok() || *size > (8u << 20)) return error(404, "no icon");
+        HttpResponse resp;
+        resp.body.resize(static_cast<std::size_t>(*size));
+        if (!f->read_at(0, MutableBytes(reinterpret_cast<std::uint8_t*>(resp.body.data()), resp.body.size())).ok())
+            return error(404, "cannot read the icon");
+        resp.content_type = "image/png";
+        resp.headers["Cache-Control"] = "max-age=3600";
+        return resp;
+    }
+
     HttpResponse game_meta(const HttpRequest& r) {
         auto it = r.query.find("path");
         std::string path = it == r.query.end() ? "" : strip_slashes(it->second);
@@ -2276,15 +2406,57 @@ private:
         return json(201, *v);
     }
 
+    // A game dump's spec made whole, or why not (an error response): the
+    // game's tree as input, executables decrypted and fake-signed, nothing
+    // deleted or installed, a name from its title.
+    std::optional<HttpResponse> prepare_dump(JobSpec& spec, bool queue) {
+        if (std::string(platform::name()) != "ps5") return error(409, "dumping a game works only on the console");
+        if (!spec.origin.empty()) return error(409, "another engine cannot dump this console's games");
+        // PS4 games run through backward compatibility: not tried.
+        if (spec.game.rfind("CUSA", 0) == 0) return error(409, "PS4 games cannot be dumped yet");
+        const games::Info info = games::info(games_.paths(), spec.game);
+        const bool running = games_.running(spec.game) || is_directory(games_.paths().pfsmnt + "/" + spec.game + "-app0");
+        if (!running && info.title.empty()) return error(404, "no game " + spec.game + " on this console");
+        if (queue)
+            for (const Job& j : queue_.list())
+                if (j.spec.game == spec.game && (j.state == JobState::queued || j.state == JobState::running || j.state == JobState::paused))
+                    return error(409, "this game already has a dump in the queue");
+        spec.input = games::source_tree(games_.paths(), spec.game);
+        spec.decrypt_self = true;
+        spec.decrypt_self_plain = false; // the console starts only fake-signed executables
+        spec.delete_source = spec.hide_source = spec.install_after = false;
+        if (spec.output.empty() && spec.output_dir.empty()) return error(400, "choose where to save it");
+        if (spec.output.empty() && spec.output_name.empty()) {
+            auto target = resolve_target(spec);
+            if (!target.ok()) return error(400, target.error().message);
+            const std::string kind = *target;
+            const NameValues values = name_values(info.title, spec.game, info.content_id, info.version, "ps5", spec.game, kind);
+            std::optional<std::string> name;
+            for (const NameFormat& f : name_formats_.list())
+                if ((name = render_name(f, values))) break;
+            std::string n = name ? *name : (info.title.empty() ? spec.game : safe_name(info.title) + " [" + spec.game + "]");
+            if (spec.lz4) n += "-lz4";
+            if (spec.zstd) n += "-zstd";
+            const std::string ext = kind == "folder" ? "" : kind == "fpkg" ? ".pkg" : "." + kind;
+            if (std::size_t limit = mount_name_limit(n + ext)) n = shorten_name(n, limit);
+            spec.output_name = n + ext;
+        }
+        return std::nullopt;
+    }
+
     HttpResponse plan(const HttpRequest& r, bool queue) {
         auto body = parse_json(r.body);
         if (!body.ok()) return error(400, body.error().message);
         auto spec = JobSpec::from_json(*body);
         if (!spec.ok()) return error(400, spec.error().message);
         spec->input = strip_slashes(spec->input);
+        // A game dump: the engine picks its input (the game's mounted tree).
+        const bool dump = !spec->game.empty();
+        if (dump)
+            if (auto refused = prepare_dump(*spec, queue)) return *refused;
         const bool shared = convert::is_provided(spec->input);
-        if (!shared && !path_allowed(spec->input, config_.available_roots())) return error(403, "the input is outside the allowed folders");
-        if (!shared && !path_exists(spec->input)) return error(400, "the input does not exist: " + spec->input);
+        if (!shared && !dump && !path_allowed(spec->input, config_.available_roots())) return error(403, "the input is outside the allowed folders");
+        if (!shared && !dump && !path_exists(spec->input)) return error(400, "the input does not exist: " + spec->input);
         if (shared && netfs::Servers::handles(spec->input) && !servers_.exists(spec->input))
             return error(400, "the input does not exist: " + spec->input);
         if (shared) {
@@ -2481,6 +2653,22 @@ private:
     RemoteFiles remote_; // before the queue, whose jobs may read from it
     netfs::Servers servers_{config_.state_dir};
     GameMetaCache meta_{config_.state_dir};
+    // Before queue_: its hooks ask it.
+    games::Watcher games_;
+    std::thread games_thread_;
+    std::mutex games_mutex_;
+    std::condition_variable games_cv_;
+    bool games_stop_ = false;
+    // Dumps' progress toasts.
+    std::mutex dump_mutex_;
+    games::ProgressSteps dump_steps_;
+    struct DumpTitle {
+        std::string title;
+        std::string stage;
+        std::int64_t stage_started = 0;
+        std::uint64_t stage_done = 0; // bytes done when the stage was first seen
+    };
+    std::map<std::uint64_t, DumpTitle> dump_titles_;
     JobQueue queue_;
     HttpServer server_;
     std::mutex deps_mutex_;

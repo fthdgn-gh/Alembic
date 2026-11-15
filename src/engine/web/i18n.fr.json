@@ -941,5 +941,11 @@
  "as now": "comme maintenant",
  "zlib level {n}": "zlib niveau {n}",
  "zstd packs kept": "Paquets zstd gardés",
- "zstd packs, level {n}": "Paquets zstd, niveau {n}"
+ "zstd packs, level {n}": "Paquets zstd, niveau {n}",
+ "Alembic: dumping {title}. Keep the game running.": "Alembic : copie de {title}. Laissez le jeu ouvert.",
+ "Alembic: {title}: {stage} {percent}% ({done} of {total})": "Alembic : {title} : {stage} {percent} % ({done} sur {total})",
+ "Alembic: {title}: {stage} {percent}% ({done} of {total}, about {minutes} min left)": "Alembic : {title} : {stage} {percent} % ({done} sur {total}, encore {minutes} min environ)",
+ "Dumped {name}": "{name} copié",
+ "Decrypting executables": "Déchiffrement des exécutables",
+ "Waiting for the game to start": "En attente du lancement du jeu"
 }

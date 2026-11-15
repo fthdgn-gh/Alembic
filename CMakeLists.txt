@@ -242,6 +242,7 @@ if(ALEMBIC_BUILD_ENGINE)
         src/engine/fs_ops.cpp
         src/engine/ftp.cpp
         src/engine/game_meta.cpp
+        src/engine/games.cpp
         src/engine/http.cpp
         src/engine/images.cpp
         src/engine/jobs.cpp
@@ -329,7 +330,7 @@ if(ALEMBIC_BUILD_TESTS)
     # Tests that need reference files from .refs/ skip themselves when absent.
     target_compile_definitions(alembic_tests PRIVATE ALEMBIC_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
     if(ALEMBIC_BUILD_ENGINE)
-        target_sources(alembic_tests PRIVATE tests/test_engine.cpp tests/test_netfs.cpp)
+        target_sources(alembic_tests PRIVATE tests/test_engine.cpp tests/test_games.cpp tests/test_netfs.cpp)
         target_link_libraries(alembic_tests PRIVATE alembic_engine_lib) # includes alembic_core
     else()
         target_link_libraries(alembic_tests PRIVATE alembic_core)

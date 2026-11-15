@@ -23,6 +23,10 @@ struct GameMeta {
     std::string packs;      // asset packs: "lz4" (ampr_assets.index), "zstd" (ampr_zstd.index) or ""
 };
 
+// A PS5 param.json's title (en-US when present), title ID, content ID and
+// version; platform "ps5". Empty fields when the text is not one.
+GameMeta parse_param_json(const std::string& text);
+
 class GameMetaCache {
 public:
     explicit GameMetaCache(std::string state_dir);

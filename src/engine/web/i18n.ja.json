@@ -941,5 +941,11 @@
  "as now": "現在のまま",
  "zlib level {n}": "zlib レベル {n}",
  "zstd packs kept": "zstd パックはそのまま",
- "zstd packs, level {n}": "zstd パック、レベル {n}"
+ "zstd packs, level {n}": "zstd パック、レベル {n}",
+ "Alembic: dumping {title}. Keep the game running.": "Alembic: {title} をダンプしています。ゲームを起動したままにしてください。",
+ "Alembic: {title}: {stage} {percent}% ({done} of {total})": "Alembic: {title}: {stage} {percent}% ({done} / {total})",
+ "Alembic: {title}: {stage} {percent}% ({done} of {total}, about {minutes} min left)": "Alembic: {title}: {stage} {percent}% ({done} / {total}、残り約 {minutes} 分)",
+ "Dumped {name}": "{name} をダンプしました",
+ "Decrypting executables": "実行ファイルを復号しています",
+ "Waiting for the game to start": "ゲームの起動を待っています"
 }

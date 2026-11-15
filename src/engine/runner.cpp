@@ -5,6 +5,7 @@
 #include "deps.hpp"
 #include "fs_ops.hpp"
 #include "game_meta.hpp"
+#include "games.hpp"
 #include "platform.hpp"
 #include "smp.hpp"
 #include "update.hpp"
@@ -1171,6 +1172,9 @@ Result<JsonValue> run_job(const JobSpec& spec, const EngineConfig& config, const
     if (spec.kind == "install") return run_install(spec, config, progress);
     if (spec.kind == "ampr_emu") return run_ampr_emu(spec, config, progress);
     if (spec.kind == "copy" || spec.kind == "move") return run_transfer(spec, config, progress);
+    // A game dump reads the game's mounted tree: only while it runs.
+    if (!spec.game.empty() && !is_directory(spec.input))
+        return make_error(Errc::io, "the game is not running: start it to dump it");
     return run_conversion(spec, config, progress);
 }
 

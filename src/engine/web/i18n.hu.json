@@ -941,5 +941,11 @@
  "as now": "mint most",
  "zlib level {n}": "zlib, {n}. szint",
  "zstd packs kept": "zstd-csomagok megtartva",
- "zstd packs, level {n}": "zstd-csomagok, {n}. szint"
+ "zstd packs, level {n}": "zstd-csomagok, {n}. szint",
+ "Alembic: dumping {title}. Keep the game running.": "Alembic: {title} mentése. Hagyd futni a játékot.",
+ "Alembic: {title}: {stage} {percent}% ({done} of {total})": "Alembic: {title}: {stage} {percent}% ({done} / {total})",
+ "Alembic: {title}: {stage} {percent}% ({done} of {total}, about {minutes} min left)": "Alembic: {title}: {stage} {percent}% ({done} / {total}, még kb. {minutes} perc)",
+ "Dumped {name}": "{name} mentve",
+ "Decrypting executables": "Futtatható fájlok visszafejtése",
+ "Waiting for the game to start": "Várakozás a játék indítására"
 }

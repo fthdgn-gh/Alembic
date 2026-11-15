@@ -17,6 +17,10 @@ const char* name(); // "ps5" or "host"
 std::string os_description();
 // A system notification on the PS5; a line on stderr elsewhere.
 void notify(const std::string& message);
+// The console's plain text toast (sceKernelSendNotificationRequest, as the
+// payload SDK's samples and ampr-emu-ng send): not kept in the notification
+// list, for a running dump's progress. A line on stderr elsewhere.
+void debug_notify(const std::string& message);
 // The icon notifications show from now on: the PNG is written to `path` (in
 // the state folder) for the console's notification service to read. Until
 // then, or when writing fails, they show the console's download icon. Does

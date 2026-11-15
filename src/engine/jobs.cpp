@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "jobs.hpp"
 
+#include "games.hpp"
 #include "text_file.hpp"
 
 #include "alembic/io.hpp"
@@ -85,6 +86,7 @@ JsonValue JobSpec::to_json() const {
     j.set("ampr_emu", ampr_emu);
     if (!emulator.empty()) j.set("emulator", emulator);
     if (bc1_pictures) j.set("bc1_pictures", true);
+    if (!game.empty()) j.set("game", game);
     if (decrypt_self) j.set("decrypt_self", true);
     if (decrypt_self_plain) j.set("decrypt_self_plain", true);
     j.set("delete_source", delete_source);
@@ -138,6 +140,12 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
     s.bc1_pictures = j["bc1_pictures"].boolean();
     s.decrypt_self = j["decrypt_self"].boolean();
     s.decrypt_self_plain = j["decrypt_self_plain"].boolean();
+    s.game = j["game"].str();
+    if (!s.game.empty()) {
+        // Goes into paths: nothing but a title ID.
+        if (!games::valid_title_id(s.game)) return make_error(Errc::invalid_argument, "game must be a title ID such as PPSA01234");
+        if (s.kind != "convert") return make_error(Errc::invalid_argument, "game is only for convert jobs");
+    }
     if (!s.emulator.empty() && s.kind != "ampr_emu")
         return make_error(Errc::invalid_argument, "emulator is only for ampr_emu jobs");
     if (!s.emulator.empty() && s.emulator != "ampr_runtime" && s.emulator != "ampr_runtime_ng")
@@ -153,7 +161,7 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
         return make_error(Errc::invalid_argument, "seed must be 32 hex digits");
     if ((s.kind == "copy" || s.kind == "move") && s.output.empty())
         return make_error(Errc::invalid_argument, "copy and move need an output");
-    if (s.input.empty()) return make_error(Errc::invalid_argument, "the job has no input");
+    if (s.input.empty() && s.game.empty()) return make_error(Errc::invalid_argument, "the job has no input"); // a dump: the engine picks it
     if (s.level < 0 || s.level > 9) return make_error(Errc::invalid_argument, "level must be 0-9");
     if (s.lz4_level < 1 || s.lz4_level > 12) return make_error(Errc::invalid_argument, "lz4_level must be 1-12");
     if (cluster < 0 || cluster > 0x2000000) return make_error(Errc::invalid_argument, "bad cluster_size");
@@ -300,6 +308,7 @@ Result<Job> JobQueue::add(JobSpec spec) {
     job.id = next_id_++;
     job.spec = std::move(spec);
     job.created = unix_now();
+    if (!job.spec.game.empty()) job.stage = "Waiting for the game to start";
     jobs_.push_back(job);
     // Keep the newest finished jobs only.
     std::size_t finished_count = std::count_if(jobs_.begin(), jobs_.end(), [](const Job& j) { return finished(j.state); });
@@ -448,6 +457,11 @@ std::optional<Job> JobQueue::get(std::uint64_t id) const {
     return std::nullopt;
 }
 
+void JobQueue::poke() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    wake_.notify_all();
+}
+
 bool JobQueue::busy() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return running_id_ != 0;
@@ -459,13 +473,14 @@ void JobQueue::worker() {
         std::uint64_t id = 0;
         {
             std::unique_lock<std::mutex> lock(mutex_);
-            wake_.wait(lock, [&] {
-                return stopping_ || std::any_of(jobs_.begin(), jobs_.end(), [](const Job& j) { return j.state == JobState::queued; });
-            });
+            // The first queued job that may start: a game dump waiting for its
+            // game does not hold up the jobs behind it.
+            auto startable = [&](const Job& j) { return j.state == JobState::queued && (!hooks_.ready || hooks_.ready(j.spec)); };
+            wake_.wait(lock, [&] { return stopping_ || std::any_of(jobs_.begin(), jobs_.end(), startable); });
             if (stopping_) return;
             Job* job = nullptr;
             for (Job& j : jobs_)
-                if (j.state == JobState::queued) {
+                if (startable(j)) {
                     job = &j;
                     break;
                 }
@@ -489,6 +504,10 @@ void JobQueue::worker() {
                     job->done = e.done;
                     job->total = e.total;
                 }
+            }
+            if (hooks_.on_progress && !spec.game.empty()) { // game dumps only: a copy per report
+                std::optional<Job> now = get(id);
+                if (now) hooks_.on_progress(*now);
             }
             if (hooks_.while_running) hooks_.while_running();
             return !cancel_running_.load();

@@ -941,5 +941,11 @@
  "as now": "şimdiki gibi",
  "zlib level {n}": "zlib seviye {n}",
  "zstd packs kept": "zstd paketleri korunur",
- "zstd packs, level {n}": "zstd paketleri, seviye {n}"
+ "zstd packs, level {n}": "zstd paketleri, seviye {n}",
+ "Alembic: dumping {title}. Keep the game running.": "Alembic: {title} dökümü alınıyor. Oyunu açık tut.",
+ "Alembic: {title}: {stage} {percent}% ({done} of {total})": "Alembic: {title}: {stage} %{percent} ({done} / {total})",
+ "Alembic: {title}: {stage} {percent}% ({done} of {total}, about {minutes} min left)": "Alembic: {title}: {stage} %{percent} ({done} / {total}, yaklaşık {minutes} dk kaldı)",
+ "Dumped {name}": "{name} dökümü alındı",
+ "Decrypting executables": "Çalıştırılabilir dosyaların şifresi çözülüyor",
+ "Waiting for the game to start": "Oyunun başlaması bekleniyor"
 }

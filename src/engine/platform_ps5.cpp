@@ -63,6 +63,12 @@ int sceAppInstUtilInstallByPackage(const PkgMetadata*, PkgInfo*, PlaygoInfo*) __
 int sceAppInstUtilAppInstallTitleDir(const char* title_id, const char* dir, void*) __attribute__((weak));
 int sceAppInstUtilAppUnInstall(const char* title_id) __attribute__((weak));
 int sceNotificationSend(int user_id, bool is_logged, const char* payload) __attribute__((weak));
+// The payload SDK's layout (samples/hello_world): the text at offset 45.
+struct NotifyRequest {
+    char head[45];
+    char message[3075];
+};
+int sceKernelSendNotificationRequest(int device, NotifyRequest* request, size_t size, int blocking);
 int sceSystemServicePowerTick(void) __attribute__((weak));
 int sceSystemServiceParamGetInt(int param_id, int* value) __attribute__((weak));
 int sceUserServiceInitialize(const int* priority) __attribute__((weak));
@@ -130,6 +136,14 @@ void notify(const std::string& message) {
                           "},\"subMessage\":{\"body\":\"Alembic\"}}},"
                           "\"createdDateTime\":\"2026-01-01T00:00:00.000Z\",\"localNotificationId\":\"5940\"}";
     sceNotificationSend(kSystemUser, true, payload.c_str());
+}
+
+void debug_notify(const std::string& message) {
+    std::fprintf(stderr, "[debug notify] %s\n", message.c_str());
+    NotifyRequest req{};
+    const std::size_t n = std::min(message.size(), sizeof(req.message) - 1);
+    std::memcpy(req.message, message.data(), n);
+    (void)sceKernelSendNotificationRequest(0, &req, sizeof(req), 0);
 }
 
 void keep_awake() {

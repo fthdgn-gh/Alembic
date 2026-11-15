@@ -75,6 +75,11 @@ struct JobSpec {
     // With decrypt_self: keep the decrypted executables as plain ELFs instead
     // of fake-signing them as ps5-app-dumper's elf2fself does.
     bool decrypt_self_plain = false;
+    // Dump a game while it runs (PS5): its title ID. The engine reads the
+    // game's mounted tree (games.hpp; `input` is set from it), always with
+    // decrypt_self and fake-signed executables, and the job waits queued
+    // until the game is running and settled.
+    std::string game;
     // After a successful conversion: compare the output with the input file
     // by file, then delete the input (only if they match).
     bool delete_source = false;
@@ -131,6 +136,11 @@ struct QueueHooks {
     // Checkpoints the runner keeps for interrupted jobs.
     std::function<bool(const JobSpec&)> has_checkpoint;
     std::function<void(const JobSpec&)> discard_checkpoint;
+    // Whether a queued job may start now (a game dump waits for its game);
+    // missing: always. Called with the queue locked: no I/O, no locking it.
+    std::function<bool(const JobSpec&)> ready;
+    // Every progress report of a running job (outside the lock).
+    std::function<void(const Job&)> on_progress;
 };
 
 class JobQueue {
@@ -159,6 +169,9 @@ public:
     Result<Job> retry(std::uint64_t id);
     // Removes every finished job.
     void clear_finished();
+
+    // Looks at the queued jobs again (after what `ready` answers changed).
+    void poke();
 
     std::vector<Job> list() const;
     std::optional<Job> get(std::uint64_t id) const;

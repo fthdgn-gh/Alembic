@@ -941,5 +941,11 @@
  "as now": "保持现状",
  "zlib level {n}": "zlib 级别 {n}",
  "zstd packs kept": "保留 zstd 包",
- "zstd packs, level {n}": "zstd 包，级别 {n}"
+ "zstd packs, level {n}": "zstd 包，级别 {n}",
+ "Alembic: dumping {title}. Keep the game running.": "Alembic：正在转储 {title}，请保持游戏运行。",
+ "Alembic: {title}: {stage} {percent}% ({done} of {total})": "Alembic：{title}：{stage} {percent}%（{done} / {total}）",
+ "Alembic: {title}: {stage} {percent}% ({done} of {total}, about {minutes} min left)": "Alembic：{title}：{stage} {percent}%（{done} / {total}，约剩 {minutes} 分钟）",
+ "Dumped {name}": "已转储 {name}",
+ "Decrypting executables": "正在解密可执行文件",
+ "Waiting for the game to start": "正在等待游戏启动"
 }

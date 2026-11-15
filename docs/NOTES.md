@@ -4259,6 +4259,21 @@ john-tornblom's klogsrv (port 3232) while launching.
 - **Dumping a running game (2026-11-15): it works** once the files are
   executable (log entry "a dump of a running game starts"). Next: a fresh
   dump with the fixed engine on the console, then the page/app flow below.
+- **Dumping, slice 1 built (2026-11-15, engine only, not console-tested):**
+  `games.hpp` (running games = `<ID>-app0` in pfsmnt, a 30 s settle before
+  a dump starts: the pager swap affects every mapping in the system, so not
+  while the game loads; appmeta info; the union when /user/patch/<ID>
+  exists), JobSpec `game` (a validated title ID; input, decrypt_self,
+  fake-signing and a name from the first rename format filled in by the
+  engine; PS5 only, not from peers, not CUSA, one per title), the queue's
+  `ready` hook (a waiting dump never blocks the jobs behind it) and `poke`,
+  plain debug toasts (`platform::debug_notify`: started, every 5% of a
+  stage at most every 30 s, with time left), "Dumped {name}" as the rich
+  toast, `GET /api/games/running` and `/api/games/icon?id=`. A dump whose
+  game is not running fails ("start it to dump it"); slice 2 makes it wait
+  again instead. Tests: `tests/test_games.cpp`. Owner, 2026-11-15: a kernel
+  panic after loading the execute-bit engine (owner thinks unrelated; no
+  dump ran then?): watch for it around decrypting.
 - **Dumping, the agreed design (owner, 2026-11-15; not built yet):**
   - Two triggers, both queued ahead: "Dump when launched" on an installed
     game (a list from `/user/app` + appmeta, titles and icons), and "Dump
