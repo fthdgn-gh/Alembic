@@ -232,7 +232,7 @@ public:
                                         [this](const JobSpec& s) { return s.game.empty() || (s.game == "next" ? next_game().has_value() : games_.settled(s.game)); },
                                         [this](const Job& j) { dump_progress(j); },
                                         [this](JobSpec& s) { return bind_dump(s); },
-                                        [this](const JobSpec& s) { return is_directory(games_.paths().pfsmnt + "/" + s.game + "-app0"); },
+                                        [this](const JobSpec& s) { return game_still_running(s.game); },
                                         [this](const Job& j) { dump_closed(j); },
                                     }) {
         // Inputs under /remote/ come from a browser on another computer.
@@ -1859,6 +1859,7 @@ private:
             g.set("version", info.version);
             g.set("icon", !info.icon.empty());
             g.set("settled", games_.settled(id));
+            g.set("pid", static_cast<std::int64_t>(platform::game_process(id))); // 0: none found, -1: cannot tell
             bool update = false;
             (void)games::source_tree(games_.paths(), id, &update);
             g.set("update", update);
@@ -2484,6 +2485,14 @@ private:
         ALEMBIC_ASSIGN(spec.output, resolve_output(spec));
         log_line("the next-game dump took " + spec.game + ": " + spec.output);
         return {};
+    }
+
+    // Whether a dump's game runs: its tree is mounted and (where the system
+    // can say) its process lives; the tree stays mounted a moment after the
+    // process ends.
+    bool game_still_running(const std::string& id) const {
+        if (!is_directory(games_.paths().pfsmnt + "/" + id + "-app0")) return false;
+        return platform::game_process(id) != 0;
     }
 
     // A dump whose game closed went back to waiting: say so once, and let

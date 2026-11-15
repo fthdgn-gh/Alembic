@@ -6,6 +6,8 @@
 #include "alembic/self_extract.hpp"
 
 #include <cstdint>
+#include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -21,6 +23,14 @@ void notify(const std::string& message);
 // payload SDK's samples and ampr-emu-ng send): not kept in the notification
 // list, for a running dump's progress. A line on stderr elsewhere.
 void debug_notify(const std::string& message);
+// The process of a running game, by its title ID: > 0 its pid, 0 when no
+// process has it, -1 when the system cannot say (a PC). Lists processes and
+// asks each one's title ID (sceKernelGetAppInfo), as ShadowMount+ does.
+int game_process(const std::string& title_id);
+// Calls `on_exit` (from a thread of its own) as soon as process `pid` ends;
+// it stops watching when the returned object is destroyed. Null when it
+// cannot watch (a PC, or the system refused).
+std::shared_ptr<void> watch_process_exit(int pid, std::function<void()> on_exit);
 // The icon notifications show from now on: the PNG is written to `path` (in
 // the state folder) for the console's notification service to read. Until
 // then, or when writing fails, they show the console's download icon. Does

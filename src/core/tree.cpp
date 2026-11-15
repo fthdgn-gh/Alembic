@@ -17,6 +17,26 @@ constexpr std::string_view kJunkNames[] = {
     "thumbs.db", "ehthumbs.db", "desktop.ini", "$recycle.bin", "system volume information",
 };
 
+// A file of a running game's tree: opened for each read, closed right after.
+class BriefFile final : public RandomAccess {
+public:
+    BriefFile(std::string path, std::uint64_t size, std::shared_ptr<const std::atomic<bool>> closing)
+        : path_(std::move(path)), size_(size), closing_(std::move(closing)) {}
+    Result<std::uint64_t> size() const override { return size_; }
+    Status read_at(std::uint64_t offset, MutableBytes out) const override {
+        if (closing_->load()) return make_error(Errc::cancelled, "the game is closing");
+        ALEMBIC_ASSIGN(File f, File::open(path_, File::Mode::read));
+        Status s = f.read_at(offset, out);
+        (void)f.close();
+        return s;
+    }
+
+private:
+    std::string path_;
+    std::uint64_t size_;
+    std::shared_ptr<const std::atomic<bool>> closing_;
+};
+
 class FolderSource final : public Source {
 public:
     const Node& root() const override { return root_; }
@@ -28,12 +48,18 @@ public:
     Result<std::shared_ptr<const RandomAccess>> open(const Node& file) const override {
         if (file.is_directory || file.id >= paths_.size())
             return make_error(Errc::invalid_argument, "not a file of this folder");
+        if (closing_) {
+            if (closing_->load()) return make_error(Errc::cancelled, "the game is closing");
+            return std::shared_ptr<const RandomAccess>(std::make_shared<BriefFile>(paths_[file.id], file.size, closing_));
+        }
         ALEMBIC_ASSIGN(File handle, File::open(paths_[file.id], File::Mode::read));
         ALEMBIC_ASSIGN(std::uint64_t size, handle.size());
         if (size != file.size)
             return make_error(Errc::io, "the source file changed size during conversion: " + paths_[file.id]);
         return std::shared_ptr<const RandomAccess>(std::make_shared<File>(std::move(handle)));
     }
+
+    std::shared_ptr<const std::atomic<bool>> closing_;
 
     Status scan(const std::string& path, Node& parent) {
         // Names and their details in one listing (one request for another engine's folder).
@@ -182,9 +208,10 @@ bool is_os_junk(std::string_view name) {
     return false;
 }
 
-Result<std::unique_ptr<Source>> open_folder(const std::string& path) {
+Result<std::unique_ptr<Source>> open_folder(const std::string& path, std::shared_ptr<const std::atomic<bool>> closing) {
     if (!is_directory(path)) return make_error(Errc::invalid_argument, "not a folder: " + path);
     auto source = std::make_unique<FolderSource>();
+    source->closing_ = std::move(closing);
     std::string root = path;
     while (root.size() > 1 && root.back() == '/') root.pop_back();
     source->root_.is_directory = true;

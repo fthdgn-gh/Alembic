@@ -74,6 +74,8 @@ std::string os_description() {
 
 void notify(const std::string& message) { std::fprintf(stderr, "[notify] %s\n", message.c_str()); }
 void debug_notify(const std::string& message) { std::fprintf(stderr, "[debug notify] %s\n", message.c_str()); }
+int game_process(const std::string&) { return -1; }
+std::shared_ptr<void> watch_process_exit(int, std::function<void()>) { return nullptr; }
 void set_notification_icon(const std::string&, const std::uint8_t*, std::size_t) {}
 
 void keep_awake() {}

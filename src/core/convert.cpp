@@ -292,13 +292,13 @@ Result<Format> detect(const std::string& path) {
     return make_error(Errc::unsupported, "unrecognised input (not a folder, exFAT, UFS2, PFS, FFPFSC or FPKG): " + path);
 }
 
-Result<Input> open(const std::string& path, const std::string& passcode) {
+Result<Input> open(const std::string& path, const std::string& passcode, std::shared_ptr<const std::atomic<bool>> closing) {
     Input input;
     input.path = path;
     ALEMBIC_ASSIGN(input.format, detect(path));
     switch (input.format) {
     case Format::folder: {
-        ALEMBIC_ASSIGN(input.tree, tree::open_folder(path));
+        ALEMBIC_ASSIGN(input.tree, tree::open_folder(path, std::move(closing)));
         return input;
     }
     case Format::exfat: {
@@ -360,7 +360,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     if (to != Format::folder && !options.overwrite && output_exists(output))
         return make_error(Errc::invalid_argument, "the output file already exists: " + output);
 
-    ALEMBIC_ASSIGN(Input input, open(input_path, options.passcode));
+    ALEMBIC_ASSIGN(Input input, open(input_path, options.passcode, options.input_closing));
     Report report;
     report.from = input.format;
     report.to = to;

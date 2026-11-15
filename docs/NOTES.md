@@ -4283,6 +4283,25 @@ john-tornblom's klogsrv (port 3232) while launching.
   `output_dir`, not `output`. Tests: `tests/test_games.cpp`. Owner, 2026-11-15: a kernel
   panic after loading the execute-bit engine (owner thinks unrelated; no
   dump ran then?): watch for it around decrypting.
+- **Closing a game mid-dump restarts the console (2026-11-15, proven by the
+  kernel log):** ShellCore unmounts the game's tree when the game closes;
+  with a file of it open in the engine, `pfsUnMount() ret = 80020010`
+  (EBUSY), "abort() for unmount error" in SceShellCore's
+  SceLncTerminateMountRootThread, coredump, "ShellCore exited, System
+  Shutdown". Not a kernel panic. ps5-app-dumper does not handle it either.
+  The game's process ends first (NOTE_EXIT), the unmount follows: that gap
+  is the way out. Fix: a dump's tree is read with a file handle per read
+  (`tree::open_folder(path, closing)`, BriefFile), the runner finds the
+  game's process (`platform::game_process`: sysctl KERN_PROC + 
+  sceKernelGetAppInfo, ShadowMount+'s way, GPL-3.0) and watches its exit
+  (`watch_process_exit`, kqueue EVFILT_PROC NOTE_EXIT); then no file is
+  opened, the decryptor refuses, progress stops, and the job goes back to
+  waiting (`game_running` also needs the process, the tree outlives it a
+  moment). `/api/games/running` shows the `pid` found. Not console-tested.
+  The two earlier crashes on loading an engine (Payload Manager is a page
+  in the browser: the game was not closed then) stay unexplained; the
+  pager-swap hazard is a candidate. Record the kernel log (klogsrv, port
+  3232) while testing.
 - **Dumping, the agreed design (owner, 2026-11-15; not built yet):**
   - Two triggers, both queued ahead: "Dump when launched" on an installed
     game (a list from `/user/app` + appmeta, titles and icons), and "Dump

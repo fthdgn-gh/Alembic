@@ -479,10 +479,27 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     options.lz4_unpack = spec.lz4_unpack;
     options.zstd_unpack = spec.zstd_unpack;
     options.bc1_pictures = spec.bc1_pictures;
+    // A running game's tree: the system unmounts it as soon as the game
+    // closes, and a file still open in it then restarts the console (the
+    // shell aborts on the failed unmount). So files are opened per read, and
+    // the moment the game's process ends nothing is opened any more.
+    auto closing = std::make_shared<std::atomic<bool>>(false);
+    std::shared_ptr<void> exit_watch;
+    if (!spec.game.empty()) {
+        options.input_closing = closing;
+        const int pid = platform::game_process(spec.game);
+        if (pid > 0) exit_watch = platform::watch_process_exit(pid, [closing] { closing->store(true); });
+    }
     if (spec.decrypt_self) {
         std::string why;
         options.decrypt_self = platform::self_decryptor(&why);
         if (!options.decrypt_self) return make_error(Errc::unsupported, why.empty() ? "decrypting executables is not available here" : why);
+        if (!spec.game.empty())
+            options.decrypt_self = [closing, decrypt = std::move(options.decrypt_self)](
+                                       const std::string& path, const self_extract::Segment& seg) -> Result<std::vector<std::uint8_t>> {
+                if (closing->load()) return make_error(Errc::cancelled, "the game is closing");
+                return decrypt(path, seg);
+            };
         if (spec.decrypt_self_plain) options.decrypt_self_signing = self_extract::Signing::plain;
         // A running game's display metadata (param.json, icon, pics) is in
         // /user/appmeta, not the mounted tree: fold it into sce_sys so the dump
@@ -586,6 +603,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     ProgressFn tracked = [&](const ProgressEvent& e) {
         last_done = e.done;
         last_total = e.total;
+        if (closing->load()) return false; // its game closed: stop, keeping the checkpoint
         return !progress || progress(e);
     };
     const std::string cp_path = checkpoint_path(output, config);

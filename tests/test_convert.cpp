@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "alembic/convert.hpp"
 #include "alembic/io.hpp"
+#include "alembic/tree.hpp"
 #include "test.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <memory>
 #include <string>
 
 using namespace alembic;
@@ -178,4 +181,33 @@ TEST_CASE(convert_digests_match_compare) {
     CHECK(back->size() == odd.size());
     CHECK(convert::compare_digests(odd, *back).same());
     CHECK(!convert::digests_from_text("not a digest line\n").ok());
+}
+
+TEST_CASE(convert_running_game_tree_is_read_briefly) {
+    // A running game's tree: each read opens and closes its file, and once the
+    // game closes nothing is read any more (the conversion stops).
+    std::string tmp = test::make_temp_dir();
+    std::string game = make_game(tmp);
+    auto closing = std::make_shared<std::atomic<bool>>(false);
+    auto tree = tree::open_folder(game, closing);
+    REQUIRE_OK(tree);
+    const tree::Node* eboot = tree::find((*tree)->root(), "eboot.bin");
+    CHECK(eboot != nullptr);
+    if (!eboot) return;
+    auto file = (*tree)->open(*eboot);
+    REQUIRE_OK(file);
+    std::vector<std::uint8_t> head(16);
+    REQUIRE_OK((*file)->read_at(0, MutableBytes(head.data(), head.size())));
+    std::vector<std::uint8_t> whole = test::read_file(game + "/eboot.bin");
+    CHECK(head == std::vector<std::uint8_t>(whole.begin(), whole.begin() + 16));
+    closing->store(true);
+    CHECK(!(*file)->read_at(0, MutableBytes(head.data(), head.size())).ok());
+    CHECK(!(*tree)->open(*eboot).ok());
+
+    // A conversion of it stops instead of finishing.
+    convert::Options options;
+    options.input_closing = closing;
+    CHECK(!convert::run(game, tmp + "/out.exfat", convert::Format::exfat, options).ok());
+    closing->store(false);
+    REQUIRE_OK(convert::run(game, tmp + "/out.exfat", convert::Format::exfat, options));
 }

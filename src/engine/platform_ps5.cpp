@@ -14,13 +14,18 @@
 #include "text_file.hpp"
 #include "alembic/io.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cerrno>
 #include <cstring>
 #include <dirent.h>
 #include <mutex>
+#include <sys/event.h>
 #include <sys/mount.h>
+#include <sys/sysctl.h>
+#include <thread>
+#include <vector>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -69,6 +74,14 @@ struct NotifyRequest {
     char message[3075];
 };
 int sceKernelSendNotificationRequest(int device, NotifyRequest* request, size_t size, int blocking);
+// A process's application, as ShadowMount+ declares it (GPL-3.0).
+struct AppInfo {
+    uint32_t app_id;
+    uint64_t unknown1;
+    char title_id[14];
+    char unknown2[0x3c];
+};
+int sceKernelGetAppInfo(pid_t pid, AppInfo* info) __attribute__((weak));
 int sceSystemServicePowerTick(void) __attribute__((weak));
 int sceSystemServiceParamGetInt(int param_id, int* value) __attribute__((weak));
 int sceUserServiceInitialize(const int* priority) __attribute__((weak));
@@ -144,6 +157,70 @@ void debug_notify(const std::string& message) {
     const std::size_t n = std::min(message.size(), sizeof(req.message) - 1);
     std::memcpy(req.message, message.data(), n);
     (void)sceKernelSendNotificationRequest(0, &req, sizeof(req), 0);
+}
+
+int game_process(const std::string& title_id) {
+    if (!sceKernelGetAppInfo || title_id.empty()) return -1;
+    // Every process (struct kinfo_proc each, its size first, the pid at 72:
+    // ShadowMount+'s offsets for this kernel).
+    constexpr std::size_t kPidOffset = 72;
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PROC, 0};
+    std::size_t size = 0;
+    if (sysctl(mib, 4, nullptr, &size, nullptr, 0) != 0) return -1;
+    std::vector<std::uint8_t> buf(size + 64 * 1024); // room for processes started meanwhile
+    size = buf.size();
+    if (sysctl(mib, 4, buf.data(), &size, nullptr, 0) != 0) return -1;
+    for (std::size_t at = 0; at + sizeof(int) <= size;) {
+        int record = 0;
+        std::memcpy(&record, buf.data() + at, sizeof record);
+        if (record <= static_cast<int>(kPidOffset + sizeof(pid_t)) || at + static_cast<std::size_t>(record) > size) return -1;
+        pid_t pid = 0;
+        std::memcpy(&pid, buf.data() + at + kPidOffset, sizeof pid);
+        at += static_cast<std::size_t>(record);
+        AppInfo info{};
+        if (pid > 0 && sceKernelGetAppInfo(pid, &info) == 0 &&
+            std::strncmp(info.title_id, title_id.c_str(), sizeof(info.title_id)) == 0)
+            return static_cast<int>(pid);
+    }
+    return 0;
+}
+
+namespace {
+struct ExitWatch {
+    std::atomic<bool> stop{false};
+    std::thread thread;
+    ~ExitWatch() {
+        stop = true;
+        if (thread.joinable()) thread.join();
+    }
+};
+} // namespace
+
+std::shared_ptr<void> watch_process_exit(int pid, std::function<void()> on_exit) {
+    if (pid <= 0) return nullptr;
+    const int kq = kqueue();
+    if (kq < 0) return nullptr;
+    struct kevent change;
+    EV_SET(&change, static_cast<uintptr_t>(pid), EVFILT_PROC, EV_ADD | EV_ENABLE, NOTE_EXIT, 0, nullptr);
+    if (kevent(kq, &change, 1, nullptr, 0, nullptr) != 0) { // gone already, or refused
+        close(kq);
+        return nullptr;
+    }
+    auto watch = std::make_shared<ExitWatch>();
+    ExitWatch* w = watch.get();
+    w->thread = std::thread([w, kq, on_exit = std::move(on_exit)] {
+        while (!w->stop) {
+            struct kevent event;
+            struct timespec wait = {0, 200 * 1000 * 1000};
+            const int n = kevent(kq, nullptr, 0, &event, 1, &wait);
+            if (n > 0 && event.filter == EVFILT_PROC && (event.fflags & NOTE_EXIT)) {
+                on_exit();
+                break;
+            }
+        }
+        close(kq);
+    });
+    return watch;
 }
 
 void keep_awake() {

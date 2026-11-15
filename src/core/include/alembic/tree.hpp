@@ -8,6 +8,7 @@
 #include "alembic/io.hpp"
 
 #include <cstdint>
+#include <atomic>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -46,7 +47,12 @@ public:
 
 // A folder on disk. Skips symlinks and OS junk files (.DS_Store, ._*,
 // Thumbs.db, ...); fails on FIFOs, sockets and devices.
-Result<std::unique_ptr<Source>> open_folder(const std::string& path);
+// With `closing` set, a file is opened for each read and closed right after,
+// and nothing is opened once `*closing` is true: for a running game's tree,
+// which the PS5 unmounts when the game closes (a file held open then makes
+// the unmount fail, and the system shell aborts and restarts the console).
+Result<std::unique_ptr<Source>> open_folder(const std::string& path,
+                                            std::shared_ptr<const std::atomic<bool>> closing = nullptr);
 
 // Finds a node by '/'-separated path (exact match). Returns null if missing.
 const Node* find(const Node& root, std::string_view path);

@@ -17,6 +17,7 @@
 #include "alembic/zstdpack.hpp"
 
 #include <functional>
+#include <atomic>
 #include <memory>
 #include <array>
 #include <optional>
@@ -77,7 +78,9 @@ struct Input {
     std::string detail;                        // e.g. the FPKG layout dialect
 };
 // `passcode` is used for FPKG inputs (default: 32 zeros).
-Result<Input> open(const std::string& path, const std::string& passcode = std::string(32, '0'));
+// `closing`: a folder input is a running game's tree (tree::open_folder).
+Result<Input> open(const std::string& path, const std::string& passcode = std::string(32, '0'),
+                   std::shared_ptr<const std::atomic<bool>> closing = nullptr);
 
 struct Options {
     // Rebuild the exFAT image from the file tree instead of copying the
@@ -132,6 +135,9 @@ struct Options {
     // does, or kept as plain ELFs (fake_sign then leaves them alone too).
     self_extract::Decryptor decrypt_self;
     self_extract::Signing decrypt_self_signing = self_extract::Signing::elf2fself;
+    // The input folder is a running game's tree: read with a file handle per
+    // read, and not at all once this turns true (its game is closing).
+    std::shared_ptr<const std::atomic<bool>> input_closing;
     // Files to add (or replace) under the game's sce_sys/. A running-game dump
     // uses it for the param.json, icon and pics that live in /user/appmeta, not
     // in the mounted tree. Name (no path) -> contents.
