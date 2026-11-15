@@ -4275,10 +4275,23 @@ john-tornblom's klogsrv (port 3232) while launching.
   works only with fake-signed update packages, and we have none.
 
 **Open:**
-- **Next for dumping (after 0.7.0):** zstd pass-1 checkpoints (a zstd dump
-  starts over after a close or engine restart while packing); the page's
-  and app's dump screens on the console (only previews so far); games with
-  an update (union tree) and disc games untested; PS4 dumps.
+- **Open for dumping, after 0.7.0 (owner, 2026-11-15: next sessions):**
+  1. zstd pass-1 checkpoints: a zstd dump starts over after the game closes
+     or the engine restarts while packing (the dialog says so). Pass 1's
+     frames already spill next to the output; checkpoint which files are
+     done, reuse their frames, compare with an uninterrupted run.
+  2. Try the page's and the app's dump screens on the console (Running now,
+     Installed games → Dump when launched, Dump the next game, the Queue's
+     steps and overall bar): only previews so far.
+  3. Untested: a game with an installed update (the union tree with the
+     self pager), a disc game.
+  4. PS4 games (CUSA) are refused: not tried.
+  5. Two console crashes on loading a new engine after a dump decrypted
+     (2026-11-15, the game not closed) stay unexplained; a later swap after
+     decrypting did not crash. Candidate: the pager-swap hazard. Keep
+     klogsrv (3232) recording during such tests.
+  6. The `compare` job is API only (no page/app button yet).
+  7. darkxex/ps5-homebrew-catalog#1310 (0.7.0): check that it was merged.
 - **Dumping a running game (2026-11-15): it works** once the files are
   executable (log entry "a dump of a running game starts"). Next: a fresh
   dump with the fixed engine on the console, then the page/app flow below.
