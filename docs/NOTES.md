@@ -4275,7 +4275,11 @@ john-tornblom's klogsrv (port 3232) while launching.
     right.sprx warning dropped (harmless).
   - Progress as plain kernel text toasts (`sceKernelSendNotificationRequest`,
     as ampr-emu-ng): not kept in the notification list, not too invasive.
-    Rich toasts stay for everything else.
+    Rich toasts stay for everything else. Progress every 5% (owner), at
+    most one every 30 s (a fast dump shows the latest number), short:
+    "Alembic: dumping <title> 35% (9.5 / 27.2 GB, ~6 min left)"; plus
+    started, game closed (continues at the next launch), finished/failed;
+    none while waiting.
   - The Queue shows the game on a dump job (owner): title, icon, version
     and title ID from `/user/appmeta/<ID>` (the app0 mount has no
     param.json), from the moment it is queued, also while waiting; the
