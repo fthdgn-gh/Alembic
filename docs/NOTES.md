@@ -4276,6 +4276,14 @@ john-tornblom's klogsrv (port 3232) while launching.
   - Progress as plain kernel text toasts (`sceKernelSendNotificationRequest`,
     as ampr-emu-ng): not kept in the notification list, not too invasive.
     Rich toasts stay for everything else.
+  - The Queue shows the game on a dump job (owner): title, icon, version
+    and title ID from `/user/appmeta/<ID>` (the app0 mount has no
+    param.json), from the moment it is queued, also while waiting; the
+    stage in words ("Waiting for the game to start", "Decrypting
+    executables", "Copying game files", "Game closed: continues at its next
+    launch"). Page and app alike (JobCard.tsx and the app's queue).
+    "Dump the next game that starts" shows a placeholder until a game
+    starts, then that game.
 - **Deleting a big folder looks hung (owner, 2026-11-15; later):**
   `POST /api/fs/delete` removes the whole tree before it answers, with no
   progress; the page shows nothing meanwhile, the app times out at 120 s
