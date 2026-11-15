@@ -100,15 +100,17 @@ TEST_CASE(games_source_tree_and_info) {
 TEST_CASE(games_progress_every_fifteen_seconds) {
     games::ProgressSteps s(15);
     const std::uint64_t total = 1000;
-    CHECK(!s.update(1, "Extracting", 5, total, 100));          // under 1%
-    CHECK(s.update(1, "Extracting", 30, total, 100) == 3);     // the first one at once
-    CHECK(!s.update(1, "Extracting", 120, total, 110));        // 10 s after: wait
-    CHECK(s.update(1, "Extracting", 230, total, 115) == 23);   // 15 s passed: where it is now
-    CHECK(!s.update(1, "Extracting", 235, total, 200));        // no further: nothing new to say
+    CHECK(!s.update(1, "Extracting", 30, total, 100));         // the stage starts: nothing yet
+    CHECK(!s.update(1, "Extracting", 120, total, 110));        // 10 s in: wait
+    CHECK(s.update(1, "Extracting", 230, total, 115) == 23);   // 15 s in: where it is now
+    CHECK(!s.update(1, "Extracting", 300, total, 120));        // 5 s after: wait
+    CHECK(s.update(1, "Extracting", 310, total, 130) == 31);   // 15 s after the last one
+    CHECK(!s.update(1, "Extracting", 315, total, 200));        // no further: nothing new to say
     CHECK(!s.update(1, "Extracting", 10, 0, 300));             // no total: nothing
-    CHECK(s.update(1, "Compressing", 60, total, 301) == 6);    // a new stage starts over
-    CHECK(s.update(2, "Extracting", 500, total, 301) == 50);   // jobs apart
-    CHECK(s.update(1, "Compressing", 1000, total, 302) == 100); // the end is never held back
+    CHECK(!s.update(1, "Compressing", 60, total, 301));        // a new stage waits its 15 s too
+    CHECK(s.update(1, "Compressing", 90, total, 316) == 9);
+    CHECK(!s.update(2, "Extracting", 500, total, 301));        // jobs apart
+    CHECK(s.update(1, "Compressing", 1000, total, 317) == 100); // the end is never held back
 }
 
 TEST_CASE(games_waiting_dump_does_not_block_the_queue) {

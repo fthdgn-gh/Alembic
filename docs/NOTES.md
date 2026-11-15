@@ -4297,7 +4297,12 @@ john-tornblom's klogsrv (port 3232) while launching.
   (`watch_process_exit`, kqueue EVFILT_PROC NOTE_EXIT); then no file is
   opened, the decryptor refuses, progress stops, and the job goes back to
   waiting (`game_running` also needs the process, the tree outlives it a
-  moment). `/api/games/running` shows the `pid` found. Not console-tested.
+  moment). `/api/games/running` shows the `pid` found. **Console-tested
+  (owner, 2026-11-15):** the pid is found (sceKernelGetAppInfo works on
+  12.60); closing the game 27 s into a dump did not restart the console,
+  the job went back to waiting ("queued (its game closed)") and started
+  again when the game did. Not yet tried: a close deep into writing (the
+  checkpoint resume). The first progress toast now also waits 15 s (owner).
   The two earlier crashes on loading an engine (Payload Manager is a page
   in the browser: the game was not closed then) stay unexplained; the
   pager-swap hazard is a candidate. Record the kernel log (klogsrv, port

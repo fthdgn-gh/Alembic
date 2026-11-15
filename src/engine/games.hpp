@@ -79,8 +79,9 @@ private:
 
 // When a dump's progress is worth a toast: every `min_gap` seconds (15 s,
 // owner: 5% steps, about 30 s apart on a 27 GB game, felt sparse) with the
-// percentage reached, when it moved since the last one; the first report of a
-// stage and its end at once. Not for stages without a total.
+// percentage reached, when it moved since the last one; the first one
+// `min_gap` into a stage too (owner: not right after the "dumping" toast),
+// its end at once. Not for stages without a total.
 class ProgressSteps {
 public:
     explicit ProgressSteps(std::int64_t min_gap = 15) : min_gap_(min_gap) {}
