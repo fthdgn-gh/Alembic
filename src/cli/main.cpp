@@ -104,9 +104,10 @@ void usage() {
         "        pkg_build makes it: --ps4-keys FILE (LibOrbisPkg's Util/Keys.cs, pinned by\n"
         "        SHA-256), --package-passcode, --timestamp UNIX, and --creation-date YYYYMMDD\n"
         "        [--creation-time HHMMSS] when param.sfo has no PUBTOOLINFO c_date\n"
-        "  fself <in.elf> <out> [--prospero]\n"
+        "  fself <in.elf> <out> [--prospero | --elf2fself]\n"
         "        fake-sign one PS5 executable, byte for byte as ampr-emu-ng's make_fself.py\n"
-        "        --ptype fake; --prospero as ProsperoPkgTool fself (what packages get)\n"
+        "        --ptype fake; --prospero as ProsperoPkgTool fself (what packages get);\n"
+        "        --elf2fself as ps5-app-dumper's elf2fself (what a game dump gets)\n"
         "  ls <input> [--passcode P]\n"
         "        list the files in a folder, exFAT, FFPKG, FFPFSC or debug FPKG\n"
         "  cat <input> <path> [<out>] [--passcode P]\n"
@@ -1005,7 +1006,9 @@ int cmd_fself(const Args& args) {
     const bool prospero = args.get("--prospero").has_value();
     if (!prospero && !fself::is_unsigned_elf(elf))
         return fail(make_error(Errc::invalid_argument, "not an unsigned PS5 executable (ELF type 0xFE10 or 0xFE18)"));
-    auto self = prospero ? fself::make_prospero_fself(elf) : fself::make_fself(elf);
+    const bool dumper = args.get("--elf2fself").has_value();
+    auto self = prospero ? fself::make_prospero_fself(elf)
+                         : fself::make_fself(elf, dumper ? fself::Style::elf2fself : fself::Style::make_fself);
     if (!self.ok()) return fail(self.error());
     auto output = AtomicOutput::create(args.positional[1], true);
     if (!output.ok()) return fail(output.error());
@@ -1094,7 +1097,7 @@ int main(int argc, char** argv) {
             parse(argc, argv, {"--no-ampr", "--case-sensitive", "--overwrite", "--rebuild", "--lz4", "--lz4-unpack",
                                     "--zstd", "--zstd-unpack", "--ampr-emu-always", "--no-fake-sign",
                                     "--bc1-pictures"}));
-    if (command == "fself") return cmd_fself(parse(argc, argv, {"--prospero"}));
+    if (command == "fself") return cmd_fself(parse(argc, argv, {"--prospero", "--elf2fself"}));
     if (command == "ampr-emu") return cmd_ampr_emu(parse(argc, argv, {"--replace"}));
     if (command == "lz4-verify") return cmd_lz4_verify(parse(argc, argv, {}));
     if (command == "lz4-info") return cmd_lz4_info(parse(argc, argv, {}));

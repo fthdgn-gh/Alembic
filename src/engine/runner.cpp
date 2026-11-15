@@ -280,6 +280,7 @@ std::string fingerprint(const JobSpec& spec, const std::string& output, const En
     v.set("ampr_emu", spec.ampr_emu);
     if (spec.bc1_pictures) v.set("bc1_pictures", true); // older checkpoints had none
     if (spec.decrypt_self) v.set("decrypt_self", true);
+    if (spec.decrypt_self_plain) v.set("decrypt_self_plain", true);
     if (spec.lz4) {
         // Packing: its settings, and the runtime file it puts in the game.
         v.set("lz4_profile", spec.lz4_profile);
@@ -481,6 +482,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
         std::string why;
         options.decrypt_self = platform::self_decryptor(&why);
         if (!options.decrypt_self) return make_error(Errc::unsupported, why.empty() ? "decrypting executables is not available here" : why);
+        if (spec.decrypt_self_plain) options.decrypt_self_signing = self_extract::Signing::plain;
         // A running game's display metadata (param.json, icon, pics) is in
         // /user/appmeta, not the mounted tree: fold it into sce_sys so the dump
         // is identified and can launch (as ps5-app-dumper does). The title ID

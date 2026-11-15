@@ -54,10 +54,11 @@ struct Decrypted {
     std::vector<std::string> paths;     // tree paths turned into plain ELF
     std::vector<std::pair<std::string, std::string>> skipped; // path, why
 };
-// `game_sign` fake-signs each decrypted ELF the game way
-// (fself::make_prospero_fself: PS5 magic, an executable authority for the
-// eboot) so the console will launch it; off serves the plain ELF.
-Result<Decrypted> decrypt_executables(const tree::Source& source, const Decryptor& decrypt, bool game_sign = true,
-                                      const ProgressFn& progress = {});
+// What a decrypted executable becomes. elf2fself: fake-signed as
+// ps5-app-dumper's elf2fself writes it (fself::Style::elf2fself). plain: the
+// ELF itself, as that dumper leaves it by default.
+enum class Signing { elf2fself, plain };
+Result<Decrypted> decrypt_executables(const tree::Source& source, const Decryptor& decrypt,
+                                      Signing signing = Signing::elf2fself, const ProgressFn& progress = {});
 
 } // namespace alembic::self_extract

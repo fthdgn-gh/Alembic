@@ -3922,7 +3922,7 @@ are deferred until an on-console smoke test**. Not run on a console yet.
     `icon0.png/.dds`, `icon0_11.*`, `pic0/1/2.*`, `snd0.at9`) and
     `/system_data/priv/appmeta/<TITLE_ID>/` (`nptitle.dat`, trophy2, uds).
     Copying `param.json` + icon/pics from appmeta into the output `sce_sys`
-    made Alembic identify it (ASTRO's PLAYROOM). So a proper "dump a running
+    made Alembic identify it. So a proper "dump a running
     game" feature must merge app0 (code+data, executables decrypted) with the
     appmeta `sce_sys` files -- the generic `decrypt_self` convert does not do
     this on its own.
@@ -3952,9 +3952,10 @@ are deferred until an on-console smoke test**. Not run on a console yet.
     `0x3100000000000002` library authority vs an executable `...0001` -- was
     **wrong**: see below.)
   - **Confirmed against EchoStretch/ps5-app-dumper** (a mature USB dumper the
-    owner pointed to; no license file, so facts only, nothing ported). Its
-    `source/elf2fself.c` writes an FSELF **byte-identical to our make_fself
-    except the magic**: `SELF_PS5_MAGIC` 0xEEF51454, and the *same*
+    owner pointed to; no LICENSE file, but its sources carry GPL-3.0-or-later
+    notices -- see the 2026-11-15 entry). Its
+    `source/elf2fself.c` writes an FSELF close to our make_fself (not
+    byte-identical except the magic, as first written: see 2026-11-15): `SELF_PS5_MAGIC` 0xEEF51454, and the *same*
     `authid=0x3100000000000002`, `type=1`, `attrs=0x12`, `key_type=0x101`,
     `flags=0x22`, NPDRM block type 3. So the authority is right as-is; only the
     magic was wrong. (The PS5 magic is a public constant we already had as
@@ -3974,7 +3975,7 @@ are deferred until an on-console smoke test**. Not run on a console yet.
     the magic was necessary-looking but not sufficient. Remaining known
     differences from ps5-app-dumper's elf2fself: its meta_size is 0x100 larger
     (an extra block past the signature footer; ours n*0x50+0x150, its
-    n*0x50+0x250) -- unmatched, likely signature-area the jailbreak bypasses.
+    n*0x50+0x250) -- matched on 2026-11-15.
   - **Reality check:** ps5-app-dumper's README frames it as a **backup** dumper
     (to USB) with a **backport** setting for running on *other* firmwares via
     ShadowMount+, not "decrypt and it boots." Three fix rounds (authid, the
@@ -4108,6 +4109,51 @@ With the owner, a retail game every PS5 ships with running, test engine
   in the app (pictures) and the page (headless browser), back and crumbs
   land on the right rows. Not tried on a console yet.
 
+
+### 2026-11-15: decrypt_self checked again; plain or elf2fself output
+
+Owner's context: dumping is for preserving games the owner bought (on disc
+or installed) on a jailbroken console that can no longer reach the Store.
+Went over the decrypt_self work of 2026-11-12 (code, tests, PS5 build) and
+compared it with ps5-app-dumper (`.refs/ps5-app-dumper` at a86754c):
+- **ps5-app-dumper is GPL-3.0-or-later.** No LICENSE file, but every source
+  file except idlesauce's `selfpager.c` carries the GPL-3 notice, so porting
+  from it is allowed (credited in THIRD_PARTY_NOTICES.md).
+- **Its default is no fake-signing:** `enable_elf2fself = 0`, so a dump
+  keeps plain decrypted ELFs; FSELF is an option. Every dump we booted so
+  far was fake-signed (first make_fself.py's magic, then the PS5 magic).
+  It decrypts every `.elf/.self/.prx/.sprx/.bin`, `right.sprx` included,
+  and skips the `-app0-patch0-union` folders.
+- **Our "PS5 magic" SELF was not elf2fself's layout.** It also writes 0x100
+  more zero bytes after the signature (meta_size n*0x50+0x250) and keeps
+  the ELF header as it is (make_fself.py sets e_ident[6], clears [9,15) and
+  e_shnum). Now `fself::Style::elf2fself` does both;
+  `alembic fself --elf2fself`; `tools/fself-oracle/compare.sh` builds
+  elf2fself.c on the Mac (stand-ins for its logging and `<elf.h>`) and
+  compares. Where elf2fself's own layout is off, ours is kept: it ends the
+  file at the last data byte, so PT_SCE_VERSION lands up to 15 bytes before
+  the header's 16-aligned file_size where readers (ftpsrv, our
+  self_extract) take it (`same_as_elf2fself.py` checks exactly that
+  difference); and for e_phoff != 0x40 or a larger e_ehsize it misplaces
+  the ex-info (not compared; game ELFs have 0x40 for both).
+- **Job field `decrypt_self_plain`** (with `decrypt_self`): the decrypted
+  executables stay plain ELFs, as the dumper's default, and `fake_sign`
+  leaves them alone (`fself::sign(..., keep_plain)`); without it they come
+  out elf2fself-style. Tests: `fself_elf2fself_style`,
+  `decrypt_self_in_a_conversion_signed_or_plain`. 142 tests, oracles pass,
+  PS5 payload builds. Still no page/app switch (experimental, API only).
+- Not changed, worth knowing: every decrypted executable is held in memory
+  until the conversion ends (fine for a 70 MB eboot plus modules; a game
+  with very large modules would want them written out instead).
+
+**Console test to run (owner), same running game as before:** two dumps of
+`/mnt/sandbox/pfsmnt/<ID>-app0` to folders, with `decrypt_self` and the
+AMPR emulator: (A) `decrypt_self_plain` on, (B) off (elf2fself layout).
+Launch each through ShadowMount+ and read `/data/shadowmount/debug.log` for
+`[GAME] started pid=`. If both still die at init, the decisive test stays
+the one below: dump with ps5-app-dumper itself (both of its FSELF
+settings) and boot that; if it boots, byte-compare its eboot with ours.
+
 ## Next session
 
 **Settled (owner, 2026-10-22):**
@@ -4128,6 +4174,8 @@ With the owner, a retail game every PS5 ships with running, test engine
   works only with fake-signed update packages, and we have none.
 
 **Open:**
+- **Dumping a running game (2026-11-15):** console test of plain vs
+  elf2fself executables, see the log entry "decrypt_self checked again".
 - **Where we left off (2026-11-11, release 0.6.3):** nothing half-done.
   Still to try on the console: switching a game's emulator, switching
   packs in Convert, Hide / Unhide, an emulator auto-update (needs a new

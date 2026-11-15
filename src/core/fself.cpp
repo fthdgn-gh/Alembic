@@ -3,7 +3,9 @@
 // ps5-dump-forge-core/src/fself.rs (which executables, the plan from the
 // headers, ampr_emu.index's sizes) and the script it matches, ampr-emu-ng's
 // tools/make_fself.py (the layout); both GPL-3.0. The package flavour from
-// pearlxcore/ProsperoPkgTool's Content/ProsperoSelfBuilder.cs (MIT).
+// pearlxcore/ProsperoPkgTool's Content/ProsperoSelfBuilder.cs (MIT). The
+// dumper's style from EchoStretch/ps5-app-dumper's source/elf2fself.c
+// (GPL-3.0-or-later).
 #include "alembic/fself.hpp"
 
 #include "alembic/ampr.hpp"
@@ -66,7 +68,8 @@ Status read_exact(const RandomAccess& file, std::uint64_t offset, MutableBytes o
     return file.read_at(offset, out);
 }
 
-Result<std::unique_ptr<Plan>> make_plan(const RandomAccess& elf, std::uint64_t elf_size, bool ps5_magic = false) {
+Result<std::unique_ptr<Plan>> make_plan(const RandomAccess& elf, std::uint64_t elf_size, Style style = Style::make_fself) {
+    const bool dumper = style == Style::elf2fself;
     std::vector<std::uint8_t> first(static_cast<std::size_t>(std::min(elf_size, kHead)));
     ALEMBIC_TRY(read_exact(elf, 0, first, elf_size));
     if (first.size() < 0x40 || !is_unsigned_elf(first)) return refuse("not a whole PS5 ELF header");
@@ -110,7 +113,8 @@ Result<std::unique_ptr<Plan>> make_plan(const RandomAccess& elf, std::uint64_t e
     const std::uint64_t elf_at = 0x20 + 0x20 * n;
     const std::uint64_t elf_hs = align16(span);
     const std::uint64_t header_size = elf_hs + elf_at + 0x40 + 0x30;
-    const std::uint64_t meta_size = 0x50 * n + 0x50 + 0x100;
+    // elf2fself writes another 0x100 zero bytes after the footer's signature.
+    const std::uint64_t meta_size = 0x50 * n + 0x50 + 0x100 + (dumper ? 0x100 : 0);
     if (n > 0xFFFF || header_size > 0xFFFF || meta_size > 0xFFFF) return refuse("headers too large for a SELF");
 
     auto plan = std::make_unique<Plan>();
@@ -140,12 +144,12 @@ Result<std::unique_ptr<Plan>> make_plan(const RandomAccess& elf, std::uint64_t e
     }
     const std::uint64_t file_size = offset;
     // Common and extended header.
-    // make_fself.py's fake magic 0x1D3D154F, or the PS5 SELF magic 0xEEF51454
-    // for a game the console must launch (same bytes otherwise).
-    const std::uint8_t common[8] = {ps5_magic ? std::uint8_t{0x54} : std::uint8_t{0x4F},
-                                    ps5_magic ? std::uint8_t{0x14} : std::uint8_t{0x15},
-                                    ps5_magic ? std::uint8_t{0xF5} : std::uint8_t{0x3D},
-                                    ps5_magic ? std::uint8_t{0xEE} : std::uint8_t{0x1D}, 0x00, 0x01, 0x01, 0x12};
+    // make_fself.py's fake magic 0x1D3D154F, or elf2fself's PS5 SELF magic
+    // 0xEEF51454.
+    const std::uint8_t common[8] = {dumper ? std::uint8_t{0x54} : std::uint8_t{0x4F},
+                                    dumper ? std::uint8_t{0x14} : std::uint8_t{0x15},
+                                    dumper ? std::uint8_t{0xF5} : std::uint8_t{0x3D},
+                                    dumper ? std::uint8_t{0xEE} : std::uint8_t{0x1D}, 0x00, 0x01, 0x01, 0x12};
     std::memcpy(out, common, sizeof common);
     put_u32(out + 8, 0x101);
     put_u16(out + 0xC, static_cast<std::uint16_t>(header_size));
@@ -156,11 +160,14 @@ Result<std::unique_ptr<Plan>> make_plan(const RandomAccess& elf, std::uint64_t e
     // The ELF header as the script saves it: e_ident[6] is e_version,
     // [9, 15) zero, e_shnum 0 (section headers ignored); then each program
     // header at its offset (written in this order, as the script does).
+    // elf2fself keeps the header as it is.
     std::uint8_t ehdr[0x40];
     std::memcpy(ehdr, h, sizeof ehdr);
-    ehdr[6] = 1;
-    std::memset(ehdr + 9, 0, 6);
-    ehdr[0x3C] = ehdr[0x3D] = 0;
+    if (!dumper) {
+        ehdr[6] = 1;
+        std::memset(ehdr + 9, 0, 6);
+        ehdr[0x3C] = ehdr[0x3D] = 0;
+    }
     std::memcpy(out + elf_at, ehdr, sizeof ehdr);
     if (phnum) std::memcpy(out + elf_at + phoff, table.data(), table.size());
     // Ex-info (the digest later), NPDRM block type 3; meta blocks, footer, signature.
@@ -365,9 +372,9 @@ Result<std::vector<std::string>> find_unsigned(const tree::Source& source) {
     return found;
 }
 
-Result<std::vector<std::uint8_t>> make_fself(Bytes elf, bool ps5_magic) {
+Result<std::vector<std::uint8_t>> make_fself(Bytes elf, Style style) {
     auto file = std::make_shared<MemoryFile>(elf);
-    ALEMBIC_ASSIGN(std::unique_ptr<Plan> plan, make_plan(*file, elf.size(), ps5_magic));
+    ALEMBIC_ASSIGN(std::unique_ptr<Plan> plan, make_plan(*file, elf.size(), style));
     std::shared_ptr<Plan> shared(std::move(plan));
     SelfFile self(shared, file);
     std::vector<std::uint8_t> out(static_cast<std::size_t>(shared->size));
@@ -375,11 +382,12 @@ Result<std::vector<std::uint8_t>> make_fself(Bytes elf, bool ps5_magic) {
     return out;
 }
 
-Result<Signed> sign(const tree::Source& source) {
+Result<Signed> sign(const tree::Source& source, const std::vector<std::string>& keep_plain) {
     Signed result;
     ALEMBIC_ASSIGN(std::vector<std::string> paths, find_unsigned(source));
     std::map<std::string, std::shared_ptr<Plan>> plans;
     for (const std::string& rel : paths) {
+        if (std::find(keep_plain.begin(), keep_plain.end(), rel) != keep_plain.end()) continue;
         const tree::Node* node = tree::find(source.root(), rel);
         if (!node) continue;
         ALEMBIC_ASSIGN(std::shared_ptr<const RandomAccess> file, source.open(*node));

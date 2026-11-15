@@ -2,6 +2,8 @@
 // The portable SELF -> ELF assembler (self_extract.hpp). The kernel segment
 // decryptor is PS5-only; here a stand-in callback supplies the plaintext.
 #include "alembic/bytes.hpp"
+#include "alembic/convert.hpp"
+#include "alembic/io.hpp"
 #include "alembic/self_extract.hpp"
 #include "alembic/sha256.hpp"
 #include "alembic/tree.hpp"
@@ -52,6 +54,9 @@ Built build_self(bool good_digest = true, bool trailing_note = false) {
     // The ELF the SELF should produce.
     std::vector<std::uint8_t> elf(trailing_note ? 0x330 : 0x310, 0);
     std::memcpy(elf.data(), "\x7F""ELF\x02\x01\x01\x09", 8);
+    put_u16(elf.data() + 0x10, 0xFE10); // ET_SCE_EXEC_ASLR: what fake-signing takes
+    put_u16(elf.data() + 0x12, 0x3E);   // x86-64
+    put_u32(elf.data() + 0x14, 1);      // e_version
     put_u64(elf.data() + 0x20, phoff);
     put_u16(elf.data() + 0x36, 0x38); // e_phentsize
     put_u16(elf.data() + 0x38, phnum);
@@ -189,7 +194,7 @@ TEST_CASE(self_extract_over_a_folder_tree) {
         CHECK(!path.empty()); // the real on-disk path
         return b.enc;
     };
-    auto d = self_extract::decrypt_executables(**folder, decrypt, false);
+    auto d = self_extract::decrypt_executables(**folder, decrypt, self_extract::Signing::plain);
     REQUIRE_OK(d);
     REQUIRE_OK(d->tree ? Status{} : Status(make_error(Errc::invalid_data, "nothing decrypted")));
     CHECK_EQ(d->paths.size(), 2u);       // eboot.bin and libc.prx
@@ -197,4 +202,33 @@ TEST_CASE(self_extract_over_a_folder_tree) {
     CHECK(read_all(*d->tree, "eboot.bin") == b.elf);
     CHECK(read_all(*d->tree, "sce_module/libc.prx") == b.elf);
     CHECK(read_all(*d->tree, "already.elf") == plain_elf); // unchanged
+}
+
+TEST_CASE(decrypt_self_in_a_conversion_signed_or_plain) {
+    // A dump's executables come out as elf2fself writes them, or plain; plain
+    // ones stay plain although fake_sign (on by default) signs unsigned ELFs.
+    auto dir = test::make_temp_dir();
+    std::string root = dir + "/game";
+    for (const char* d : {"", "/sce_sys"}) test::make_dir(root + d);
+    Built b = build_self();
+    test::write_file(root + "/eboot.bin", b.self);
+    const char* j = "{\"titleId\":\"ABCD99999\",\"contentVersion\":\"01.000.000\"}";
+    test::write_file(root + "/sce_sys/param.json", std::vector<std::uint8_t>(j, j + std::strlen(j)));
+    auto first4 = [](const std::string& path) {
+        auto f = File::open(path, File::Mode::read);
+        std::uint8_t h[4] = {};
+        if (f.ok()) (void)f->read_at(0, MutableBytes(h, 4));
+        return get_u32(h);
+    };
+    for (bool plain : {false, true}) {
+        convert::Options o;
+        o.decrypt_self = [&](const std::string&, const self_extract::Segment&) -> Result<std::vector<std::uint8_t>> { return b.enc; };
+        o.decrypt_self_signing = plain ? self_extract::Signing::plain : self_extract::Signing::elf2fself;
+        const std::string out = dir + (plain ? "/plain/" : "/signed/");
+        auto r = convert::run(root, out, convert::Format::folder, o);
+        REQUIRE_OK(r);
+        CHECK_EQ(r->decrypted_self.size(), 1u);
+        CHECK(r->fake_signed.empty()); // nothing left for fake_sign either way
+        CHECK_EQ(first4(out + "eboot.bin"), plain ? 0x464C457Fu : kSelfPs5Magic);
+    }
 }

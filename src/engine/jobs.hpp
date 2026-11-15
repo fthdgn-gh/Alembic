@@ -72,6 +72,9 @@ struct JobSpec {
     // (self_extract.hpp; the console decrypts them). PS5 only, folder input
     // (a mounted game under /mnt/sandbox/pfsmnt/...). Opt-in, experimental.
     bool decrypt_self = false;
+    // With decrypt_self: keep the decrypted executables as plain ELFs instead
+    // of fake-signing them as ps5-app-dumper's elf2fself does.
+    bool decrypt_self_plain = false;
     // After a successful conversion: compare the output with the input file
     // by file, then delete the input (only if they match).
     bool delete_source = false;

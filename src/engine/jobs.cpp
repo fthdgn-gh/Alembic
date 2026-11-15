@@ -86,6 +86,7 @@ JsonValue JobSpec::to_json() const {
     if (!emulator.empty()) j.set("emulator", emulator);
     if (bc1_pictures) j.set("bc1_pictures", true);
     if (decrypt_self) j.set("decrypt_self", true);
+    if (decrypt_self_plain) j.set("decrypt_self_plain", true);
     j.set("delete_source", delete_source);
     j.set("verify", verify);
     if (hide_source) j.set("hide_source", true);
@@ -136,6 +137,7 @@ Result<JobSpec> JobSpec::from_json(const JsonValue& j) {
     s.emulator = j["emulator"].str();
     s.bc1_pictures = j["bc1_pictures"].boolean();
     s.decrypt_self = j["decrypt_self"].boolean();
+    s.decrypt_self_plain = j["decrypt_self_plain"].boolean();
     if (!s.emulator.empty() && s.kind != "ampr_emu")
         return make_error(Errc::invalid_argument, "emulator is only for ampr_emu jobs");
     if (!s.emulator.empty() && s.emulator != "ampr_runtime" && s.emulator != "ampr_runtime_ng")

@@ -128,8 +128,10 @@ struct Options {
     // back into plain ELFs on the way (self_extract.hpp): the console decrypts
     // them through this callback. Set only on the PS5, and only folder inputs
     // (a mounted game under /mnt/sandbox/pfsmnt/...) have the real paths it
-    // needs. The plain ELFs are fake-signed afterwards.
+    // needs. `decrypt_self_signing`: fake-signed as ps5-app-dumper's elf2fself
+    // does, or kept as plain ELFs (fake_sign then leaves them alone too).
     self_extract::Decryptor decrypt_self;
+    self_extract::Signing decrypt_self_signing = self_extract::Signing::elf2fself;
     // Files to add (or replace) under the game's sce_sys/. A running-game dump
     // uses it for the param.json, icon and pics that live in /user/appmeta, not
     // in the mounted tree. Name (no path) -> contents.

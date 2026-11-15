@@ -98,20 +98,22 @@ TEST_CASE(fself_refuses_what_make_fself_refuses) {
     CHECK(!fself::make_fself(elf).ok());
 }
 
-TEST_CASE(fself_ps5_magic_only_changes_the_magic) {
-    // decrypt_self needs the PS5 SELF magic so the console launches a dumped
-    // game; nothing else about make_fself's output changes.
-    const std::vector<std::uint8_t> elf = forge_elf(kExecAslr);
-    auto fake = fself::make_fself(elf);              // make_fself.py's fake magic
-    auto game = fself::make_fself(elf, true);        // the PS5 game magic
+TEST_CASE(fself_elf2fself_style) {
+    // ps5-app-dumper's layout (tools/fself-oracle checks it byte for byte):
+    // the PS5 magic, 0x100 more meta bytes, the ELF header kept as it is.
+    std::vector<std::uint8_t> elf = forge_elf(kExecAslr);
+    elf[9] = 0x5A; // an e_ident byte make_fself.py clears
+    auto fake = fself::make_fself(elf);
+    auto dump = fself::make_fself(elf, fself::Style::elf2fself);
     REQUIRE_OK(fake);
-    REQUIRE_OK(game);
-    CHECK_EQ(fake->size(), game->size());
+    REQUIRE_OK(dump);
     CHECK_EQ(get_u32(fake->data()), 0x1D3D154Fu);
-    CHECK_EQ(get_u32(game->data()), 0xEEF51454u);
-    std::vector<std::uint8_t> a = *fake, b = *game;
-    for (int i = 0; i < 4; ++i) a[i] = b[i] = 0; // zero the magic; the rest must match
-    CHECK(a == b);
+    CHECK_EQ(get_u32(dump->data()), 0xEEF51454u);
+    CHECK_EQ(dump->size(), fake->size() + 0x100);
+    CHECK_EQ(get_u16(dump->data() + 0xE), get_u16(fake->data() + 0xE) + 0x100); // meta_size
+    const std::size_t elf_at = 0x20 + 0x20 * get_u16(dump->data() + 0x18);
+    CHECK((*dump)[elf_at + 9] == 0x5A);
+    CHECK((*fake)[elf_at + 9] == 0);
 }
 
 TEST_CASE(fself_signs_a_tree_as_it_is_read) {

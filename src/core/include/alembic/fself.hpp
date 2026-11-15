@@ -38,12 +38,15 @@ bool is_unsigned_elf(Bytes head);
 // most 4096 of them; `fakelib*/` included (the loader loads those too).
 Result<std::vector<std::string>> find_unsigned(const tree::Source& source);
 
-// The SELF of a whole ELF in memory (tests, and a small file's way).
-// `ps5_magic` writes the PS5 SELF magic (0xEEF51454) in place of make_fself.py's
-// fake magic (0x1D3D154F); nothing else changes. A game launched by the console
-// (ShellCore / ShadowMount+) needs the PS5 magic to start, as ps5-app-dumper's
-// elf2fself writes it; used by decrypt_self for a dumped game's executables.
-Result<std::vector<std::uint8_t>> make_fself(Bytes elf, bool ps5_magic = false);
+// How a SELF is laid out. make_fself: ampr-emu-ng's make_fself.py --ptype
+// fake (magic 0x1D3D154F, what conversions use). elf2fself: what
+// EchoStretch/ps5-app-dumper's elf2fself writes for a dumped game: the PS5
+// SELF magic 0xEEF51454, the ELF header kept as it is, and 0x100 more zero
+// bytes after the signature; the same entries, authority and digests.
+enum class Style { make_fself, elf2fself };
+
+// The SELF of a whole ELF in memory (tests, a small file's way, decrypt_self).
+Result<std::vector<std::uint8_t>> make_fself(Bytes elf, Style style = Style::make_fself);
 
 struct Signed {
     // `source` with its unsigned executables served as SELFs at their SELF
@@ -56,7 +59,8 @@ struct Signed {
     // runtime answers /app0 lookups from it, and a kept index must agree).
     std::size_t index_records_resized = 0;
 };
-Result<Signed> sign(const tree::Source& source);
+// `keep_plain`: tree paths left unsigned (a dump's executables kept as ELFs).
+Result<Signed> sign(const tree::Source& source, const std::vector<std::string>& keep_plain = {});
 
 // ---- ProsperoPkgTool's flavour (Content/ProsperoSelfBuilder.cs, MIT) ----
 // What img_create applies to a package's modules (FakeSignInnerModules):

@@ -398,11 +398,12 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         return make_error(Errc::unsupported, "zstd asset packs are for PS5 games; this is a PS4 game");
     // A running game's encrypted executables turned into plain ELFs, first and
     // on the raw folder source (only its files have the real paths the console
-    // decryptor maps); fake-signing below then re-signs them.
+    // decryptor maps). They come out fake-signed or plain
+    // (decrypt_self_signing); fake-signing below leaves plain ones alone.
     std::unique_ptr<tree::Source> decrypted_tree;
     if (options.decrypt_self && !ps4) {
         if (progress && !progress({"Decrypting executables", 0, 0})) return make_error(Errc::cancelled, "cancelled");
-        ALEMBIC_ASSIGN(self_extract::Decrypted d, self_extract::decrypt_executables(*tree_ptr, options.decrypt_self, true, progress));
+        ALEMBIC_ASSIGN(self_extract::Decrypted d, self_extract::decrypt_executables(*tree_ptr, options.decrypt_self, options.decrypt_self_signing, progress));
         for (const auto& [path, why] : d.skipped) report.warnings.push_back("cannot decrypt " + path + " (" + why + "); it is left as it is");
         if (d.tree) {
             decrypted_tree = std::move(d.tree);
@@ -427,7 +428,8 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     std::unique_ptr<tree::Source> signed_tree;
     if (options.fake_sign && to != Format::fpkg && !ps4) {
         if (progress && !progress({"Checking executables", 0, 0})) return make_error(Errc::cancelled, "cancelled");
-        ALEMBIC_ASSIGN(fself::Signed s, fself::sign(*tree_ptr));
+        const bool keep_dump_plain = options.decrypt_self_signing == self_extract::Signing::plain;
+        ALEMBIC_ASSIGN(fself::Signed s, fself::sign(*tree_ptr, keep_dump_plain ? report.decrypted_self : std::vector<std::string>{}));
         for (const auto& [path, why] : s.refused)
             report.warnings.push_back("cannot fake-sign " + path + " (" + why + "); it is left as it is");
         if (s.tree) {
