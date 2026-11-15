@@ -1211,6 +1211,19 @@ Result<JsonValue> run_job(const JobSpec& spec, const EngineConfig& config, const
     // A game dump reads the game's mounted tree: only while it runs.
     if (!spec.game.empty() && !is_directory(spec.input))
         return make_error(Errc::io, "the game is not running: start it to dump it");
+    // A dump gets what it needs by itself (owner): it was queued ahead, maybe
+    // from the app, and only now, with the game running, can the engine tell
+    // whether the game needs the AMPR emulator.
+    if (!spec.game.empty())
+        for (const std::string& id : missing_dependencies(spec, config)) {
+            const Dependency* dep = find_dependency(id);
+            if (!dep) continue;
+            if (progress && !progress({"Downloading components", 0, 0})) return make_error(Errc::cancelled, "cancelled");
+            // An AMPR emulator becomes the one in use only when none is.
+            const bool emulator = dep->group == kAmprRuntimeGroup;
+            Status got = install_dependency(*dep, config.state_dir, !emulator || !is_regular_file(config.runtime_path()));
+            if (!got.ok()) return make_error(got.error().code, "could not download " + dep->label + ": " + got.error().message);
+        }
     return run_conversion(spec, config, progress);
 }
 

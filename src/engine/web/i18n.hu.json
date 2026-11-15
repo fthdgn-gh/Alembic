@@ -997,5 +997,8 @@
  "dumping a game works only on the console": "játékot menteni csak a konzolon lehet",
  "another engine cannot dump this console's games": "másik motor nem mentheti ennek a konzolnak a játékait",
  "no game {id} on this console": "nincs {id} játék ezen a konzolon",
- "no game is running any more": "már nem fut játék"
+ "no game is running any more": "már nem fut játék",
+ "Downloading components": "Összetevők letöltése",
+ "The AMPR emulator goes in only if the game turns out to use the console's APR; the engine can tell once the game runs.": "Az AMPR-emulátor csak akkor kerül bele, ha a játék a konzol APR-jét használja; ezt a motor a játék futásakor látja.",
+ "No AMPR emulator, even if the game turns out to use the console's APR.": "Nincs AMPR-emulátor, akkor sem, ha a játék a konzol APR-jét használja."
 }

@@ -1277,12 +1277,16 @@ public:
         for (const auto& e : entries)
             hide_hidden = hide_hidden && (e.kind == "fpkg" || is_hidden_name(e.name) || del_on || target == "fpkg" || e.shared || dump);
         const bool ampr_hidden = target == "fpkg" || packs_now == "lz4" || packs_now == "zstd";  // packs bring their emulator
-        bool ampr_needed = false, any_unsigned = false;
+        bool ampr_needed = false, any_unsigned = false, ampr_known = false;
         for (const auto& [path, p] : plans) {
             ampr_needed = ampr_needed || p["ampr_needed"].boolean();
+            ampr_known = ampr_known || p.has("ampr_needed");
             any_unsigned = any_unsigned || p["unsigned_executables"].number() > 0;
         }
-        const bool ampr_shown = !ampr_hidden && ampr_needed;
+        // A dump of a game not running yet (or of the next game): whether it
+        // needs the emulator is known only once it runs, so it is offered anyway.
+        const bool ampr_unknown = dump && !ampr_known;
+        const bool ampr_shown = !ampr_hidden && (ampr_needed || ampr_unknown);
         const auto choices = on_choices(app);
         const bool where_hidden = choices.size() < 2 || any_shared() || dump;
         const auto pchoices = pack_choices(app);
@@ -1560,7 +1564,11 @@ public:
                 ly += r.h + 0.5f * R;
             }
             // What the engine found.
-            if (ampr_shown)
+            if (ampr_shown && ampr_unknown)
+                ly += note(ui, ampr ? t("The AMPR emulator goes in only if the game turns out to use the console's APR; the engine can tell once the game runs.")
+                                    : t("No AMPR emulator, even if the game turns out to use the console's APR."),
+                           x, ly - 0.5f * R, lw);
+            else if (ampr_shown)
                 ly += note(ui, many() ? (ampr ? t("Games that use the console's APR and ship no emulator get ampr_emu in their fakelib.")
                                               : t("Some of these games use the console's APR and ship no emulator: without it, they will likely stop at start."))
                                       : ampr ? t("This game uses the console's APR and ships no emulator: ampr_emu goes into its fakelib.")

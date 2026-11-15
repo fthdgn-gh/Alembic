@@ -997,5 +997,8 @@
  "dumping a game works only on the console": "只能在主机上转储游戏",
  "another engine cannot dump this console's games": "其他引擎无法转储此主机的游戏",
  "no game {id} on this console": "此主机上没有游戏 {id}",
- "no game is running any more": "已没有正在运行的游戏"
+ "no game is running any more": "已没有正在运行的游戏",
+ "Downloading components": "正在下载组件",
+ "The AMPR emulator goes in only if the game turns out to use the console's APR; the engine can tell once the game runs.": "仅当游戏使用主机的 APR 时才加入 AMPR 模拟器；游戏运行后引擎即可判断。",
+ "No AMPR emulator, even if the game turns out to use the console's APR.": "不加入 AMPR 模拟器，即使游戏使用主机的 APR。"
 }

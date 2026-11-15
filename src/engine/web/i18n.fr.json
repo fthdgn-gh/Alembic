@@ -997,5 +997,8 @@
  "dumping a game works only on the console": "copier un jeu ne fonctionne que sur la console",
  "another engine cannot dump this console's games": "un autre moteur ne peut pas copier les jeux de cette console",
  "no game {id} on this console": "aucun jeu {id} sur cette console",
- "no game is running any more": "plus aucun jeu n'est lancé"
+ "no game is running any more": "plus aucun jeu n'est lancé",
+ "Downloading components": "Téléchargement des composants",
+ "The AMPR emulator goes in only if the game turns out to use the console's APR; the engine can tell once the game runs.": "L'émulateur AMPR n'est ajouté que si le jeu utilise l'APR de la console ; le moteur le sait une fois le jeu lancé.",
+ "No AMPR emulator, even if the game turns out to use the console's APR.": "Pas d'émulateur AMPR, même si le jeu utilise l'APR de la console."
 }

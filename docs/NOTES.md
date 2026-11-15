@@ -4283,6 +4283,14 @@ john-tornblom's klogsrv (port 3232) while launching.
   `output_dir`, not `output`. Tests: `tests/test_games.cpp`. Owner, 2026-11-15: a kernel
   panic after loading the execute-bit engine (owner thinks unrelated; no
   dump ran then?): watch for it around decrypting.
+- **Dumps get their components by themselves (owner, 2026-11-15):** queuing
+  a dump no longer stops at "get it in Components first"; when it starts
+  (its game running, so the eboot tells whether it needs the AMPR emulator)
+  `run_job` downloads what `missing_dependencies` lists (stage "Downloading
+  components"; an emulator becomes the one in use only when none is). The
+  dialog shows the AMPR choice for a game not running yet or "next" too,
+  noting it goes in only if the game turns out to need it. Dump toasts show
+  one decimal ("45.3%"; ProgressSteps works in thousandths).
 - **Closing a game mid-dump restarts the console (2026-11-15, proven by the
   kernel log):** ShellCore unmounts the game's tree when the game closes;
   with a file of it open in the engine, `pfsUnMount() ret = 80020010`

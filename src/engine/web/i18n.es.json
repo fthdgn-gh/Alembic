@@ -997,5 +997,8 @@
  "dumping a game works only on the console": "volcar un juego solo funciona en la consola",
  "another engine cannot dump this console's games": "otro motor no puede volcar los juegos de esta consola",
  "no game {id} on this console": "no hay ningún juego {id} en esta consola",
- "no game is running any more": "ya no hay ningún juego en ejecución"
+ "no game is running any more": "ya no hay ningún juego en ejecución",
+ "Downloading components": "Descargando componentes",
+ "The AMPR emulator goes in only if the game turns out to use the console's APR; the engine can tell once the game runs.": "El emulador AMPR se añade solo si el juego usa el APR de la consola; el motor lo sabe cuando el juego se ejecuta.",
+ "No AMPR emulator, even if the game turns out to use the console's APR.": "Sin emulador AMPR, aunque el juego use el APR de la consola."
 }

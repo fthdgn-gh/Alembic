@@ -128,9 +128,9 @@ std::optional<int> ProgressSteps::update(std::uint64_t job, const std::string& s
     if (total == 0) return std::nullopt;
     State& s = jobs_[job];
     if (s.stage != stage) s = State{stage, 0, now}; // the first one 15 s in, not at once
-    const int step = static_cast<int>(std::min<std::uint64_t>(100, done * 100 / total));
+    const int step = static_cast<int>(std::min<std::uint64_t>(1000, done * 1000 / total));
     if (step <= s.shown) return std::nullopt;
-    if (now - s.at < min_gap_ && step < 100) return std::nullopt;
+    if (now - s.at < min_gap_ && step < 1000) return std::nullopt;
     s.shown = step;
     s.at = now;
     return step;

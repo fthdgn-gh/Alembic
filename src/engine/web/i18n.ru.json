@@ -997,5 +997,8 @@
  "dumping a game works only on the console": "дамп игр работает только на консоли",
  "another engine cannot dump this console's games": "другой движок не может делать дамп игр этой консоли",
  "no game {id} on this console": "на этой консоли нет игры {id}",
- "no game is running any more": "запущенной игры больше нет"
+ "no game is running any more": "запущенной игры больше нет",
+ "Downloading components": "Загрузка компонентов",
+ "The AMPR emulator goes in only if the game turns out to use the console's APR; the engine can tell once the game runs.": "Эмулятор AMPR добавляется, только если игра использует APR консоли; движок узнает это после запуска игры.",
+ "No AMPR emulator, even if the game turns out to use the console's APR.": "Без эмулятора AMPR, даже если игра использует APR консоли."
 }

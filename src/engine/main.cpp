@@ -540,8 +540,10 @@ private:
         }
         if (started) platform::debug_notify(l10n::t("Alembic: dumping {title}. Keep the game running.", {{"title", title}}));
         if (!percent || job.step < 0 || job.step >= static_cast<int>(job.plan.size())) return;
+        char tenths[16];
+        std::snprintf(tenths, sizeof tenths, "%d.%d", *percent / 10, *percent % 10);
         const l10n::Vars vars = {{"title", title},
-                                 {"percent", std::to_string(*percent)},
+                                 {"percent", tenths},
                                  {"step", std::to_string(job.step + 1)},
                                  {"steps", std::to_string(job.plan.size())},
                                  {"label", l10n::t(step_label(job.plan[static_cast<std::size_t>(job.step)], job.spec))},
@@ -2726,7 +2728,7 @@ private:
             v.set("warnings", std::move(warnings));
             return json(200, v);
         }
-        if (!needs.items().empty()) {
+        if (!needs.items().empty() && !dump) { // a dump downloads them when it starts
             JsonValue v = JsonValue::object();
             v.set("error", "this conversion needs " + needs_text + "; get it in Components first");
             v.set("needs", std::move(needs));

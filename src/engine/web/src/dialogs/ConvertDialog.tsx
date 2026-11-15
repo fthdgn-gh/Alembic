@@ -316,7 +316,10 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump
   const unsignedN = plan && plan.unsigned_executables ? plan.unsigned_executables : 0;
   const anyUnsigned = many && Object.keys(plans).some((k) => !!plans[k].unsigned_executables);
   const amprNeeded = many ? Object.keys(plans).some((k) => !!plans[k].ampr_needed) : !!plan && !!plan.ampr_needed;
-  const amprShown = !amprHidden && amprNeeded;
+  // A dump of a game not running yet (or of the next game): whether it needs
+  // the emulator is known only once it runs, so the choice is offered anyway.
+  const amprUnknown = !!dump && !(plan && plan.ampr_needed !== undefined);
+  const amprShown = !amprHidden && (amprNeeded || amprUnknown);
   const needs: Dep[] = [];
   for (const k of Object.keys(plans)) for (const d of plans[k].needs || []) if (!needs.some((x) => x.id === d.id)) needs.push(d);
 
@@ -362,7 +365,8 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump
     ["after", afterBits.join(" · "), ""],
   ];
   const notes = <>
-    <div class="note" hidden={!amprShown}>{!amprShown ? "" : many ? (ampr ? t("Games that use the console's APR and ship no emulator get ampr_emu in their fakelib.")
+    <div class="note" hidden={!amprShown}>{!amprShown ? "" : amprUnknown ? (ampr ? t("The AMPR emulator goes in only if the game turns out to use the console's APR; the engine can tell once the game runs.")
+        : t("No AMPR emulator, even if the game turns out to use the console's APR.")) : many ? (ampr ? t("Games that use the console's APR and ship no emulator get ampr_emu in their fakelib.")
         : t("Some of these games use the console's APR and ship no emulator: without it, they will likely stop at start."))
       : ampr ? t("This game uses the console's APR and ships no emulator: ampr_emu goes into its fakelib.")
       : t("This game uses the console's APR and ships no emulator: without it, it will likely stop at start.")}</div>

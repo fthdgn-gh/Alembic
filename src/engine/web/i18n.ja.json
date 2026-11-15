@@ -997,5 +997,8 @@
  "dumping a game works only on the console": "ゲームのダンプはコンソールでのみ可能です",
  "another engine cannot dump this console's games": "別のエンジンからこのコンソールのゲームはダンプできません",
  "no game {id} on this console": "このコンソールにゲーム {id} はありません",
- "no game is running any more": "起動中のゲームがなくなりました"
+ "no game is running any more": "起動中のゲームがなくなりました",
+ "Downloading components": "コンポーネントをダウンロードしています",
+ "The AMPR emulator goes in only if the game turns out to use the console's APR; the engine can tell once the game runs.": "AMPR エミュレーターは、ゲームが本体の APR を使う場合にだけ追加されます。ゲームの起動後にエンジンが判断します。",
+ "No AMPR emulator, even if the game turns out to use the console's APR.": "ゲームが本体の APR を使う場合でも、AMPR エミュレーターは追加しません。"
 }

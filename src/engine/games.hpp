@@ -91,7 +91,8 @@ private:
 class ProgressSteps {
 public:
     explicit ProgressSteps(std::int64_t min_gap = 15) : min_gap_(min_gap) {}
-    // The percentage to show now, if any.
+    // The progress to show now, if any, in thousandths (one decimal of a
+    // percentage: owner).
     std::optional<int> update(std::uint64_t job, const std::string& stage, std::uint64_t done, std::uint64_t total,
                               std::int64_t now);
     void forget(std::uint64_t job);

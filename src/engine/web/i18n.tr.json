@@ -997,5 +997,8 @@
  "dumping a game works only on the console": "oyun dökümü yalnızca konsolda alınabilir",
  "another engine cannot dump this console's games": "başka bir motor bu konsolun oyunlarının dökümünü alamaz",
  "no game {id} on this console": "bu konsolda {id} oyunu yok",
- "no game is running any more": "artık açık oyun yok"
+ "no game is running any more": "artık açık oyun yok",
+ "Downloading components": "Bileşenler indiriliyor",
+ "The AMPR emulator goes in only if the game turns out to use the console's APR; the engine can tell once the game runs.": "AMPR öykünücüsü yalnızca oyun konsolun APR'sini kullanıyorsa eklenir; motor bunu oyun çalışınca anlar.",
+ "No AMPR emulator, even if the game turns out to use the console's APR.": "Oyun konsolun APR'sini kullansa bile AMPR öykünücüsü eklenmez."
 }
