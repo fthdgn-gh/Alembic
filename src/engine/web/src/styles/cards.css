@@ -31,3 +31,15 @@
 .card .err { font-size: .88rem; margin-top: .5rem; word-break: break-word; }
 /* A release's notes (Settings > Updates): its own text, kept as written. */
 .notes { white-space: pre-wrap; font-size: .85rem; color: var(--muted); max-height: 16rem; overflow-y: auto; margin-top: .6rem; padding: .6rem .8rem; background: var(--bg2); border-radius: .6rem; }
+/* A job's steps (JobCard.tsx Steps): done ones ticked, the current one with its percentage, later ones grey. */
+.steps { display: flex; flex-wrap: wrap; align-items: center; margin-top: .7rem; font-size: .85rem; color: var(--dim); }
+.steps .st { display: inline-flex; align-items: center; margin: .15rem 1.1rem .15rem 0; white-space: nowrap; }
+.steps .st .m { display: inline-block; width: 1.25rem; height: 1.25rem; border-radius: 50%; border: 1px solid var(--line2); font-size: .7rem; line-height: 1.15rem; text-align: center; margin-right: .45rem; flex: 0 0 auto; }
+.steps .st.done { color: var(--muted); }
+.steps .st.done .m { border-color: var(--ok); color: var(--ok); }
+.steps .st.cur { color: var(--text); font-weight: 600; }
+.steps .st.cur .m { background: var(--accent); border-color: var(--accent); color: #fff; }
+.steps .st.fail { color: var(--bad); }
+.steps .st.fail .m { border-color: var(--bad); color: var(--bad); }
+.steps .st .p { color: var(--accent); margin-left: .4rem; }
+.steps.quiet .st.cur .m { background: none; color: var(--accent); }

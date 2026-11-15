@@ -11,6 +11,13 @@ import { showTab } from "../../input/history";
 import { browse } from "../files/browse";
 import { toggleHidden } from "../files/actions";
 import { jobText, cpText } from "./jobText";
+import { focusEl } from "../../input/focus";
+
+// Opens the Queue on a job of this engine's (a dump already queued for a game).
+export function showJob(id: number) {
+  showTab("queue");
+  setTimeout(() => focusEl(document.querySelector('[data-key="j' + id + '"]') as HTMLElement | null), 60);
+}
 
 export async function jobActions(j: Job) {
   const r = j.result || {}, items: { label: string; value: string; sub?: string | null; danger?: boolean }[] = [];

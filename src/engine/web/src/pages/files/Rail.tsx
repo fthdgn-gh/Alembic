@@ -10,6 +10,10 @@ import { t, placeLabel } from "../../lib/i18n";
 import { ICONS } from "../../components/Icons";
 import { browse } from "./browse";
 import { toast } from "../../components/Toasts";
+import { runningGames, versionText, dumpJobOf, isPs4 } from "../../state/games";
+import { jobs } from "../../state/jobs";
+import { showJob } from "../queue/jobActions";
+import { openDump } from "../../dialogs/ConvertDialog";
 
 function RailItem(props: { k: string; on: boolean; title: string; icon: keyof typeof ICONS; name: string; onClick: () => void; dim?: boolean; children?: any }) {
   return (
@@ -28,6 +32,7 @@ const within = (root: string) => { const r = cwd.value ? rootOf(cwd.value) : nul
 
 export function Rail() {
   const c = cwd.value;
+  const dumpable = runningGames.value.filter((g) => !isPs4(g.title_id)); // the running game, unless a PS4 one
   // Places: this engine's, then paired engines' (the ones added by hand and
   // the ones they suggest, like a PS5's homebrew folder; not their drives,
   // listed above), each with the engine's name under it.
@@ -41,6 +46,17 @@ export function Rail() {
   const offline = ((peers.value && peers.value.engines) || []).filter((e) => e.paired && e.offline && !peerDrives.value.some((d) => d.id === e.id));
   return (
     <nav class="rail scroll" id="rail" data-zone="rail" data-column>
+      {/* The game running now: a shortcut to dumping it (as Images' Running now). */}
+      {dumpable.length ? <h3>{t("Running now")}</h3> : null}
+      {dumpable.map((g) => {
+        const job = dumpJobOf(jobs.value, g.title_id); // already queued: to that job
+        return (
+          <RailItem k={"g:" + g.title_id} on={false} title={g.title_id} icon="game" name={g.title || g.title_id}
+            onClick={() => (job ? showJob(job.id) : openDump({ id: g.title_id, title: g.title, version: g.version, icon: g.icon, running: true }))}>
+            <div class="free ellip">{(job ? t(job.state) : t("Dump…")) + (g.version ? "  ·  v" + versionText(g.version) : "")}</div>
+          </RailItem>
+        );
+      })}
       <h3>{t("Drives")}</h3>
       {space.value.map((s) => (
         <RailItem k={"r:" + s.root} on={within(s.root)} title={s.root} icon={/usb|ext/.test(s.root) ? "usb" : "drive"} name={driveName(s.root)} onClick={() => browse(s.root)}>

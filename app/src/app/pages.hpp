@@ -80,6 +80,7 @@ private:
     float poll_at_ = 0.0f;
     std::size_t active_before_ = 0;     // jobs running last frame: one ending reads the folders again
     bool focus_first_ = true;           // the first game takes the focus once the list is there
+    bool games_asked_ = false;          // the console's games asked for since the tab opened
 };
 
 class QueuePage {

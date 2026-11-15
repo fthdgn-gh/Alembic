@@ -400,6 +400,15 @@ engines can't reach it then.
   them all, each keeping its own kind.
 - **Free up space after converting:** **Delete the source when done**
   compares the result with the source file by file before deleting it.
+- **Dump a game from the console:** the game must be installed, or its
+  disc in. In **Images → Dump a game**: **Dump…** on the game running now,
+  **Installed games… → Dump when launched…** for one you start later, or
+  **Dump the next game that starts…**. The dump starts once the game has run
+  for 30 seconds, fake-signs its executables and writes the format you
+  chose. Keep the game running until it finishes: closing it pauses the
+  dump, which continues when you start the game again. Opening the Alembic
+  app closes the running game, so from the app queue dumps ahead. The Queue
+  shows each job's steps. PS4 games cannot be dumped yet.
 
 ### Tips
 

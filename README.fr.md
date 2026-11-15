@@ -452,6 +452,16 @@ cet ordinateur ; les autres moteurs ne peuvent alors plus l'atteindre.
 - **Libérer de la place après une conversion :** **Supprimer la source à la
   fin** compare le résultat à la source, fichier par fichier, avant de la
   supprimer.
+- **Copier un jeu depuis la console :** le jeu doit être installé, ou son
+  disque inséré. Dans **Images → Copier un jeu** : **Copier…** sur le jeu en
+  cours d'exécution, **Jeux installés… → Copier au lancement…** pour un jeu
+  que vous lancerez plus tard, ou **Copier le prochain jeu lancé…**. La
+  copie commence quand le jeu tourne depuis 30 secondes, signe ses
+  exécutables en fake et écrit le format choisi. Laissez le jeu ouvert
+  jusqu'à la fin : le fermer met la copie en pause, et elle reprend quand
+  vous relancez le jeu. Ouvrir l'app Alembic ferme le jeu en cours, donc
+  depuis l'app mettez les copies en file à l'avance. La file montre les
+  étapes de chaque tâche. Les jeux PS4 ne peuvent pas encore être copiés.
 
 ### Conseils
 

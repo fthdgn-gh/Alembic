@@ -361,7 +361,8 @@ void App::refresh_jobs(bool remote_now) {
                 if (!newest || j["finished"].number() > (*newest)["finished"].number()) newest = &j;
             }
             if (newest) {
-                const std::string name = base((*newest)["spec"]["input"].str());
+                const std::string name = (*newest)["spec"]["game"].str().empty() ? base((*newest)["spec"]["input"].str())
+                                                                                  : dump_title(*newest);
                 if ((*newest)["state"].str() == "done") toast(t("Finished: {name}", {{"name", name}}), Toast::ok);
                 if ((*newest)["state"].str() == "failed") toast(t("Failed: {name}", {{"name", name}}), Toast::bad);
                 if (!cwd.empty() && overlays_.empty()) refresh_listing();
@@ -560,7 +561,17 @@ std::uint32_t App::icon(const std::string& path, std::int64_t mtime) {
     auto it = icons_.find(key);
     if (it != icons_.end()) return it->second.texture;
     icons_[key] = IconSlot{};
-    icon_queue_.push_back({key, path + "|" + std::to_string(mtime)});
+    icon_queue_.push_back({key, url("/api/icon", {{"path", path}, {"v", std::to_string(mtime)}})});
+    pump_icons();
+    return 0;
+}
+
+std::uint32_t App::game_icon(const std::string& id) {
+    const std::string key = "game:" + id;
+    auto it = icons_.find(key);
+    if (it != icons_.end()) return it->second.texture;
+    icons_[key] = IconSlot{};
+    icon_queue_.push_back({key, url("/api/games/icon", {{"id", id}})});
     pump_icons();
     return 0;
 }
@@ -569,12 +580,11 @@ std::uint32_t App::icon(const std::string& path, std::int64_t mtime) {
 void App::pump_icons() {
     while (icons_active_ < 2 && !icon_queue_.empty()) {
         const std::string key = icon_queue_.front().first;
-        const std::string spec = icon_queue_.front().second;
+        const std::string where = icon_queue_.front().second;
         icon_queue_.erase(icon_queue_.begin());
-        const std::size_t bar = spec.rfind('|');
         ++icons_active_;
         engine.fetch(
-            url("/api/icon", {{"path", spec.substr(0, bar)}, {"v", spec.substr(bar + 1)}}),
+            where,
             [](int status, std::string& body) {
                 Image img;
                 if (status == 200 && decode_png(body, 128, &img))
@@ -594,6 +604,63 @@ void App::pump_icons() {
                 pump_icons();
             });
     }
+}
+
+// ---------------------------------------------------------------- the console's games
+
+void App::load_running_games() {
+    if (!is_ps5()) {
+        running_games = JsonValue::array();
+        return;
+    }
+    get("/api/games/running", [this](const Reply& r) {
+        // An older engine has none (404): nothing to show.
+        running_games = r.ok() && r.json["games"].type() == JsonValue::Type::array ? r.json["games"] : JsonValue::array();
+    });
+}
+
+void App::load_installed_games(std::function<void()> done) {
+    if (!is_ps5()) {
+        installed_games = JsonValue();
+        if (done) done();
+        return;
+    }
+    get("/api/games/installed", [this, done](const Reply& r) {
+        installed_games = r.ok() && r.json.is_object() ? r.json : JsonValue();
+        if (done) done();
+    });
+}
+
+const JsonValue* App::game_info(const std::string& id) {
+    if (id.empty() || id == "next") return nullptr;
+    auto it = game_infos_.find(id);
+    if (it == game_infos_.end()) {
+        game_infos_[id] = JsonValue();
+        get(url("/api/games/info", {{"id", id}}), [this, id](const Reply& r) {
+            if (r.ok() && r.json.is_object()) game_infos_[id] = r.json;
+        });
+        return nullptr;
+    }
+    return it->second.is_object() ? &it->second : nullptr;
+}
+
+std::string App::dump_title(const JsonValue& j) {
+    const std::string id = j["spec"]["game"].str();
+    if (id == "next") return t("Next game that starts");
+    // Another engine's dumps are not this engine's games: their ID only.
+    const JsonValue* g = j["engine"].is_object() ? nullptr : game_info(id);
+    return g && !(*g)["title"].str().empty() ? (*g)["title"].str() : id;
+}
+
+const JsonValue* App::dump_job_of(const std::string& id) const {
+    for (const auto& j : jobs)
+        if (!j["engine"].is_object() && j["spec"]["game"].str() == id && is_active(j)) return &j;
+    return nullptr;
+}
+
+void App::show_job(std::int64_t id) {
+    focus_job = std::to_string(id);
+    show_tab(Tab::queue);
 }
 
 void App::clear_meta() {
@@ -714,6 +781,12 @@ void App::tick(float dt) {
     }
     toasts_.erase(std::remove_if(toasts_.begin(), toasts_.end(), [](const ToastItem& t) { return t.left <= 0; }),
                   toasts_.end());
+    // The game running now, every five seconds in Images and Files (they offer to dump it).
+    games_timer_ += dt;
+    if (games_timer_ >= 5.0f) {
+        games_timer_ = 0.0f;
+        if (answered && overlays_.empty() && (tab == Tab::images || tab == Tab::files)) load_running_games();
+    }
     jobs_timer_ += dt;
     if (jobs_timer_ >= 1.0f) {
         jobs_timer_ = 0.0f;

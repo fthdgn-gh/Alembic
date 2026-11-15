@@ -4365,6 +4365,34 @@ john-tornblom's klogsrv (port 3232) while launching.
     JSON `steps` [{id, label}], `step` (its size when done) and `overall`
     (thousandths, never going back during a run; reset when a job starts
     over). Dump toasts now say "45%, step 3 of 4: Write the image".
+- **Slice 3 built (2026-11-15, page and app, not console-tested):** Images
+  opens with **Dump a game** on a console engine: the game running now
+  (`/api/games/running`, asked every 5 s in Images and Files) with
+  **Dump…**, **Dump the next game that starts…** and **Installed games…**
+  (a sheet of `/api/games/installed`: **Dump when launched…**, PS4 games
+  greyed with the engine's `why`). A game whose dump is queued leads to
+  that job in the Queue instead. Files' rail has the running game as a
+  shortcut. The dump dialog is Convert with a game as its source
+  (`openDump` / `App::open_dump`): no inspect, no Afterwards step, no
+  "next to the source" or "Convert on", Name hidden for "next"; Review says
+  to keep the game running. Its folder is remembered as `dumpDest`, apart
+  from Convert's `dest` and `convertOn`. A running PS4 game is listed
+  greyed (the engine refuses it) and left out of Files. Queue cards of dumps show the game by title ID
+  (`/api/games/info`, cached; another engine's dump shows its ID only) and
+  their stage while waiting; every job with more than one step lists them
+  while it waits or runs (or where it failed); the bar is `overall`. Older
+  engines: no steps, today's bar; a 404 from `/api/games/*` hides the
+  section. The stand-in engine (`tools/screenshots/mock.mjs`) has invented
+  games, a running dump, one waiting for its game and one for the next game
+  (`MOCK_RUNNING_DUMP=0`, `MOCK_DUMPS=0` leave them out), a dump that
+  failed in its last step, PNG game icons for the app, and `MOCK_LANG`.
+  Checked against a real PC engine too (steps, `overall`, a failed job,
+  the Dump section hidden). Open points for the engine: a next-game dump
+  is queued without `needs` (components are not asked for), and a dump of
+  a game that is not running cannot say whether it needs the AMPR
+  emulator, so the switch is hidden then ("auto" is sent). Not tried on the console yet: any of it, in the page and in
+  the app; the README screenshots are not redone (`shoot.sh` now draws the
+  dump section and dump jobs; their alt texts need the same change).
 - **Console runs (2026-11-15, owner), slice 1:** a dump queued by title
   ID while the game was closed waited ("Waiting for the game to start"),
   started once the game had run 30 s, and wrote an FFPKG that starts. A

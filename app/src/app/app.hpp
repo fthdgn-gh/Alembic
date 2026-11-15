@@ -172,6 +172,26 @@ public:
     std::uint32_t icon(const std::string& path, std::int64_t mtime);
     void clear_meta();
 
+    // ---- the console's games, for dumping (state/games.ts; engines from 0.6.6) ----
+    JsonValue running_games = JsonValue::array();  // GET /api/games/running's list
+    JsonValue installed_games;                     // GET /api/games/installed; null when none (a PC engine, an older one)
+    void load_running_games();
+    void load_installed_games(std::function<void()> done = nullptr);
+    // A game's title, version and icon by title ID (null while asked, or when none).
+    const JsonValue* game_info(const std::string& id);
+    std::uint32_t game_icon(const std::string& id);  // its icon as a texture, 0 until loaded
+    // A dump's game in words: its title, else its title ID; the placeholder for "next".
+    std::string dump_title(const JsonValue& j);
+    // This engine's dump of a title (or of "next") queued, running or paused; nullptr when none.
+    const JsonValue* dump_job_of(const std::string& id) const;
+    // Opens the Queue on a job of this engine's.
+    void show_job(std::int64_t id);
+    std::string focus_job;  // the Queue focuses this job (job_key) when it draws it
+    // The dump dialog (Convert for a game of the console's): `id` a title ID or "next".
+    void open_dump(const std::string& id, const std::string& title, const std::string& version, bool icon, bool running);
+    // "Installed games": every installed game, to dump when launched.
+    void open_installed_games();
+
     // ---- Files (pages/files/browse.ts) ----
     std::string cwd;
     std::vector<Entry> entries;
@@ -278,7 +298,9 @@ private:
     int meta_active_ = 0;
     std::map<std::string, IconSlot> icons_;
     int icons_active_ = 0;
-    std::vector<std::pair<std::string, std::string>> icon_queue_;  // key, path
+    std::vector<std::pair<std::string, std::string>> icon_queue_;  // key, URL
+    std::map<std::string, JsonValue> game_infos_;  // by title ID (null: asked, or none)
+    float games_timer_ = 0.0f;
 
     // jobs.ts bookkeeping
     struct Speed {

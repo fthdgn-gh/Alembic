@@ -23,6 +23,7 @@ import { watchIncoming } from "./pages/settings/Engines";
 import { noticeUpdate } from "./pages/settings/Updates";
 import "./input/controller"; // the controller's keys and buttons
 import { depth } from "./input/history";
+import { loadRunning } from "./state/games";
 
 applyScale();
 window.addEventListener("resize", applyScale);
@@ -38,12 +39,15 @@ loadTranslations(lang.value).then(() => {
     const home = homeTab();
     if (home !== tab.value && depth() === 0) { tab.value = home; history.replaceState({ view: home, path: TOP, depth: 0 }, ""); }
     browse(TOP, false);
+    loadRunning();
   })
     .catch((e) => { notConnected.value = t("Engine not reachable: {error}", { error: tMsg(e.message) }); browse(TOP, false); });
   refreshJobs();
   setInterval(refreshJobs, 1000);
   setInterval(() => loadInfo().catch(() => {}), 15000);
   setInterval(() => watchIncoming().catch(() => {}), 2000);
+  // The game running now (Images and Files offer to dump it).
+  setInterval(() => { if ((tab.value === "images" || tab.value === "files") && !document.hidden) loadRunning(); }, 5000);
   // A newer release (the engine checks GitHub at start): said once per version.
   effect(() => noticeUpdate(info.value));
 });

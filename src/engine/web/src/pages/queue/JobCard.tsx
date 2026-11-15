@@ -13,11 +13,14 @@ import { Ico } from "../../components/Icons";
 import { isShared, isSharedHere } from "../files/shares";
 import { jobText, cpPct, cpText } from "./jobText";
 import { jobActions } from "./jobActions";
+import { gameInfo, gameInfoVersion, gameIconUrl, versionText } from "../../state/games";
 
 // The game's title, title ID, version and icon, as in the file list: read
 // from the input, or from the output once the input is gone.
+// A dump's game comes by title ID instead (its input is the game's mounted tree).
 function useJobMeta(j: Job): (Meta & { from: string }) | null {
   const [m, setM] = useState<(Meta & { from: string }) | null>(null);
+  const dump = !!j.spec.game;
   const out = j.result && j.result.output ? j.result.output : null;
   const second = j.state === "done" && out && out !== j.spec.input ? out : null;
   useEffect(() => {
@@ -26,23 +29,55 @@ function useJobMeta(j: Job): (Meta & { from: string }) | null {
       if (!live) return;
       if (x) setM(Object.assign({ from: path }, x)); else if (next) tryPath(next, null);
     });
-    if (!m) tryPath(j.spec.input, second);
+    if (!m && !dump) tryPath(j.spec.input, second);
     return () => { live = false; };
   }, [j.spec.input, second]);
   return m;
 }
 
+// The job's steps (engines from 0.6.6): done ones ticked, the current one
+// with its own percentage, later ones grey; where a failed job stopped.
+function Steps(props: { j: Job; pct: number }) {
+  const j = props.j, list = j.steps || [], at = j.step == null ? -1 : j.step;
+  return (
+    <div class={"steps" + (j.state === "running" ? "" : " quiet")}>
+      {list.map((st, i) => {
+        const cls = i < at ? "done" : i === at ? (j.state === "failed" ? "fail" : "cur") : "";
+        const mark = i < at ? "✓" : i === at && j.state === "failed" ? "✕" : String(i + 1);
+        return (
+          <span class={"st " + cls}>
+            <span class="m">{mark}</span>{t(st.label)}
+            {i === at && j.state === "running" && j.total ? <span class="p">{t("{n}%", { n: Math.floor(props.pct) })}</span> : null}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 export function JobCard(props: { j: Job }) {
   const j = props.j, s = j.spec, r = j.result || {}, jt = jobText(j);
   const m = useJobMeta(j);
+  // A dump: its game by title ID (this engine's games only), or the next-game placeholder.
+  gameInfoVersion.value;
+  const next = s.game === "next";
+  const g = s.game && !next && !j.engine ? gameInfo(s.game) : null;
   const pct = j.total ? Math.min(100, 100 * j.done / j.total) : 0;
+  // The bar is the whole job when the engine says how far (every step an equal share).
+  const overall = j.overall != null && j.steps && j.steps.length ? j.overall / 10 : null;
+  const barPct = overall != null ? overall : pct;
+  // Steps worth listing: more than one, while it waits or runs, or the step a job failed in.
+  const showSteps = !!j.steps && j.steps.length > 1 && (isActive(j) || (j.state === "failed" && j.step != null && j.step >= 0));
   let detail = "";
   if (j.state === "running") {
     const rate = rateOf(j);
-    detail = [t(j.stage), j.total ? t("{n}%", { n: pct.toFixed(1) }) : "", rate > 1 ? bytes(rate) + "/s" : "",
+    detail = [t(j.stage), overall != null ? t("{n}%", { n: overall.toFixed(1) }) : j.total ? t("{n}%", { n: pct.toFixed(1) }) : "", rate > 1 ? bytes(rate) + "/s" : "",
       rate > 1 && j.total ? t("{time} left", { time: duration((j.total - j.done) / rate) }) : "", j.elapsed != null ? t("{time} so far", { time: duration(j.elapsed) }) : ""].filter(Boolean).join("  ·  ");
   } else if (j.state === "done") {
     detail = [tMethod(r.method), r.output_bytes ? bytes(r.output_bytes) : "", j.elapsed != null ? duration(j.elapsed) : "", r.source_deleted ? t("source deleted") : ""].filter(Boolean).join("  ·  ");
+  } else if (j.state === "queued" && s.game && j.stage) {
+    // A dump waits for its game (or its game closed): the engine says which.
+    detail = [t(j.stage), cpText(j) ? t("Continues from {p}", { p: cpText(j) }) : ""].filter(Boolean).join("  ·  ");
   } else if (j.state === "queued") detail = cpText(j) ? t("Waiting · continues from {p}", { p: cpText(j) }) : t("Waiting for the job before it");
   else if (j.state === "paused") detail = cpText(j) ? t("Paused at {p} · resume to continue", { p: cpText(j) }) : t(j.stage || "Paused");
   else detail = j.finished ? date(j.finished) : "";
@@ -58,20 +93,23 @@ export function JobCard(props: { j: Job }) {
   const notes = r.lz4 && r.lz4.profile && r.lz4.profile.notes ? r.lz4.profile.notes : [];
   const kind = s.kind === "convert" ? s.to : s.kind;
   const conv = CONVERTIBLE.indexOf(kind) >= 0;
-  const sub = m ? [base(s.input), m.version ? "v" + m.version.replace(/^0+(?=\d)/, "") : "", m.title_id].filter(Boolean).join("  ·  ") : "";
+  const sub = s.game ? (next ? "" : [g && g.version ? "v" + versionText(g.version) : "", s.game].filter(Boolean).join("  ·  "))
+    : m ? [base(s.input), m.version ? "v" + m.version.replace(/^0+(?=\d)/, "") : "", m.title_id].filter(Boolean).join("  ·  ") : "";
+  const icon = s.game ? (g && g.icon ? gameIconUrl(s.game) : null) : m && m.icon ? iconUrl({ path: m.from, mtime: 0 }) : null;
   return (
     <div class="card click" tabIndex={0} data-key={"j" + jobKey(j)} onClick={() => jobActions(j)}>
       <div class="hd">
-        <Ico kind={conv ? kind : "folder"} label={KIND_LABEL[kind]} icon={m && m.icon ? iconUrl({ path: m.from, mtime: 0 }) : null} />
+        <Ico kind={s.game ? "game" : conv ? kind : "folder"} label={s.game ? t("GAME") : KIND_LABEL[kind]} icon={icon} />
         <div style="min-width:0;flex:1">
-          <div class="ttl ellip">{m && m.title ? m.title : jt.title}</div>
-          {m ? <div class="s ellip"><PlatformPill meta={m} />{sub}</div> : null}
+          <div class="ttl ellip">{!s.game && m && m.title ? m.title : jt.title}</div>
+          {s.game ? (sub ? <div class="s ellip">{sub}</div> : null) : m ? <div class="s ellip"><PlatformPill meta={m} />{sub}</div> : null}
           <div class="to mono ellip">{jt.to}</div>
         </div>
         <span class={"state " + j.state}>{t(j.state)}</span>
       </div>
-      {j.state === "running" ? <div class={"pbar" + (j.total ? "" : " indet")}><div style={"width:" + pct + "%"} /></div>
+      {j.state === "running" ? <div class={"pbar" + (j.total || overall != null ? "" : " indet")}><div style={"width:" + barPct + "%"} /></div>
         : cpText(j) && isActive(j) ? <div class="pbar" style="opacity:.5"><div style={"width:" + cpPct(j) + "%"} /></div> : null}
+      {showSteps ? <Steps j={j} pct={pct} /> : null}
       <div class="line"><span>{detail}</span><span>{tags.map((x) => <span class="tag">{x}</span>)}</span></div>
       {r.ampr_emulator ? <div class="line">{t("AMPR emulator added: {path}", { path: shownPath(r.ampr_emulator) })}</div> : null}
       {r.source_hidden ? <div class="line">{t("Source hidden from ShadowMount+ as {name}", { name: base(r.source_hidden) })}</div> : null}

@@ -442,6 +442,16 @@ entonces los demás motores no pueden contactar con él.
   tipo.
 - **Liberar espacio tras convertir:** **Borrar el origen al terminar**
   compara el resultado con el origen archivo por archivo antes de borrarlo.
+- **Volcar un juego desde la consola:** el juego debe estar instalado, o
+  su disco dentro. En **Imágenes → Volcar un juego**: **Volcar…** en el
+  juego en ejecución, **Juegos instalados… → Volcar al iniciarlo…** para uno
+  que inicies después, o **Volcar el próximo juego que se inicie…**. El
+  volcado empieza cuando el juego lleva 30 segundos abierto, firma en falso
+  sus ejecutables y escribe el formato elegido. Mantén el juego abierto hasta
+  que termine: cerrarlo pausa el volcado, que continúa al volver a iniciar el
+  juego. Abrir la app de Alembic cierra el juego en ejecución, así que desde
+  la app pon los volcados en cola de antemano. La cola muestra los pasos de
+  cada tarea. Los juegos de PS4 aún no se pueden volcar.
 
 ### Consejos
 

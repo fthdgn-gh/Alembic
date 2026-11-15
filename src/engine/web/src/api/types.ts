@@ -137,6 +137,7 @@ export interface Spec {
   verify: boolean;
   overwrite: boolean;
   ampr_emu: string;
+  game?: string; // a dump: the game's title ID, or "next" until a game starts (0.6.6)
 }
 
 export interface JobResult {
@@ -172,7 +173,21 @@ export interface Job {
   checkpoint?: { done: number; total: number };
   engine?: { id: string; name: string }; // a job on another engine
   raw?: Job; // that job with its own paths, as its engine sent it
+  // Its steps (engines from 0.6.6): labels in English, `step` the one it is
+  // at (steps.length when done, -1 none yet), `overall` the whole job in thousandths.
+  steps?: { id: string; label: string }[];
+  step?: number;
+  overall?: number;
 }
+
+// Games on the console (0.6.6): GET /api/games/running, /api/games/installed, /api/games/info.
+export interface RunningGame { title_id: string; title: string; version: string; icon: boolean; settled: boolean; pid: number; update: boolean }
+export interface InstalledGame {
+  title_id: string; title: string; version: string; icon: boolean; running: boolean; update: boolean;
+  dumpable: boolean; why?: string; job?: number; // a dump of it queued, running or paused
+}
+export interface InstalledGames { games: InstalledGame[]; next_job: number; supported: boolean }
+export interface GameInfo { title_id: string; title: string; version: string; icon: boolean; running: boolean }
 
 export interface DepFile { path: string; url: string; sha256: string; size: number }
 export interface Dep {

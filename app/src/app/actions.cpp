@@ -785,6 +785,14 @@ class Convert : public Overlay {
 public:
     Entry entry;                 // the first (or only) one
     std::vector<Entry> entries;  // several games (a selection): a job each
+    // A dump (open_dump): the source is a game of the console's by title ID
+    // ("next": the next game that starts), and nothing is deleted, hidden or installed.
+    bool dump = false;
+    std::string game_id, game_title, game_version;
+    bool game_icon = false, game_running = false;
+    bool next() const { return dump && game_id == "next"; }
+    // Plans are kept by the source's path (a dump's stand-in path).
+    std::string key_of(const JsonValue& sp) const { return dump ? entry.path : sp["input"].str(); }
     std::map<std::string, JsonValue> inspects;    // by path
     std::map<std::string, std::string> problems;  // by path: could not be read
     std::map<std::string, JsonValue> plans;       // by path, for plan_key
@@ -830,6 +838,7 @@ public:
 
     void start(App& app) {
         started = true;
+        if (dump) return;  // nothing to read: the game is read once it runs
         const int k = key;
         for (const auto& e : entries) {
             const std::string path = e.path;
@@ -866,6 +875,7 @@ public:
     }
     bool any_shared() const { return std::any_of(entries.begin(), entries.end(), [](const Entry& e) { return e.shared; }); }
     bool any_ps4(App& app) const {
+        if (dump) return false;  // PS4 games are not dumped
         for (const auto& e : entries)
             if (const Meta* m = app.meta(e.path, e.mtime, e.size); m && m->platform == "ps4") return true;
         return false;
@@ -892,7 +902,7 @@ public:
     }
 
     // A PS5 package can go straight to the console's installer.
-    bool installable(App& app) const { return to == "fpkg" && app.is_ps5() && !any_ps4(app); }
+    bool installable(App& app) const { return to == "fpkg" && app.is_ps5() && !any_ps4(app) && !dump; }
 
     // The games that get a job: several games leave out those already in the target format.
     std::vector<Entry> work(App& app) {
@@ -931,6 +941,31 @@ public:
         for (const auto& pr : app.info["lz4_profiles"].items()) profiles.push_back(pr["id"].str());
         profiles.push_back("scan");
         JsonValue s = JsonValue::object();
+        if (dump) {
+            // A dump names its game, not an input (the engine reads the game's tree).
+            s.set("kind", "convert");
+            s.set("game", game_id);
+            s.set("to", target);
+            s.set("output_dir", dest);
+            std::string n = next() ? std::string() : name;
+            while (!n.empty() && n.back() == ' ') n.pop_back();
+            s.set("output_name", n);
+            s.set("level", levels[std::clamp(level, 0, 2)]);
+            s.set("pkg_compression", pkg_comp == 1 ? "kraken" : "stored");
+            s.set("lz4", lz4_on);
+            s.set("lz4_profile", profiles[static_cast<std::size_t>(std::clamp(profile, 0, static_cast<int>(profiles.size()) - 1))]);
+            s.set("lz4_level", lz4_levels[std::clamp(lz4_level, 0, 2)]);
+            if (zstd_on) {
+                static const int zstd_levels[] = {1, 5, 19};
+                s.set("zstd", true);
+                s.set("zstd_level", zstd_levels[std::clamp(zstd_level, 0, 2)]);
+            }
+            s.set("overwrite", over);
+            s.set("ampr_emu", ampr ? "auto" : "off");
+            if (bc1) s.set("bc1_pictures", true);
+            if (key_out) *key_out = s.dump();
+            return s;
+        }
         s.set("input", e.path);
         s.set("to", target);
         s.set("output_dir", dest);
@@ -971,7 +1006,7 @@ public:
         JsonValue needs = JsonValue::array();
         std::vector<std::string> need_ids;
         for (const auto& sp : all) {
-            auto it = plans.find(sp["input"].str());
+            auto it = plans.find(key_of(sp));
             if (it == plans.end()) continue;
             todo.push_back(sp);
             for (const auto& d : it->second["needs"].items())
@@ -984,13 +1019,14 @@ public:
         need_plan.set("needs", needs);
         busy = true;
         const auto choices = on_choices(app);
-        const bool where_hidden = choices.size() < 2 || any_shared();
+        const bool where_hidden = choices.size() < 2 || any_shared() || dump;  // a dump runs where its game is
         const std::string on = where_hidden ? "" : choices[static_cast<std::size_t>(std::clamp(where, 0, static_cast<int>(choices.size()) - 1))].first;
         const std::string engine_name =
             on.empty() ? "" : choices[static_cast<std::size_t>(std::clamp(where, 0, static_cast<int>(choices.size()) - 1))].second;
         const int k = key;
         const bool several = many();
-        auto submit = [this, &app, todo, on, engine_name, k, several] {
+        const bool next_dump = next();
+        auto submit = [this, &app, todo, on, engine_name, k, several, next_dump] {
             if (!app.overlay_alive(k)) return;
             struct Count {
                 std::size_t left = 0;
@@ -1001,10 +1037,11 @@ public:
             const std::string path = on.empty() ? "/api/jobs" : "/api/peers/" + url_encode(on) + "/jobs";
             const std::string dest_now = dest;
             for (const auto& sp : todo) {
-                const std::string input = sp["input"].str();
-                app.api("POST", path, sp, [this, &app, on, engine_name, k, several, count, input, dest_now](const Reply& r) {
+                const std::string input = key_of(sp);
+                app.api("POST", path, sp, [this, &app, on, engine_name, k, several, count, input, dest_now, next_dump](const Reply& r) {
+                    // A next-game dump has no output yet: its placeholder.
                     if (r.ok())
-                        count->outputs.push_back(base(r.json["spec"]["output"].str()));
+                        count->outputs.push_back(next_dump ? t("Next game that starts") : base(r.json["spec"]["output"].str()));
                     else
                         count->failed.push_back((several ? base(input) + ": " : std::string()) + t_msg(r.error()));
                     if (--count->left) return;
@@ -1015,10 +1052,16 @@ public:
                         msg_err = true;
                         return;
                     }
-                    app.prefs.set("dest", dest_now);
-                    app.prefs.set("convertOn", on);
+                    // A dump's folder is remembered apart: Convert keeps "next to the source" and its engine.
+                    if (dump) {
+                        app.prefs.set("dumpDest", dest_now);
+                    } else {
+                        app.prefs.set("dest", dest_now);
+                        app.prefs.set("convertOn", on);
+                    }
                     app.save_prefs();
                     app.close(this);
+                    if (dump) app.load_installed_games();
                     const std::string out = count->outputs.size() == 1
                                                 ? count->outputs[0]
                                                 : plural(static_cast<long long>(count->outputs.size()), "{n} job", "{n} jobs");
@@ -1061,7 +1104,7 @@ public:
             dest = v;
             if (!v.empty()) app.remember_folder(v);
         };
-        if (!any_shared()) {
+        if (!any_shared() && !dump) {  // a dump's source is the game: no folder next to it
             Choice c;
             c.label = many() ? t("Next to each source") : t("Next to the source");
             c.selected = dest.empty();
@@ -1118,7 +1161,7 @@ public:
         }
         Choice more;
         more.label = t("Choose a folder\xE2\x80\xA6");
-        const std::string from = dest.empty() ? dir(entry.path) : dest;
+        const std::string from = !dest.empty() ? dest : dump ? std::string("/data") : dir(entry.path);
         more.act = [&app, set, from] { app.open_dest(nullptr, "pick", from, set); };
         items.push_back(more);
         choose(app, t("Save to"), std::move(items));
@@ -1143,7 +1186,8 @@ public:
     std::string room(App& app) {
         if (plans.empty()) return "";
         auto it = plans.find(entry.path);
-        const std::string out = (it != plans.end() ? it->second : plans.begin()->second)["output"].str();
+        std::string out = (it != plans.end() ? it->second : plans.begin()->second)["output"].str();
+        if (out.empty() && dump) out = dest;  // a next-game dump is named only when a game starts: its folder
         double need = 0;
         for (const auto& e : work(app)) {
             auto in = inspects.find(e.path);
@@ -1207,7 +1251,7 @@ public:
                 msg.clear();
             };
             for (const auto& sp : all) {
-                const std::string input = sp["input"].str();
+                const std::string input = key_of(sp);
                 app.api("POST", "/api/plan", sp, [this, &app, k, want, got, left, input, finish](const Reply& r) {
                     if (!app.overlay_alive(k)) return;
                     if (want != requested_key) return;  // the choices changed meanwhile
@@ -1231,7 +1275,7 @@ public:
         const bool del_on = s["delete_source"].boolean();
         bool hide_hidden = true;
         for (const auto& e : entries)
-            hide_hidden = hide_hidden && (e.kind == "fpkg" || is_hidden_name(e.name) || del_on || target == "fpkg" || e.shared);
+            hide_hidden = hide_hidden && (e.kind == "fpkg" || is_hidden_name(e.name) || del_on || target == "fpkg" || e.shared || dump);
         const bool ampr_hidden = target == "fpkg" || packs_now == "lz4" || packs_now == "zstd";  // packs bring their emulator
         bool ampr_needed = false, any_unsigned = false;
         for (const auto& [path, p] : plans) {
@@ -1240,12 +1284,12 @@ public:
         }
         const bool ampr_shown = !ampr_hidden && ampr_needed;
         const auto choices = on_choices(app);
-        const bool where_hidden = choices.size() < 2 || any_shared();
+        const bool where_hidden = choices.size() < 2 || any_shared() || dump;
         const auto pchoices = pack_choices(app);
 
         // What each step holds; empty ones are left out.
         const bool comp_shown = target == "ffpfsc" || (target == "fpkg" && !any_ps4(app));
-        const bool del_shown = !any_shared() && !(installable(app) && install);
+        const bool del_shown = !any_shared() && !dump && !(installable(app) && install);
         const bool has_options = comp_shown || lz4_on || zstd_on || ampr_shown || !any_ps4(app); // PS5 games: the pictures switch
         const bool has_after = installable(app) || del_shown || !hide_hidden;
         steps_now.clear();
@@ -1264,11 +1308,13 @@ public:
 
         {
             // The game's name after the title.
-            const Meta* m0 = app.meta(entry.path, entry.mtime, entry.size);
-            sheet.title_aside = many() ? plural(static_cast<long long>(entries.size()), "{n} game", "{n} games")
-                                       : m0 && !m0->title.empty() ? m0->title : entry.name;
+            const Meta* m0 = dump ? nullptr : app.meta(entry.path, entry.mtime, entry.size);
+            sheet.title_aside = next() ? t("Next game that starts")
+                                : dump ? (game_title.empty() ? game_id : game_title)
+                                : many() ? plural(static_cast<long long>(entries.size()), "{n} game", "{n} games")
+                                : m0 && !m0->title.empty() ? m0->title : entry.name;
         }
-        sheet.begin(ui, installing ? t("Install") : t("Convert"), "", Sheet::Size::wide, true);
+        sheet.begin(ui, dump ? t("Dump") : installing ? t("Install") : t("Convert"), "", Sheet::Size::wide, true);
         const float x = sheet.x(), w = sheet.w();
         float y = sheet.content_top();
         {
@@ -1322,7 +1368,7 @@ public:
                     packs_want = pchoices[static_cast<std::size_t>(std::clamp(idx, 0, static_cast<int>(pchoices.size()) - 1))];
                     // Packs a game in its own format (exFAT stays exFAT) until a format is picked; a package is converted anyway.
                     const std::string own = one_format();
-                    if (!picked && !own.empty() && own != "fpkg") to = packs_want == now ? first_to : own;
+                    if (!picked && !dump && !own.empty() && own != "fpkg") to = packs_want == now ? first_to : own;
                 }
             }
             y += section(ui, many() ? t("Convert {n} games to", {{"n", std::to_string(entries.size())}}) : t("Convert to"),
@@ -1411,7 +1457,7 @@ public:
             bool pressed = false;
             y += link_row(ui, "cv:dest", x, y, w, t("Save to"), room(app), dest_label(app), &pressed);
             if (pressed) pick_dest(app);
-            if (!many()) {
+            if (!many() && !next()) {  // a next-game dump is named when a game starts
                 y -= 0.5f * R;
                 field_row(ui, app, "cv:name", x, &y, w, t("Name"), &name, plan.is_object() ? base(plan["output"].str()) : "");
                 y += 0.5f * R;
@@ -1486,8 +1532,8 @@ public:
                 return o;
             };
             const std::string engine = !where_hidden && where > 0 ? choices[static_cast<std::size_t>(std::clamp(where, 0, static_cast<int>(choices.size()) - 1))].second : "";
-            const bool out_known = many() ? !dest.empty() : plan.is_object();
-            const std::string out = many() || !plan.is_object() ? dest_label(app) : app.shown_path(plan["output"].str());
+            const bool out_known = many() ? !dest.empty() : plan.is_object() && !plan["output"].str().empty();
+            const std::string out = many() || !out_known ? dest_label(app) : app.shown_path(plan["output"].str());
             struct Line { std::string step, main, sub; bool mono; };
             std::vector<Line> lines = {
                 {"format", format_label(target), format_hint(target), false},
@@ -1540,7 +1586,17 @@ public:
                 for (const auto& wv : plan["warnings"].items()) warns += (warns.empty() ? "" : " ") + t_msg(wv.str());
                 ly += note(ui, warns, x, ly, lw);
             }
-            const float ry = many() ? many_side(ui, app, x + lw + gap, rw, y, target) : source_side(ui, app, x + lw + gap, rw, y);
+            // A dump: when it starts, and that the game must keep running.
+            if (dump) {
+                const std::string when = next() ? t("The dump takes the next game that starts, once it has run for 30 seconds.")
+                                         : !game_running ? t("The dump starts once you start the game and it has run for 30 seconds.")
+                                                         : std::string();
+                ly += note(ui, (when.empty() ? "" : when + " ") +
+                                   t("Keep the game running until the dump finishes; closing it pauses the dump until you start it again."),
+                           x, ly, lw);
+            }
+            const float ry = dump ? game_side(ui, app, x + lw + gap, rw, y)
+                             : many() ? many_side(ui, app, x + lw + gap, rw, y, target) : source_side(ui, app, x + lw + gap, rw, y);
             y = std::max(ly, ry);
         }
         sheet.end_body(ui, std::max(y, body_top + 22.0f * R));
@@ -1611,6 +1667,30 @@ public:
             rows.push_back({t("Title ID"), inspect["title_id"].str().empty() ? "\xE2\x80\x94" : inspect["title_id"].str(), ""});
             rows.push_back({t("Contents"), plural(inspect["files"].integer(), "{n} file", "{n} files") + " \xC2\xB7 " +
                                                bytes(inspect["bytes"].number()), ""});
+        }
+        yy += facts(ui, px, yy, pw, rows);
+        side_h = yy + 1.0f * R - top;
+        return top + side_h;
+    }
+
+    // A dump's game: icon, title, title ID, version, whether it runs. Returns the panel's bottom.
+    float game_side(Ui& ui, App& app, float sx, float rw, float top) {
+        const float px = sx + 1.1f * R, pw = rw - 2.2f * R;
+        float yy = top + 1.0f * R;
+        ui.list->bordered_rect({sx, top, rw, side_h}, 0.9f * R, side, 1.0f, line);
+        const Rect ic{px, yy, 3.6f * R, 3.6f * R};
+        draw::ico(ui, ic, "game", t("GAME"), !next() && game_icon ? app.game_icon(game_id) : 0);
+        const float hx = ic.x + ic.w + 0.9f * R, hw = pw - ic.w - 0.9f * R;
+        draw::text_fit(ui, Face::semibold, next() ? t("Next game that starts") : game_title.empty() ? game_id : game_title, hx,
+                       draw::baseline(ic.cy(), 1.05f * R), 1.05f * R, hw, style::text);
+        yy += 3.6f * R + 0.6f * R;
+        std::vector<Fact> rows;
+        if (next()) {
+            rows.push_back({t("Game"), t("Whichever game starts next on this console"), ""});
+        } else {
+            rows.push_back({t("Title ID"), game_id, ""});
+            rows.push_back({t("Version"), game_version.empty() ? "\xE2\x80\x94" : version_text(game_version), ""});
+            rows.push_back({t("Game"), game_running ? t("Running now") : t("Not running"), ""});
         }
         yy += facts(ui, px, yy, pw, rows);
         side_h = yy + 1.0f * R - top;
@@ -1711,6 +1791,35 @@ void App::open_convert(const std::vector<Entry>& list, bool install) {
     const auto choices = c->on_choices(*this);
     for (std::size_t i = 0; i < choices.size(); ++i)
         if (choices[i].first == on) c->where = static_cast<int>(i);
+    open(std::move(c));
+}
+
+void App::open_dump(const std::string& id, const std::string& title, const std::string& version, bool icon, bool running) {
+    auto c = std::make_unique<Convert>();
+    // Stands in for a source: a kind that is no format, so every format is a conversion.
+    Entry e;
+    e.name = title.empty() ? id : title;
+    e.path = "game:" + id;
+    e.kind = "file";
+    c->entry = e;
+    c->entries = {e};
+    c->dump = true;
+    c->game_id = id;
+    c->game_title = title;
+    c->game_version = version;
+    c->game_icon = icon;
+    c->game_running = running;
+    c->to = c->first_to = "ffpkg";
+    // No folder next to a game: the last one a dump used, else this console's first place.
+    std::string d = prefs["dumpDest"].str();
+    if (!d.empty() && !root_of(d) && !server_of(d)) d.clear();
+    if (d.empty())
+        for (const auto& l : locations.items())
+            if (l["peer"].str().empty() && !l["ftp"].boolean()) {
+                d = l["path"].str();
+                break;
+            }
+    c->dest = d;
     open(std::move(c));
 }
 

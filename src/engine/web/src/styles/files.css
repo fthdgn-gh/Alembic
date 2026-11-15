@@ -76,3 +76,10 @@
 .viewswitch .vs:last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; }
 .viewswitch .vs.on { color: var(--text); background: var(--raise); }
 .viewswitch .vs svg { width: 1.1rem; height: 1.1rem; display: block; }
+/* Images: the console's games to dump (Games.tsx), above the images. */
+.games { padding: 0 .3rem; }
+.games .gbtns { display: flex; flex-wrap: wrap; margin: .35rem 0 .2rem .75rem; }
+.games .gbtns .btn { margin: 0 .5rem .4rem 0; }
+.row.grow .go { font-size: .85rem; color: var(--accent); border: 1px solid var(--line2); border-radius: .5rem; padding: .25rem .65rem; white-space: nowrap; }
+.row.grow:focus .go { border-color: var(--accent); }
+.row.off { opacity: .5; cursor: default; }

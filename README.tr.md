@@ -429,6 +429,16 @@ başlatın; o zaman diğer motorlar ona ulaşamaz.
   öykünücülerini güncelle** hepsini günceller, her biri kendi türünü korur.
 - **Dönüştürdükten sonra yer açmak:** **Bitince kaynağı sil**, kaynağı
   silmeden önce sonucu onunla dosya dosya karşılaştırır.
+- **Konsoldaki bir oyunun dökümünü al:** oyun yüklü ya da diski takılı
+  olmalı. **İmajlar → Oyun dökümü al** bölümünde: şu an açık oyunda
+  **Döküm al…**, sonra açacağın bir oyun için **Yüklü oyunlar… → Açılınca
+  döküm al…** ya da **Açılacak sonraki oyunun dökümünü al…**. Döküm, oyun 30
+  saniye çalıştığında başlar, çalıştırılabilir dosyalarını sahte imzalar ve
+  seçtiğin biçimde yazar. Bitene kadar oyunu açık tut: kapatırsan döküm
+  duraklar ve oyunu yeniden açtığında devam eder. Alembic uygulamasını açmak
+  açık oyunu kapatır; bu yüzden uygulamadan dökümleri önceden sıraya koy.
+  Kuyruk her işin adımlarını gösterir. PS4 oyunlarının dökümü henüz
+  alınamıyor.
 
 ### İpuçları
 

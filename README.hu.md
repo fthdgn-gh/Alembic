@@ -457,6 +457,17 @@ számítógépre akarod korlátozni; ekkor más motorok sem érik el.
   fajtájával.
 - **Hely felszabadítása átalakítás után:** **A forrásfájl törlése a művelet
   végén** törlés előtt fájlonként összeveti az eredményt a forrással.
+- **Játék mentése a konzolról:** a játéknak telepítve kell lennie, vagy a
+  lemezének a gépben. Az **Image-ek → Játék mentése** részen: **Mentés…** a
+  most futó játékon, **Telepített játékok… → Mentés indításkor…** egy később
+  indított játékhoz, vagy **A következő induló játék mentése…**. A mentés
+  akkor kezdődik, amikor a játék már 30 másodperce fut; a futtatható
+  fájlokat hamis aláírással látja el, és a választott formátumba ír. Hagyd
+  futni a játékot, amíg kész: ha bezárod, a mentés szünetel, és a játék
+  következő indításakor folytatódik. Az Alembic alkalmazás megnyitása
+  bezárja a futó játékot, ezért az alkalmazásból előre tedd várólistára a
+  mentéseket. A várólista minden feladat lépéseit mutatja. PS4-játékok még
+  nem menthetők.
 
 ### Tippek
 

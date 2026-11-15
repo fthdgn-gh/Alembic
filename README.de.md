@@ -447,6 +447,17 @@ beschränken; andere Engines erreichen sie dann nicht.
   aktualisieren** aktualisiert sie alle, jeden in seiner eigenen Art.
 - **Nach dem Umwandeln Platz schaffen:** **Quelle danach löschen** vergleicht
   das Ergebnis Datei für Datei mit der Quelle, bevor es sie löscht.
+- **Ein Spiel von der Konsole dumpen:** Das Spiel muss installiert sein
+  oder seine Disc eingelegt. In **Images → Spiel dumpen**: **Dump…** beim
+  gerade laufenden Spiel, **Installierte Spiele… → Beim Start dumpen…** für
+  eines, das du später startest, oder **Nächstes gestartetes Spiel
+  dumpen…**. Der Dump beginnt, sobald das Spiel 30 Sekunden läuft, signiert
+  seine ausführbaren Dateien fake und schreibt das gewählte Format. Lass das
+  Spiel laufen, bis er fertig ist: Schließt du es, pausiert der Dump und geht
+  weiter, wenn du das Spiel wieder startest. Das Öffnen der Alembic-App
+  schließt das laufende Spiel, also reihe Dumps in der App vorher ein. Die
+  Warteschlange zeigt die Schritte jedes Auftrags. PS4-Spiele können noch
+  nicht gedumpt werden.
 
 ### Tipps
 

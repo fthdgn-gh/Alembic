@@ -39,7 +39,7 @@ float paragraph_height(Ui& ui, Face face, std::string_view text, float width, fl
 std::string upper(std::string_view text);
 float caps(Ui& ui, std::string_view text, float x, float baseline, float size, Color color);
 
-enum class Icon { folder, drive, usb, server, place, clock, file };
+enum class Icon { folder, drive, usb, server, place, clock, file, game };
 void icon(Ui& ui, Icon icon, const Rect& box, Color color);
 
 // The square in front of a row (.ico): a game's icon when `texture` is set,

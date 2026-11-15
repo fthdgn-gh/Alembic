@@ -103,6 +103,39 @@ void FilesPage::rail(Ui& ui, App& app, const Rect& area) {
         y += h;
     };
 
+    // The game running now: a shortcut to dumping it (as Images' "Dump a game"),
+    // or to its dump when one is queued.
+    std::vector<const JsonValue*> dumpable;  // the running game, unless a PS4 one
+    for (const JsonValue& g : app.running_games.items())
+        if (g["title_id"].str().rfind("CUSA", 0) != 0) dumpable.push_back(&g);
+    if (!dumpable.empty()) h3(t("Running now"));
+    for (const JsonValue* gp : dumpable) {
+        const JsonValue& g = *gp;
+        const std::string id = g["title_id"].str();
+        const JsonValue* job = app.dump_job_of(id);
+        const float pad_y = 0.55f * R, h = 1.0f * R * 1.45f + 2.0f * pad_y + 0.2f * R + 0.75f * R * 1.45f;
+        const Rect r{x, y, w, h};
+        const Id gid = Id("rail") / ("g:" + id);
+        if (ui.visible(r)) {
+            const float cy = y + pad_y + 0.725f * R;
+            const Color ink = ui.focused(gid) ? style::text : muted;
+            draw::icon(ui, draw::Icon::game, {x + 0.6f * R, cy - 0.575f * R, 1.15f * R, 1.15f * R}, ink.with_alpha(0.85f));
+            draw::text_fit(ui, Face::regular, g["title"].str().empty() ? id : g["title"].str(), x + 0.6f * R + 1.75f * R,
+                           draw::baseline(cy, 1.0f * R), 1.0f * R, w - 2.95f * R, ink);
+            const std::string note = (job ? t((*job)["state"].str()) : t("Dump\xE2\x80\xA6")) +
+                                     (g["version"].str().empty() ? "" : "  \xC2\xB7  v" + version_text(g["version"].str()));
+            const float yy = y + pad_y + 1.45f * R + 0.2f * R;
+            draw::text_fit(ui, Face::regular, note, x + 0.6f * R + 1.75f * R, draw::baseline(yy + 0.725f * 0.75f * R, 0.75f * R),
+                           0.75f * R, w - 2.95f * R, dim);
+        }
+        if (ui.item(gid, r, 0, 0.6f * R)) {
+            if (job)
+                app.show_job((*job)["id"].integer());
+            else
+                app.open_dump(id, g["title"].str(), g["version"].str(), g["icon"].boolean(), true);
+        }
+        y += h;
+    }
     h3(t("Drives"));
     for (const auto& s : app.space.items()) {
         const std::string root = s["root"].str();

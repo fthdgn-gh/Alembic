@@ -15,6 +15,7 @@ export const ICONS = {
   server: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="7" rx="1.5" /><rect x="4" y="13" width="16" height="7" rx="1.5" /><circle cx="8" cy="7.5" r=".9" fill="currentColor" /><circle cx="8" cy="16.5" r=".9" fill="currentColor" /></svg>,
   place: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7.5A1.5 1.5 0 0 1 5.5 6H10l2 2h6.5A1.5 1.5 0 0 1 20 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z" /></svg>,
   clock: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8" /><path d="M12 8v4l3 2" /></svg>,
+  game: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7.5 8h9a4.5 4.5 0 0 1 4.3 5.8l-1 3.3a2 2 0 0 1-3.4.8L14.5 16h-5l-1.9 1.9a2 2 0 0 1-3.4-.8l-1-3.3A4.5 4.5 0 0 1 7.5 8z" /><path d="M8 11v3M6.5 12.5h3" /><circle cx="16" cy="12" r=".9" fill="currentColor" /></svg>,
   file: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 3h7l4 4v14H7z" /><path d="M14 3v4h4" /></svg>,
 };
 export type IconName = keyof typeof ICONS;

@@ -11,6 +11,7 @@ import { base } from "../lib/format";
 import { toast } from "../components/Toasts";
 import { overlays } from "../components/Overlay";
 import { browse } from "../pages/files/browse";
+import { dumpTitle } from "./games";
 
 export const jobs = signal<Job[]>([]);
 
@@ -80,8 +81,9 @@ export async function refreshJobs(remoteNow?: boolean) {
   const ended = list.filter((j) => !isActive(j) && (wasActive.has(jobKey(j)) || fresh(j))).sort((a, b) => b.finished - a.finished);
   if (ended.length) {
     const newest = ended[0];
-    if (newest.state === "done") toast(t("Finished: {name}", { name: base(newest.spec.input) }), "ok");
-    if (newest.state === "failed") toast(t("Failed: {name}", { name: base(newest.spec.input) }), "bad");
+    const name = newest.spec.game ? dumpTitle(newest) : base(newest.spec.input);
+    if (newest.state === "done") toast(t("Finished: {name}", { name }), "ok");
+    if (newest.state === "failed") toast(t("Failed: {name}", { name }), "bad");
     if (cwd.value && !overlays.value.length) browse(cwd.value, false);
     loadInfo().catch(() => {});
   }

@@ -25,6 +25,7 @@ import { focusFirst, zoneOf } from "../../input/focus";
 import { openConvert } from "../../dialogs/ConvertDialog";
 import { openActions } from "../files/actions";
 import { amprPending, amprUpdatable, targetName, updateAll } from "./ampr";
+import { Games } from "./Games";
 
 export const focusImage = signal<ImageItem | null>(null); // the focused row (for the hints)
 
@@ -180,6 +181,7 @@ export function ImagesPage(props: { hidden: boolean }) {
           </div>
         </div>
         {data && data.smp_update_emulators && todo ? <div class="note" style="margin:.8rem 0 0">{t("ShadowMount+'s “update emulators” is on: when a game starts, it puts its own copy in place of a matching emulator. Turn it off in ShadowMount+ for games that should keep the one shown here.")}</div> : null}
+        <Games />
         <div class={"list" + (grid ? " grid" : "")} data-zone="images" data-column={grid ? undefined : true}>
           {rows}
         </div>

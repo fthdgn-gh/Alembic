@@ -51,13 +51,111 @@ std::string folder_label(App& app, const std::string& dir) {
 
 std::string sort_name(const std::string& name) { return !name.empty() && name[0] == '.' ? name.substr(1) : name; }
 
+// One of the console's games (Games.tsx GameRow): icon, title, what it is;
+// on the right its dump's state, or what ✕ does. True when ✕ was pressed.
+bool game_row(Ui& ui, App& app, Id id, const Rect& r, const JsonValue& g, const std::string& sub, const JsonValue* job,
+              const std::string& action, bool disabled, unsigned flags = 0) {
+    DrawList& l = *ui.list;
+    const std::string gid = g["title_id"].str();
+    bool pressed = false;
+    if (!disabled) pressed = ui.item(id, r, flags, 0.7f * R);
+    const bool f = !disabled && ui.focused(id);
+    if (ui.visible(r)) {
+        const float alpha = disabled ? 0.5f : 1.0f;
+        if (f) l.rounded_rect(r, 0.7f * R, accent.with_alpha(0.12f));
+        const Rect icon{r.x + 0.75f * R, r.y + 0.55f * R, 3.4f * R, 3.4f * R};
+        l.push_opacity(alpha);
+        draw::ico(ui, icon, "game", t("GAME"), g["icon"].boolean() ? app.game_icon(gid) : 0);
+        float right_x = r.x + r.w - 0.75f * R;
+        if (job) {
+            right_x -= draw::state_pill(ui, (*job)["state"].str(), t((*job)["state"].str()), right_x, r.cy()) + 1.0f * R;
+        } else if (!action.empty()) {
+            // An outlined label (.go), accent when focused.
+            const float as = 0.85f * R, aw = draw::measure(ui, Face::regular, action, as) + 1.3f * R, ah = as * 1.45f + 0.5f * R;
+            l.bordered_rect({right_x - aw, r.cy() - ah * 0.5f, aw, ah}, 0.5f * R, Color{0, 0, 0, 0}, 1.0f, f ? accent : line2);
+            draw::text(ui, Face::regular, action, right_x - aw * 0.5f, draw::baseline(r.cy(), as), as, accent, Align::center);
+            right_x -= aw + 1.0f * R;
+        }
+        const float text_x = icon.x + icon.w + 1.0f * R, tw = right_x - text_x;
+        const float ts = 1.05f * R, ss = 0.82f * R;
+        const float t_cy = r.cy() - 0.5f * ss * 1.45f, s_cy = r.cy() + 0.5f * ts * 1.45f - 0.05f * R;
+        const std::string title = g["title"].str().empty() ? gid : g["title"].str();
+        draw::text_fit(ui, Face::regular, title, text_x, draw::baseline(t_cy, ts), ts, tw, style::text);
+        std::string line = sub;
+        for (const std::string& bit : {g["version"].str().empty() ? std::string() : "v" + version_text(g["version"].str()), gid})
+            if (!bit.empty()) line += (line.empty() ? "" : "  \xC2\xB7  ") + bit;
+        draw::text_fit(ui, Face::regular, line, text_x, draw::baseline(s_cy, ss), ss, tw, muted);
+        l.pop_opacity();
+    }
+    return pressed;
+}
+
+// "Installed games" (Games.tsx Installed): every installed game, to dump when
+// launched; a game with a dump queued leads to it, PS4 games say why not.
+class InstalledGames : public Overlay {
+public:
+    Sheet sheet;
+    void build(Ui& ui, App& app) override {
+        sheet.begin(ui, t("Installed games"), "", Sheet::Size::normal, true);
+        const float x = sheet.x(), w = sheet.w();
+        float y = sheet.content_top();
+        y += draw::paragraph(ui, Face::regular,
+                             t("Choose a game to dump when you start it; one that runs now is dumped once it has run for 30 seconds."), x, y,
+                             w, 0.95f * R, 0.95f * 1.45f * R, muted) + 0.6f * R;
+        const JsonValue& data = app.installed_games;
+        // Running ones first, then by title; PS4 ones (not dumpable) last.
+        std::vector<JsonValue> list = data["games"].items();
+        std::stable_sort(list.begin(), list.end(), [](const JsonValue& a, const JsonValue& b) {
+            if (a["dumpable"].boolean() != b["dumpable"].boolean()) return a["dumpable"].boolean();
+            if (a["running"].boolean() != b["running"].boolean()) return a["running"].boolean();
+            const std::string ta = a["title"].str().empty() ? a["title_id"].str() : a["title"].str();
+            const std::string tb = b["title"].str().empty() ? b["title_id"].str() : b["title"].str();
+            return ta < tb;
+        });
+        if (!data.is_object() || list.empty()) {
+            draw::text(ui, Face::regular, data.is_object() ? t("No installed games found.") : t("Reading the games\xE2\x80\xA6"),
+                       x + w * 0.5f, draw::baseline(y + 2.0f * R, 1.0f * R), 1.0f * R, muted, Align::center);
+            y += 4.0f * R;
+        }
+        bool first = true;
+        for (const JsonValue& g : list) {
+            const std::string id = g["title_id"].str();
+            const bool dumpable = g["dumpable"].boolean(), running = g["running"].boolean();
+            const JsonValue* job = app.dump_job_of(id);
+            const float h = 0.55f * R * 2.0f + 3.4f * R;
+            const Rect r{x - 0.75f * R, y, w + 1.5f * R, h};
+            const std::string sub = !dumpable ? t_msg(g["why"].str()) : running ? t("Running now") : "";
+            const std::string action = !dumpable ? "" : running ? t("Dump\xE2\x80\xA6") : t("Dump when launched\xE2\x80\xA6");
+            if (game_row(ui, app, Id("inst") / id, r, g, sub, job, action, !dumpable, first && dumpable ? kAutofocus : 0u)) {
+                app.close(this);
+                if (job)
+                    app.show_job((*job)["id"].integer());
+                else
+                    app.open_dump(id, g["title"].str(), g["version"].str(), g["icon"].boolean(), running);
+            }
+            if (dumpable) first = false;
+            y += h + 0.15f * R;
+        }
+        sheet.end_body(ui, y);
+        if (sheet.button(ui, "inst:close", t("Close"), draw::Button::normal)) app.close(this);
+        sheet.end(ui);
+    }
+    std::vector<Hint> hints(App&) override { return {{Glyph::cross, t("Choose")}, {Glyph::circle, t("Back")}}; }
+};
+
 }  // namespace
+
+void App::open_installed_games() {
+    load_installed_games();
+    open(std::make_unique<InstalledGames>());
+}
 
 void App::refresh_images() { images_->load(*this, true); }
 
 void ImagesPage::opened(App& app) {
     focus_first_ = true;
     load(app, false);
+    games_asked_ = false;
 }
 
 void ImagesPage::load(App& app, bool refresh) {
@@ -260,6 +358,12 @@ void ImagesPage::build(Ui& ui, App& app, const Rect& area) {
         loaded = true;  // asked once per opening (show_tab asks again)
         load(app, false);
     }
+    // The console's games (dumping), once per opening (the running ones every five seconds after).
+    if (!games_asked_ && app.is_ps5()) {
+        games_asked_ = true;
+        app.load_running_games();
+        app.load_installed_games();
+    }
     // While the engine reads the folders, look again every second and a half.
     bool peers_reading = false;
     for (const auto& p : peers_.items()) peers_reading = peers_reading || p["refreshing"].boolean();
@@ -347,6 +451,50 @@ void ImagesPage::build(Ui& ui, App& app, const Rect& area) {
     DrawList& l = *ui.list;
     bool any_focused = false;
     const bool grid = app.view_mode("images") == "grid";
+    // ---- dumping the console's games (Games.tsx): the one running now, the
+    // next game that starts, the installed ones ----
+    {
+        const std::vector<JsonValue>& running = app.running_games.items();
+        const bool supported = app.installed_games["supported"].boolean();
+        if (app.is_ps5() && (!running.empty() || supported)) {
+            y += section(ui, t("Dump a game"), x + 0.3f * R, y);
+            for (const JsonValue& g : running) {
+                const std::string id = g["title_id"].str();
+                const JsonValue* job = app.dump_job_of(id);
+                const bool ps4 = id.rfind("CUSA", 0) == 0;  // not dumped yet (the engine refuses them)
+                const float h = 0.55f * R * 2.0f + 3.4f * R;
+                y += 0.15f * R;
+                const std::string sub = ps4 ? t_msg("PS4 games cannot be dumped yet")
+                                            : t("Running now") + (g["update"].boolean() ? " \xC2\xB7 " + t("with its update") : "");
+                if (game_row(ui, app, Id("game") / id, {x, y, w, h}, g, sub, job, ps4 ? "" : t("Dump\xE2\x80\xA6"), ps4)) {
+                    if (job)
+                        app.show_job((*job)["id"].integer());
+                    else
+                        app.open_dump(id, g["title"].str(), g["version"].str(), g["icon"].boolean(), true);
+                }
+                y += h;
+            }
+            y += 0.4f * R;
+            const JsonValue* next_job = app.dump_job_of("next");
+            const float bh = 0.35f * R * 2.0f + 0.9f * R * 1.45f + 2.0f;
+            float bx = x + 0.75f * R;
+            const std::string next_label = next_job ? t("Next-game dump: in the queue") : t("Dump the next game that starts\xE2\x80\xA6");
+            const float nw = draw::button_width(ui, next_label, true);
+            if (draw::button(ui, "games:next", {bx, y, nw, bh}, next_label, draw::Button::normal, true)) {
+                if (next_job)
+                    app.show_job((*next_job)["id"].integer());
+                else
+                    app.open_dump("next", "", "", false, false);
+            }
+            bx += nw + 0.5f * R;
+            if (supported) {
+                const std::string inst = t("Installed games\xE2\x80\xA6");
+                const float iw = draw::button_width(ui, inst, true);
+                if (draw::button(ui, "games:installed", {bx, y, iw, bh}, inst, draw::Button::normal, true)) app.open_installed_games();
+            }
+            y += bh + 0.6f * R;
+        }
+    }
     // One engine's items, folder by folder (rows or tiles).
     auto draw_items = [&](const std::vector<JsonValue>& list) {
         std::string folder;

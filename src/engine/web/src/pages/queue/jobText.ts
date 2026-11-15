@@ -4,11 +4,14 @@ import type { Job } from "../../api/types";
 import { shownPath } from "../../state/paths";
 import { base } from "../../lib/format";
 import { t } from "../../lib/i18n";
+import { dumpTitle } from "../../state/games";
 
 export function jobText(j: Job) {
   const s = j.spec;
   if (s.kind === "copy" || s.kind === "move") return { title: base(s.input), to: t(s.kind === "copy" ? "Copy to {path}" : "Move to {path}", { path: shownPath(s.output) }) };
   if (s.kind === "install") return { title: base(s.input), to: t("Install on this console") };
+  // A dump: its game, and where it goes (only the folder until a next-game dump takes a game).
+  if (s.game) return { title: dumpTitle(j), to: "→ " + shownPath(s.output || s.output_dir || "") };
   if (s.kind === "ampr_emu") return { title: base(s.input), to: j.result && j.result.output ? t("AMPR emulator into {path}", { path: shownPath(j.result.output) }) : t("Add the AMPR emulator") };
   return { title: base(s.input), to: "→ " + shownPath(s.output) };
 }

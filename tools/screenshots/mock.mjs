@@ -3,7 +3,12 @@
 // share over SMB, an NFS export) and jobs.
 // MOCK_FROZEN=1 keeps the jobs still and MOCK_PAGE=FILE serves another build
 // (for comparing two builds of the page screenshot by screenshot).
+// The console's own games, for dumping: one running (MOCK_RUNNING_DUMP=0
+// leaves out its dump job, so Images offers "Dump…"), the made-up games as
+// the installed ones, a dump waiting for its game and one for the next game
+// (MOCK_DUMPS=0 leaves out every dump job).
 import http from "node:http";
+import zlib from "node:zlib";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -113,7 +118,7 @@ const INFO = Object.assign({}, realInfo, {
   network_urls: ["http://192.168.1.30:5940/"], local_url: "http://192.168.1.30:5940/", open_to_network: true,
   lz4_runtime: { path: "/data/alembic/runtime/libSceAmpr.sprx", present: true, sha256: "", pinned: true },
   launcher: { supported: true, installed: true, title_id: "ALEM00001", status: "registered", off: false },
-  cache: { games: 9, bytes: 1830000 }, port: 5940, enter_button: "cross", lang: "en", busy: true, cpu_instructions: "AES, CRC32C, SHA-256",
+  cache: { games: 9, bytes: 1830000 }, port: 5940, enter_button: "cross", lang: process.env.MOCK_LANG || "en", busy: true, cpu_instructions: "AES, CRC32C, SHA-256",
 });
 const DEPS = JSON.parse(fs.readFileSync(path.join(DATA, "deps.json"), "utf8"))
   .map((d) => Object.assign(d, { state: "installed", files: d.files.map((f) => Object.assign(f, { path: f.path.replace(/^.*\/(runtime|keys)\//, "/data/alembic/$1/") })) }));
@@ -124,12 +129,37 @@ const running = (id, s, stage, total, startPct, rate, elapsed0) => () => {
   const e = process.env.MOCK_FROZEN ? 0 : now() - T0; // frozen: for comparing two builds
   return { id, spec: s, state: "running", stage, done: Math.min(total, Math.round(total * startPct + rate * e)), total, created: mt, started: mt, finished: 0, error: "", result: null, elapsed: Math.round(elapsed0 + e), keeps_progress: true };
 };
+// Steps as the engine lists them (job_steps.cpp); `at` the current one, the
+// overall figure from it and the stage's progress (every step an equal share).
+const steps = (labels) => labels.map((label, i) => ({ id: "s" + i, label }));
+const withSteps = (f, labels, at) => () => {
+  const j = f(), n = labels.length, part = j.total ? j.done / j.total : 0;
+  return Object.assign(j, { steps: steps(labels), step: j.state === "done" ? n : at, overall: j.state === "done" ? 1000 : Math.floor(1000 * (at + part) / n) });
+};
+const RUNNING_GAME = "Ember Lane";
+const DUMPS = process.env.MOCK_DUMPS === "0" ? [] : [
+  ...(process.env.MOCK_RUNNING_DUMP === "0" ? [] : [withSteps(running(8, spec({ game: GAMES[RUNNING_GAME][0], input: "/mnt/sandbox/pfsmnt/" + GAMES[RUNNING_GAME][0] + "-app0",
+    output: "/data/homebrew/" + RUNNING_GAME + " [" + GAMES[RUNNING_GAME][0] + "].ffpkg", to: "ffpkg" }), "Writing UFS2 image", 27.2 * GB, 0.37, 140e6, 412),
+    ["Wait for the game", "Decrypt executables", "Write the image"], 2)]),
+  withSteps(() => ({ id: 9, spec: spec({ game: GAMES["Quiet Orbit"][0], input: "", output: "/mnt/usb0/homebrew/Quiet Orbit [" + GAMES["Quiet Orbit"][0] + "].exfat", to: "exfat" }),
+    state: "queued", stage: "Waiting for the game to start", done: 0, total: 0, created: mt, started: 0, finished: 0, error: "", result: null, keeps_progress: true }),
+  ["Wait for the game", "Decrypt executables", "Write the image"], 0),
+  withSteps(() => ({ id: 10, spec: spec({ game: "next", input: "", output: "", output_dir: "/data/homebrew", to: "ffpkg" }),
+    state: "queued", stage: "Waiting for a game to start", done: 0, total: 0, created: mt, started: 0, finished: 0, error: "", result: null, keeps_progress: true }),
+  ["Wait for the game", "Decrypt executables", "Write the image"], 0),
+];
+// A dump that failed in its last step (the step list marks where).
+if (process.env.MOCK_DUMPS !== "0") DUMPS.push(withSteps(() => ({ id: 11, spec: spec({ game: GAMES["Paper Kingdoms"][0], input: "", output: "/mnt/usb0/homebrew/Paper Kingdoms [" + GAMES["Paper Kingdoms"][0] + "].ffpkg", to: "ffpkg" }),
+  state: "failed", stage: "Writing UFS2 image", done: 0, total: 0, created: mt, started: mt, finished: mt + 1800, error: "No space left on device", result: null }),
+  ["Wait for the game", "Decrypt executables", "Write the image"], 2));
 let LOCAL = [
   () => ({ id: 3, spec: spec({ input: "/data/homebrew/Paper Kingdoms", output: "/data/homebrew/Paper Kingdoms.ffpfsc", to: "ffpfsc" }), state: "done", stage: "Done", done: 1, total: 1, created: mt, started: mt, finished: mt + 3600, error: "", elapsed: 41,
     result: { from: "folder", to: "FFPFSC", output: "/data/homebrew/Paper Kingdoms.ffpfsc", method: "built a new exFAT image from the folder and compressed it", output_bytes: 1.3 * GB } }),
   () => ({ id: 4, spec: spec({ input: "/smb/nas/Neon Harbor.pkg", output: "/data/homebrew/Neon Harbor.ffpkg", to: "ffpkg" }), state: "done", stage: "Done", done: 1, total: 1, created: mt, started: mt, finished: mt + 7200, error: "", elapsed: 1514,
     result: { from: "FPKG", to: "FFPKG", output: "/data/homebrew/Neon Harbor.ffpkg", method: "built a new UFS2 image from the file tree", output_bytes: 27.9 * GB, ampr_emulator: "/data/homebrew/Neon Harbor.ffpkg" } }),
-  running(5, spec({ input: PCROOT + "/Glass Meridian.pkg", output: "/data/homebrew/Glass Meridian.ffpfsc", to: "ffpfsc" }), "Compressing PFSC", 54.0 * GB, 0.463, 160e6, 1121),
+  withSteps(running(5, spec({ input: PCROOT + "/Glass Meridian.pkg", output: "/data/homebrew/Glass Meridian.ffpfsc", to: "ffpfsc" }), "Compressing PFSC", 54.0 * GB, 0.463, 160e6, 1121),
+    ["Check the package", "Write the image", "Compress"], 2),
+  ...DUMPS,
   () => ({ id: 6, spec: spec({ input: "/data/homebrew/Tidewalker.exfat", output: "/mnt/usb0/homebrew/Tidewalker.ffpfsc", to: "ffpfsc", level: 9 }), state: "paused", stage: "Paused", done: 0, total: 0, created: mt, started: 0, finished: 0, error: "", result: null, keeps_progress: true, checkpoint: { done: 24.1 * GB, total: 63.2 * GB } }),
   () => ({ id: 7, spec: spec({ input: "/data/homebrew/Echoes of Arden.exfat", output: "/smb/nas/Echoes of Arden.exfat", kind: "copy" }), state: "queued", stage: "", done: 0, total: 0, created: mt, started: 0, finished: 0, error: "", result: null }),
 ];
@@ -150,6 +180,29 @@ const ICON_ART = {
   ember: ["#2a0f0f", "#d8452c", '<path d="M256 90 C330 190 360 250 330 330 C310 390 200 400 180 330 C160 270 220 240 256 90z" fill="#ffb347"/><path d="M256 220 C290 280 300 320 270 360 C240 380 220 340 236 300z" fill="#fff1c1"/>'],
   glass: ["#0f2b3d", "#8fe3d6", '<g fill="#dffaf5" opacity=".75"><path d="M120 400 L256 110 L392 400z"/></g><path d="M256 110 L256 400" stroke="#0f2b3d" stroke-width="8"/><path d="M60 420 H452" stroke="#dffaf5" stroke-width="10"/>'],
   moss: ["#1f2e14", "#7aa63c", '<ellipse cx="256" cy="330" rx="170" ry="110" fill="#4c6b27"/><ellipse cx="256" cy="300" rx="150" ry="80" fill="#8fbf4a"/><circle cx="380" cy="300" r="12" fill="#1f2e14"/>'],
+};
+// The same art's colours as a small PNG (the console app reads only PNG):
+// its gradient with a lighter disc in the middle.
+const CRC = new Int32Array(256).map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c; });
+const crc32 = (buf) => { let c = -1; for (const b of buf) c = CRC[(c ^ b) & 255] ^ (c >>> 8); return (c ^ -1) >>> 0; };
+const chunk = (type, data) => {
+  const len = Buffer.alloc(4), crc = Buffer.alloc(4), td = Buffer.concat([Buffer.from(type), data]);
+  len.writeUInt32BE(data.length); crc.writeUInt32BE(crc32(td));
+  return Buffer.concat([len, td, crc]);
+};
+const iconPng = (art) => {
+  const [a, b] = ICON_ART[art], N = 64, rgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const ca = rgb(a), cb = rgb(b), raw = Buffer.alloc(N * (N * 3 + 1));
+  for (let y = 0; y < N; y++) {
+    raw[y * (N * 3 + 1)] = 0;
+    for (let x = 0; x < N; x++) {
+      const t = y / (N - 1), d = Math.hypot(x - N / 2, y - N / 2) < N / 5 ? 0.45 : 0;
+      for (let k = 0; k < 3; k++) raw[y * (N * 3 + 1) + 1 + x * 3 + k] = Math.round((cb[k] * (1 - t) + ca[k] * t) * (1 - d) + 255 * d);
+    }
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(N, 0); ihdr.writeUInt32BE(N, 4); ihdr[8] = 8; ihdr[9] = 2;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
 };
 const iconSvg = (art) => {
   const [a, b, body] = ICON_ART[art];
@@ -227,6 +280,32 @@ http.createServer((req, res) => {
     if (p === "/api/images") return send(res, 200, IMAGES);
     if (p === "/api/pair/incoming") return send(res, 200, {});
     if (p === "/api/lang") return send(res, 200, {});
+    // The console's games (dumping).
+    const byId = (id) => Object.keys(GAMES).find((k) => GAMES[k][0] === id);
+    const gameJson = (t) => ({ title_id: GAMES[t][0], title: t, version: GAMES[t][1], icon: true });
+    if (p === "/api/games/running") return send(res, 200, { games: [Object.assign(gameJson(RUNNING_GAME), { settled: true, pid: 4242, update: false })] });
+    if (p === "/api/games/installed") {
+      const active = LOCAL.map((f) => f()).filter((j) => j.spec.game && ["queued", "running", "paused"].includes(j.state));
+      const games = Object.keys(GAMES).map((t) => {
+        const ps4 = GAMES[t][3] === "ps4", job = active.find((j) => j.spec.game === GAMES[t][0]);
+        return Object.assign(gameJson(t), { running: t === RUNNING_GAME, update: t === "Neon Harbor", dumpable: !ps4 }, ps4 ? { why: "PS4 games cannot be dumped yet" } : {}, job ? { job: job.id } : {});
+      });
+      const nj = active.find((j) => j.spec.game === "next");
+      return send(res, 200, { games, next_job: nj ? nj.id : 0, supported: true });
+    }
+    if (p === "/api/games/info") { const t = byId(q("id")); return t ? send(res, 200, Object.assign(gameJson(t), { running: t === RUNNING_GAME })) : send(res, 404, { error: "no such game" }); }
+    if (p === "/api/games/icon") { const t = byId(q("id")); return t ? send(res, 200, iconPng(GAMES[t][2]), "image/png") : send(res, 404, ""); }
+    // Queueing: the job as the engine would list it (a dump's output named from its game).
+    if (p === "/api/jobs" && req.method === "POST") {
+      const id = 20 + LOCAL.length, t = json.game && json.game !== "next" ? byId(json.game) : null;
+      const ext = { ffpfsc: ".ffpfsc", exfat: ".exfat", ffpkg: ".ffpkg", ffpfs: ".ffpfs", fpkg: ".pkg", folder: "" }[json.to] || "";
+      const out = json.game === "next" ? "" : (json.output_dir || "/data/homebrew") + "/" + (json.output_name || (t ? t + " [" + GAMES[t][0] + "]" + ext : path.posix.basename(json.input || "") + ext));
+      const labels = json.game ? ["Wait for the game", "Decrypt executables", "Write the image"] : ["Write the image"];
+      const j = { id, spec: spec(Object.assign({}, json, { output: out })), state: "queued", stage: json.game ? (json.game === "next" ? "Waiting for a game to start" : "Waiting for the game to start") : "",
+        done: 0, total: 0, created: now(), started: 0, finished: 0, error: "", result: null, steps: steps(labels), step: json.game ? 0 : -1, overall: 0 };
+      LOCAL.push(() => j);
+      return send(res, 201, j);
+    }
     if (p === "/api/jobs" && !T0) T0 = now();
     if (p === "/api/jobs") return send(res, 200, LOCAL.map((f) => f()));
     // Clearing and removing finished jobs, here and on the paired PC.
@@ -275,6 +354,14 @@ http.createServer((req, res) => {
       const g = { title: t, titleid: GAMES[t][0], contentid: "UP0000-" + GAMES[t][0] + "_00-0000000000000000", version: GAMES[t][1], format: { fpkg: "PKG", folder: "" }[e.kind] ?? (e.kind || "").toUpperCase(), platform: (GAMES[t][3] || "ps5").toUpperCase(), name: t, ext };
       const seen = new Set([path.posix.basename(sp)]);
       return send(res, 200, { suggestions: NAMES.map((f) => ({ name: render(f, g), pattern: f.pattern, warning: "" })).filter((x) => x.name && !seen.has(x.name) && seen.add(x.name)) });
+    }
+    if (p === "/api/plan" && json.game) {
+      // A dump: the next game's output is known only when it starts.
+      if (json.game === "next") return send(res, 200, spec(json));
+      const t = byId(json.game), ext = { ffpfsc: ".ffpfsc", exfat: ".exfat", ffpkg: ".ffpkg", ffpfs: ".ffpfs", fpkg: ".pkg", folder: "" }[json.to] || "";
+      if (!t) return send(res, 404, { error: "no game " + json.game + " on this console" });
+      return send(res, 200, Object.assign({}, spec(json), { output: json.output_dir + "/" + (json.output_name || t + " [" + json.game + "]" + ext), needs: [], warnings: [] },
+        t === RUNNING_GAME ? { ampr_needed: true, ships_emulator: false } : {}));
     }
     if (p === "/api/plan") {
       const ext = { ffpfsc: ".ffpfsc", exfat: ".exfat", ffpkg: ".ffpkg", ffpfs: ".ffpfs", fpkg: ".pkg", folder: "" }[json.to] || "";

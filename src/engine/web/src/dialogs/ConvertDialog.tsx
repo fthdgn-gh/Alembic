@@ -2,6 +2,8 @@
 // The Convert dialog, in steps: Format (and asset packs), Options, Where,
 // Afterwards, Review (steps with nothing to choose are left out). □ queues from any step.
 // Several games (a selection in Files) share the choices and get a job each.
+// A dump (openDump) is the same dialog for a game of the console's: its
+// source is the game, not a path, and nothing is deleted, hidden or installed.
 import { useEffect, useState } from "preact/hooks";
 import type { Dep, Entry, Inspect, Plan, Job } from "../api/types";
 import { api } from "../api/client";
@@ -10,12 +12,13 @@ import { PlatformPill } from "../components/PlatformPill";
 import { info, peers, locations } from "../state/engine";
 import { rootOf, serverOf, onServerText, driveName, shownPath, peerDriveOf, hereName } from "../state/paths";
 import { refreshJobs } from "../state/jobs";
+import { gameIconUrl, versionText, loadInstalled } from "../state/games";
 import { isHiddenName } from "../lib/kinds";
 import { base, bytes, dir } from "../lib/format";
 import { store } from "../lib/storage";
 import { t, tMsg, plural, placeLabel } from "../lib/i18n";
 import { ChoiceRow, SwitchRow } from "../components/Rows";
-import { EntryIco } from "../components/Icons";
+import { EntryIco, Ico } from "../components/Icons";
 import { Sheet, openOverlay, closeOverlay } from "../components/Overlay";
 import { choose, type ChoiceItem } from "../components/Dialogs";
 import { toast } from "../components/Toasts";
@@ -59,6 +62,19 @@ export function openConvert(entry: Entry | Entry[], install?: boolean) {
     .then((v) => { if (v === "deps") showTab("deps"); });
 }
 
+// A dump's game: a title ID ("next": the next game that starts).
+export interface DumpGame { id: string; title: string; version: string; icon: boolean; running: boolean }
+
+export function openDump(game: DumpGame) {
+  const ctl: Control = { go: () => {}, back: () => false };
+  // Stands in for a source: a kind that is no format, so every format is a conversion.
+  const entry: Entry = { name: game.title || game.id, path: "game:" + game.id, kind: "file" };
+  openOverlay<string>(() => <Convert entries={[entry]} ctl={ctl} install={false} dump={game} />,
+    { hints: [["dpad", t("Move, change")], ["x", t("Choose")], ["o", t("Back"), goBack], ["s", t("Add to queue"), () => ctl.go()]],
+      onSquare: () => ctl.go(), onBack: () => ctl.back() })
+    .then((v) => { if (v === "deps") showTab("deps"); });
+}
+
 // The plan usually comes back at once; past these many seconds the footer says why the button waits.
 const PLAN_SLOW = 2, PLAN_LATE = 60;
 function waitText(waited: number, ready: boolean): string {
@@ -67,10 +83,10 @@ function waitText(waited: number, ready: boolean): string {
   return t("The engine hasn't answered for {n} s. It may be busy with the disk; this keeps waiting, or cancel and try again.", { n: waited });
 }
 
-function initialDest(entry: Entry): string {
-  let d = store.get<string>("dest") || "";
-  // A shared file has no folder on the console: it goes to a place here.
-  if (entry.shared && !d) d = (locations.value[0] || { path: "" }).path || "";
+function initialDest(entry: Entry, dump: boolean): string {
+  let d = store.get<string>(dump ? "dumpDest" : "dest") || "";
+  // A shared file (or a dump) has no folder next to it: it goes to a place here.
+  if ((entry.shared || dump) && !d) d = (locations.value.filter((l) => !l.peer && !l.ftp)[0] || { path: "" }).path || "";
   if (d && !rootOf(d) && !serverOf(d)) d = "";
   return d;
 }
@@ -97,12 +113,14 @@ const STEP_LABEL: Record<Step, string> = { format: "Format", options: "Options",
 // Asset packs: the game's own ("none", "lz4", "zstd") or mixed (several games, some packed).
 type Packs = "none" | "lz4" | "zstd";
 
-function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
+function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump?: DumpGame }) {
   const entries = props.entries, entry = entries[0], many = entries.length > 1;
+  const dump = props.dump || null, next = !!dump && dump.id === "next";
   const m = cachedMeta(entry);
   const metas = entries.map(cachedMeta);
   const anyPs4 = metas.some((x) => !!x && x.platform === "ps4");
   const anyShared = entries.some((e) => !!e.shared);
+  const noBeside = anyShared || !!dump; // no "next to the source" (a dump's source is the game)
   const rt = info.value ? info.value.lz4_runtime : null;
   // ShadowMount+'s default, unless the game already is one.
   const firstTo = props.install ? "fpkg" : entries.every((e) => e.kind === "ffpkg") ? "exfat" : "ffpkg";
@@ -112,9 +130,10 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   const [step, setStep] = useState<Step>(props.install ? "review" : "format");
   const [installWant, setInstall] = useState(props.install);
   const [keepPkg, setKeepPkg] = useState(false);
-  const [dest, setDest] = useState(() => initialDest(entry));
+  const [dest, setDest] = useState(() => initialDest(entry, !!dump));
   // What each source is (format, size, packs), and the ones that could not be read.
-  const [inspects, setInspects] = useState<{ ok: Record<string, Inspect>; err: Record<string, string> } | null>(null);
+  // (A dump has nothing to read: the game is read once it runs.)
+  const [inspects, setInspects] = useState<{ ok: Record<string, Inspect>; err: Record<string, string> } | null>(dump ? { ok: {}, err: {} } : null);
   const inspect = inspects ? inspects.ok[entry.path] || null : null;
   const problem = !inspects ? null : many ? (Object.keys(inspects.ok).length ? null : inspects.err[entry.path] || null) : inspects.err[entry.path] || null;
   const [level, setLevel] = useState(6);
@@ -137,7 +156,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   const [whereWant, setWhere] = useState(() => store.get<string>("convertOn") || "");
   // An engine that went offline (or was the last choice) falls back to this one.
   const where = onChoices.some((c) => c.value === whereWant) ? whereWant : "";
-  const whereHidden = !paired.length || anyShared;
+  const whereHidden = !paired.length || anyShared || !!dump; // a dump runs where its game is
   // The engine's plans and the choices they were made for: queueing uses them as they are.
   const [planned, setPlanned] = useState<{ key: string; plans: Record<string, Plan>; errs: Record<string, string> } | null>(null);
   const [waited, setWaited] = useState(0); // seconds without an answer to the latest plan request
@@ -160,18 +179,23 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   const unpack = nowPacks === "lz4" && packs === "none", zunpack = nowPacks === "zstd" && packs === "none";
   const packsChange = lz4 || zstd || unpack || zunpack;
   // A PS5 package can go straight to the console's installer (then it is deleted).
-  const installable = target === "fpkg" && !!info.value && info.value.platform === "ps5" && !anyPs4;
-  const del = !anyShared && delWant && !(installable && installWant);
+  const installable = target === "fpkg" && !!info.value && info.value.platform === "ps5" && !anyPs4 && !dump;
+  const del = !anyShared && !dump && delWant && !(installable && installWant);
   // The source's own format is no conversion, except when its packs change.
   // Several games: a game already in the target format is left out.
   const formats = entries.map(formatOf), oneFormat = formats.every((f) => f === formats[0]) ? formats[0] : null;
   const work = entries.filter((e) => formatOf(e) !== target || packsChange);
   const skipped = entries.filter((e) => work.indexOf(e) < 0);
-  const hideHiddenFor = (e: Entry) => e.kind === "fpkg" || isHiddenName(e.name) || del || target === "fpkg" || !!e.shared;
+  const hideHiddenFor = (e: Entry) => e.kind === "fpkg" || isHiddenName(e.name) || del || target === "fpkg" || !!e.shared || !!dump;
   const hideHidden = entries.every(hideHiddenFor);
   const amprHidden = target === "fpkg" || packs === "lz4" || packs === "zstd"; // packs bring their emulator anyway
   const bc1 = bc1Want && !anyPs4; // PS4 games have no DDS pictures
-  const specFor = (e: Entry) => ({
+  // A dump names its game, not an input (the engine reads the game's tree), and has nothing to do afterwards.
+  const specFor = (e: Entry) => dump ? {
+    kind: "convert", game: dump.id, to: target, output_dir: dest, output_name: next ? "" : name.trim(), level, pkg_compression: pkgComp,
+    lz4, lz4_profile: profile, lz4_level: lz4Level, ...(zstd ? { zstd, zstd_level: zstdLevel } : {}), overwrite: over,
+    ampr_emu: ampr ? "auto" : "off", ...(bc1 ? { bc1_pictures: true } : {}),
+  } : ({
     input: e.path, to: target, output_dir: dest, output_name: many ? "" : name.trim(), level, pkg_compression: anyPs4 ? "stored" : pkgComp,
     install_after: installable && installWant, keep_package: keepPkg, lz4, lz4_unpack: unpack,
     lz4_profile: profile, lz4_level: lz4Level, delete_source: del,
@@ -180,6 +204,8 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
     ...(bc1 ? { bc1_pictures: true } : {}),
   });
   const specs = work.map(specFor);
+  // Plans are kept by the source's path (a dump's stands-in path).
+  const keyOf = (i: number) => work[i].path;
   const specKey = JSON.stringify(specs);
   // Only plans for the current choices count; older ones still name the outputs while the new ones load.
   const plans = planned ? planned.plans : {}, planErrs = planned ? planned.errs : {};
@@ -190,7 +216,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   const planReady = !!planned && planned.key === specKey && !planErr && work.length > 0;
 
   useEffect(() => {
-    eachPath(entries.map((e) => e.path), (p) => api<Inspect>("GET", "/api/inspect?path=" + encodeURIComponent(p))).then(setInspects);
+    if (!dump) eachPath(entries.map((e) => e.path), (p) => api<Inspect>("GET", "/api/inspect?path=" + encodeURIComponent(p))).then(setInspects);
   }, []);
   // The engine's plan for these choices: the output's name, what it needs, warnings.
   // A slow engine (busy disk, a big package read for the first time) must not
@@ -203,7 +229,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
     const timer = setTimeout(() => {
       ticker = setInterval(() => { if (live) setWaited(Math.floor((Date.now() - started) / 1000)); }, 1000) as unknown as number;
       const bySource: Record<string, unknown> = {};
-      for (const sp of specs) bySource[sp.input] = sp;
+      specs.forEach((sp, i) => { bySource[keyOf(i)] = sp; });
       eachPath(Object.keys(bySource), (p) => api<Plan>("POST", "/api/plan", bySource[p])).then((r) => {
         if (!live) return; // the choices changed meanwhile: a newer request is on its way
         setPlanned({ key, plans: r.ok, errs: r.err }); setMsg({ text: "", err: false });
@@ -215,29 +241,32 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   async function go() {
     if (busy || !planReady || problem) return;
     // The games the engine has a plan for (the others say why in the list).
-    const ready = specs.filter((sp) => !!planned!.plans[sp.input]);
+    const ready = specs.map((sp, i) => ({ sp, key: keyOf(i) })).filter((x) => !!planned!.plans[x.key]);
     setBusy(true);
     try {
       const on = whereHidden ? "" : where, engine = paired.find((e) => e.id === on);
       // Components are the converting engine's own: only this engine's are fetched from here.
       if (!on) {
         const needs: Dep[] = [];
-        for (const sp of ready) for (const d of planned!.plans[sp.input].needs || []) if (!needs.some((x) => x.id === d.id)) needs.push(d);
+        for (const x of ready) for (const d of planned!.plans[x.key].needs || []) if (!needs.some((y) => y.id === d.id)) needs.push(d);
         if (!await getNeeds({ output: "", needs }, "This conversion needs {name}, which isn't downloaded yet.")) {
           setMsg({ text: t("Not queued: a component is needed."), err: false }); return;
         }
       }
       const jobs: Job[] = [];
       const failed: string[] = [];
-      for (const sp of ready) {
+      for (const { sp, key } of ready) {
         try { jobs.push(on ? await api<Job>("POST", "/api/peers/" + encodeURIComponent(on) + "/jobs", sp) : await api<Job>("POST", "/api/jobs", sp)); }
-        catch (e: any) { if (!many) throw e; failed.push(base(sp.input) + ": " + tMsg(e.message)); }
+        catch (e: any) { if (!many) throw e; failed.push(base(key) + ": " + tMsg(e.message)); }
       }
       if (!jobs.length) { setMsg({ text: failed[0] || "", err: true }); return; }
-      store.set("dest", dest);
-      store.set("convertOn", on);
+      // A dump's folder is remembered apart: Convert keeps "next to the source" and its engine.
+      if (dump) store.set("dumpDest", dest);
+      else { store.set("dest", dest); store.set("convertOn", on); }
       closeOverlay(true);
-      const what = jobs.length === 1 ? base(jobs[0].spec.output) : plural(jobs.length, "{n} job", "{n} jobs");
+      // A next-game dump has no output yet: its placeholder.
+      const what = next ? t("Next game that starts") : jobs.length === 1 ? base(jobs[0].spec.output) : plural(jobs.length, "{n} job", "{n} jobs");
+      if (dump) loadInstalled();
       toast(engine ? t("Queued on {engine}: {name}", { engine: engine.name, name: what }) : t("Queued: {name}", { name: what }), "ok");
       if (failed.length) toast(failed.length > 1 ? t("{first} (and {n} more)", { first: failed[0], n: failed.length - 1 }) : failed[0], "bad");
       if (many) stopSelecting();
@@ -247,7 +276,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   }
 
   async function pickDest() {
-    const items: ChoiceItem<string>[] = anyShared ? [] : [{ label: many ? t("Next to each source") : t("Next to the source"), value: "", selected: dest === "" }];
+    const items: ChoiceItem<string>[] = noBeside ? [] : [{ label: many ? t("Next to each source") : t("Next to the source"), value: "", selected: dest === "" }];
     // This engine's places and recent folders, then each paired engine's under its name.
     const here = hereName();
     const groups: { who: string; list: ChoiceItem<string>[] }[] = [{ who: here, list: [] }];
@@ -265,7 +294,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
     }
     items.push({ label: t("Choose a folder…"), value: "__pick" });
     let v = await choose(t("Save to"), items);
-    if (v === "__pick") v = await openDest(null, "pick", dest || dir(entry.path));
+    if (v === "__pick") v = await openDest(null, "pick", dest || (dump ? "/data" : dir(entry.path)));
     if (v != null) { setDest(v); if (v) rememberFolder(v); }
   }
 
@@ -276,11 +305,13 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   // LZ4 packs inside an FFPFSC work, but the console then undoes zlib and LZ4.
   const lz4NoteShown = target === "ffpfsc" && packs === "lz4";
   const firstPlan = plan || plans[Object.keys(plans)[0]] || null;
-  const r: any = firstPlan ? rootOf(firstPlan.output) : null;
+  // Where the output goes: the plan's, or (a next-game dump, named only when a game starts) its folder.
+  const outRef = firstPlan ? firstPlan.output || (dump ? dest : "") : "";
+  const r: any = outRef ? rootOf(outRef) : null;
   const need = work.reduce((n, e) => n + (inspects && inspects.ok[e.path] ? inspects.ok[e.path].bytes : 0), 0);
-  const outSpace = !firstPlan ? "" : r ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) })
+  const outSpace = !outRef ? "" : r ? t("{size} free on {drive}", { size: bytes(r.free), drive: driveName(r.root) })
       + (need ? " · " + (many ? t("the games are {size} unpacked", { size: bytes(need) }) : t("the game is {size} unpacked", { size: bytes(need) })) : "")
-    : serverOf(firstPlan.output) ? onServerText(serverOf(firstPlan.output)!) : "";
+    : serverOf(outRef) ? onServerText(serverOf(outRef)!) : "";
   const warnings = plan && plan.warnings ? plan.warnings : [];
   const unsignedN = plan && plan.unsigned_executables ? plan.unsigned_executables : 0;
   const anyUnsigned = many && Object.keys(plans).some((k) => !!plans[k].unsigned_executables);
@@ -292,7 +323,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   // What each step holds; empty ones are left out.
   const compShown = target === "ffpfsc" || (target === "fpkg" && !anyPs4);
   const installShown = installable;
-  const delShown = !anyShared && !(installable && installWant);
+  const delShown = !anyShared && !dump && !(installable && installWant);
   const has: Record<Step, boolean> = {
     format: true, options: compShown || lz4 || zstd || amprShown || !anyPs4, where: true, // PS5 games: the pictures switch
     after: installShown || delShown || !hideHidden, review: true,
@@ -323,7 +354,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   else if (!hideHidden && hideWant) afterBits.push(t("The source is hidden from ShadowMount+"));
   if (!afterBits.length) afterBits.push(many ? t("The sources are kept") : t("The source is kept"));
   const onEngine = !whereHidden && where ? (paired.find((e) => e.id === where) || { name: "" }).name : "";
-  const outPath = many ? destLabel(dest) : plan ? shownPath(plan.output) : destLabel(dest);
+  const outPath = many ? destLabel(dest) : plan && plan.output ? shownPath(plan.output) : destLabel(dest);
   const summary: [Step, string, string][] = [
     ["format", formatLabel(target), t((FORMATS.find((f) => f.value === target) || { hint: "" }).hint)],
     ["options", optionBits.join(" · ") || t("Nothing to change"), ""],
@@ -339,6 +370,9 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
       : !unsignedN ? "" : plural(unsignedN, "This game has {n} unsigned executable, so it would not start: it is fake-signed on the way.", "This game has {n} unsigned executables, so it would not start: they are fake-signed on the way.")}</div>
     <div class="note" hidden={!needs.length}>{needs.length ? t("Needs {list}. You'll be asked to download it when you add this to the queue.", { list: needs.map((d) => t(d.label) + " (" + bytes(d.bytes) + ")").join(", ") }) : ""}</div>
     <div class="note" hidden={!warnings.length}>{warnings.map(tMsg).join(" ")}</div>
+    {dump ? <div class="note">{(next ? t("The dump takes the next game that starts, once it has run for 30 seconds.")
+      : !dump.running ? t("The dump starts once you start the game and it has run for 30 seconds.") : "")
+      + (next || !dump.running ? " " : "") + t("Keep the game running until the dump finishes; closing it pauses the dump until you start it again.")}</div> : null}
   </>;
 
   const packLabel = (p: Packs) => (p === "none" ? t("None") : p === "lz4" ? "LZ4" : "zstd") + (p === nowPacks ? " · " + t("as now") : "");
@@ -352,7 +386,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   // Packs a game in its own format (exFAT stays exFAT) until a format is picked; a package is converted anyway.
   const choosePacks = (v: Packs) => {
     setPacks(v);
-    if (!picked && oneFormat && oneFormat !== "fpkg") setTo(v === nowPacks ? firstTo : oneFormat);
+    if (!picked && !dump && oneFormat && oneFormat !== "fpkg") setTo(v === nowPacks ? firstTo : oneFormat);
   };
   const body = cur === "format" ? <>
       <ChoiceRow label={t("Asset packs")} hint={packHint} hidden={!packsShown} value={packs as Packs} onChange={choosePacks}
@@ -400,7 +434,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
         <div class="fl"><b>{t("Save to")}</b><small>{outSpace}</small></div>
         <div class="val"><span class="ellip" style="max-width:20rem">{destLabel(dest)}</span><span class="arr">›</span></div>
       </button>
-      <div hidden={many}>
+      <div hidden={many || next}>
         <div class="lbl">{t("Name")}</div>
         <input class="input mono" style="margin-bottom:.5rem" spellcheck={false} autocapitalize="off" placeholder={plan ? base(plan.output) : ""} value={name}
           onInput={(e) => setName((e.target as HTMLInputElement).value)}
@@ -433,13 +467,14 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
         {summary.filter((s) => has[s[0]]).map(([s, main, sub]) => (
           <button class="frow sum" onClick={() => goTo(s)}>
             <div class="sk">{t(STEP_LABEL[s])}</div>
-            <div class="fl"><b class={s === "where" && (many ? !!dest : !!plan) ? "mono" : ""}>{main}</b>{sub ? <small>{sub}</small> : null}</div>
+            <div class="fl"><b class={s === "where" && (many ? !!dest : !!plan && !!plan.output) ? "mono" : ""}>{main}</b>{sub ? <small>{sub}</small> : null}</div>
             <span class="arr">›</span>
           </button>
         ))}
         {notes}
       </div>
-      {many ? <ManySide entries={entries} work={work} skipped={skipped} target={target} plans={plans} errs={planErrs} inspects={inspects} />
+      {dump ? <GameSide game={dump} />
+        : many ? <ManySide entries={entries} work={work} skipped={skipped} target={target} plans={plans} errs={planErrs} inspects={inspects} />
         : <Source entry={entry} m={m} inspect={inspect} problem={problem} />}
     </div>;
 
@@ -447,8 +482,8 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean }) {
   return (
     <Sheet cls="wide wz" top={<>
       <div class="sh-head wz-head">
-        <span>{props.install ? t("Install") : t("Convert")}</span>
-        <span class="wz-game ellip">{many ? plural(entries.length, "{n} game", "{n} games") : m && m.title ? m.title : entry.name}</span>
+        <span>{dump ? t("Dump") : props.install ? t("Install") : t("Convert")}</span>
+        <span class="wz-game ellip">{next ? t("Next game that starts") : many ? plural(entries.length, "{n} game", "{n} games") : m && m.title ? m.title : entry.name}</span>
       </div>
       <div class="wz-steps">
         {steps.map((s, i) => (
@@ -487,6 +522,25 @@ function Source(props: { entry: Entry; m: ReturnType<typeof cachedMeta>; inspect
             <div>{t("Title ID")}</div>, <div>{inspect.title_id || "—"}</div>,
             <div>{t("Contents")}</div>, <div>{plural(inspect.files, "{n} file", "{n} files") + " · " + bytes(inspect.bytes)}</div>,
           ]}
+      </div>
+    </div>
+  );
+}
+
+// A dump's game: its icon, title, version and title ID, and whether it runs.
+function GameSide(props: { game: DumpGame }) {
+  const g = props.game, next = g.id === "next";
+  return (
+    <div class="side">
+      <div class="head">
+        <Ico kind="game" label={t("GAME")} icon={!next && g.icon ? gameIconUrl(g.id) : null} />
+        <div style="min-width:0"><b>{next ? t("Next game that starts") : g.title || g.id}</b></div>
+      </div>
+      <div class="facts">
+        {next ? [<div>{t("Game")}</div>, <div>{t("Whichever game starts next on this console")}</div>]
+          : [<div>{t("Title ID")}</div>, <div>{g.id}</div>,
+            <div>{t("Version")}</div>, <div>{g.version ? versionText(g.version) : "—"}</div>,
+            <div>{t("Game")}</div>, <div>{g.running ? t("Running now") : t("Not running")}</div>]}
       </div>
     </div>
   );

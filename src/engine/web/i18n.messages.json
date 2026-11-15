@@ -180,5 +180,12 @@
  "Copied {name}",
  "Moved {name}",
  "File exists",
- "no such job"
+ "no such job",
+ "PS4 games cannot be dumped yet",
+ "this game already has a dump in the queue",
+ "a dump of the next game is already in the queue",
+ "dumping a game works only on the console",
+ "another engine cannot dump this console's games",
+ "no game {id} on this console",
+ "no game is running any more"
 ]

@@ -225,6 +225,12 @@ void icon(Ui& ui, Icon kind, const Rect& box, Color c) {
         seg(l, box, 14, 3, 14, 7, sw, c);
         seg(l, box, 14, 7, 18, 7, sw, c);
         break;
+    case Icon::game:  // a controller: its body, the D-pad, a button
+        stroke_rect(l, box, 3, 7, 18, 11, 4.5f, sw, c);
+        seg(l, box, 8, 10.5f, 8, 14.5f, sw, c);
+        seg(l, box, 6, 12.5f, 10, 12.5f, sw, c);
+        l.ring(box.x + 16 * k, box.y + 12.5f * k, 1.0f * k, sw * k, c);
+        break;
     }
 }
 
