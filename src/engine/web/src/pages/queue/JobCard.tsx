@@ -71,7 +71,9 @@ export function JobCard(props: { j: Job }) {
   let detail = "";
   if (j.state === "running") {
     const rate = rateOf(j);
-    detail = [t(j.stage), overall != null ? t("{n}%", { n: overall.toFixed(1) }) : j.total ? t("{n}%", { n: pct.toFixed(1) }) : "", rate > 1 ? bytes(rate) + "/s" : "",
+    // With the steps listed, the current one names the stage and its own %:
+    // the line keeps the whole job's figure, next to the bar it matches.
+    detail = [showSteps ? "" : t(j.stage), overall != null ? t("{n}%", { n: overall.toFixed(1) }) : j.total ? t("{n}%", { n: pct.toFixed(1) }) : "", rate > 1 ? bytes(rate) + "/s" : "",
       rate > 1 && j.total ? t("{time} left", { time: duration((j.total - j.done) / rate) }) : "", j.elapsed != null ? t("{time} so far", { time: duration(j.elapsed) }) : ""].filter(Boolean).join("  ·  ");
   } else if (j.state === "done") {
     detail = [tMethod(r.method), r.output_bytes ? bytes(r.output_bytes) : "", j.elapsed != null ? duration(j.elapsed) : "", r.source_deleted ? t("source deleted") : ""].filter(Boolean).join("  ·  ");

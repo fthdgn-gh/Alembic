@@ -149,7 +149,9 @@ float card(Ui& ui, App& app, const JsonValue& j, float x, float y, float w) {
     std::string detail;
     if (state == "running") {
         const double rate = app.rate_of(j);
-        detail = join({t(j["stage"].str()), has_overall ? t("{n}%", {{"n", fixed(overall, 1)}}) : total > 0 ? t("{n}%", {{"n", fixed(pct, 1)}}) : "",
+        // With the steps listed, the current one names the stage and its own
+        // %: the line keeps the whole job's figure, next to the bar it matches.
+        detail = join({show_steps ? std::string() : t(j["stage"].str()), has_overall ? t("{n}%", {{"n", fixed(overall, 1)}}) : total > 0 ? t("{n}%", {{"n", fixed(pct, 1)}}) : "",
                        rate > 1 ? bytes(rate) + "/s" : "",
                        rate > 1 && total > 0 ? t("{time} left", {{"time", duration((total - done) / rate)}}) : "",
                        j.has("elapsed") ? t("{time} so far", {{"time", duration(j["elapsed"].number())}}) : ""});
