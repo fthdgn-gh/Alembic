@@ -19,6 +19,7 @@
 //   POST /api/plan                    a job's resolved target and output, not queued
 //   GET  /api/games/running           games running now that can be dumped (PS5)
 //   GET  /api/games/installed         installed games, for dumping when launched
+//   GET  /api/games/info?id=TITLEID   a game's title, version, icon (a dump's Queue card)
 //   GET  /api/games/icon?id=TITLEID   a game's icon from /user/appmeta
 //   GET  /api/jobs                    every job, oldest first
 //   POST /api/jobs                    queue a job (JobSpec as JSON; kind convert, copy, move,
@@ -753,6 +754,7 @@ private:
         if ((r.path == "/api/meta" || r.path == "/api/icon") && r.method == "GET") return game_meta(r);
         if (r.path == "/api/games/running" && r.method == "GET") return running_games();
         if (r.path == "/api/games/installed" && r.method == "GET") return installed_games();
+        if (r.path == "/api/games/info" && r.method == "GET") return game_info(r);
         if (r.path == "/api/games/icon" && r.method == "GET") return game_icon(r);
         if (r.path == "/api/deps" && r.method == "GET") {
             JsonValue list = JsonValue::array();
@@ -1899,6 +1901,21 @@ private:
         v.set("next_job", next_job); // a "dump the next game" job waiting, or 0
         v.set("supported", std::string(platform::name()) == "ps5");
         return json(200, v);
+    }
+
+    // A game's title, version and icon by title ID (a dump's card in the Queue).
+    HttpResponse game_info(const HttpRequest& r) {
+        auto it = r.query.find("id");
+        const std::string id = it == r.query.end() ? "" : it->second;
+        if (!games::valid_title_id(id)) return error(400, "id must be a title ID");
+        const games::Info info = games::info(games_.paths(), id);
+        JsonValue g = JsonValue::object();
+        g.set("title_id", id);
+        g.set("title", info.title);
+        g.set("version", info.version);
+        g.set("icon", !info.icon.empty());
+        g.set("running", games_.running(id));
+        return json(200, g);
     }
 
     // A game's icon0.png from appmeta, by title ID (never by path).
