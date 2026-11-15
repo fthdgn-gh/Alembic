@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (2026-11-11, release 0.6.4)
+## Where we are (2026-11-15, release 0.6.5)
 
 ### What works
 
@@ -80,6 +80,12 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   main and wait for CI before tagging. Catalog PR from the fork branch
   update-alembic-0.5.0: darkxex/ps5-homebrew-catalog#1084 (opened by the
   owner: auto mode refuses it).
+- **In 0.6.5 (2026-11-15):** Settings → Whole file system (the drive
+  "File system root", "/", read and changed like the drives; page and
+  app), Convert's opt-in "Smaller home-screen pictures" (BC1
+  `sce_sys/pic*.dds`, issue #1), no build warnings in our code. Dumping a
+  running game (`decrypt_self`) ships in the engine but is not on the page
+  or in the app; the notes call it a work in progress (owner).
 - **In 0.6.4 (2026-11-11):** Update AMPR emulators asks the engine for
   one plan per emulator, not per image (each plan opens the game and
   hashes the emulator files: many images kept the engine busy, the app
