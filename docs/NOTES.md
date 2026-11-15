@@ -4253,8 +4253,29 @@ john-tornblom's klogsrv (port 3232) while launching.
 **Open:**
 - **Dumping a running game (2026-11-15): it works** once the files are
   executable (log entry "a dump of a running game starts"). Next: a fresh
-  dump with the fixed engine on the console, then the page/app flow (pick a
-  running game, dump with decrypt_self fake-signed, to a folder or image).
+  dump with the fixed engine on the console, then the page/app flow below.
+- **Dumping, the agreed design (owner, 2026-11-15; not built yet):**
+  - Two triggers, both queued ahead: "Dump when launched" on an installed
+    game (a list from `/user/app` + appmeta, titles and icons), and "Dump
+    the next game that starts". The page can also dump the game running
+    now (a pinned "Running now" row in Images, a matching place in Files).
+    Opening Alembic's app closes any running game (owner), so the app can
+    only queue ahead.
+  - The engine watches `/mnt/sandbox/pfsmnt` for `<ID>-app0`; a waiting job
+    is queued with a reason ("Waiting for <title> to start", so older apps
+    still show it) and does not block the jobs behind it. A game closed
+    mid-dump sends the job back to waiting, to continue from its
+    checkpoint at the next launch, never to failed.
+  - Source by title ID (`game:<TITLE_ID>`), not a browse path, so Whole file
+    system is not needed.
+  - Base game plus its update, merged (the `-app0-patch0-union` tree, or
+    the update's files over app0); untestable on the owner's console.
+  - Executables always fake-signed (plain ELFs do not boot), appmeta
+    merged; no delete-source, install-after or plain option; the
+    right.sprx warning dropped (harmless).
+  - Progress as plain kernel text toasts (`sceKernelSendNotificationRequest`,
+    as ampr-emu-ng): not kept in the notification list, not too invasive.
+    Rich toasts stay for everything else.
 - **Deleting a big folder looks hung (owner, 2026-11-15; later):**
   `POST /api/fs/delete` removes the whole tree before it answers, with no
   progress; the page shows nothing meanwhile, the app times out at 120 s
