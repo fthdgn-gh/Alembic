@@ -4309,6 +4309,18 @@ john-tornblom's klogsrv (port 3232) while launching.
     launch"). Page and app alike (JobCard.tsx and the app's queue).
     "Dump the next game that starts" shows a placeholder until a game
     starts, then that game.
+  - **Every job lists its steps (owner, 2026-11-15):** the engine works out
+    a job's steps from its spec (wait for the game, decrypt executables,
+    zstd/LZ4 pass 1 and 2, write the image or package, compress, verify,
+    install, delete or hide the source, ...) and which one runs (from the
+    stage it reports), in the job JSON, so page and app draw the same list:
+    done steps ticked, the current one with its percentage, later ones
+    grey. Dump toasts can say "step 2 of 3". Not dumps only. With slice 3.
+- **Console runs (2026-11-15, owner), slice 1:** a dump queued by title
+  ID while the game was closed waited ("Waiting for the game to start"),
+  started once the game had run 30 s, and wrote an FFPKG that starts. A
+  second one, FPKG to /data/packages, ran in about 10 min and reads back
+  (33,286 files, 27.19 GB; not installable on the owner's console).
 - **Deleting a big folder looks hung (owner, 2026-11-15; later):**
   `POST /api/fs/delete` removes the whole tree before it answers, with no
   progress; the page shows nothing meanwhile, the app times out at 120 s
