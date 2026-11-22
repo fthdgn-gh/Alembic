@@ -2,7 +2,7 @@
 
 Chronological log below; **read "Where we are" and "Next session" first.**
 
-## Where we are (2026-11-15, release 0.7.0)
+## Where we are (2026-11-22, release 0.7.1)
 
 ### What works
 
@@ -87,6 +87,13 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   made again or chmodded. With it, a decrypt_self dump of a running game
   starts (log entry "a dump of a running game starts"). For the release
   notes.
+- **In 0.7.1 (2026-11-22, issue #6):** Convert starts from the last
+  conversion's choices ("Use the default choices" forgets them), a Files
+  filter (Show: Packages, Images, Game folders, Other files), Select… and
+  Select all in the folder's ⋯ menu, a choice of AMPR emulator when
+  updating, and the fix for "in use" switching to ampr_emu when a
+  component update or a job's download fetched it. Page and app; not
+  console-tested before the tag.
 - **In 0.7.0 (2026-11-15):** dumping an installed or disc game while it
   runs (Images → Dump a game: the running game, Dump when launched from
   Installed games, Dump the next game that starts; page and app), to any
