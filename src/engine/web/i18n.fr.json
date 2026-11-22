@@ -1,4 +1,7 @@
 {
+ "Use the default choices": "Utiliser les choix par défaut",
+ "This starts with the choices of your last conversion": "Reprend les choix de votre dernière conversion",
+ "Back to the default choices": "Retour aux choix par défaut",
  "Ticks everything in this folder": "Coche tout le contenu de ce dossier",
  "This game does not use the console's APR, so it does not need the AMPR emulator": "Ce jeu n'utilise pas l'APR de la console : il n'a pas besoin de l'émulateur AMPR",
  "{n} game does not use the console's APR: left as it is": "{n} jeu n'utilise pas l'APR de la console : laissé tel quel",

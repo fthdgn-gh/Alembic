@@ -1,4 +1,7 @@
 {
+ "Use the default choices": "Использовать выбор по умолчанию",
+ "This starts with the choices of your last conversion": "Начинается с выбора вашей последней конвертации",
+ "Back to the default choices": "Возвращён выбор по умолчанию",
  "Ticks everything in this folder": "Отмечает всё в этой папке",
  "This game does not use the console's APR, so it does not need the AMPR emulator": "Эта игра не использует APR консоли, поэтому эмулятор AMPR ей не нужен",
  "{n} game does not use the console's APR: left as it is": "{n} игра не использует APR консоли: оставлена как есть",

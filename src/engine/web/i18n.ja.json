@@ -1,4 +1,7 @@
 {
+ "Use the default choices": "既定の選択に戻す",
+ "This starts with the choices of your last conversion": "前回の変換の選択から始まります",
+ "Back to the default choices": "既定の選択に戻しました",
  "Ticks everything in this folder": "このフォルダー内のすべてにチェックを付けます",
  "This game does not use the console's APR, so it does not need the AMPR emulator": "このゲームはコンソールの APR を使わないため、AMPR エミュレーターは必要ありません",
  "{n} game does not use the console's APR: left as it is": "{n} 本のゲームはコンソールの APR を使わないため、そのままにしました",

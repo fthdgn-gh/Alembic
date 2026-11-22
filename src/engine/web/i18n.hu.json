@@ -1,4 +1,7 @@
 {
+ "Use the default choices": "Alapértelmezett beállítások használata",
+ "This starts with the choices of your last conversion": "Az utolsó konvertálás beállításaival indul",
+ "Back to the default choices": "Visszaállítva az alapértelmezett beállításokra",
  "Ticks everything in this folder": "Mindent kijelöl ebben a mappában",
  "This game does not use the console's APR, so it does not need the AMPR emulator": "Ez a játék nem használja a konzol APR-jét, így nincs szüksége AMPR-emulátorra",
  "{n} game does not use the console's APR: left as it is": "{n} játék nem használja a konzol APR-jét: változatlan maradt",

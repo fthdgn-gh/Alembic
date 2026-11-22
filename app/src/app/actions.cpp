@@ -916,6 +916,94 @@ public:
     // A PS5 package can go straight to the console's installer.
     bool installable(App& app) const { return to == "fpkg" && app.is_ps5() && !any_ps4(app) && !dump; }
 
+    // The choices the last conversion was queued with (issue #6, prefs
+    // "convertLast", ConvertDialog.tsx): the next one starts from them. Never
+    // the source's deletion, and never unpacking (both depend on the game); a
+    // format the games already are falls back to the default.
+    bool remembered = false;
+    static std::vector<std::string> profile_ids(App& app) {
+        std::vector<std::string> ids = {"auto"};
+        for (const auto& pr : app.info["lz4_profiles"].items()) ids.push_back(pr["id"].str());
+        ids.push_back("scan");
+        return ids;
+    }
+    template <typename T, std::size_t N>
+    static int index_of(const T& v, const T (&list)[N], int fallback) {
+        for (std::size_t i = 0; i < N; ++i)
+            if (list[i] == v) return static_cast<int>(i);
+        return fallback;
+    }
+    void recall(App& app) {
+        const JsonValue& l = app.prefs["convertLast"];
+        if (!l.is_object()) return;
+        remembered = true;
+        const std::string last_to = l["to"].str();
+        const bool known = std::any_of(std::begin(kFormats), std::end(kFormats), [&](const Format& f) { return last_to == f.value; });
+        const bool all_same = std::all_of(entries.begin(), entries.end(), [&](const Entry& e) { return format_of(e) == last_to; });
+        if (!installing && known && !all_same) {
+            to = last_to;
+            picked = true;
+        }
+        static const std::int64_t levels[] = {1, 6, 9}, lz4_levels[] = {1, 9, 12}, zstd_levels[] = {1, 5, 19};
+        static const std::string comps[] = {"stored", "kraken"};
+        if (l.has("level")) level = index_of(l["level"].integer(), levels, 1);
+        if (l.has("pkgComp")) pkg_comp = index_of(l["pkgComp"].str(), comps, 0);
+        if (l.has("lz4Level")) lz4_level = index_of(l["lz4Level"].integer(), lz4_levels, 1);
+        if (l.has("zstdLevel")) zstd_level = index_of(l["zstdLevel"].integer(), zstd_levels, 1);
+        const auto ids = profile_ids(app);
+        const auto it = std::find(ids.begin(), ids.end(), l["profile"].str());
+        profile = it == ids.end() ? 0 : static_cast<int>(it - ids.begin());
+        const std::string p = l["packs"].str();
+        if (p == "lz4" || p == "zstd") packs_want = p;
+        if (l.has("ampr")) ampr = l["ampr"].boolean();
+        bc1 = l["bc1"].boolean();
+        if (l.has("verify")) verify = l["verify"].boolean();
+        if (!installing) install = l["install"].boolean();
+        keep_pkg = l["keepPkg"].boolean();
+    }
+    void remember(App& app) {
+        static const int levels[] = {1, 6, 9}, lz4_levels[] = {1, 9, 12}, zstd_levels[] = {1, 5, 19};
+        const auto ids = profile_ids(app);
+        JsonValue l = JsonValue::object();
+        l.set("to", to);
+        l.set("level", levels[std::clamp(level, 0, 2)]);
+        l.set("pkgComp", pkg_comp == 1 ? "kraken" : "stored");
+        l.set("profile", ids[static_cast<std::size_t>(std::clamp(profile, 0, static_cast<int>(ids.size()) - 1))]);
+        l.set("lz4Level", lz4_levels[std::clamp(lz4_level, 0, 2)]);
+        l.set("zstdLevel", zstd_levels[std::clamp(zstd_level, 0, 2)]);
+        if (packs_want == "lz4" || packs_want == "zstd") l.set("packs", packs_want);
+        l.set("ampr", ampr);
+        l.set("bc1", bc1);
+        l.set("verify", verify);
+        l.set("keepPkg", keep_pkg);
+        // Installing is remembered only from a conversion to FPKG that offered it (not from Install…).
+        const JsonValue& before = app.prefs["convertLast"];
+        if (installable(app) && !installing) l.set("install", install);
+        else if (before.is_object() && before.has("install")) l.set("install", before["install"].boolean());
+        app.prefs.set("convertLast", std::move(l));
+    }
+    // Back to the defaults; the next conversion starts from them too.
+    void use_defaults(App& app) {
+        to = first_to;
+        picked = installing;
+        packs_want.clear();
+        level = 1;
+        pkg_comp = 0;
+        profile = 0;
+        lz4_level = 1;
+        zstd_level = 1;
+        ampr = true;
+        bc1 = false;
+        verify = true;
+        install = installing;
+        keep_pkg = false;
+        remembered = false;
+        refocus = true;  // the row is gone: the chosen format takes the focus
+        app.prefs.set("convertLast", JsonValue());
+        app.save_prefs();
+        app.toast(t("Back to the default choices"), App::Toast::ok);
+    }
+
     // The games that get a job: several games leave out those already in the target format.
     std::vector<Entry> work(App& app) {
         const JsonValue s = spec(app, entry, nullptr);
@@ -1071,6 +1159,7 @@ public:
                         app.prefs.set("dest", dest_now);
                         app.prefs.set("convertOn", on);
                     }
+                    remember(app);
                     app.save_prefs();
                     app.close(this);
                     if (dump) app.load_installed_games();
@@ -1429,6 +1518,12 @@ public:
             if (target == "ffpfsc" && packs_now == "lz4")
                 y += note(ui, t("FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data."),
                           x, y - 0.5f * R, w) + 0.5f * R;
+            if (remembered) {
+                bool pressed = false;
+                y += link_row(ui, "cv:defaults", x, y, w, t("Use the default choices"),
+                              t("This starts with the choices of your last conversion"), "", &pressed);
+                if (pressed) use_defaults(app);
+            }
         } else if (cur == "options") {
             y += section(ui, t("Options for {format}", {{"format", format_label(target)}}), x + 0.1f * R, y, 0.2f);
             if (target == "ffpfsc")
@@ -1815,6 +1910,7 @@ void App::open_convert(const std::vector<Entry>& list, bool install) {
     const auto choices = c->on_choices(*this);
     for (std::size_t i = 0; i < choices.size(); ++i)
         if (choices[i].first == on) c->where = static_cast<int>(i);
+    c->recall(*this);
     open(std::move(c));
 }
 
@@ -1844,6 +1940,7 @@ void App::open_dump(const std::string& id, const std::string& title, const std::
                 break;
             }
     c->dest = d;
+    c->recall(*this);
     open(std::move(c));
 }
 

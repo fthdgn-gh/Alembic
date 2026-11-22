@@ -1,4 +1,7 @@
 {
+ "Use the default choices": "Varsayılan seçimleri kullan",
+ "This starts with the choices of your last conversion": "Son dönüştürmenizin seçimleriyle başlar",
+ "Back to the default choices": "Varsayılan seçimlere dönüldü",
  "Ticks everything in this folder": "Bu klasördeki her şeyi işaretler",
  "This game does not use the console's APR, so it does not need the AMPR emulator": "Bu oyun konsolun APR'sini kullanmıyor, bu yüzden AMPR öykünücüsüne ihtiyacı yok",
  "{n} game does not use the console's APR: left as it is": "{n} oyun konsolun APR'sini kullanmıyor: olduğu gibi bırakıldı",

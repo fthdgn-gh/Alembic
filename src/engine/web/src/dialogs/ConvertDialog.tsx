@@ -107,6 +107,16 @@ function eachPath<T>(paths: string[], ask: (p: string) => Promise<T>): Promise<{
   return Promise.all([worker(), worker()]).then(() => ({ ok, err }));
 }
 
+// The choices the last conversion was queued with (issue #6): the next one
+// starts from them. Never the source's deletion, and never unpacking (both
+// depend on the game); a format the games already are falls back to the default.
+interface LastConvert {
+  to?: string; level?: number; pkgComp?: string; profile?: string; lz4Level?: number; packs?: Packs; zstdLevel?: number;
+  ampr?: boolean; bc1?: boolean; verify?: boolean; install?: boolean; keepPkg?: boolean;
+}
+const DEFAULTS = { level: 6, pkgComp: "stored", profile: "auto", lz4Level: 9, zstdLevel: 5, ampr: true, bc1: false, verify: true, keepPkg: false };
+const oneOf = <T,>(v: T | undefined, list: T[], fallback: T): T => (v !== undefined && list.indexOf(v) >= 0 ? v : fallback);
+
 // The steps, in order; one with nothing to choose for the current choices is left out.
 type Step = "format" | "options" | "where" | "after" | "review";
 const STEP_LABEL: Record<Step, string> = { format: "Format", options: "Options", where: "Where", after: "Afterwards", review: "Review" };
@@ -124,27 +134,32 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump
   const rt = info.value ? info.value.lz4_runtime : null;
   // ShadowMount+'s default, unless the game already is one.
   const firstTo = props.install ? "fpkg" : entries.every((e) => e.kind === "ffpkg") ? "exfat" : "ffpkg";
-  const [to, setTo] = useState(firstTo);
-  // A format chosen on a card stays; until then, changing the packs keeps the game's own format.
-  const [picked, setPicked] = useState(props.install);
+  const [lastConv] = useState<LastConvert | null>(() => store.get<LastConvert>("convertLast"));
+  const [remembered, setRemembered] = useState(!!lastConv);
+  const L: LastConvert = lastConv || {};
+  // The last format, unless opened as Install… or the games already are it.
+  const lastTo = !props.install && L.to && FORMATS.some((f) => f.value === L.to) && !entries.every((e) => formatOf(e) === L.to) ? L.to : "";
+  const [to, setTo] = useState(lastTo || firstTo);
+  // A format chosen on a card (or the last one) stays; until then, changing the packs keeps the game's own format.
+  const [picked, setPicked] = useState(props.install || !!lastTo);
   const [step, setStep] = useState<Step>(props.install ? "review" : "format");
-  const [installWant, setInstall] = useState(props.install);
-  const [keepPkg, setKeepPkg] = useState(false);
+  const [installWant, setInstall] = useState(props.install || !!L.install);
+  const [keepPkg, setKeepPkg] = useState(!!L.keepPkg);
   const [dest, setDest] = useState(() => initialDest(entry, !!dump));
   // What each source is (format, size, packs), and the ones that could not be read.
   // (A dump has nothing to read: the game is read once it runs.)
   const [inspects, setInspects] = useState<{ ok: Record<string, Inspect>; err: Record<string, string> } | null>(dump ? { ok: {}, err: {} } : null);
   const inspect = inspects ? inspects.ok[entry.path] || null : null;
   const problem = !inspects ? null : many ? (Object.keys(inspects.ok).length ? null : inspects.err[entry.path] || null) : inspects.err[entry.path] || null;
-  const [level, setLevel] = useState(6);
-  const [pkgComp, setPkgComp] = useState("stored");
-  const [profile, setProfile] = useState("auto");
-  const [lz4Level, setLz4Level] = useState(9);
-  const [packsWant, setPacks] = useState<Packs | "">(""); // "": as the game is
-  const [zstdLevel, setZstdLevel] = useState(5);
-  const [ampr, setAmpr] = useState(true);
-  const [bc1Want, setBc1] = useState(false); // smaller home-screen pictures (opt-in)
-  const [verify, setVerify] = useState(true);
+  const [level, setLevel] = useState(oneOf(L.level, [1, 6, 9], DEFAULTS.level));
+  const [pkgComp, setPkgComp] = useState(oneOf(L.pkgComp, ["stored", "kraken"], DEFAULTS.pkgComp));
+  const [profile, setProfile] = useState(() => oneOf(L.profile, ["auto", "scan"].concat((info.value ? info.value.lz4_profiles : []).map((p) => p.id)), DEFAULTS.profile));
+  const [lz4Level, setLz4Level] = useState(oneOf(L.lz4Level, [1, 9, 12], DEFAULTS.lz4Level));
+  const [packsWant, setPacks] = useState<Packs | "">(oneOf<Packs | "">(L.packs, ["lz4", "zstd"], "")); // "": as the game is
+  const [zstdLevel, setZstdLevel] = useState(oneOf(L.zstdLevel, [1, 5, 19], DEFAULTS.zstdLevel));
+  const [ampr, setAmpr] = useState(L.ampr !== undefined ? !!L.ampr : DEFAULTS.ampr);
+  const [bc1Want, setBc1] = useState(!!L.bc1); // smaller home-screen pictures (opt-in)
+  const [verify, setVerify] = useState(L.verify !== undefined ? !!L.verify : DEFAULTS.verify);
   const [delWant, setDel] = useState(false);
   const [hideWant, setHide] = useState(!!store.get("hideSource"));
   const [name, setName] = useState("");
@@ -263,6 +278,12 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump
       // A dump's folder is remembered apart: Convert keeps "next to the source" and its engine.
       if (dump) store.set("dumpDest", dest);
       else { store.set("dest", dest); store.set("convertOn", on); }
+      const kept: LastConvert = { to: target, level, pkgComp, profile, lz4Level, zstdLevel, ampr, bc1: bc1Want, verify, keepPkg };
+      if (packsWant === "lz4" || packsWant === "zstd") kept.packs = packsWant;
+      // Installing is remembered only from a conversion to FPKG that offered it (not from Install…).
+      if (installable && !props.install) kept.install = installWant;
+      else if (L.install !== undefined) kept.install = L.install;
+      store.set("convertLast", kept);
       closeOverlay(true);
       // A next-game dump has no output yet: its placeholder.
       const what = next ? t("Next game that starts") : jobs.length === 1 ? base(jobs[0].spec.output) : plural(jobs.length, "{n} job", "{n} jobs");
@@ -387,6 +408,17 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump
     : zunpack ? t("Turns the packs back into ordinary files; ampr-emu-ng stays in fakelib")
     : t("Big files that hold the game's small ones, read by an AMPR emulator");
 
+  // Back to the defaults; the next conversion starts from them too.
+  const useDefaults = () => {
+    setTo(firstTo); setPicked(props.install); setPacks("");
+    setLevel(DEFAULTS.level); setPkgComp(DEFAULTS.pkgComp); setProfile(DEFAULTS.profile); setLz4Level(DEFAULTS.lz4Level);
+    setZstdLevel(DEFAULTS.zstdLevel); setAmpr(DEFAULTS.ampr); setBc1(DEFAULTS.bc1); setVerify(DEFAULTS.verify);
+    setInstall(props.install); setKeepPkg(DEFAULTS.keepPkg);
+    store.set("convertLast", null); setRemembered(false);
+    setTimeout(focusFirst, 0); // the row is gone: the chosen format takes the focus
+    toast(t("Back to the default choices"), "ok");
+  };
+
   // Packs a game in its own format (exFAT stays exFAT) until a format is picked; a package is converted anyway.
   const choosePacks = (v: Packs) => {
     setPacks(v);
@@ -412,6 +444,10 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump
       {/* zstd pass 1 keeps no checkpoints yet: a dump cannot continue from it. */}
       <div class="note" hidden={packs !== "zstd" || !dump}>{t("With zstd packs, closing the game or restarting the engine while it packs starts the dump over.")}</div>
       <div class="note" hidden={!lz4NoteShown}>{t("FFPFSC loads slower than exFAT here: the console undoes zlib, then LZ4, and zlib saves little on LZ4 data.")}</div>
+      <button class="frow" hidden={!remembered} data-key="cv:defaults" onClick={useDefaults}>
+        <div class="fl"><b>{t("Use the default choices")}</b><small>{t("This starts with the choices of your last conversion")}</small></div>
+        <span class="arr">›</span>
+      </button>
     </>
     : cur === "options" ? <>
       <div class="lbl">{t("Options for {format}", { format: formatLabel(target) })}</div>
