@@ -93,7 +93,11 @@ Chronological log below; **read "Where we are" and "Next session" first.**
   Select all in the folder's ⋯ menu, a choice of AMPR emulator when
   updating, and the fix for "in use" switching to ampr_emu when a
   component update or a job's download fetched it. Page and app; not
-  console-tested before the tag.
+  console-tested before the tag. Main's CI green before the tag; published
+  2026-11-22, every job green, the app .zip's alembic.elf is the release
+  .elf (SHA256SUMS). Notes cumulative on 0.7.0's. Catalog PR from the fork
+  branch update-alembic-0.7.1: darkxex/ps5-homebrew-catalog#1382 (the
+  owner ran `gh pr create`: auto mode refused it again).
 - **In 0.7.0 (2026-11-15):** dumping an installed or disc game while it
   runs (Images → Dump a game: the running game, Dump when launched from
   Installed games, Dump the next game that starts; page and app), to any
