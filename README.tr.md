@@ -219,6 +219,15 @@ Sayfada ayrıca:
   ShadowMount+'a yeniden göster, Bir biçimle yeniden adlandır (önce eski → yeni
   gösterilir), Başka bir motora gönder, Kopyala, Taşı ve Sil; her işlem
   yalnızca uygulanabildiği dosyaları alır.
+  Klasörün ⋯ düğmesi **Seç…** ve **Tümünü seç** seçeneklerini de sunar.
+- **Yalnızca bazı dosyaları göstermek:** Dosyalar'da listenin üstündeki
+  **Göster:** listeyi Paketler, İmajlar, Oyun klasörleri ya da Diğer
+  dosyalarla sınırlar (ya da Tümü). Gezinmek için klasörler kalır, **Tümünü
+  seç** de yalnızca eşleşenleri işaretler.
+- **Dönüştür seçimlerinizi hatırlar:** sonraki dönüştürme, öncekinin biçimi ve
+  seçenekleriyle başlar (kaynağı silmek asla hatırlanmaz; çıktıyı denetlemek
+  her zaman açık başlar). Biçim adımındaki **Varsayılan seçimleri kullan**
+  bunları unutur.
 - **Paketler ve gizleme** (0.5.0'dan beri): varlık paketlerindeki oyunların
   biçiminin yanında LZ4 ya da ZSTD etiketi bulunur. **Gizle** / **Göster**
   (adı `.name` yapmak ve geri almak) paketler dahil her dosya ve klasörde
@@ -263,7 +272,10 @@ Sayfada ayrıca:
   (oyunun içinde ya da backport klasöründe) ve daha yeni bir derlemenin çıkıp
   çıkmadığını gösterir; **AMPR öykünücülerini güncelle**, her oyunun kendi
   öykünücüsünün en yeni derlemesini, öykünücüsü olmayan oyunlaraysa
-  kullanımdakini koyar. İki öykünücünün de tüm resmî derlemeleri, GitHub'ın
+  kullanımdakini koyar.
+  Önce sorar ve bunun yerine hepsine ampr_emu ya da ampr-emu-ng koyabilir
+  (zstd paketli oyunlar, onları okuyan tek öykünücü olan ampr-emu-ng'yi
+  korur). İki öykünücünün de tüm resmî derlemeleri, GitHub'ın
   yayımladığı SHA-256 ile tanınır.
   Uygulamaların `/data/downloads` klasörüne (altındaki herhangi bir
   klasöre) indirdiği paketler de listelenir; bilgisayarda, sistemin
@@ -426,7 +438,7 @@ başlatın; o zaman diğer motorlar ona ulaşamaz.
   konsolun depolamasına yazılır.
 - **AMPR öykünücülerini güncel tutmak:** İmajlar her oyunun öykünücüsünü
   gösterir, daha yeni bir derleme çıktığında da bir etiket koyar; **AMPR
-  öykünücülerini güncelle** hepsini günceller, her biri kendi türünü korur.
+  öykünücülerini güncelle** hepsini günceller, hepsi için birini seçmedikçe her biri kendi türünü korur.
 - **Dönüştürdükten sonra yer açmak:** **Bitince kaynağı sil**, kaynağı
   silmeden önce sonucu onunla dosya dosya karşılaştırır.
 - **Konsoldaki bir oyunun dökümünü al:** oyun yüklü ya da diski takılı
@@ -454,6 +466,8 @@ başlatın; o zaman diğer motorlar ona ulaşamaz.
   isterseniz.
 - **Birden çoğunu seçmek:** Dosyalar'da ya da İmajlar'da Seçenekler → Seç…,
   oyunları işaretleyin, ardından hepsiyle birden ne yapılacağı için □.
+  Dosyalar'da klasörün **⋯ → Tümünü seç** seçeneği hepsini işaretler
+  (**Göster:** ile yalnızca eşleşenleri).
 - **Aslını silmeden önce yedekleyin**, yeni imajın konsolunuzda başladığını
   denetleyene kadar.
 

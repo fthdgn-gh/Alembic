@@ -226,6 +226,16 @@ Aussi sur la page :
   ShadowMount+, Renommer avec un format (ancien → nouveau affiché d'abord),
   Envoyer à un autre moteur, Copier, Déplacer et Supprimer ; chaque action
   prend les fichiers auxquels elle s'applique.
+  Le bouton ⋯ du dossier propose aussi **Sélectionner…** et **Tout
+  sélectionner**.
+- **N'afficher que certains fichiers :** **Afficher :** au-dessus de la liste
+  dans Fichiers se limite aux Paquets, Images, Dossiers de jeux ou Autres
+  fichiers (ou Tout). Les dossiers restent, pour naviguer, et **Tout
+  sélectionner** ne coche que ceux qui correspondent.
+- **Convertir retient vos choix :** la conversion suivante reprend le format
+  et les options de la précédente (jamais la suppression de la source ; la
+  vérification de la sortie est toujours activée au départ). **Utiliser les
+  choix par défaut** à l'étape Format les oublie.
 - **Paquets et masquage** (depuis 0.5.0) : les jeux en paquets de ressources
   portent une étiquette LZ4 ou ZSTD après leur format. **Masquer** /
   **Afficher** (renommage en `.name` et retour) fonctionnent sur n'importe quel
@@ -272,7 +282,9 @@ Aussi sur la page :
   (dans le jeu ou dans son backport) et si une version plus récente est
   sortie ; **Mettre à jour les émulateurs AMPR** installe la version la plus
   récente de l'émulateur de chaque jeu, ou celui qui est utilisé là où un
-  jeu n'en a pas. Chaque version officielle des deux émulateurs est reconnue
+  jeu n'en a pas.
+  Il demande d'abord, et peut plutôt mettre ampr_emu ou ampr-emu-ng dans tous
+  (les jeux avec des paquets zstd gardent ampr-emu-ng, le seul qui les lit). Chaque version officielle des deux émulateurs est reconnue
   au SHA-256 que GitHub publie pour elle.
   Les paquets que des applications téléchargent dans `/data/downloads`
   (dans n'importe quel dossier en dessous) sont listés aussi ; sur un PC,
@@ -448,7 +460,7 @@ cet ordinateur ; les autres moteurs ne peuvent alors plus l'atteindre.
 - **Garder les émulateurs AMPR à jour :** Images montre l'émulateur de chaque
   jeu, avec une pastille quand une version plus récente est sortie ;
   **Mettre à jour les émulateurs AMPR** les met tous à jour, chacun gardant
-  son propre type.
+  son propre type, sauf si vous en choisissez un pour tous.
 - **Libérer de la place après une conversion :** **Supprimer la source à la
   fin** compare le résultat à la source, fichier par fichier, avant de la
   supprimer.
@@ -477,6 +489,8 @@ cet ordinateur ; les autres moteurs ne peuvent alors plus l'atteindre.
 - **Sélectionner plusieurs jeux :** dans Fichiers ou Images, Options →
   Sélectionner…, cochez les jeux, puis □ pour choisir quoi faire de tous à
   la fois.
+  Dans Fichiers, **⋯ → Tout sélectionner** du dossier les coche tous (avec
+  **Afficher :**, ceux qui correspondent).
 - **Faites une sauvegarde avant de supprimer l'original** tant que vous
   n'avez pas vérifié que la nouvelle image démarre sur votre console.
 

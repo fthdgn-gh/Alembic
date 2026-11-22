@@ -201,7 +201,15 @@ Also on the page:
   Convert (one job per game, a game already in the target format left
   out), Install, Add the AMPR emulator, Hide from or Show to ShadowMount+,
   Rename with a format (old → new shown first), Send to another engine,
-  Copy, Move and Delete; each action takes the files it applies to.
+  Copy, Move and Delete; each action takes the files it applies to. The
+  folder's ⋯ button offers **Select…** and **Select all** too.
+- **Show only some files:** **Show:** above the list in Files keeps to
+  Packages, Images, Game folders or Other files (or All). Folders stay, to
+  move around, and **Select all** ticks only the matching ones.
+- **Convert remembers your choices:** the next conversion starts with the
+  last one's format and options (never deleting the source; checking the
+  output always starts on). **Use the default choices** on the Format step
+  forgets them.
 - **Packs and hiding** (from 0.5.0): games in asset packs carry an LZ4 or
   ZSTD tag after their format. **Hide** / **Unhide** (renaming to `.name`
   and back) work on any file or folder, packages included; images keep
@@ -243,7 +251,9 @@ Also on the page:
   the APR it shows the AMPR emulator each one runs with (in the game or its
   backport) and whether a newer build is out; **Update AMPR emulators** puts
   the newest build of each game's own emulator in place, or the one in use
-  where a game has none. Every official build of both emulators is
+  where a game has none. It asks first, and can put ampr_emu or ampr-emu-ng
+  in all of them instead (games with zstd packs keep ampr-emu-ng, the only
+  one that reads them). Every official build of both emulators is
   recognised by the SHA-256 GitHub publishes for it.
   Packages apps download to `/data/downloads` (in any folder below it)
   are listed too; on a PC, those in the system's Downloads folder.
@@ -397,7 +407,7 @@ engines can't reach it then.
   result is written straight to the console's storage.
 - **Keep the AMPR emulators up to date:** Images shows each game's emulator
   and a pill when a newer build is out; **Update AMPR emulators** updates
-  them all, each keeping its own kind.
+  them all, each keeping its own kind unless you choose one for all.
 - **Free up space after converting:** **Delete the source when done**
   compares the result with the source file by file before deleting it.
 - **Dump a game from the console:** the game must be installed, or its
@@ -420,7 +430,8 @@ engines can't reach it then.
 - **Name images the same way every time** with **Settings → Rename formats**:
   title, title ID, version and format, as you choose.
 - **Selecting several:** in Files or Images, **Options → Select…**, tick the
-  games, then □ for what to do with all of them at once.
+  games, then □ for what to do with all of them at once. In Files, the
+  folder's **⋯ → Select all** ticks them all (with **Show:**, the matching ones).
 - **Back up before you delete the original** until you have checked the new
   image starts on your console.
 

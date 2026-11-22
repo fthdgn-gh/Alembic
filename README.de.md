@@ -226,6 +226,16 @@ Außerdem auf der Seite:
   wieder sichtbar machen, Umbenennen mit einem Format (alt → neu wird zuerst
   gezeigt), An eine andere Engine senden, Kopieren, Verschieben und Löschen;
   jede Aktion nimmt die Dateien, für die sie gilt.
+  Die ⋯-Schaltfläche des Ordners bietet auch **Auswählen…** und **Alle
+  auswählen**.
+- **Nur bestimmte Dateien zeigen:** **Anzeigen:** über der Liste in Dateien
+  beschränkt sie auf Pakete, Images, Spielordner oder Andere Dateien (oder
+  Alle). Ordner bleiben, um sich zu bewegen, und **Alle auswählen** hakt nur
+  die passenden an.
+- **Umwandeln merkt sich deine Wahl:** Die nächste Umwandlung beginnt mit
+  Format und Optionen der letzten (nie mit dem Löschen der Quelle; das Prüfen
+  der Ausgabe ist zu Beginn immer an). **Standardauswahl verwenden** im
+  Schritt Format vergisst sie.
 - **Pakete und Ausblenden** (ab 0.5.0): Spiele in Asset-Paketen tragen nach
   ihrem Format eine Markierung LZ4 oder ZSTD. **Ausblenden** / **Einblenden**
   (Umbenennen zu `.name` und zurück) funktionieren bei jeder Datei und jedem
@@ -272,7 +282,9 @@ Außerdem auf der Seite:
   zeigt es den AMPR-Emulator, mit dem jedes läuft (im Spiel oder in seinem
   Backport), und ob ein neuerer Build erschienen ist; **AMPR-Emulatoren
   aktualisieren** setzt den neuesten Build des jeweils eigenen Emulators ein,
-  bei Spielen ohne Emulator den verwendeten. Jeder offizielle Build beider
+  bei Spielen ohne Emulator den verwendeten.
+  Es fragt zuerst und kann stattdessen ampr_emu oder ampr-emu-ng in alle legen
+  (Spiele mit zstd-Paketen behalten ampr-emu-ng, den einzigen, der sie liest). Jeder offizielle Build beider
   Emulatoren wird an dem SHA-256 erkannt, den GitHub für ihn veröffentlicht.
   Pakete, die Apps nach `/data/downloads` laden (in beliebige Ordner
   darunter), werden ebenfalls aufgeführt; auf einem PC die im
@@ -444,7 +456,7 @@ beschränken; andere Engines erreichen sie dann nicht.
   geschrieben.
 - **Die AMPR-Emulatoren aktuell halten:** Images zeigt den Emulator jedes
   Spiels und eine Plakette, wenn ein neuerer Build da ist; **AMPR-Emulatoren
-  aktualisieren** aktualisiert sie alle, jeden in seiner eigenen Art.
+  aktualisieren** aktualisiert sie alle, jeden in seiner eigenen Art, außer du wählst einen für alle.
 - **Nach dem Umwandeln Platz schaffen:** **Quelle danach löschen** vergleicht
   das Ergebnis Datei für Datei mit der Quelle, bevor es sie löscht.
 - **Ein Spiel von der Konsole dumpen:** Das Spiel muss installiert sein
@@ -472,6 +484,8 @@ beschränken; andere Engines erreichen sie dann nicht.
   Title-ID, Version und Format, wie du willst.
 - **Mehrere auswählen:** in Dateien oder Images Optionen → Auswählen…, die
   Spiele ankreuzen, dann □ für das, was mit allen auf einmal geschehen soll.
+  In Dateien hakt **⋯ → Alle auswählen** des Ordners alle an (mit
+  **Anzeigen:** die passenden).
 - **Mach eine Sicherung, bevor du das Original löschst**, bis du geprüft
   hast, dass das neue Image auf deiner Konsole startet.
 

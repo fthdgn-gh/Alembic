@@ -227,6 +227,16 @@ Az oldalon még:
   számára, Átnevezés formátum alapján (előbb a régi → új név látszik), Küldés
   egy másik motornak, Másolás, Áthelyezés és Törlés; minden művelet azokat a
   fájlokat veszi, amelyekre vonatkozik.
+  A mappa ⋯ gombja a **Kijelölés…** és az **Összes kijelölése** lehetőséget is
+  kínálja.
+- **Csak bizonyos fájlok mutatása:** a Fájlok listája feletti
+  **Megjelenítés:** a Csomagokra, Image-ekre, Játékmappákra vagy Egyéb
+  fájlokra szűkít (vagy Mind). A mappák maradnak a navigáláshoz, az **Összes
+  kijelölése** pedig csak az egyezőket jelöli be.
+- **Az átalakítás megjegyzi a választásaidat:** a következő átalakítás az
+  előző formátumával és beállításaival indul (a forrás törlésével soha; a
+  kimenet ellenőrzése mindig bekapcsolva indul). A Formátum lépésben az
+  **Alapértelmezett beállítások használata** elfelejti őket.
 - **Csomagok és elrejtés** (0.5.0-tól): az asset csomagokban lévő játékok a
   formátumuk után LZ4 vagy ZSTD jelölést kapnak. Az **Elrejtés** /
   **Megjelenítés** (átnevezés `.name`-re és vissza) bármely fájlon vagy
@@ -276,7 +286,10 @@ Az oldalon még:
   vagy a backportjában), és hogy megjelent-e újabb build; az
   **AMPR-emulátorok frissítése** minden játék saját emulátorának legújabb
   buildjét teszi a helyére, az emulátor nélküli játékokba pedig a
-  használatban lévőt. Mindkét emulátor minden hivatalos buildjét a GitHub
+  használatban lévőt.
+  Előbb rákérdez, és helyette mindegyikbe ampr_emu-t vagy ampr-emu-ng-t is
+  tehet (a zstd-csomagos játékok megtartják az ampr-emu-ng-t, az egyetlent,
+  amely olvassa őket). Mindkét emulátor minden hivatalos buildjét a GitHub
   által közzétett SHA-256 alapján ismeri fel.
   Az alkalmazások által a `/data/downloads` mappába (bármelyik
   almappájába) letöltött csomagok is megjelennek; számítógépen a rendszer
@@ -454,7 +467,7 @@ számítógépre akarod korlátozni; ekkor más motorok sem érik el.
 - **Az AMPR-emulátorok naprakészen tartása:** az **Image-ek** rész minden
   játéknál mutatja az emulátort, és egy jelvényt, ha újabb build érhető el;
   az **AMPR-emulátorok frissítése** mindet frissíti, mindegyiket a saját
-  fajtájával.
+  fajtájával, hacsak nem választasz egyet mindegyiknek.
 - **Hely felszabadítása átalakítás után:** **A forrásfájl törlése a művelet
   végén** törlés előtt fájlonként összeveti az eredményt a forrással.
 - **Játék mentése a konzolról:** a játéknak telepítve kell lennie, vagy a
@@ -483,6 +496,8 @@ számítógépre akarod korlátozni; ekkor más motorok sem érik el.
 - **Több elem kijelölése:** a **Fájlok** vagy az **Image-ek** részen
   **Beállítások → Kijelölés…**, jelöld be a játékokat, majd a □ gombbal
   válaszd ki, mi történjen mindegyikkel egyszerre.
+  A Fájlok részen a mappa **⋯ → Összes kijelölése** mindet bejelöli (a
+  **Megjelenítés:** szűrővel az egyezőket).
 - **Készíts biztonsági másolatot, mielőtt törlöd az eredetit,** amíg nem
   ellenőrizted, hogy az új image elindul a konzolodon.
 

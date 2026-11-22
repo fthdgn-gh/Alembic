@@ -221,6 +221,16 @@ También en la página:
   Ocultar para / Mostrar a ShadowMount+, Renombrar con un formato (primero se
   muestra antiguo → nuevo), Enviar a otro motor, Copiar, Mover y Borrar; cada
   acción toma los archivos a los que se aplica.
+  El botón ⋯ de la carpeta también ofrece **Seleccionar…** y **Seleccionar
+  todo**.
+- **Mostrar solo algunos archivos:** **Mostrar:** sobre la lista en Archivos
+  se limita a Paquetes, Imágenes, Carpetas de juegos u Otros archivos (o
+  Todo). Las carpetas se quedan, para moverse, y **Seleccionar todo** marca
+  solo los que coinciden.
+- **Convertir recuerda tus opciones:** la siguiente conversión empieza con el
+  formato y las opciones de la anterior (nunca con borrar el origen; comprobar
+  la salida siempre empieza activado). **Usar las opciones predeterminadas**
+  en el paso Formato las olvida.
 - **Paquetes y ocultar** (desde la 0.5.0): los juegos en paquetes de recursos
   llevan una etiqueta LZ4 o ZSTD tras su formato. **Ocultar** / **Mostrar**
   (renombrar a `.name` y al revés) funcionan con cualquier archivo o carpeta,
@@ -266,7 +276,9 @@ También en la página:
   el que funciona cada uno (en el juego o en su backport) y si hay una
   versión más reciente; **Actualizar emuladores AMPR** pone la versión más
   reciente del emulador propio de cada juego, o el que está en uso donde un
-  juego no tiene ninguno. Toda versión oficial de ambos emuladores se
+  juego no tiene ninguno.
+  Primero pregunta, y puede poner ampr_emu o ampr-emu-ng en todos (los juegos
+  con paquetes zstd conservan ampr-emu-ng, el único que los lee). Toda versión oficial de ambos emuladores se
   reconoce por el SHA-256 que publica GitHub.
   También se listan los paquetes que las aplicaciones descargan en
   `/data/downloads` (en cualquier carpeta dentro de ella); en un PC, los de
@@ -439,7 +451,7 @@ entonces los demás motores no pueden contactar con él.
 - **Mantener al día los emuladores AMPR:** Imágenes muestra el emulador de
   cada juego y una etiqueta cuando hay una compilación más nueva;
   **Actualizar emuladores AMPR** los actualiza todos, cada uno con su propio
-  tipo.
+  tipo salvo que elijas uno para todos.
 - **Liberar espacio tras convertir:** **Borrar el origen al terminar**
   compara el resultado con el origen archivo por archivo antes de borrarlo.
 - **Volcar un juego desde la consola:** el juego debe estar instalado, o
@@ -464,6 +476,8 @@ entonces los demás motores no pueden contactar con él.
   título, ID de título, versión y formato, como prefieras.
 - **Seleccionar varios:** en Archivos o Imágenes, Opciones → Seleccionar…,
   marca los juegos y luego □ para lo que quieras hacer con todos a la vez.
+  En Archivos, **⋯ → Seleccionar todo** de la carpeta los marca todos (con
+  **Mostrar:**, los que coinciden).
 - **Haz una copia de seguridad antes de borrar el original** hasta que hayas
   comprobado que la nueva imagen arranca en tu consola.
 
