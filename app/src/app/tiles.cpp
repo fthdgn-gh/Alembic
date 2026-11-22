@@ -26,6 +26,33 @@ void App::set_view_mode(const std::string& which, const std::string& mode) {
     save_prefs();
 }
 
+std::string App::file_filter() const {
+    const std::string f = prefs["filter.files"].str();
+    return f == "packages" || f == "images" || f == "games" || f == "other" ? f : "all";
+}
+
+void App::set_file_filter(const std::string& f) {
+    prefs.set("filter.files", f);
+    save_prefs();
+    apply_filter();
+}
+
+void App::apply_filter() {
+    const std::string f = cwd.empty() ? "all" : file_filter();
+    auto image = [](const Entry& e) { return e.kind == "exfat" || e.kind == "ffpfsc" || e.kind == "ffpkg" || e.kind == "ffpfs"; };
+    auto matches = [&](const Entry& e) {
+        return f == "all" ? true : f == "packages" ? e.kind == "fpkg" : f == "images" ? image(e)
+             : f == "games" ? e.game : !e.game && e.kind != "folder" && e.kind != "fpkg" && !image(e);
+    };
+    shown.clear();
+    matching.clear();
+    for (const Entry& e : entries) {
+        const bool plain = e.kind == "folder" && !e.game;
+        if (f == "all" || plain || matches(e)) shown.push_back(e);
+        if (f == "all" || (!plain && matches(e))) matching.push_back(e);
+    }
+}
+
 float view_switch(Ui& ui, App& app, const std::string& which, float right, float y, float h) {
     const float bw = 2.3f * R;
     const std::string mode = app.view_mode(which);

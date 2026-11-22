@@ -196,8 +196,17 @@ public:
     std::string cwd;
     std::vector<Entry> entries;
     std::vector<Entry> image_entries;  // the Images tab's rows (ImagesPage fills it)
+    // Which entries Files shows (issue #6, state/view.ts fileFilter): "all",
+    // "packages", "images", "games" or "other" (prefs.json "filter.files").
+    // Plain folders stay in every filter, to move around; the drives list is
+    // never filtered. `shown` is what the list draws; `matching` the shown
+    // ones a selection is made from (without the plain folders under a filter).
+    std::vector<Entry> shown, matching;
+    std::string file_filter() const;
+    void set_file_filter(const std::string& f);
+    void apply_filter();
     // The rows a selection is made from: the folder's in Files, the list's in Images.
-    const std::vector<Entry>& rows() const { return tab == Tab::images ? image_entries : entries; }
+    const std::vector<Entry>& rows() const { return tab == Tab::images ? image_entries : matching; }
     // "list" or "grid" for "files" or "images" (prefs.json; Files starts as
     // a list, Images as a grid).
     std::string view_mode(const std::string& which) const;

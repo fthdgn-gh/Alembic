@@ -28,6 +28,42 @@ bool is_convertible(const Entry& e) {
            e.game;
 }
 
+// ---------------------------------------------------------------- filter
+
+namespace {
+
+std::string filter_label(const std::string& f) {
+    return f == "packages" ? t("Packages") : f == "images" ? t("Images") : f == "games" ? t("Game folders")
+         : f == "other"    ? t("Other files") : t("All");
+}
+
+// Which entries the list shows (FilesPage.tsx pickFilter); a selection ends
+// (it was made from other rows) and the list's first row takes the focus.
+void pick_filter(App& app) {
+    static const char* const kFilters[] = {"all", "packages", "images", "games", "other"};
+    const std::string now = app.file_filter();
+    std::vector<Choice> items;
+    for (const char* f : kFilters) {
+        const std::string v = f;
+        Choice c;
+        c.label = filter_label(v);
+        c.sub = v == "all" ? t("Every file and folder") : v == "packages" ? t("FPKG packages")
+              : v == "images" ? t("FFPKG, FFPFSC, FFPFS and exFAT") : v == "games" ? t("Dump folders") : t("Everything else");
+        c.selected = v == now;
+        c.act = [&app, v, now] {
+            if (v == now) return;
+            if (app.selecting) app.stop_selecting();
+            app.set_file_filter(v);
+            app.focus_after.clear();
+            app.focus_list = true;
+        };
+        items.push_back(std::move(c));
+    }
+    choose(app, t("Show"), std::move(items), t("Folders stay, to move around"));
+}
+
+}  // namespace
+
 // ---------------------------------------------------------------- rail
 
 void FilesPage::rail(Ui& ui, App& app, const Rect& area) {
@@ -247,6 +283,7 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
         };
         right -= view_switch(ui, app, "files", right, by, bh) + 0.5f * R;
         if (tool("refresh", t("Refresh"), draw::Button::ghost, false)) app.refresh_listing();
+        if (tool("filter", t("Show: {what}", {{"what", filter_label(app.file_filter())}}), draw::Button::normal, top)) pick_filter(app);
         if (tool("mkdir", t("New folder"), draw::Button::normal, top)) {
             const std::string where = app.cwd;
             ask_text(app, t("New folder"), t("New folder"), t("Create"), [&app, where](const std::string& name) {
@@ -324,8 +361,14 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
             const auto sel = app.selected_entries();
             for (const auto& e : sel)
                 if (e.kind != "folder") size += std::max(0.0, e.size);
-            summary = t("{n} of {total} selected", {{"n", std::to_string(sel.size())}, {"total", std::to_string(app.entries.size())}}) +
+            summary = t("{n} of {total} selected", {{"n", std::to_string(sel.size())}, {"total", std::to_string(app.rows().size())}}) +
                       (size > 0 ? "  \xC2\xB7  " + bytes(size) : "");
+        } else if (app.listing_loaded && app.file_filter() != "all") {
+            // A filter: how many of the folder's files and games it shows.
+            std::size_t items = 0;
+            for (const auto& e : app.entries) items += !(e.kind == "folder" && !e.game);
+            summary = t("{n} of {total} shown", {{"n", std::to_string(app.matching.size())}, {"total", std::to_string(items)}}) +
+                      "  \xC2\xB7  " + filter_label(app.file_filter());
         } else if (app.listing_loaded) {
             int files = 0, folders = 0;
             double total = 0;
@@ -366,17 +409,17 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
         ui.scroll_to_top("list");
         std::string key = app.focus_after;
         bool found = false;
-        for (const auto& e : app.entries) found = found || e.path == key;
-        if (!found && !app.entries.empty()) key = app.entries.front().path;
-        if (!app.entries.empty()) ui.set_focus(Id("row") / key);
+        for (const auto& e : app.shown) found = found || e.path == key;
+        if (!found && !app.shown.empty()) key = app.shown.front().path;
+        if (!app.shown.empty()) ui.set_focus(Id("row") / key);
         app.focus_list = false;
         focused_path = key;
     }
     const float offset = ui.begin_scroll("list", view);
     float ry = y + 0.5f * R - offset;
     const float rx = area.x + 0.3f * R - 0.6f * R + 0.6f * R, rw = area.w - 0.6f * R;
-    if (app.listing_loaded && app.entries.empty()) {
-        draw::text(ui, Face::regular, t("This folder is empty."), area.x + area.w * 0.5f,
+    if (app.listing_loaded && app.shown.empty()) {
+        draw::text(ui, Face::regular, app.entries.empty() ? t("This folder is empty.") : t("Nothing here matches the filter."), area.x + area.w * 0.5f,
                    draw::baseline(ry + 3.0f * R + 0.725f * R, 1.0f * R), 1.0f * R, muted, Align::center);
         ry += 6.0f * R + 1.45f * R;
     }
@@ -384,7 +427,7 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
     if (grid) {
         const Grid g = grid_of(rx, rw);
         int k = 0;
-        for (const Entry& e : app.entries) {
+        for (const Entry& e : app.shown) {
             const Rect r = g.cell(k++, ry);
             const Id id = Id("row") / e.path;
             if (top) {  // the drives: symbol, name and room
@@ -433,7 +476,7 @@ void FilesPage::list(Ui& ui, App& app, const Rect& area) {
         ry += g.height(k);
     }
     const std::vector<Entry> none;
-    for (const Entry& e : grid ? none : app.entries) {
+    for (const Entry& e : grid ? none : app.shown) {
         const float h = 0.55f * R * 2.0f + 3.4f * R;
         ry += 0.15f * R;
         const Rect r{rx, ry, rw, h};

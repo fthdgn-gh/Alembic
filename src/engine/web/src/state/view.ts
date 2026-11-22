@@ -35,6 +35,28 @@ export const TOP = "";
 export const cwd = signal<string | null>(null);
 export const listing = signal<Listing | null>(null);
 export const focusEntry = signal<Entry | null>(null); // the focused row in Files
+
+// Which entries Files shows (issue #6), kept per browser. Plain folders stay
+// in every filter, to move around; the drives list is never filtered.
+export type FileFilter = "all" | "packages" | "images" | "games" | "other";
+export const FILE_FILTERS: FileFilter[] = ["all", "packages", "images", "games", "other"];
+const IMAGE_KINDS = ["exfat", "ffpfsc", "ffpkg", "ffpfs"];
+export const fileFilter = signal<FileFilter>(FILE_FILTERS.indexOf(store.get<FileFilter>("filter.files")!) >= 0 ? store.get<FileFilter>("filter.files")! : "all");
+export function setFileFilter(f: FileFilter) {
+  fileFilter.value = f;
+  store.set("filter.files", f);
+}
+export const isPlainFolder = (e: Entry) => e.kind === "folder" && !e.game;
+export function matchesFilter(e: Entry, f: FileFilter = fileFilter.value) {
+  return f === "all" ? true : f === "packages" ? e.kind === "fpkg" : f === "images" ? IMAGE_KINDS.indexOf(e.kind) >= 0
+    : f === "games" ? !!e.game : !e.game && e.kind !== "folder" && e.kind !== "fpkg" && IMAGE_KINDS.indexOf(e.kind) < 0;
+}
+// The rows Files shows for a listing.
+export function shownEntries(data: Listing | null): Entry[] {
+  if (!data) return [];
+  if (data.path === TOP || fileFilter.value === "all") return data.entries;
+  return data.entries.filter((e) => isPlainFolder(e) || matchesFilter(e));
+}
 export const pad = signal(IS_PS5); // show controller glyphs (a gamepad was seen)
 
 // Consoles set to confirm with ○ (the engine reads the system setting). The

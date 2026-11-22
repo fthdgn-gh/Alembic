@@ -2,7 +2,7 @@
 // Moving around in Files: open a folder and put the focus where it belongs.
 import type { Listing } from "../../api/types";
 import { api } from "../../api/client";
-import { cwd, listing, focusEntry, tab, TOP } from "../../state/view";
+import { cwd, listing, focusEntry, tab, TOP, shownEntries } from "../../state/view";
 import { loadInfo } from "../../state/engine";
 import { dir } from "../../lib/format";
 import { tMsg } from "../../lib/i18n";
@@ -42,14 +42,21 @@ function placeFocus(data: Listing, focusKey: string | null, keepPlace: boolean) 
   const box = document.getElementById("list");
   if (!box) return;
   box.scrollTop = 0;
-  if (!data.entries.length) { focusEntry.value = null; return; }
+  const entries = shownEntries(data);
+  if (!entries.length) { focusEntry.value = null; return; }
   const rows = Array.prototype.slice.call(box.querySelectorAll(".row")) as HTMLElement[];
   const toFocus = focusKey ? rows.filter((r) => r.getAttribute("data-key") === focusKey)[0] : null;
   const first = toFocus || rows[0];
   setZoneLast("list", first);
   const a = document.activeElement as HTMLElement | null, elsewhere = !!a && a !== document.body && a.isConnected && visible(a) && zoneOf(a) !== "list";
-  if (overlays.value.length || tab.value !== "files" || (keepPlace && elsewhere)) focusEntry.value = data.entries[toFocus ? data.entries.findIndex((e) => e.path === focusKey) : 0];
+  if (overlays.value.length || tab.value !== "files" || (keepPlace && elsewhere)) focusEntry.value = entries[toFocus ? entries.findIndex((e) => e.path === focusKey) : 0];
   else focusEl(first);
+}
+
+// Another filter: the list's first row takes the focus.
+export function refocusList() {
+  const data = listing.value;
+  if (data) setTimeout(() => placeFocus(data, null, false), 0);
 }
 
 export function refresh() { if (cwd.value !== null) browse(cwd.value, false); loadInfo().catch(() => {}); }

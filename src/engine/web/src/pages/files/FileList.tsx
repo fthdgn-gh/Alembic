@@ -2,7 +2,7 @@
 // The folder's contents: a row per entry, with game info once it has loaded.
 import { useRef } from "preact/hooks";
 import type { Entry } from "../../api/types";
-import { cwd, listing, focusEntry, viewModes, TOP } from "../../state/view";
+import { cwd, listing, focusEntry, viewModes, TOP, shownEntries, fileFilter } from "../../state/view";
 import { Tile } from "../../components/Tile";
 import { rootOf, serverOf, serverAddress, driveName, offlinePeer, shownPath } from "../../state/paths";
 import { isConvertible, KIND_LABEL } from "../../lib/kinds";
@@ -92,11 +92,13 @@ export function FileList() {
   const data = listing.value;
   const grid = viewModes.value.files === "grid" && !!data;
   const top = !!data && data.path === TOP;
+  const entries = shownEntries(data);
   return (
     <div class={"list scroll" + (grid ? " grid" : "")} id="list" data-zone="list" data-column={grid ? undefined : true}>
       {!data ? null : !data.entries.length ? <div class="empty">{t("This folder is empty.")}</div>
-        : grid ? data.entries.map((e) => (top ? <DriveCell key={e.path} e={e} /> : <Cell key={e.path} e={e} />))
-        : data.entries.map((e) => <Row key={e.path} e={e} top={data.path === TOP} />)}
+        : !entries.length && fileFilter.value !== "all" ? <div class="empty">{t("Nothing here matches the filter.")}</div>
+        : grid ? entries.map((e) => (top ? <DriveCell key={e.path} e={e} /> : <Cell key={e.path} e={e} />))
+        : entries.map((e) => <Row key={e.path} e={e} top={data.path === TOP} />)}
     </div>
   );
 }

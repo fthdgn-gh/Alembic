@@ -1,31 +1,37 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Files: drives and places on the left, the folder's contents on the right.
 import { useEffect, useRef } from "preact/hooks";
-import { cwd, listing, TOP } from "../../state/view";
+import { cwd, listing, TOP, fileFilter, setFileFilter, FILE_FILTERS, matchesFilter, isPlainFolder, type FileFilter } from "../../state/view";
 import { peerDrives } from "../../state/engine";
 import { rootOf, serverOf, onServerText, driveName, offlinePeer } from "../../state/paths";
 import { api } from "../../api/client";
 import { base, bytes, join } from "../../lib/format";
 import { IS_PS5 } from "../../lib/env";
 import { t, plural, tMsg } from "../../lib/i18n";
-import { ask } from "../../components/Dialogs";
+import { ask, choose } from "../../components/Dialogs";
 import { toast } from "../../components/Toasts";
 import { Crumbs } from "../../components/Crumbs";
 import { ViewSwitch } from "../../components/ViewSwitch";
 import { openConvert } from "../../dialogs/ConvertDialog";
-import { browse, refresh } from "./browse";
+import { browse, refresh, refocusList } from "./browse";
 import { Rail } from "./Rail";
 import { FileList } from "./FileList";
 import { openActions } from "./actions";
 import { shares, shareFile, kindOfName } from "./shares";
-import { selecting, selectedEntries } from "../../state/selection";
+import { selecting, selectedEntries, selectableCount, stopSelecting } from "../../state/selection";
 
 function Summary() {
   const data = listing.value;
   if (!data) return <div class="summary" id="summary" />;
   if (selecting.value) {
     const sel = selectedEntries.value, size = sel.reduce((n, e) => n + (e.kind === "folder" ? 0 : e.size || 0), 0);
-    return <div class="summary sel" id="summary">{t("{n} of {total} selected", { n: sel.length, total: data.entries.length }) + (size ? "  ·  " + bytes(size) : "")}</div>;
+    return <div class="summary sel" id="summary">{t("{n} of {total} selected", { n: sel.length, total: selectableCount() }) + (size ? "  ·  " + bytes(size) : "")}</div>;
+  }
+  // A filter: how many of the folder's files and games it shows.
+  const f = fileFilter.value;
+  if (f !== "all" && data.path !== TOP) {
+    const items = data.entries.filter((e) => !isPlainFolder(e));
+    return <div class="summary" id="summary">{t("{n} of {total} shown", { n: items.filter((e) => matchesFilter(e, f)).length, total: items.length }) + "  ·  " + filterLabel(f)}</div>;
   }
   const files = data.entries.filter((e) => e.kind !== "folder"), folders = data.entries.length - files.length;
   const total = files.reduce((n, e) => n + (e.size || 0), 0);
@@ -66,6 +72,8 @@ export function FilesPage(props: { hidden: boolean }) {
             <button class="btn sm" id="btn-here" title={t("Options for this folder")} disabled={atTop}
               onClick={() => { if (cwd.value) openActions({ path: cwd.value, name: base(cwd.value), kind: "folder" }); }}>⋯</button>
             <button class="btn sm" id="btn-mkdir" disabled={atTop} onClick={newFolder}>{t("New folder")}</button>
+            <button class="btn sm" data-key="files:filter" disabled={atTop} onClick={pickFilter}>
+              {t("Show: {what}", { what: filterLabel(fileFilter.value) })}</button>
             <button class="btn sm ghost" id="btn-refresh" title={t("Refresh")} onClick={refresh}>{t("Refresh")}</button>
             <ViewSwitch which="files" />
           </div>
@@ -77,6 +85,23 @@ export function FilesPage(props: { hidden: boolean }) {
       </div>
     </section>
   );
+}
+
+const filterLabel = (f: FileFilter) =>
+  f === "packages" ? t("Packages") : f === "images" ? t("Images") : f === "games" ? t("Game folders") : f === "other" ? t("Other files") : t("All");
+
+// Which entries the list shows; a selection ends (it was made from other rows).
+async function pickFilter() {
+  const hints: Record<FileFilter, string> = {
+    all: t("Every file and folder"), packages: t("FPKG packages"), images: t("FFPKG, FFPFSC, FFPFS and exFAT"),
+    games: t("Dump folders"), other: t("Everything else"),
+  };
+  const f = await choose<FileFilter>(t("Show"), FILE_FILTERS.map((x) => ({ label: filterLabel(x), sub: hints[x], value: x, selected: x === fileFilter.value })),
+    t("Folders stay, to move around"));
+  if (!f || f === fileFilter.value) return;
+  if (selecting.value) stopSelecting();
+  setFileFilter(f);
+  refocusList();
 }
 
 async function newFolder() {

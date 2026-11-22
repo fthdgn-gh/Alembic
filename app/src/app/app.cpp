@@ -696,6 +696,7 @@ void App::browse(const std::string& path, const std::string& focus_key) {
         if (p != from) stop_selecting();  // a selection is one folder's
         cwd = p;
         entries = std::move(list);
+        apply_filter();
         listing_loaded = true;
         listing_path = p;
         focus_after = key;

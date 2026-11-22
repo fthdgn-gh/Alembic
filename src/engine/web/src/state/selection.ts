@@ -5,11 +5,13 @@
 // another ends it.
 import { signal, computed } from "@preact/signals";
 import type { Entry } from "../api/types";
-import { cwd, listing, tab } from "./view";
+import { cwd, listing, tab, fileFilter, shownEntries, isPlainFolder } from "./view";
 import { allImages } from "./images";
 
-// The rows the selection is made from: the folder's in Files, the list's in Images.
-const rows = (): Entry[] => (tab.value === "images" ? allImages() : listing.value ? listing.value.entries : []);
+// The rows the selection is made from: the folder's in Files (with a filter,
+// the matching ones: its plain folders are only there to move around), the list's in Images.
+const rows = (): Entry[] => (tab.value === "images" ? allImages()
+  : shownEntries(listing.value).filter((e) => fileFilter.value === "all" || !isPlainFolder(e)));
 
 export const selecting = signal(false);
 export const selected = signal<string[]>([]); // paths, in the order they were ticked
