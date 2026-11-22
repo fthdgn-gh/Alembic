@@ -71,6 +71,10 @@ public:
 private:
     void queue(App& app, std::vector<JsonValue> list, std::function<void(int queued)> done);
     std::string target_name(const JsonValue& item) const;
+    // Which emulator goes in (issue #6): each game's own (the default) or one
+    // for all; `then` gets the list with its targets set.
+    void confirm_ampr(App& app, const std::vector<JsonValue>& before, std::vector<JsonValue> todo, std::function<void()> after);
+    void pick_emulator(App& app, std::vector<JsonValue> list, std::function<void(std::vector<JsonValue>)> then);
     bool is_pending(const std::string& path) const;
     JsonValue data_;                    // GET /api/images
     JsonValue peers_ = JsonValue::array();  // GET /api/peers/images: the paired engines' lists

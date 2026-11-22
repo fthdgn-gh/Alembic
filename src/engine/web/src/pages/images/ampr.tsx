@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Updating the AMPR emulator of images (the Images tab, its Options and its
 // selection): an "ampr_emu" job each, keeping the game's emulator (or adding
-// the one in use where there is none), the downloads it needs asked for once.
+// the one in use where there is none) unless another one is chosen for all,
+// the downloads it needs asked for once.
 import { signal } from "@preact/signals";
 import type { Dep, ImageItem, Plan } from "../../api/types";
 import { api } from "../../api/client";
@@ -11,7 +12,7 @@ import { shownPath } from "../../state/paths";
 import { base } from "../../lib/format";
 import { t, tMsg, plural } from "../../lib/i18n";
 import { toast } from "../../components/Toasts";
-import { ask } from "../../components/Dialogs";
+import { ask, choose, type ChoiceItem } from "../../components/Dialogs";
 import { getNeeds } from "../../dialogs/getNeeds";
 
 export const amprPending = signal<string[]>([]); // paths with a job queued from here
@@ -54,10 +55,48 @@ async function queue(list: ImageItem[]): Promise<number> {
   return queued;
 }
 
-// One image: at once (an unknown build asks first); several: one question.
+const NG = "ampr_runtime_ng";
+const emuName = (e: { name: string; version: string; latest: string }) => e.name + (e.latest || e.version ? " " + (e.latest || e.version) : "");
+
+// Which emulator goes in (issue #6): each game's own kind (the default), or
+// one chosen for all. zstd-packed games keep ampr-emu-ng: only it reads their
+// packs. Resolves with the list, its targets set; null when cancelled.
+async function pickEmulator(list: ImageItem[]): Promise<ImageItem[] | null> {
+  const emus = images.value ? images.value.emulators : [];
+  if (emus.length < 2) return list;
+  const one = list.length === 1 ? list[0] : null;
+  const own = one && one.ampr!.emulator ? one.ampr!.emulator : null;
+  const anyOwn = list.some((i) => !!i.ampr!.emulator);
+  const inUse = emus.find((e) => e.in_use) || emus[0];
+  const items: ChoiceItem<string>[] = [];
+  // Its kind by name (the game's own build is older: its version would mislead).
+  const ownKind = own ? (emus.find((e) => e.id === own.id) || own).name : "";
+  if (anyOwn) items.push(own
+    ? { label: t("Keep {name}", { name: ownKind }), sub: t("Its newest build"), value: "", selected: true }
+    : { label: t("Keep each game's emulator"), sub: t("Each gets its own emulator's newest build; a game without one gets {name}", { name: inUse.name }), value: "", selected: true });
+  for (const e of emus) {
+    if (own && own.id === e.id) continue;
+    if (one && one.ampr!.zstd_packs && e.id !== NG) continue; // only ampr-emu-ng reads its packs
+    items.push({ label: emuName(e), value: e.id, selected: !anyOwn && (one ? one.ampr!.target === e.id : e.in_use),
+      sub: (e.id === NG ? t("Reads LZ4 and zstd packs") : t("Reads LZ4 packs, not zstd ones")) + (e.in_use ? " · " + t("in use") : "") });
+  }
+  if (items.length < 2) return list; // nothing to choose
+  const chosen = await choose(t("Choose the AMPR emulator"), items, one ? shownPath(one.path) : plural(list.length, "{n} game", "{n} games"));
+  if (chosen === null) return null;
+  if (!chosen) return list;
+  return list.map((i) => (i.ampr!.zstd_packs && chosen !== NG ? i : { ...i, ampr: { ...i.ampr!, target: chosen } }));
+}
+
+// One image: which emulator, then at once (an unknown build asks first); several: which emulator, then one question.
 export async function updateAmpr(list: ImageItem[]) {
   list = list.filter((i) => amprUpdatable(i) || (i.ampr && i.ampr.status === "unknown" && i.allowed));
   if (!list.length) { toast(t("Every image is up to date"), "ok"); return; }
+  if (list.length > 1) list = list.filter((i) => i.ampr!.status !== "unknown"); // custom builds only one at a time
+  if (!list.length) { toast(t("Every image is up to date"), "ok"); return; }
+  const before = list;
+  const picked = await pickEmulator(list);
+  if (!picked) return;
+  list = picked;
   if (list.length === 1) {
     const i = list[0];
     if (i.ampr!.status === "unknown") {
@@ -68,11 +107,15 @@ export async function updateAmpr(list: ImageItem[]) {
     if (await queue(list)) toast(t("Queued: {name}", { name: base(i.path) }), "ok");
     return;
   }
-  list = list.filter((i) => i.ampr!.status !== "unknown"); // custom builds only one at a time
   const add = list.filter((i) => i.ampr!.status === "missing").length;
+  // One emulator for all: the zstd-packed games that keep ampr-emu-ng.
+  const forAll = list.some((i, k) => i !== before[k]) ? list.find((i, k) => i !== before[k])! : null;
+  const keptNg = forAll ? list.filter((i, k) => i === before[k]).length : 0;
   const shown = list.slice(0, 6).map((i) => base(i.path)).join("\n") + (list.length > 6 ? "\n" + t("and {n} more", { n: list.length - 6 }) : "");
   const body = <div><div class="mono" style="white-space:pre-line">{shown}</div>
-    <p class="muted">{t("Each keeps its emulator (ampr_emu or ampr-emu-ng) and gets that one's newest build; a game without one gets the one in use.")}</p>
+    <p class="muted">{forAll ? t("Each gets {name}.", { name: targetName(forAll) })
+      : t("Each keeps its emulator (ampr_emu or ampr-emu-ng) and gets that one's newest build; a game without one gets the one in use.")}</p>
+    {keptNg ? <p class="muted">{plural(keptNg, "{n} of them has zstd packs and keeps ampr-emu-ng, the only emulator that reads them.", "{n} of them have zstd packs and keep ampr-emu-ng, the only emulator that reads them.")}</p> : null}
     {add ? <p class="muted">{plural(add, "{n} of them has no emulator yet.", "{n} of them have no emulator yet.")}</p> : null}
     <p class="muted">{t("Game folders are changed in place; images are not changed: ShadowMount+ gets a backport folder for each.")}</p></div>;
   if (!await ask({ title: plural(list.length, "Update {n} image?", "Update {n} images?"), body, ok: t("Update") })) return;

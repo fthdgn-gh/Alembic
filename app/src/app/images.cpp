@@ -286,14 +286,83 @@ void ImagesPage::queue(App& app, std::vector<JsonValue> list, std::function<void
     }
 }
 
+// Which emulator goes in (issue #6, ampr.tsx pickEmulator): each game's own
+// kind (the default), or one chosen for all. zstd-packed games keep
+// ampr-emu-ng: only it reads their packs.
+void ImagesPage::pick_emulator(App& app, std::vector<JsonValue> list, std::function<void(std::vector<JsonValue>)> then) {
+    static const std::string ng = "ampr_runtime_ng";
+    const auto& emus = data_["emulators"].items();
+    if (emus.size() < 2) return then(std::move(list));
+    const JsonValue* one = list.size() == 1 ? &list.front() : nullptr;
+    const JsonValue own = one ? (*one)["ampr"]["emulator"] : JsonValue();
+    const bool any_own = std::any_of(list.begin(), list.end(), [](const JsonValue& i) { return i["ampr"]["emulator"].is_object(); });
+    const JsonValue* in_use = &emus.front();
+    for (const auto& e : emus)
+        if (e["in_use"].boolean()) in_use = &e;
+    auto with = [list, then](const std::string& id) {
+        std::vector<JsonValue> out;
+        for (JsonValue i : list) {
+            if (!id.empty() && !(i["ampr"]["zstd_packs"].boolean() && id != ng)) {
+                JsonValue a = i["ampr"];
+                a.set("target", id);
+                i.set("ampr", std::move(a));
+            }
+            out.push_back(std::move(i));
+        }
+        then(std::move(out));
+    };
+    std::vector<Choice> items;
+    if (any_own) {
+        Choice c;
+        if (own.is_object()) {
+            // Its kind by name (the game's own build is older: its version would mislead).
+            std::string kind = own["name"].str();
+            for (const auto& e : emus)
+                if (e["id"].str() == own["id"].str()) kind = e["name"].str();
+            c.label = t("Keep {name}", {{"name", kind}});
+            c.sub = t("Its newest build");
+        } else {
+            c.label = t("Keep each game's emulator");
+            c.sub = t("Each gets its own emulator's newest build; a game without one gets {name}", {{"name", (*in_use)["name"].str()}});
+        }
+        c.selected = true;
+        c.act = [with] { with(""); };
+        items.push_back(std::move(c));
+    }
+    for (const auto& e : emus) {
+        const std::string id = e["id"].str();
+        if (own.is_object() && own["id"].str() == id) continue;
+        if (one && (*one)["ampr"]["zstd_packs"].boolean() && id != ng) continue;  // only ampr-emu-ng reads its packs
+        Choice c;
+        const std::string v = e["latest"].str().empty() ? e["version"].str() : e["latest"].str();
+        c.label = e["name"].str() + (v.empty() ? "" : " " + v);
+        c.sub = (id == ng ? t("Reads LZ4 and zstd packs") : t("Reads LZ4 packs, not zstd ones")) +
+                (e["in_use"].boolean() ? " \xC2\xB7 " + t("in use") : "");
+        c.selected = !any_own && (one ? (*one)["ampr"]["target"].str() == id : e["in_use"].boolean());
+        c.act = [with, id] { with(id); };
+        items.push_back(std::move(c));
+    }
+    if (items.size() < 2) return then(std::move(list));  // nothing to choose
+    choose(app, t("Choose the AMPR emulator"), std::move(items),
+           one ? app.shown_path((*one)["path"].str()) : plural(static_cast<long long>(list.size()), "{n} game", "{n} games"));
+}
+
 void ImagesPage::update_ampr(App& app, std::vector<JsonValue> list, std::function<void()> after) {
     std::vector<JsonValue> todo;
     for (const auto& i : list)
         if (updatable(i) || (i["ampr"]["status"].str() == "unknown" && i["allowed"].boolean())) todo.push_back(i);
+    // Several: custom builds only one at a time.
+    if (todo.size() > 1)
+        todo.erase(std::remove_if(todo.begin(), todo.end(), [](const JsonValue& i) { return i["ampr"]["status"].str() == "unknown"; }),
+                   todo.end());
     if (todo.empty()) {
         app.toast(t("Every image is up to date"), App::Toast::ok);
         return;
     }
+    pick_emulator(app, todo, [this, &app, before = todo, after](std::vector<JsonValue> picked) { confirm_ampr(app, before, std::move(picked), after); });
+}
+
+void ImagesPage::confirm_ampr(App& app, const std::vector<JsonValue>& before, std::vector<JsonValue> todo, std::function<void()> after) {
     if (todo.size() == 1) {
         const JsonValue i = todo.front();
         const std::string path = i["path"].str();
@@ -310,9 +379,17 @@ void ImagesPage::update_ampr(App& app, std::vector<JsonValue> list, std::functio
         ask(app, t("Replace the AMPR emulator?"), text_body(body), t("Replace"), false, go);
         return;
     }
-    // Several: custom builds only one at a time.
-    todo.erase(std::remove_if(todo.begin(), todo.end(), [](const JsonValue& i) { return i["ampr"]["status"].str() == "unknown"; }),
-               todo.end());
+    // One emulator for all: the zstd-packed games that keep ampr-emu-ng.
+    std::string for_all, for_all_id;
+    long long kept_ng = 0;
+    for (std::size_t k = 0; k < todo.size(); ++k)
+        if (todo[k]["ampr"]["target"].str() != before[k]["ampr"]["target"].str()) {
+            for_all = target_name(todo[k]);
+            for_all_id = todo[k]["ampr"]["target"].str();
+        }
+    if (!for_all.empty() && for_all_id != "ampr_runtime_ng")
+        for (std::size_t k = 0; k < todo.size(); ++k)
+            if (todo[k]["ampr"]["zstd_packs"].boolean() && todo[k]["ampr"]["target"].str() == before[k]["ampr"]["target"].str()) ++kept_ng;
     long long add = 0;
     std::string names;
     for (std::size_t k = 0; k < todo.size(); ++k) {
@@ -321,7 +398,11 @@ void ImagesPage::update_ampr(App& app, std::vector<JsonValue> list, std::functio
     }
     if (todo.size() > 6) names += "\n" + t("and {n} more", {{"n", std::to_string(todo.size() - 6)}});
     std::string body = names + "\n\n~" +
-                       t("Each keeps its emulator (ampr_emu or ampr-emu-ng) and gets that one's newest build; a game without one gets the one in use.");
+                       (for_all.empty() ? t("Each keeps its emulator (ampr_emu or ampr-emu-ng) and gets that one's newest build; a game without one gets the one in use.")
+                                        : t("Each gets {name}.", {{"name", for_all}}));
+    if (kept_ng)
+        body += "\n\n~" + plural(kept_ng, "{n} of them has zstd packs and keeps ampr-emu-ng, the only emulator that reads them.",
+                                   "{n} of them have zstd packs and keep ampr-emu-ng, the only emulator that reads them.");
     if (add) body += "\n\n~" + plural(add, "{n} of them has no emulator yet.", "{n} of them have no emulator yet.");
     body += "\n\n~" + t("Game folders are changed in place; images are not changed: ShadowMount+ gets a backport folder for each.");
     const long long n = static_cast<long long>(todo.size());
