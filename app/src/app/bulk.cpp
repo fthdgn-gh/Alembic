@@ -512,10 +512,11 @@ void App::open_bulk_actions() {
             });
         }
     }
-    if (n < rows().size())
+    // Select all ticks the matching rows (a filter's plain folders are only there to move around).
+    if (std::any_of(all_rows().begin(), all_rows().end(), [this](const Entry& e) { return !is_selected(e.path); }))
         add(t("Select all"), "", false, [this] {
             selected.clear();
-            for (const auto& e : rows()) selected.push_back(e.path);
+            for (const auto& e : all_rows()) selected.push_back(e.path);
         });
     if (n) add(t("Clear the selection"), "", false, [this] { selected.clear(); });
     choose(*this, n ? plural(static_cast<long long>(n), "{n} selected", "{n} selected") : t("Nothing selected"), std::move(items));

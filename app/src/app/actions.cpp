@@ -271,7 +271,7 @@ void App::open_actions(const Entry& e, const JsonValue* lib) {
         add(t("Select all"), t("Ticks everything in this folder"), false, [this] {
             selecting = true;
             selected.clear();
-            for (const auto& r : rows()) selected.push_back(r.path);
+            for (const auto& r : all_rows()) selected.push_back(r.path);
         });
     }
     add(t("Delete\xE2\x80\xA6"), "", true, [this, e] {
@@ -417,7 +417,8 @@ void App::get_needs(const JsonValue& plan, const std::string& intro, std::functi
                 [&app, dep, rest, intro, done, label] {
                     app.toast(t("Downloading {name}\xE2\x80\xA6", {{"name", label}}));
                     app.api(
-                        "POST", "/api/deps/" + dep["id"].str() + "/install", JsonValue::object(),
+                        // The emulator chosen in Components stays in use (issue #6).
+                        "POST", "/api/deps/" + dep["id"].str() + "/install", JsonValue::object().set("use", false),
                         [&app, rest, intro, done, label](const Reply& r) {
                             if (!r.ok()) {
                                 app.toast(t_msg(r.error()), App::Toast::bad);
@@ -918,8 +919,9 @@ public:
 
     // The choices the last conversion was queued with (issue #6, prefs
     // "convertLast", ConvertDialog.tsx): the next one starts from them. Never
-    // the source's deletion, and never unpacking (both depend on the game); a
-    // format the games already are falls back to the default.
+    // the source's deletion nor its check (that one always starts on), and
+    // never unpacking (it depends on the game); a format the games already
+    // are falls back to the default.
     bool remembered = false;
     static std::vector<std::string> profile_ids(App& app) {
         std::vector<std::string> ids = {"auto"};
@@ -957,7 +959,6 @@ public:
         if (p == "lz4" || p == "zstd") packs_want = p;
         if (l.has("ampr")) ampr = l["ampr"].boolean();
         bc1 = l["bc1"].boolean();
-        if (l.has("verify")) verify = l["verify"].boolean();
         if (!installing) install = l["install"].boolean();
         keep_pkg = l["keepPkg"].boolean();
     }
@@ -974,7 +975,6 @@ public:
         if (packs_want == "lz4" || packs_want == "zstd") l.set("packs", packs_want);
         l.set("ampr", ampr);
         l.set("bc1", bc1);
-        l.set("verify", verify);
         l.set("keepPkg", keep_pkg);
         // Installing is remembered only from a conversion to FPKG that offered it (not from Install…).
         const JsonValue& before = app.prefs["convertLast"];

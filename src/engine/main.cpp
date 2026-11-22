@@ -31,6 +31,7 @@
 //   POST /api/jobs/clear              remove every finished job
 //   GET  /api/deps                    third-party files Alembic can download, and their state
 //   POST /api/deps/ID/install | /remove | /use (an AMPR emulator: the one conversions add)
+//        install {use?: false}: an AMPR emulator stays out of use unless none is (default true)
 //   GET  /api/deps/status             {auto_update, checking}
 //   POST /api/deps/check              asks GitHub for newer emulator builds (and applies them when auto_update)
 //   POST /api/deps/auto_update        {on}
@@ -1837,7 +1838,16 @@ private:
         if (!dep || (action != "install" && action != "remove" && action != "use")) return error(404, "not found");
         std::lock_guard<std::mutex> lock(deps_mutex_); // one download or removal at a time
         log_line(action + " " + dep->id + " requested by " + r.peer);
-        Status s = action == "install" ? install_dependency(*dep, config_.state_dir)
+        // {"use": false} (an update, or a download a job needs; issue #6): the
+        // emulator in use stays so unless there is none. Older pages send no
+        // body: the download becomes the one in use, as before.
+        bool make_in_use = true;
+        if (action == "install") {
+            auto body = parse_json(r.body);
+            if (body && body->is_object() && body->has("use"))
+                make_in_use = (*body)["use"].boolean(true) || ampr_runtime_in_use(config_.state_dir) == nullptr;
+        }
+        Status s = action == "install" ? install_dependency(*dep, config_.state_dir, make_in_use)
                    : action == "use"   ? use_dependency(*dep, config_.state_dir)
                                        : remove_dependency(*dep, config_.state_dir);
         if (!s.ok()) {

@@ -108,11 +108,12 @@ function eachPath<T>(paths: string[], ask: (p: string) => Promise<T>): Promise<{
 }
 
 // The choices the last conversion was queued with (issue #6): the next one
-// starts from them. Never the source's deletion, and never unpacking (both
-// depend on the game); a format the games already are falls back to the default.
+// starts from them. Never the source's deletion nor its check (that one
+// always starts on), and never unpacking (it depends on the game); a format
+// the games already are falls back to the default.
 interface LastConvert {
   to?: string; level?: number; pkgComp?: string; profile?: string; lz4Level?: number; packs?: Packs; zstdLevel?: number;
-  ampr?: boolean; bc1?: boolean; verify?: boolean; install?: boolean; keepPkg?: boolean;
+  ampr?: boolean; bc1?: boolean; install?: boolean; keepPkg?: boolean;
 }
 const DEFAULTS = { level: 6, pkgComp: "stored", profile: "auto", lz4Level: 9, zstdLevel: 5, ampr: true, bc1: false, verify: true, keepPkg: false };
 const oneOf = <T,>(v: T | undefined, list: T[], fallback: T): T => (v !== undefined && list.indexOf(v) >= 0 ? v : fallback);
@@ -159,7 +160,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump
   const [zstdLevel, setZstdLevel] = useState(oneOf(L.zstdLevel, [1, 5, 19], DEFAULTS.zstdLevel));
   const [ampr, setAmpr] = useState(L.ampr !== undefined ? !!L.ampr : DEFAULTS.ampr);
   const [bc1Want, setBc1] = useState(!!L.bc1); // smaller home-screen pictures (opt-in)
-  const [verify, setVerify] = useState(L.verify !== undefined ? !!L.verify : DEFAULTS.verify);
+  const [verify, setVerify] = useState(DEFAULTS.verify);
   const [delWant, setDel] = useState(false);
   const [hideWant, setHide] = useState(!!store.get("hideSource"));
   const [name, setName] = useState("");
@@ -278,7 +279,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump
       // A dump's folder is remembered apart: Convert keeps "next to the source" and its engine.
       if (dump) store.set("dumpDest", dest);
       else { store.set("dest", dest); store.set("convertOn", on); }
-      const kept: LastConvert = { to: target, level, pkgComp, profile, lz4Level, zstdLevel, ampr, bc1: bc1Want, verify, keepPkg };
+      const kept: LastConvert = { to: target, level, pkgComp, profile, lz4Level, zstdLevel, ampr, bc1: bc1Want, keepPkg };
       if (packsWant === "lz4" || packsWant === "zstd") kept.packs = packsWant;
       // Installing is remembered only from a conversion to FPKG that offered it (not from Install…).
       if (installable && !props.install) kept.install = installWant;

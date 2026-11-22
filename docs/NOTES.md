@@ -4255,6 +4255,38 @@ john-tornblom's klogsrv (port 3232) while launching.
   fail still warn.
 - Console state: `/data/homebrew/alembic-dump-fix` (27 GB) runs.
 
+### 2026-11-22: issue #6 (remembered choices, Select all, filter, emulator choice)
+
+From a user's issue: four changes, each in the page and the app.
+- **Select all:** the folder's ⋯ menu now has "Select…" (nothing ticked)
+  and "Select all"; before, Select all was only in the □ menu of a
+  selection already started.
+- **Convert remembers its choices** (page localStorage, app prefs.json,
+  both `convertLast`): format, zlib/Kraken/LZ4/zstd levels, LZ4 profile,
+  packing (LZ4 or zstd only, never unpacking), AMPR emulator and pictures
+  switches, install/keep package (only from a conversion that offered
+  it). Never the source's deletion or its "Check the output first" (always
+  starts on). A remembered format the games already are falls back to the
+  default. "Use the default choices" on the Format step forgets them.
+  Note: "Add to queue" from the Format step queues remembered options
+  without passing Review.
+- **Files filter** (`filter.files`): All, Packages, Images, Game folders,
+  Other files. Plain folders stay in every filter (to move around), the
+  drives list is never filtered. Rows shown can be ticked; Select all
+  ticks only the matching ones (`all_rows()` / `allRows()`).
+- **AMPR emulator when updating:** Update (one image, a selection, Update
+  AMPR emulators) asks first: keep each game's own (default) or one for
+  all. zstd-packed games keep ampr-emu-ng (one such game: no question).
+  The engine already honoured `emulator` per job.
+- **Bug found (the likely cause of the report):** `POST
+  /api/deps/ID/install` always made the download the emulator in use, and
+  it serves the Components "Update to" button and the downloads a job asks
+  for (getNeeds). So updating ampr_emu, or a job needing it, switched "in
+  use" away from ampr-emu-ng. It now takes `{"use": false}` (kept unless
+  none is in use); the page and app send it for updates and job downloads.
+  Without a body (older pages and apps) it behaves as before. Not
+  console-tested.
+
 ## Next session
 
 **Settled (owner, 2026-10-22):**

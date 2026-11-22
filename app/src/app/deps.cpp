@@ -138,7 +138,10 @@ void DepsPage::build(Ui& ui, App& app, const Rect& area) {
         auto run = [this, &app, d](const std::string& action) {
             const std::string did = d["id"].str();
             busy_ = did + ":" + action;
-            app.post("/api/deps/" + did + "/" + action, JsonValue::object(), [this, &app, d, action](const Reply& r) {
+            // An update leaves the emulator in use as it is (issue #6); a first download makes it the one in use.
+            JsonValue body = JsonValue::object();
+            if (action == "install" && d["state"].str() == "installed") body.set("use", false);
+            app.post("/api/deps/" + did + "/" + action, body, [this, &app, d, action](const Reply& r) {
                 const std::string name = t(d["label"].str());
                 if (r.ok() && action == "install" && !r.json["version"].str().empty())
                     app.toast(t("{name} {version} installed", {{"name", name}, {"version", r.json["version"].str()}}), App::Toast::ok);

@@ -40,7 +40,8 @@ export function DepsPage(props: { hidden: boolean }) {
   async function run(d: Dep, action: "install" | "remove" | "use") {
     setBusy(d.id + ":" + action);
     try {
-      const r = await api<Dep>("POST", "/api/deps/" + d.id + "/" + action);
+      // An update leaves the emulator in use as it is (issue #6); a first download makes it the one in use.
+      const r = await api<Dep>("POST", "/api/deps/" + d.id + "/" + action, action === "install" && d.state === "installed" ? { use: false } : undefined);
       toast(action === "install" && r.version ? t("{name} {version} installed", { name: t(d.label), version: r.version })
         : t(action === "install" ? "{name} installed" : action === "use" ? "{name} is now in use" : "{name} removed", { name: t(d.label) }), "ok");
     }

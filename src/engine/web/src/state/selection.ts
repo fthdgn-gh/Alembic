@@ -8,10 +8,10 @@ import type { Entry } from "../api/types";
 import { cwd, listing, tab, fileFilter, shownEntries, isPlainFolder } from "./view";
 import { allImages } from "./images";
 
-// The rows the selection is made from: the folder's in Files (with a filter,
-// the matching ones: its plain folders are only there to move around), the list's in Images.
-const rows = (): Entry[] => (tab.value === "images" ? allImages()
-  : shownEntries(listing.value).filter((e) => fileFilter.value === "all" || !isPlainFolder(e)));
+// The rows the selection is made from: the folder's shown ones in Files, the list's in Images.
+const rows = (): Entry[] => (tab.value === "images" ? allImages() : shownEntries(listing.value));
+// What Select all ticks: the same, less a filter's plain folders (shown only to move around).
+const allRows = (): Entry[] => rows().filter((e) => tab.value === "images" || fileFilter.value === "all" || !isPlainFolder(e));
 
 export const selecting = signal(false);
 export const selected = signal<string[]>([]); // paths, in the order they were ticked
@@ -28,8 +28,10 @@ export function toggleSelected(e: Entry) {
   const s = selected.value;
   selected.value = s.indexOf(e.path) >= 0 ? s.filter((p) => p !== e.path) : s.concat([e.path]);
 }
-export function selectAll() { selected.value = rows().map((e) => e.path); }
+export function selectAll() { selected.value = allRows().map((e) => e.path); }
 export function selectableCount() { return rows().length; }
+// Select all would tick more than is ticked now.
+export function canSelectAll() { const s = selected.value; return allRows().some((e) => s.indexOf(e.path) < 0); }
 export function clearSelected() { selected.value = []; }
 
 // Starts selecting with `e` ticked. ○ is the browser's Back, so selecting

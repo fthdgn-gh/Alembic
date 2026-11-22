@@ -17,7 +17,8 @@ export async function getNeeds(plan: Plan, intro: string) {
     </div>;
     if (!await ask({ title: t("Download {name}?", { name: t(dep.label) }), body, ok: t("Download and continue") })) return false;
     toast(t("Downloading {name}…", { name: t(dep.label) }));
-    await api("POST", "/api/deps/" + dep.id + "/install");
+    // The emulator chosen in Components stays in use (issue #6).
+    await api("POST", "/api/deps/" + dep.id + "/install", { use: false });
     toast(t("{name} downloaded", { name: t(dep.label) }), "ok");
     loadInfo().catch(() => {});
   }

@@ -9,7 +9,7 @@ import { loadImages } from "../../state/images";
 import { amprUpdatable, updateAmpr } from "../images/ampr";
 import { info, locations, peerDrives, loadInfo } from "../../state/engine";
 import { refreshJobs } from "../../state/jobs";
-import { selectedEntries, selectAll, selectableCount, clearSelected, stopSelecting } from "../../state/selection";
+import { selectedEntries, selectAll, canSelectAll, clearSelected, stopSelecting } from "../../state/selection";
 import { isConvertible, isHiddenName, isAlembicTitle } from "../../lib/kinds";
 import { cachedMeta } from "../../api/meta";
 import { bytes, dir } from "../../lib/format";
@@ -31,7 +31,6 @@ type Item = { label: string; sub?: string; danger?: boolean; value: () => void }
 export async function openBulkActions() {
   const all = selectedEntries.value, n = all.length;
   const lib = tab.value === "images";
-  const total = selectableCount();
   const items: Item[] = [];
   // "3 of 5": an action that applies to only some of the ticked entries.
   const some = (k: number, sub?: string) => (k < n ? t("{n} of {total} selected", { n: k, total: n }) + (sub ? " · " + sub : "") : sub);
@@ -63,7 +62,7 @@ export async function openBulkActions() {
       { label: t("Move to…"), sub: some(local.length), value: () => copyMany(local, "move") });
     items.push({ label: t("Delete…"), danger: true, sub: some(local.length), value: () => deleteMany(local) });
   }
-  if (n < total) items.push({ label: t("Select all"), value: selectAll });
+  if (canSelectAll()) items.push({ label: t("Select all"), value: selectAll });
   if (n) items.push({ label: t("Clear the selection"), value: clearSelected });
   const fn = await choose(n ? plural(n, "{n} selected", "{n} selected") : t("Nothing selected"), items);
   if (fn) fn();

@@ -205,8 +205,10 @@ public:
     std::string file_filter() const;
     void set_file_filter(const std::string& f);
     void apply_filter();
-    // The rows a selection is made from: the folder's in Files, the list's in Images.
-    const std::vector<Entry>& rows() const { return tab == Tab::images ? image_entries : matching; }
+    // The rows a selection is made from: the folder's shown ones in Files, the list's in Images.
+    const std::vector<Entry>& rows() const { return tab == Tab::images ? image_entries : shown; }
+    // What Select all ticks: the same, less a filter's plain folders.
+    const std::vector<Entry>& all_rows() const { return tab == Tab::images ? image_entries : matching; }
     // "list" or "grid" for "files" or "images" (prefs.json; Files starts as
     // a list, Images as a grid).
     std::string view_mode(const std::string& which) const;
