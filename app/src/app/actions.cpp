@@ -262,6 +262,18 @@ void App::open_actions(const Entry& e, const JsonValue* lib) {
     // A row of the list (not the folder you are in, its ⋯ button).
     if (lib || e.path != cwd)
         add(t("Select\xE2\x80\xA6"), t("Tick several files to act on them together"), false, [this, e] { start_selecting(e); });
+    // The folder you are in (its ⋯ button): select its rows, none or all of them ticked.
+    else if (!rows().empty()) {
+        add(t("Select\xE2\x80\xA6"), t("Tick several files to act on them together"), false, [this] {
+            selecting = true;
+            selected.clear();
+        });
+        add(t("Select all"), t("Ticks everything in this folder"), false, [this] {
+            selecting = true;
+            selected.clear();
+            for (const auto& r : rows()) selected.push_back(r.path);
+        });
+    }
     add(t("Delete\xE2\x80\xA6"), "", true, [this, e] {
         std::string body = "!" + std::string(e.kind == "folder" ? t("Delete this folder and everything in it?")
                                                                 : t("Delete this file?")) +

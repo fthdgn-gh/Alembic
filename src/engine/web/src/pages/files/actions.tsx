@@ -18,7 +18,7 @@ import { openDest } from "../../dialogs/FolderPicker";
 import { getNeeds } from "../../dialogs/getNeeds";
 import { browse } from "./browse";
 import { showTab } from "../../input/history";
-import { startSelecting } from "../../state/selection";
+import { startSelecting, selectAll, selectableCount } from "../../state/selection";
 import { loadImages } from "../../state/images";
 import { updateAmpr } from "../images/ampr";
 import type { ImageItem } from "../../api/types";
@@ -66,6 +66,9 @@ export async function openActions(e: Entry, lib?: ImageItem) {
   if (lib) items.push({ label: t("Show in Files"), sub: shownPath(dir(e.path)), value: () => { showTab("files"); browse(dir(e.path), true, e.path); } });
   // Not the folder you are in (its ⋯ button): a row of the list.
   if (lib || e.path !== cwd.value) items.push({ label: t("Select…"), sub: t("Tick several files to act on them together"), value: () => startSelecting(e) });
+  // The folder you are in (its ⋯ button): select its rows, none or all of them ticked.
+  else if (selectableCount()) items.push({ label: t("Select…"), sub: t("Tick several files to act on them together"), value: () => startSelecting(null) },
+    { label: t("Select all"), sub: t("Ticks everything in this folder"), value: () => { startSelecting(null); selectAll(); } });
   items.push({ label: t("Delete…"), danger: true, value: () => deleteEntry(e) });
   const fn = await choose(e.name, items);
   if (fn) fn();
