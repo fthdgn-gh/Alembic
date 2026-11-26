@@ -4531,6 +4531,18 @@ From a user's issue: four changes, each in the page and the app.
   388,366,336). It leaves our 33 entries alone except PlayGo's `d0.pdb` /
   `d1.pdb`, which it rewrites as at a boot. So the flow is: write the
   install's files, then AppInstallPkg on its own app.pkg.
+  Owner: the tile appeared; launching it fails with CE-100022-5 "cannot
+  start the game or application" (the console's general FPKG launch
+  problem, not this way of installing; untestable until it is fixed).
+- **The small files, what they hold:** `app.json` is the download record
+  (`fake`, split count, original size, `packageDigest` = the package
+  header's digest, one piece whose `url` is the engine's pkg-source URL,
+  `playgoChunkCrcHashValue`); `app.pbm` (and its `.backup`) starts with
+  `pdbm`, the title ID and version, and holds the same digest;
+  `app.xml` is a `playgo-status` document (every chunk `locus="3"`, the
+  language and scenario masks); `app.crc` is a slice of the package.
+  Next: which of them the system makes itself when only app.pkg and
+  app.si are placed before the call.
 
 ## Next session
 
