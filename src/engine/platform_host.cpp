@@ -237,6 +237,16 @@ Status install_launcher(std::uint16_t, const std::uint8_t*, std::size_t, bool) {
 }
 Status remove_launcher() { return make_error(Errc::unsupported, "the home-screen shortcut needs a PS5"); }
 
+#ifdef ALEMBIC_EXPERIMENTS
+Result<int> experiment_install_all() { return make_error(Errc::unsupported, "the system installer needs a PS5"); }
+Result<ExperimentPkgResult> experiment_install_pkg(const std::string&, bool) {
+    return make_error(Errc::unsupported, "the system installer needs a PS5");
+}
+Result<std::vector<bool>> experiment_symbols(const std::string&, const std::string&, const std::vector<std::string>&) {
+    return make_error(Errc::unsupported, "system modules need a PS5");
+}
+#endif
+
 std::string cpu_affinity() { return ""; } // PCs: not needed (the console's question)
 
 self_extract::Decryptor self_decryptor(std::string* why) {

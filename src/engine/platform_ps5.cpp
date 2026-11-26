@@ -569,6 +569,50 @@ Status remove_launcher() {
     return {};
 }
 
+#ifdef ALEMBIC_EXPERIMENTS
+Result<int> experiment_install_all() {
+    std::lock_guard<std::mutex> lock(g_launcher_mutex);
+    if (!appinst().initialize || !appinst().install_all) return make_error(Errc::unsupported, "no sceAppInstUtilAppInstallAll");
+    if (int rc = appinst_init(); rc != 0) return make_error(Errc::io, "sceAppInstUtilInitialize failed: " + hex_code(rc));
+    AuthIdScope auth;
+    return appinst().install_all(nullptr);
+}
+
+Result<ExperimentPkgResult> experiment_install_pkg(const std::string& path, bool shellcore_auth) {
+    std::lock_guard<std::mutex> lock(g_launcher_mutex);
+    std::uint32_t handle = 0;
+    std::string note;
+    if (!appinst().initialize || !module_handle("libSceAppInstUtil.sprx", "/system/common/lib/libSceAppInstUtil.sprx", handle, note))
+        return make_error(Errc::unsupported, "no libSceAppInstUtil: " + note);
+    using Fn = int (*)(const char*, PkgInfo*);
+    auto fn = reinterpret_cast<Fn>(kernel_dynlib_dlsym(-1, handle, "sceAppInstUtilAppInstallPkg"));
+    if (!fn) return make_error(Errc::unsupported, "no sceAppInstUtilAppInstallPkg");
+    if (int rc = appinst_init(); rc != 0) return make_error(Errc::io, "sceAppInstUtilInitialize failed: " + hex_code(rc));
+    PkgInfo info{};
+    ExperimentPkgResult r;
+    if (shellcore_auth) {
+        AuthIdScope auth;
+        r.rc = fn(path.c_str(), &info);
+    } else {
+        r.rc = fn(path.c_str(), &info);
+    }
+    r.content_id.assign(info.content_id, strnlen(info.content_id, sizeof info.content_id));
+    r.type = info.type;
+    r.platform = info.platform;
+    return r;
+}
+
+Result<std::vector<bool>> experiment_symbols(const std::string& module, const std::string& path,
+                                             const std::vector<std::string>& names) {
+    std::uint32_t handle = 0;
+    std::string note;
+    if (!module_handle(module.c_str(), path.c_str(), handle, note)) return make_error(Errc::io, note);
+    std::vector<bool> found;
+    for (const std::string& n : names) found.push_back(kernel_dynlib_dlsym(-1, handle, n.c_str()) != 0);
+    return found;
+}
+#endif
+
 // The system's random generator (libSceRandom), found like the installer
 // above: the weak import, else the module loaded now; failing both, libc's
 // arc4random_buf (the kernel's generator).

@@ -2,6 +2,7 @@
 #include "experiment.hpp"
 
 #include "alembic/io.hpp"
+#include "platform.hpp"
 
 #include "sqlite3.h"
 
@@ -203,6 +204,46 @@ std::string run_remove(const JsonValue& op, bool dry, JsonValue& result) {
     return s.ok() ? std::string() : "remove: " + s.error().message;
 }
 
+// sceAppInstUtilAppInstallAll: what the system then shows (NOTES: the
+// home screen after a replay). A dry run calls nothing.
+std::string run_install_all(bool dry, JsonValue& result) {
+    if (dry) return {};
+    auto rc = platform::experiment_install_all();
+    if (!rc.ok()) return "install_all: " + rc.error().message;
+    result.set("rc", static_cast<std::int64_t>(static_cast<std::uint32_t>(rc.value())));
+    return {};
+}
+
+// sceAppInstUtilAppInstallPkg on a package on the console.
+std::string run_install_pkg(const JsonValue& op, bool dry, JsonValue& result) {
+    const std::string path = op["path"].str();
+    if (!is_absolute_path(path) || stat_path(path, true).kind != PathKind::file) return "install_pkg: no package at " + path;
+    if (dry) return {};
+    auto r = platform::experiment_install_pkg(path, op["shellcore_auth"].boolean());
+    if (!r.ok()) return "install_pkg: " + r.error().message;
+    result.set("rc", static_cast<std::int64_t>(static_cast<std::uint32_t>(r.value().rc)));
+    result.set("content_id", r.value().content_id);
+    result.set("type", static_cast<std::int64_t>(r.value().type));
+    result.set("platform", static_cast<std::int64_t>(r.value().platform));
+    return {};
+}
+
+// {"op":"symbols", "module", "path", "names": [...]}: which of them it exports.
+std::string run_symbols(const JsonValue& op, JsonValue& result) {
+    std::vector<std::string> names;
+    for (const JsonValue& n : op["names"].items()) names.push_back(n.str());
+    auto found = platform::experiment_symbols(op["module"].str(), op["path"].str(), names);
+    if (!found.ok()) return "symbols: " + found.error().message;
+    JsonValue have = JsonValue::object();
+    for (std::size_t i = 0; i < names.size(); ++i) have.set(names[i], static_cast<bool>(found.value()[i]));
+    result.set("found", std::move(have));
+    return {};
+}
+
+void sleep_ms(const JsonValue& op) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(op["ms"].integer(0)));
+}
+
 } // namespace
 
 JsonValue run(const JsonValue& body) {
@@ -225,6 +266,10 @@ JsonValue run(const JsonValue& body) {
         else if (kind == "copy") error = run_copy(op, dry, r);
         else if (kind == "mkdir") error = run_mkdir(op, dry, r);
         else if (kind == "remove") error = run_remove(op, dry, r);
+        else if (kind == "install_all") error = run_install_all(dry, r);
+        else if (kind == "install_pkg") error = run_install_pkg(op, dry, r);
+        else if (kind == "symbols") error = run_symbols(op, r);
+        else if (kind == "sleep") sleep_ms(op);
         else error = "unknown op '" + kind + "'";
         if (!error.empty()) r.set("error", error);
         done.push(std::move(r));

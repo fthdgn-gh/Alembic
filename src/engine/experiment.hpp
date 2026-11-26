@@ -17,6 +17,11 @@
 //   {"op":"sql", "db": path, "statements": [{"sql", "params": [...],
 //        "changes"?: n}]}  one transaction; a statement that changes another
 //        number of rows than `changes` rolls it all back
+//   {"op":"install_all"}   sceAppInstUtilAppInstallAll (PS5): its "rc"
+//   {"op":"install_pkg", "path", "shellcore_auth"?}  sceAppInstUtilAppInstallPkg
+//        (PS5): its "rc" and the content ID, type and platform it reports
+//   {"op":"symbols", "module", "path", "names": [...]}  which it exports
+//   {"op":"sleep", "ms"}
 // A dry run checks every source, and runs each "sql" op's statements inside
 // a transaction that it then rolls back; it writes nothing.
 #pragma once

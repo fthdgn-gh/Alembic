@@ -124,4 +124,24 @@ Status install_launcher(std::uint16_t port, const std::uint8_t* icon_png, std::s
 // Unregisters the shortcut and deletes its files.
 Status remove_launcher();
 
+#ifdef ALEMBIC_EXPERIMENTS
+// Dev builds only (src/engine/experiment.hpp).
+// sceAppInstUtilAppInstallAll(NULL) with ShellCore's auth ID for the call:
+// its return code. Registers every title folder in /user/app.
+Result<int> experiment_install_all();
+// sceAppInstUtilAppInstallPkg(path, &info): ps5-patchdl (GPL-3.0) notes it
+// "only writes the app metadata, no content". `shellcore_auth` raises the
+// auth ID for the call.
+struct ExperimentPkgResult {
+    int rc = 0;
+    std::string content_id;
+    int type = 0, platform = 0;
+};
+Result<ExperimentPkgResult> experiment_install_pkg(const std::string& path, bool shellcore_auth);
+// For each name, whether `module` (loaded from `path` when it is not yet)
+// exports it, looked up by name.
+Result<std::vector<bool>> experiment_symbols(const std::string& module, const std::string& path,
+                                             const std::vector<std::string>& names);
+#endif
+
 } // namespace alembic::engine::platform
