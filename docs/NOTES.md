@@ -4465,6 +4465,21 @@ From a user's issue: four changes, each in the page and the app.
   after-replay snapshot against the real install: the 33 entries with the
   same kind, size, SHA-256 and mode, the 112 rows identical; extra only the
   database backup under `/data/alembic-replay/`.
+- **After the replay (owner):** the title is not on the home screen until
+  a reboot; after one it is there. The home screen reads the databases
+  at start; the system's own installer must tell it some other way (not
+  found yet: next step). No snapshot was taken after the reboot (the
+  owner uninstalled first), so whether the start rewrote anything is not
+  known.
+- **The system's own uninstall of the replayed title** (snapshot
+  `after-uninstall` against `before-replay`): every folder and file the
+  replay wrote is gone (`/user/app`, `/user/playgo`, both appmeta
+  folders), and none of the title's rows are left in app.db or appinfo.db.
+  The other row changes are other apps' access times and counters. Left
+  behind: only the licence (`/user/license/fake<CID>.rif` + `.idx`), as
+  after a real install's uninstall, plus our database backup and
+  snapshots. So the system treats a replayed title as one of its own,
+  both ways.
 
 ## Next session
 
