@@ -4617,6 +4617,23 @@ From a user's issue: four changes, each in the page and the app.
   app.si placed (no .pdb files) left `/user/playgo/app/<CID>/00/app.si`
   and its config folders behind; with the .pdb files there it removes the
   whole PlayGo folder.
+- **Launching it (owner): CE-107871-4 (internal 0x80b21103)**, where the
+  same title from package A gave CE-100022-5 (0x80020016) with all files
+  and CE-107938-8 (0x80b21401) without the small ones. **The system's own
+  installer refuses the same Alembic-built package with 0x80b21103**
+  (engine install job, InstallByPackage, within a second): so it is the
+  package, not this way of installing. An Alembic-built FPKG had never been
+  installed before (the console could not install FPKGs). Tried, each
+  refused the same way: DRM type 0x10 in the CNT header
+  (`PackageOptions::cnt_drm_type`, CLI `--cnt-drm-type`; ProsperoPkgTool
+  and Alembic write 0, package A has 0x10), and Kraken compression. What
+  else differs from package A (Drakmor's closed LibProsperoPkg, by its
+  layout): its outer PFS is unencrypted (seed `PPRPLAIN-NOAUTH!`; ours
+  AES-XTS), its inner image is `sparse-fidx-v1` (ours `native-span-v1`),
+  FIH 0x9C is 2 and 0xF4 is 1 (ours 0, also with Kraken), and it carries
+  playgo-scenario.json. The two other PS5 titles the console has (installed
+  by other tools) have DRM type 0, an encrypted outer PFS and FIH byte 5
+  0x80; how and when they were installed is not known.
 
 ## Next session
 

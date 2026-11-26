@@ -397,6 +397,11 @@ bool parse_package_options(const Args& args, fpkg::build::PackageOptions& o) {
         else if (*c == "kraken") o.compression = fpkg::build::Compression::kraken;
         else return std::fputs("error: --compression takes stored or kraken\n", stderr), false;
     }
+    if (auto d = args.get("--cnt-drm-type")) {
+        auto v = parse_number(d->c_str());
+        if (!v) return std::fputs("error: bad --cnt-drm-type\n", stderr), false;
+        o.cnt_drm_type = static_cast<std::uint32_t>(*v);
+    }
     if (auto hex = args.get("--seed")) {
         if (hex->size() != 32) return std::fputs("error: --seed takes 32 hex digits\n", stderr), false;
         std::array<std::uint8_t, 16> seed{};

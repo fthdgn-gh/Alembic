@@ -196,7 +196,7 @@ Result<std::vector<std::uint8_t>> build_cnt(std::vector<CntEntry>& entries, cons
         be64(h + 0x28, body_size);
         be64(h + 0x30, mandatory_size);
         std::memcpy(h + 0x40, p.content_id.data(), 36);
-        be32(h + 0x70, 0);
+        be32(h + 0x70, p.drm_type);
         be32(h + 0x74, p.content_type);
         be32(h + 0x78, p.content_flags);
         be32(h + 0x7C, static_cast<std::uint32_t>(image_offset));

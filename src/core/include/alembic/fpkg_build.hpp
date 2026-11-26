@@ -302,6 +302,7 @@ struct CntParameters {
     std::uint32_t content_flags = 0x02020000;
     std::uint32_t version_date = 0x20200722;
     std::uint32_t version_hash = 0x01FE52E9;
+    std::uint32_t drm_type = 0;                 // CNT 0x70 (ProsperoPkgTool: 0)
     std::uint64_t pfs_image_size = 0;           // the outer PFS
     std::array<std::uint8_t, 16> image_seed{};  // the outer PFS seed
     crypto::Digest pfs_image_digest{};          // SHA3 of the outer superblock block
@@ -366,6 +367,9 @@ struct PackageOptions {
     // the package file ends where it would start: the split the console's
     // installer makes (app.pkg and app.si, fpkg_install.hpp). Same bytes.
     std::string si_path;
+    // The CNT header's DRM type (0x70). ProsperoPkgTool writes 0; package A,
+    // which the console's installer takes, has 0x10 (NOTES 2026-11-27).
+    std::uint32_t cnt_drm_type = 0;
 };
 struct PackageResult {
     bool generated_license = false; // the game had none: a debug licence was made

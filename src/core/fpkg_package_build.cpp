@@ -852,6 +852,7 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
     CntParameters cnt_parameters;
     cnt_parameters.content_id = param.content_id;
     cnt_parameters.passcode = options.passcode;
+    cnt_parameters.drm_type = options.cnt_drm_type;
     cnt_parameters.pfs_image_size = outer_length;
     cnt_parameters.image_seed = outer_options.seed;
     cnt_parameters.pfs_image_digest = game_digest;
