@@ -4601,6 +4601,22 @@ From a user's issue: four changes, each in the page and the app.
   the files' structure on a test game. Guesses kept in the code:
   masterVersion from contentVersion when missing; app.xml's grouping by
   scenario (every package seen has one).
+- **First install from an image (owner's console, dev payload, experiment
+  op `install_image`)**: package A unpacked to a folder on the Mac, read
+  over the pairing; converted on the console straight into
+  `/user/app/<T>/app.pkg` (1,901,133,824 bytes: the rebuild stores what
+  package A had compressed) and `/user/playgo/app/<CID>/00/app.si`
+  (170,940), the files generated, then AppInstallPkg on that app.pkg: rc
+  0, 81 s in all. The system wrote the licence and appmeta (same bytes as
+  for package A), all 112 rows (80 with `#_ctime`), size 1,940,193,280.
+  The files of the package's own (app.pkg, app.si, and what is made from
+  them) differ from package A's by design. Missing against package A's
+  install: `/user/appmeta/<T>/playgo-scenario.json` (package A carries it
+  as CNT entry 0x3000; Alembic's packages, like img_create's, do not).
+- The system's uninstall of a title registered with only app.pkg and
+  app.si placed (no .pdb files) left `/user/playgo/app/<CID>/00/app.si`
+  and its config folders behind; with the .pdb files there it removes the
+  whole PlayGo folder.
 
 ## Next session
 
