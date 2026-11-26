@@ -4510,6 +4510,14 @@ From a user's issue: four changes, each in the page and the app.
   after a reboot). The system's own uninstall removed the first run's
   title (registered this way, files placed by us); the owner deleted the
   licence by hand, as after any uninstall.
+- **After a reboot (owner: still on the home screen)**, snapshot
+  `after-ainst-reboot`: all 33 entries there; the startup rewrote PlayGo's
+  `d0.pdb` and `d1.pdb` (1895 -> 1842 bytes; the first 866 bytes the same,
+  the rest PlayGo's own state; whether it does the same after a real
+  install's first boot is not known). The rows keep the small size
+  (37,945,344) and still have no `#_ctime`: the system does not correct
+  them, so Alembic would have to (or they only matter for the storage
+  screen; not checked).
 
 ## Next session
 
