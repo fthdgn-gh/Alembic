@@ -4456,6 +4456,15 @@ From a user's issue: four changes, each in the page and the app.
   passes `integrity_check`. **Not run on the console yet.** Success there
   (advisor): after a reboot, a snapshot matching a real install, and the
   system's own uninstall returning the console to BEFORE.
+- **Console replay (owner's console, 2026-11-26, dev payload, no
+  ShadowMount+ loaded; uninstalled and the licence deleted first):** a
+  snapshot matched the clean BEFORE (only the save data, httpcache and
+  ShadowMount+'s old icon-cache file of the title). Dry run ok: every
+  source readable over the pairing (386.7 MB), the 132 statements ran on
+  the live databases and rolled back. Replay: 37 ops in 12 s, ok. The
+  after-replay snapshot against the real install: the 33 entries with the
+  same kind, size, SHA-256 and mode, the 112 rows identical; extra only the
+  database backup under `/data/alembic-replay/`.
 
 ## Next session
 
