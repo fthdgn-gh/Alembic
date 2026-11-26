@@ -4405,7 +4405,20 @@ From a user's issue: four changes, each in the page and the app.
   package 114.5 s (3.1 MB/s, as on the console) -> 11.4 s (30.7 MB/s).
   120 random ranges read 6 at a time through `/pkg-source/` equal the
   file. What is left of the gap: read-ahead past each range's end.
-  **Not yet tried on the console.**
+  **Console (owner, same day): "faster than before"**: the installer's
+  reads ~110 s -> ~16 s (range pace 22 MB/s), its probes ~500 -> ~20 ms.
+- **Second capture (from a clean state: uninstalled, the two licence
+  files deleted by the owner):** the same 36 entries plus the licence,
+  so **the installer writes the licence itself**:
+  `/user/license/fake<content ID>.rif` (2,048 bytes, starts "rifa" and
+  the content ID; not the package's 1,024-byte `license.dat`) and `.idx`
+  (80 bytes: "ridx", the content ID, a 16-character name from the title,
+  sizes). Both byte-identical to the first install's: derived from the
+  package, not random. Between the two installs only these differ: the
+  pkg-source URL in `app.json` and inside PlayGo's `d0.pdb`/`d1.pdb`
+  (with 4 bytes near their end that follow it, likely a checksum), the
+  bgft task number, the database counters and times. Every other file
+  the installer writes is the same bytes.
 
 ## Next session
 
