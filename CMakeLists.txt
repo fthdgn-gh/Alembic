@@ -264,6 +264,7 @@ if(ALEMBIC_BUILD_ENGINE)
         src/engine/runner.cpp
         src/engine/smb.cpp
         src/engine/smp.cpp
+        src/engine/snapshot.cpp
         src/engine/text_file.cpp
         src/engine/update.cpp
         src/engine/pkg_sources.cpp

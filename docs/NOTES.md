@@ -4325,6 +4325,23 @@ From a user's issue: four changes, each in the page and the app.
   the package's (known while building), plus the title in app.db.
 - **Not:** a literal image install (the system launches from app.pkg's
   PFS; an image's bytes are not a package's).
+- **Snapshot tool (API only, no page or app):** `POST /api/snapshot
+  {"out": "/data/alembic-snapshots/before", "match": "<title ID>"}` lists
+  `/user` and `/system_data` (kind, size, mtime, SHA-256 of files up to
+  64 MiB) into `out/listing.tsv`, copies `/system_data/priv/mms` and
+  every file whose path holds `match` (up to 256 MiB) into `out/files/`,
+  writes `summary.json`; `GET /api/snapshot` for progress. Read-only
+  outside `out`; a folder with `.alembic-snapshot` in it is never listed
+  (so `/data` = `/user/data` is fine). `roots`, `copy`, `hash_max`,
+  `copy_max`, `max_depth` override. `tools/snapshot/diff.py BEFORE AFTER`
+  on a PC: entries added, removed, changed, and per-table row diffs of
+  every SQLite database copied in both. Tried on the Mac with a stand-in
+  tree; **not run on the console yet**.
+- **Capture (owner, 2026-11-26: launching FPKGs doesn't work on the owner's
+  console yet with the test build, so the after-launch step waits):**
+  snapshot `before`, install a small never-installed package normally,
+  snapshot `after-install`; later `after-launch`. Plus the raw package,
+  to compare with `app.pkg`.
 
 ## Next session
 

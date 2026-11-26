@@ -107,6 +107,7 @@
 #include "tls.hpp"
 #include "remote.hpp"
 #include "runner.hpp"
+#include "snapshot.hpp"
 #include "update.hpp"
 
 #include "alembic/bytes.hpp"
@@ -652,6 +653,17 @@ private:
             HttpResponse resp = json(200, JsonValue());
             resp.body = probe_app_;
             return resp;
+        }
+        // A read-only listing of folders, with copies of a few (snapshot.hpp):
+        // for diffing the console before and after a system install.
+        if (r.path == "/api/snapshot" && r.method == "GET") return json(200, snapshot::status());
+        if (r.path == "/api/snapshot" && r.method == "POST") {
+            auto body = parse_json(r.body.empty() ? std::string_view("{}") : std::string_view(r.body));
+            if (!body.ok()) return error(400, "not JSON");
+            snapshot::Options o = snapshot::defaults();
+            if (auto why = snapshot::parse(*body, o); !why.empty()) return error(400, why);
+            if (!snapshot::start(o)) return error(409, "a snapshot is running");
+            return json(202, snapshot::status());
         }
         // The Images tab: images and game folders whose game uses the APR,
         // and their AMPR emulators (images.hpp). ?refresh=1 reads them again.
