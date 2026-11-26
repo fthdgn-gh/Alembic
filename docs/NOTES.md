@@ -4518,6 +4518,19 @@ From a user's issue: four changes, each in the page and the app.
   (37,945,344) and still have no `#_ctime`: the system does not correct
   them, so Alembic would have to (or they only matter for the storage
   screen; not checked).
+- **Owner: the goal is not moving a package into place** but writing an
+  image's package parts straight to where an install keeps them and then
+  telling the system. So the call was tried on the installed files: from
+  a clean state, the 33 entries placed first (app.pkg and app.si cut from
+  the package, standing in for Alembic writing them), then
+  `sceAppInstUtilAppInstallPkg("/user/app/<T>/app.pkg")` (the package cut
+  at the SI): rc 0, the tile shows (owner, earlier runs), and it writes
+  everything the whole-package call wrote (licence and appmeta the same
+  bytes) **plus what that one lacked**: 80 appinfo rows with `#_ctime`,
+  and the size counted from the files (388,431,872; a real install
+  388,366,336). It leaves our 33 entries alone except PlayGo's `d0.pdb` /
+  `d1.pdb`, which it rewrites as at a boot. So the flow is: write the
+  install's files, then AppInstallPkg on its own app.pkg.
 
 ## Next session
 
