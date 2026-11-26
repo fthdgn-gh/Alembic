@@ -4298,6 +4298,34 @@ From a user's issue: four changes, each in the page and the app.
   Without a body (older pages and apps) it behaves as before. Not
   console-tested.
 
+### 2026-11-26: installing without the extra copies (research, "option C")
+
+- **Why (owner):** FPKG install now works up to 13.60 (kstuff 1.15 FPKG
+  build, Echo Stretch with drakmor, a method by Fuuko; 2026-11-25/26, some
+  posts call it a test build). An installed package runs on the system's
+  own services, as PS3/PS4 debug installs did, and its PPR is the real one
+  rather than an AMPR emulator: closer to retail, faster. Images were the
+  workaround until now. Owner: "C is the way to go".
+- **What an install is:** the installed game is the package itself,
+  `/user/app/<ID>/app.pkg` (or `/mnt/ext0|ext1/user/app/<ID>/app.pkg`),
+  as ShadowMount+'s `sm_api_service.c` looks it up; nothing is extracted.
+  Today's Install... (convert, HTTP install, delete) peaks at ~3x the game
+  on the console (image, package, app.pkg), ends at 2x.
+- **Option C (linked install):** write or move (same drive) Alembic's
+  package straight to `.../user/app/<ID>/app.pkg` and register it as the
+  installer would, skipping its copy: peak 2x, 1x once the image is
+  removed. Needs every record `sceAppInstUtilInstallByPackage` makes
+  besides app.pkg (app.db `/system_data/priv/mms/app.db` tbl_contentinfo
+  and others; appmeta `/system_data/priv/appmeta/<ID>`, `/user/appmeta`;
+  anything under `/user` and `/system_data`). Plan: the owner installs a
+  small package normally, we diff the console before and after.
+- **Option B (owner: yes, if verified):** remove the image after an
+  install only once it is reliably checked. If app.pkg turns out
+  byte-identical to the package served, the check is its SHA-256 against
+  the package's (known while building), plus the title in app.db.
+- **Not:** a literal image install (the system launches from app.pkg's
+  PFS; an image's bytes are not a package's).
+
 ## Next session
 
 **Settled (owner, 2026-10-22):**
