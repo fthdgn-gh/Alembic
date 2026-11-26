@@ -20,6 +20,11 @@
 //   {"op":"install_all"}   sceAppInstUtilAppInstallAll (PS5): its "rc"
 //   {"op":"install_pkg", "path", "shellcore_auth"?}  sceAppInstUtilAppInstallPkg
 //        (PS5): its "rc" and the content ID, type and platform it reports
+//   {"op":"install_image", "input", "title_name"?, "url"?, "keys"?, "register"?}
+//        convert `input` straight into the installed form (/user/app/<T>,
+//        /user/playgo/app/<CID>/00; fpkg_install.hpp), then AppInstallPkg on
+//        its app.pkg unless "register" is false ("root": every target under
+//        that folder, for tests on a PC)
 //   {"op":"symbols", "module", "path", "names": [...]}  which it exports
 //   {"op":"sleep", "ms"}
 // A dry run checks every source, and runs each "sql" op's statements inside

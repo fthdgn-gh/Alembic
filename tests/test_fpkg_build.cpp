@@ -248,6 +248,11 @@ TEST_CASE(fpkg_install_layout) {
     CHECK(in->master_version == "01.00"); // from contentVersion: the test game has no masterVersion
     auto files = fpkg::install::make_files(*in, "/data/x.pkg");
     REQUIRE_OK(files);
+    auto from_files = fpkg::install::read_inputs(tmp + "/app.pkg", tmp + "/app.si");
+    REQUIRE_OK(from_files);
+    auto again = fpkg::install::make_files(*from_files, "/data/x.pkg");
+    REQUIRE_OK(again);
+    CHECK(again->app_pbm == files->app_pbm && again->app_json == files->app_json && again->d0_pdb == files->d0_pdb);
     auto members = fpkg::install::read_stored_zip(si);
     REQUIRE_OK(members);
     bool found = false;

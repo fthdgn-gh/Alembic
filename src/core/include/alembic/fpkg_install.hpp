@@ -52,6 +52,10 @@ Result<std::vector<std::pair<std::string, std::vector<std::uint8_t>>>> read_stor
 // the CNT's first 4 KiB; `param_json`: the package's param.json; `si`: the SI.
 Result<Inputs> make_inputs(Bytes head, Bytes cnt_header, std::uint64_t app_pkg_size, Bytes param_json, Bytes si);
 
+// The same from the two files as written (app.pkg and app.si, read together
+// as the whole package).
+Result<Inputs> read_inputs(const std::string& app_pkg_path, const std::string& app_si_path);
+
 // `url`: what app.json says the package was read from (the installer writes
 // its download URL there; any value).
 Result<Files> make_files(const Inputs& in, const std::string& url);

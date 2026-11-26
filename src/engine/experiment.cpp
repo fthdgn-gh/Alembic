@@ -4,6 +4,10 @@
 #include "alembic/io.hpp"
 #include "platform.hpp"
 
+#include "alembic/convert.hpp"
+#include "alembic/fpkg_install.hpp"
+#include "fs_ops.hpp"
+
 #include "sqlite3.h"
 
 #include <chrono>
@@ -240,6 +244,74 @@ std::string run_symbols(const JsonValue& op, JsonValue& result) {
     return {};
 }
 
+// An image (any convert input) written straight into the installed form
+// (fpkg_install.hpp) and registered with sceAppInstUtilAppInstallPkg on its
+// own app.pkg: the package is never a file of its own.
+std::string run_install_image(const JsonValue& op, bool dry, JsonValue& result) {
+    const std::string input = op["input"].str();
+    const std::string keys = op.has("keys") ? op["keys"].str() : platform::default_state_dir() + "/keys";
+    const std::string root = op["root"].str(); // tests on a PC: every target under this folder
+    const std::string staging = root + "/user/app/.alembic-install";
+    if (!is_absolute_path(input) || stat_path(input, true).kind == PathKind::missing) return "install_image: no input at " + input;
+    if (!is_regular_file(keys + "/passcode.bin")) return "install_image: no package keys in " + keys;
+    if (dry) return {};
+    if (stat_path(staging, false).kind != PathKind::missing) (void)remove_tree(staging);
+    if (auto s = make_directory(staging); !s.ok()) return "install_image: " + s.error().message;
+    convert::Options options;
+    options.overwrite = true;
+    options.fpkg.keys_folder = keys;
+    options.fpkg.license_keys_file = keys + "/ps4/Keys.cs";
+    options.fpkg_ps4.keys_file = options.fpkg.license_keys_file;
+    options.fpkg.si_path = staging + "/app.si";
+    auto report = convert::run(input, staging + "/app.pkg", convert::Format::fpkg, options, [](const ProgressEvent& e) {
+        set_current(std::string("install_image: ") + std::string(e.stage), e.done);
+        return true;
+    });
+    if (!report.ok()) return "install_image: " + report.error().message;
+    auto in = fpkg::install::read_inputs(staging + "/app.pkg", staging + "/app.si");
+    if (!in.ok()) return "install_image: " + in.error().message;
+    in->title_name = op["title_name"].str();
+    const std::string app = root + "/user/app/" + in->title_id, cid = in->content_id;
+    const std::string playgo = root + "/user/playgo/app/" + cid;
+    auto files = fpkg::install::make_files(*in, op.has("url") ? op["url"].str() : "/user/app/" + in->title_id + "/app.pkg");
+    if (!files.ok()) return "install_image: " + files.error().message;
+    result.set("title_id", in->title_id);
+    result.set("content_id", cid);
+    result.set("app_pkg", in->app_pkg_size);
+    result.set("app_si", in->si_size);
+    if (stat_path(app, false).kind != PathKind::missing || stat_path(playgo, false).kind != PathKind::missing)
+        return "install_image: " + app + " or " + playgo + " is already there (uninstall it first)";
+    for (const std::string& d : {app, playgo, playgo + "/00", playgo + "/00/config", playgo + "/00/config/" + cid}) {
+        if (auto s = make_directory(d); !s.ok()) return "install_image: " + s.error().message;
+        if (auto s = set_mode(d, 0770); !s.ok()) return "install_image: " + s.error().message;
+    }
+    for (auto [from, to] : {std::pair<std::string, std::string>{staging + "/app.pkg", app + "/app.pkg"},
+                            {staging + "/app.si", playgo + "/00/app.si"}}) {
+        if (auto s = rename_path(from, to); !s.ok()) return "install_image: " + s.error().message;
+        if (auto s = set_mode(to, 0770); !s.ok()) return "install_image: " + s.error().message;
+    }
+    (void)remove_directory(staging);
+    const std::vector<std::uint8_t> none;
+    for (auto [path, data] : {std::pair<std::string, const std::vector<std::uint8_t>*>{app + "/app.json", &files->app_json},
+                              {app + "/app.pbm", &files->app_pbm}, {app + "/app.pbm.backup", &files->app_pbm},
+                              {app + "/app.xml", &files->app_xml}, {app + "/app.crc", &files->app_crc},
+                              {playgo + "/00/d0.pdb", &files->d0_pdb}, {playgo + "/00/d1.pdb", &files->d1_pdb},
+                              {playgo + "/00/f0.pdb", &none}}) {
+        auto out = AtomicOutput::create(path, false);
+        if (!out.ok()) return "install_image: " + out.error().message;
+        Status s = data->empty() ? Status{} : out->file().write_at(0, *data);
+        if (s.ok()) s = out->file().sync();
+        if (s.ok()) s = out->commit();
+        if (s.ok()) s = set_mode(path, 0770);
+        if (!s.ok()) return "install_image: " + s.error().message;
+    }
+    if (op.has("register") && !op["register"].boolean()) return {};
+    auto r = platform::experiment_install_pkg(app + "/app.pkg", op["shellcore_auth"].boolean());
+    if (!r.ok()) return "install_image: " + r.error().message;
+    result.set("rc", static_cast<std::int64_t>(static_cast<std::uint32_t>(r.value().rc)));
+    return {};
+}
+
 void sleep_ms(const JsonValue& op) {
     std::this_thread::sleep_for(std::chrono::milliseconds(op["ms"].integer(0)));
 }
@@ -267,6 +339,7 @@ JsonValue run(const JsonValue& body) {
         else if (kind == "mkdir") error = run_mkdir(op, dry, r);
         else if (kind == "remove") error = run_remove(op, dry, r);
         else if (kind == "install_all") error = run_install_all(dry, r);
+        else if (kind == "install_image") error = run_install_image(op, dry, r);
         else if (kind == "install_pkg") error = run_install_pkg(op, dry, r);
         else if (kind == "symbols") error = run_symbols(op, r);
         else if (kind == "sleep") sleep_ms(op);

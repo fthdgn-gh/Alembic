@@ -3,10 +3,12 @@
 
 #include "alembic/bytes.hpp"
 #include "alembic/crypto.hpp"
+#include "alembic/fpkg.hpp"
 #include "alembic/fpkg_build.hpp"
 #include "alembic/json.hpp"
 
 #include <cstdio>
+#include <algorithm>
 #include <cstring>
 #include <iterator>
 #include <string_view>
@@ -231,6 +233,52 @@ Result<Inputs> make_inputs(Bytes head, Bytes cnt_header, std::uint64_t app_pkg_s
     }
     if (in.playgo_crc.empty() || in.playgo_chunk.empty()) return bad("the SI has no playgo-chunk.crc or playgo-chunk.dat");
     return in;
+}
+
+namespace {
+
+// Two files read as one.
+class Joined final : public RandomAccess {
+public:
+    Joined(File a, std::uint64_t a_size, File b, std::uint64_t b_size)
+        : a_(std::move(a)), b_(std::move(b)), a_size_(a_size), b_size_(b_size) {}
+    Result<std::uint64_t> size() const override { return a_size_ + b_size_; }
+    Status read_at(std::uint64_t offset, MutableBytes out) const override {
+        if (offset + out.size() > a_size_ + b_size_) return make_error(Errc::io, "read past the end of the package");
+        std::size_t first = offset < a_size_ ? static_cast<std::size_t>(std::min<std::uint64_t>(out.size(), a_size_ - offset)) : 0;
+        if (first) ALEMBIC_TRY(a_.read_at(offset, out.subspan(0, first)));
+        if (first < out.size()) ALEMBIC_TRY(b_.read_at(offset + first - a_size_, out.subspan(first)));
+        return {};
+    }
+
+private:
+    File a_, b_;
+    std::uint64_t a_size_, b_size_;
+};
+
+} // namespace
+
+Result<Inputs> read_inputs(const std::string& app_pkg_path, const std::string& app_si_path) {
+    ALEMBIC_ASSIGN(File a, File::open(app_pkg_path, File::Mode::read));
+    ALEMBIC_ASSIGN(File b, File::open(app_si_path, File::Mode::read));
+    ALEMBIC_ASSIGN(std::uint64_t a_size, a.size());
+    ALEMBIC_ASSIGN(std::uint64_t b_size, b.size());
+    Joined whole(std::move(a), a_size, std::move(b), b_size);
+    ALEMBIC_ASSIGN(Package package, read_package(whole));
+    const Segment* si = nullptr;
+    for (const Segment& seg : package.segments)
+        if (seg.name == "SI") si = &seg;
+    if (!si || si->offset != a_size || si->size != b_size) return bad("app.pkg and app.si are not a package split at its SI");
+    const CntEntry* param = nullptr;
+    for (const CntEntry& e : package.entries)
+        if (e.id == 0x2000) param = &e;
+    if (!param) return bad("the package has no param.json");
+    ALEMBIC_ASSIGN(std::vector<std::uint8_t> param_json, read_entry(whole, package, *param));
+    std::vector<std::uint8_t> head(0x10000), cnt(0x1000), si_bytes(static_cast<std::size_t>(b_size));
+    ALEMBIC_TRY(whole.read_at(0, MutableBytes(head.data(), head.size())));
+    ALEMBIC_TRY(whole.read_at(package.cnt_offset, MutableBytes(cnt.data(), cnt.size())));
+    ALEMBIC_TRY(whole.read_at(a_size, MutableBytes(si_bytes.data(), si_bytes.size())));
+    return make_inputs(head, cnt, a_size, param_json, si_bytes);
 }
 
 Result<Files> make_files(const Inputs& in, const std::string& url) {
