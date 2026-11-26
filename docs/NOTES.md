@@ -4644,6 +4644,18 @@ From a user's issue: four changes, each in the page and the app.
   without compression takes about 30 min on the console, fine for now.
 - LZ4 packs stay as they are.
 
+**Shelved (owner, 2026-11-27): installing images like packages ("option
+C", log 2026-11-26).** What works: writing an image straight into the
+installed form (`fpkg_install.hpp`, experiment op `install_image`) and
+registering it with `sceAppInstUtilAppInstallPkg` on its own app.pkg (tile
+at once, no ShadowMount+). What stops it: the console's installer refuses
+every Alembic-built package (0x80b21103; package A, from another tool, is
+taken), so the result cannot launch. The owner first needs a console that
+runs the packages found so far (an altered PPR); then pick it up again from
+"What else differs from package A" in the log. Left on the console:
+`/data/alembic-replay/` (a test package copy and database backups) and
+`/data/alembic-snapshots/` unless the owner removed them.
+
 **Settled (owner, 2026-11-11):**
 - ✓ A zstd-packed game starts on the console.
 - Installing an Alembic-made FPKG: the owner's console cannot install
