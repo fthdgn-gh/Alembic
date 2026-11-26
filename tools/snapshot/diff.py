@@ -13,8 +13,10 @@ columns that appeared.
 """
 import argparse
 import os
+import shutil
 import sqlite3
 import sys
+import tempfile
 
 
 def unescape(s):
@@ -40,7 +42,8 @@ def load(folder):
                 errors[unescape(parts[4])] = unescape(parts[5]) if len(parts) > 5 else ""
                 continue
             kind, size, mtime, digest, path = parts[:5]
-            entries[unescape(path)] = (kind, int(size), int(mtime), digest)
+            extra = (parts + ["", "", "", ""])[5:9]  # mode, uid, gid, link target
+            entries[unescape(path)] = (kind, int(size), int(mtime), digest, extra[0], extra[1], extra[2], unescape(extra[3]))
     return entries, errors
 
 
@@ -63,8 +66,20 @@ def is_sqlite(path):
 
 
 def tables(path):
-    # A copy: the console's file may have had a journal or WAL beside it.
-    con = sqlite3.connect("file:" + path + "?mode=ro&immutable=1", uri=True)
+    # Opened from a temporary copy with its -wal/-journal beside it: the
+    # console's database was live, and rows may still be in its WAL (opening
+    # it immutable, or without the WAL, would miss them).
+    tmp = tempfile.mkdtemp(prefix="alembic-snapdb-")
+    base = os.path.join(tmp, "db")
+    shutil.copyfile(path, base)
+    siblings = []
+    for suffix in ("-wal", "-journal"):
+        if os.path.exists(path + suffix):
+            shutil.copyfile(path + suffix, base + suffix)
+            siblings.append(suffix)
+    if siblings:
+        print("  (%s had %s beside it, read with it)" % (os.path.basename(path), ", ".join(siblings)))
+    con = sqlite3.connect(base)
     try:
         out = {}
         names = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")]
@@ -75,6 +90,7 @@ def tables(path):
         return out
     finally:
         con.close()
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def short(v, n=120):
@@ -132,16 +148,17 @@ def main():
     removed = sorted(set(a) - set(b))
     changed, touched = [], []
     for p in sorted(set(a) & set(b)):
-        ka, sa, ma, da = a[p]
-        kb, sb, mb, db = b[p]
-        if ka != kb or (ka == "file" and (sa != sb or da != db)):
+        ka, sa, ma, da = a[p][:4]
+        kb, sb, mb, db = b[p][:4]
+        if ka != kb or (ka == "file" and (sa != sb or da != db)) or a[p][4:] != b[p][4:]:
             changed.append(p)
         elif ma != mb:
             touched.append(p)
 
     def fmt(e):
-        kind, size, mtime, digest = e
-        return "%-5s %12d %s" % (kind, size, digest[:16] if digest != "-" else "-")
+        kind, size, mtime, digest, mode, uid, gid, target = e
+        s = "%-5s %12d %-16s %s %s:%s" % (kind, size, digest[:16] if digest != "-" else "-", mode or "-", uid or "-", gid or "-")
+        return s + (" -> " + target if target else "")
 
     print("== added (%d)" % len(added))
     for p in added:

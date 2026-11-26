@@ -5,6 +5,7 @@
 #include "alembic/sha256.hpp"
 
 #include <chrono>
+#include <cstdio>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -115,7 +116,7 @@ private:
         auto listing = AtomicOutput::create(join_path(o_.out, "listing.tsv"));
         if (!listing.ok()) return listing.error().message;
         listing_.emplace(std::move(*listing));
-        line("# kind\tsize\tmtime\tsha256\tpath");
+        line("# kind\tsize\tmtime\tsha256\tpath\tmode\tuid\tgid\tlink target");
         return {};
     }
 
@@ -180,13 +181,22 @@ private:
             ++entries_;
             if ((entries_ & 255) == 0) tick(path);
             std::string digest = "-";
-            if (e.stat.is_file() && e.stat.size <= o_.hash_max) {
+            bool matched = !o_.match.empty() && path.find(o_.match) != std::string::npos;
+            if (e.stat.is_file() && (e.stat.size <= o_.hash_max || matched)) { // the title's own files: always
                 std::string d = hash(path);
                 if (!d.empty()) digest = d;
             }
+            char mode[16];
+            std::snprintf(mode, sizeof(mode), "%04o", static_cast<unsigned>(e.stat.mode));
+            std::string target;
+            if (e.stat.kind == PathKind::link) {
+                auto t = link_target(path);
+                target = t.ok() ? escape(*t) : std::string("?");
+            }
             line(std::string(kind_name(e.stat.kind)) + "\t" + std::to_string(e.stat.size) + "\t" +
-                 std::to_string(e.stat.mtime) + "\t" + digest + "\t" + escape(path));
-            if (e.stat.is_file() && !o_.match.empty() && path.find(o_.match) != std::string::npos) copy_file(path, e.stat.size);
+                 std::to_string(e.stat.mtime) + "\t" + digest + "\t" + escape(path) + "\t" + mode + "\t" +
+                 std::to_string(e.stat.uid) + "\t" + std::to_string(e.stat.gid) + "\t" + target);
+            if (e.stat.is_file() && matched) copy_file(path, e.stat.size);
             if (e.stat.is_directory()) {
                 if (depth + 1 >= o_.max_depth) fail(path, "deeper than max_depth, not listed");
                 else walk(path, depth + 1);

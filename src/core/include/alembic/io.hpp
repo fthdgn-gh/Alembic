@@ -182,11 +182,19 @@ struct PathStat {
     std::uint64_t size = 0; // folders: what the system reports (0 on Windows)
     std::int64_t atime = 0; // Unix seconds
     std::int64_t mtime = 0;
+    // POSIX only (0 on Windows and mounted file systems): permission bits
+    // with the file-type bits masked off, owner and group.
+    std::uint32_t mode = 0;
+    std::uint32_t uid = 0;
+    std::uint32_t gid = 0;
     bool is_file() const { return kind == PathKind::file; }
     bool is_directory() const { return kind == PathKind::directory; }
 };
 // `kind` is `missing` when the path cannot be read (`error` then says why).
 PathStat stat_path(const std::string& path, bool follow_links = true, std::string* error = nullptr);
+// What a symbolic link points at (Errc::unsupported on Windows and mounted
+// file systems).
+Result<std::string> link_target(const std::string& path);
 // The names in a folder, without "." and "..", in the order the system gives.
 Result<std::vector<std::string>> list_directory(const std::string& path);
 // Creates one folder; fails when something is already there.

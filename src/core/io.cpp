@@ -383,7 +383,18 @@ PathStat stat_path(const std::string& path, bool follow_links, std::string* erro
     out.size = static_cast<std::uint64_t>(st.st_size);
     out.atime = static_cast<std::int64_t>(st.st_atime);
     out.mtime = static_cast<std::int64_t>(st.st_mtime);
+    out.mode = static_cast<std::uint32_t>(st.st_mode & 07777);
+    out.uid = static_cast<std::uint32_t>(st.st_uid);
+    out.gid = static_cast<std::uint32_t>(st.st_gid);
     return out;
+}
+
+Result<std::string> link_target(const std::string& path) {
+    if (detail::mounted(path)) return make_error(Errc::unsupported, "no link targets on " + path);
+    char buffer[4096];
+    ssize_t n = ::readlink(path.c_str(), buffer, sizeof(buffer));
+    if (n < 0) return io_error("cannot read link", path);
+    return std::string(buffer, static_cast<std::size_t>(n));
 }
 
 Result<std::vector<std::string>> list_directory(const std::string& path) {
