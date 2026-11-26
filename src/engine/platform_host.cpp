@@ -180,8 +180,9 @@ Result<std::vector<std::uint8_t>> http_get(const std::string& url, std::size_t m
 }
 
 // For tests on a PC (ALEMBIC_FAKE_INSTALLER set): an http:// package is read
-// the way the console's installer read one (2026-10-31): header probes, the
-// tail, then everything in 18 MiB ranges, two at a time. Nothing installs.
+// the way the console's installer read one (2026-10-31, 2026-11-26): header
+// probes taking turns with one near the end, then everything in 18 MiB
+// ranges, two at once. Nothing installs.
 Status install_package(const std::string& uri, const std::string&, const std::string&) {
     if (!std::getenv("ALEMBIC_FAKE_INSTALLER") || uri.rfind("http://127.0.0.1:", 0) != 0)
         return make_error(Errc::unsupported, "installing packages needs a PS5");
@@ -201,10 +202,25 @@ Status install_package(const std::string& uri, const std::string&, const std::st
         std::uint64_t size = 0;
         for (std::uint64_t step = std::uint64_t(1) << 40; step; step >>= 1)
             if (auto r = get(size + step - 1, size + step - 1); r.ok() && r->status == 206) size += step;
+        // Probes of the header and of a spot near the end, taking turns, as the
+        // console did (2026-11-26: ~12 of them).
+        for (int i = 0; i < 6; ++i) {
+            (void)get(0, 65535);
+            if (size > (2u << 20)) (void)get(size - (2u << 20), size - (2u << 20) + 65535);
+        }
+        // Two ranges at once, the next two when both are done.
         constexpr std::uint64_t kRange = 18u << 20;
-        for (std::uint64_t at = 0; at < size; at += kRange) {
+        for (std::uint64_t at = 0; at < size; at += 2 * kRange) {
+            bool ok = true;
+            std::thread second;
+            if (at + kRange < size)
+                second = std::thread([&, at] {
+                    auto r = get(at + kRange, std::min(size, at + 2 * kRange) - 1);
+                    if (!r.ok() || r->status != 206) ok = false;
+                });
             auto r = get(at, std::min(size, at + kRange) - 1);
-            if (!r.ok() || r->status != 206) return;
+            if (second.joinable()) second.join();
+            if (!r.ok() || r->status != 206 || !ok) return;
         }
     }).detach();
     return {};

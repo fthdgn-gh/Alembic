@@ -109,18 +109,23 @@ namespace {
 
 class PeerFs;
 
-// A file on another engine. Reads come through a 4 MiB window, with the next
-// two windows already on their way while the reader works on this one; writes
+// A file on another engine. Reads come through cursors: up to four readers at
+// different places (the system installer reads two ranges at once, a
+// conversion reads with several threads) each keep their own 4 MiB window,
+// and once a cursor is read in order the next two windows are already on
+// their way while the reader works on this one. A read elsewhere takes the
+// least recently used cursor and fetches only what it asked for (at least
+// 256 KiB), without reading ahead. Writes
 // that follow each other are collected into 4 MiB requests and sent in the
 // background, two at a time, so the network and the conversion overlap.
 // Any read, size, truncate, sync or close waits for the writes in flight.
 class PeerFile final : public FileHandle {
 public:
-    PeerFile(PeerFs& fs, Target t, std::uint64_t size) : fs_(fs), t_(std::move(t)), size_(size) {}
+    PeerFile(PeerFs& fs, Target t, std::uint64_t size) : fs_(fs), t_(std::move(t)), size_(size) { cursors_.reserve(kCursors); }
     ~PeerFile() override {
         std::lock_guard<std::mutex> lock(mutex_);
         (void)settle_locked();
-        drop_ahead_locked();
+        for (auto& c : cursors_) drop_ahead_locked(c);
     }
     Result<std::uint64_t> size() const override {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -139,7 +144,9 @@ public:
     Result<BlockChecksums> checksums(std::uint64_t length, std::uint32_t block, const ProgressFn& progress) override;
 
 private:
-    static constexpr std::size_t kAhead = 2;   // windows fetched ahead
+    static constexpr std::size_t kAhead = 2;   // windows fetched ahead of a cursor read in order
+    static constexpr std::size_t kCursors = 4; // readers at different places
+    static constexpr std::size_t kFirst = 256u << 10; // the least a jump fetches
     static constexpr std::size_t kInFlight = 2; // writes sent at once
     struct Fetch {
         std::uint64_t offset = 0;
@@ -153,8 +160,15 @@ private:
         std::thread thread;
         Status result;
     };
-    void start_fetch_locked(std::uint64_t offset) const;
-    void drop_ahead_locked() const;            // stops using what was fetched ahead
+    struct Cursor {
+        std::string window;
+        std::uint64_t window_offset = 0;
+        std::deque<std::unique_ptr<Fetch>> ahead;
+        std::uint64_t used = 0; // when last read (a counter), for picking one to reuse
+    };
+    void start_fetch_locked(Cursor& c, std::uint64_t offset) const;
+    void drop_ahead_locked(Cursor& c) const;   // stops using what was fetched ahead
+    void top_up_locked(Cursor& c) const;       // keeps kAhead windows coming after its window
     Status send_pending_locked() const;        // the collected writes, in the background
     Status wait_send_locked(std::size_t keep) const; // until at most `keep` are in flight
     Status settle_locked() const;              // pending and in-flight writes all done
@@ -162,9 +176,8 @@ private:
     Target t_;
     mutable std::mutex mutex_;
     mutable std::uint64_t size_;
-    mutable std::string window_;
-    mutable std::uint64_t window_offset_ = 0;
-    mutable std::deque<std::unique_ptr<Fetch>> ahead_;
+    mutable std::vector<Cursor> cursors_;
+    mutable std::uint64_t reads_ = 0;
     mutable std::string pending_;
     mutable std::uint64_t pending_offset_ = 0;
     mutable std::deque<std::unique_ptr<Send>> sends_;
@@ -269,7 +282,7 @@ private:
     pairing::Pairing& pairing_;
 };
 
-void PeerFile::start_fetch_locked(std::uint64_t offset) const {
+void PeerFile::start_fetch_locked(Cursor& c, std::uint64_t offset) const {
     auto f = std::make_unique<Fetch>();
     f->offset = offset;
     f->length = std::min<std::uint64_t>(kChunk, size_ - offset);
@@ -279,53 +292,81 @@ void PeerFile::start_fetch_locked(std::uint64_t offset) const {
     raw->thread = std::thread([raw, fs, t] {
         raw->result = fs->call(t, "GET", "read", {{"offset", std::to_string(raw->offset)}, {"length", std::to_string(raw->length)}});
     });
-    ahead_.push_back(std::move(f));
+    c.ahead.push_back(std::move(f));
 }
 
-void PeerFile::drop_ahead_locked() const {
-    for (auto& f : ahead_)
+void PeerFile::drop_ahead_locked(Cursor& c) const {
+    for (auto& f : c.ahead)
         if (f->thread.joinable()) f->thread.join();
-    ahead_.clear();
+    c.ahead.clear();
+}
+
+void PeerFile::top_up_locked(Cursor& c) const {
+    std::uint64_t next = c.ahead.empty() ? c.window_offset + c.window.size() : c.ahead.back()->offset + c.ahead.back()->length;
+    while (c.ahead.size() < kAhead && next < size_) {
+        start_fetch_locked(c, next);
+        next = c.ahead.back()->offset + c.ahead.back()->length;
+    }
 }
 
 Status PeerFile::read_at(std::uint64_t offset, MutableBytes out) const {
     std::lock_guard<std::mutex> lock(mutex_);
     ALEMBIC_TRY(settle_locked()); // read what was written
+    ++reads_;
     std::size_t done = 0;
     while (done < out.size()) {
         std::uint64_t at = offset + done;
-        if (at < window_offset_ || at >= window_offset_ + window_.size()) {
-            if (at >= size_) return make_error(Errc::invalid_data, "unexpected end of file in '" + t_.path + "'");
-            // The window fetched ahead for this spot, else a jump: fetch it now.
-            while (!ahead_.empty() && ahead_.front()->offset + ahead_.front()->length <= at) {
-                if (ahead_.front()->thread.joinable()) ahead_.front()->thread.join();
-                ahead_.pop_front();
-            }
-            if (!ahead_.empty() && ahead_.front()->offset <= at) {
-                auto f = std::move(ahead_.front());
-                ahead_.pop_front();
+        if (at >= size_) return make_error(Errc::invalid_data, "unexpected end of file in '" + t_.path + "'");
+        Cursor* c = nullptr;
+        for (auto& k : cursors_)
+            if (at >= k.window_offset && at < k.window_offset + k.window.size()) c = &k;
+        if (!c) {
+            // A window on its way for this spot: the reader moved on in order.
+            for (auto& k : cursors_)
+                for (const auto& f : k.ahead)
+                    if (!c && f->offset <= at && at < f->offset + f->length) c = &k;
+            if (c) {
+                while (c->ahead.front()->offset + c->ahead.front()->length <= at) {
+                    if (c->ahead.front()->thread.joinable()) c->ahead.front()->thread.join();
+                    c->ahead.pop_front();
+                }
+                auto f = std::move(c->ahead.front());
+                c->ahead.pop_front();
                 f->thread.join();
                 if (!f->result->ok()) return f->result->error();
-                window_ = std::move(**f->result);
-                window_offset_ = f->offset;
+                c->window = std::move(**f->result);
+                c->window_offset = f->offset;
+                top_up_locked(*c);
             } else {
-                drop_ahead_locked();
-                std::uint64_t want = std::min<std::uint64_t>(kChunk, size_ - at);
-                ALEMBIC_ASSIGN(window_, fs_.call(t_, "GET", "read", {{"offset", std::to_string(at)}, {"length", std::to_string(want)}}));
-                window_offset_ = at;
+                // Right after a cursor's window: in order, so read ahead from here.
+                // Anywhere else: a jump, fetched alone with the least recently used cursor.
+                for (auto& k : cursors_)
+                    if (!k.window.empty() && at == k.window_offset + k.window.size()) c = &k;
+                bool in_order = c != nullptr;
+                if (!c) {
+                    if (cursors_.size() < kCursors) {
+                        cursors_.emplace_back();
+                        c = &cursors_.back();
+                    } else {
+                        c = &cursors_.front();
+                        for (auto& k : cursors_)
+                            if (k.used < c->used) c = &k;
+                    }
+                }
+                drop_ahead_locked(*c);
+                std::uint64_t want = in_order ? kChunk : std::max<std::uint64_t>(kFirst, out.size() - done);
+                want = std::min<std::uint64_t>({want, kChunk, size_ - at});
+                ALEMBIC_ASSIGN(c->window, fs_.call(t_, "GET", "read", {{"offset", std::to_string(at)}, {"length", std::to_string(want)}}));
+                c->window_offset = at;
+                if (in_order) top_up_locked(*c);
             }
-            if (window_.empty() || at >= window_offset_ + window_.size())
+            if (c->window.empty() || at >= c->window_offset + c->window.size())
                 return make_error(Errc::invalid_data, "unexpected end of file in '" + t_.path + "'");
-            // Keep the next windows coming.
-            std::uint64_t next = ahead_.empty() ? window_offset_ + window_.size() : ahead_.back()->offset + ahead_.back()->length;
-            while (ahead_.size() < kAhead && next < size_) {
-                start_fetch_locked(next);
-                next = ahead_.back()->offset + ahead_.back()->length;
-            }
         }
-        std::size_t from = static_cast<std::size_t>(at - window_offset_);
-        std::size_t n = std::min(out.size() - done, window_.size() - from);
-        std::memcpy(out.data() + done, window_.data() + from, n);
+        c->used = reads_;
+        std::size_t from = static_cast<std::size_t>(at - c->window_offset);
+        std::size_t n = std::min(out.size() - done, c->window.size() - from);
+        std::memcpy(out.data() + done, c->window.data() + from, n);
         done += n;
     }
     return {};
@@ -335,8 +376,10 @@ Status PeerFile::write_at(std::uint64_t offset, Bytes data) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!write_error_.ok()) return write_error_;
     // What was read or fetched around here is stale now.
-    if (offset < window_offset_ + window_.size() && offset + data.size() > window_offset_) window_.clear();
-    if (!ahead_.empty()) drop_ahead_locked();
+    for (auto& c : cursors_) {
+        if (offset < c.window_offset + c.window.size() && offset + data.size() > c.window_offset) c.window.clear();
+        if (!c.ahead.empty()) drop_ahead_locked(c);
+    }
     while (!data.empty()) {
         bool follows = !pending_.empty() && offset == pending_offset_ + pending_.size();
         if (!follows || pending_.size() >= kChunk) {
@@ -458,10 +501,10 @@ Result<BlockChecksums> PeerFile::checksums(std::uint64_t length, std::uint32_t b
 Status PeerFile::truncate(std::uint64_t length) {
     std::lock_guard<std::mutex> lock(mutex_);
     ALEMBIC_TRY(settle_locked());
-    drop_ahead_locked();
+    for (auto& c : cursors_) drop_ahead_locked(c);
     ALEMBIC_TRY(fs_.call(t_, "POST", "truncate", {{"length", std::to_string(length)}}));
     size_ = length;
-    window_.clear();
+    cursors_.clear();
     return {};
 }
 

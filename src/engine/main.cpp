@@ -1396,6 +1396,24 @@ private:
         if (op == "read" || op == "write") {
             static const int delay = std::atoi(alembic::environment("ALEMBIC_TEST_PEER_DELAY_MS").c_str());
             if (delay > 0) std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+            // And a link of this many MB/s that every read and write shares
+            // (ALEMBIC_TEST_PEER_MBPS): each waits for its turn on it.
+            static const double mbps = std::atof(alembic::environment("ALEMBIC_TEST_PEER_MBPS").c_str());
+            if (mbps > 0) {
+                static std::mutex link_mutex;
+                static auto link_free = std::chrono::steady_clock::now();
+                const double bytes = op == "read" ? std::strtod(r.query.count("length") ? r.query.at("length").c_str() : "0", nullptr)
+                                                  : static_cast<double>(r.body.size());
+                std::chrono::steady_clock::time_point until;
+                {
+                    std::lock_guard<std::mutex> lock(link_mutex);
+                    auto now = std::chrono::steady_clock::now();
+                    if (link_free < now) link_free = now;
+                    link_free += std::chrono::microseconds(static_cast<std::int64_t>(bytes / mbps));
+                    until = link_free;
+                }
+                std::this_thread::sleep_until(until);
+            }
         }
         auto q = [&](const char* k) { auto it = r.query.find(k); return it == r.query.end() ? std::string() : it->second; };
         auto number = [&](const char* k) { return static_cast<std::uint64_t>(std::strtoull(q(k).c_str(), nullptr, 10)); };

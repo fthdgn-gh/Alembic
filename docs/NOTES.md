@@ -4393,9 +4393,19 @@ From a user's issue: four changes, each in the page and the app.
   MiB ranges at once in 1 MiB pieces that alternate between them, so
   almost every piece is a jump: 8 MiB of read-ahead dropped (and waited
   for), 4 + 8 MiB fetched again, ~12 MiB moved per MiB served. The 64
-  KiB probes take ~0.5 s each for the same reason. Fix planned: per-reader
-  windows in PeerFile (several cursors) and no read-ahead until a reader
-  is seen reading in order.
+  KiB probes take ~0.5 s each for the same reason.
+- **Fixed (same day):** `PeerFile` keeps up to four cursors, each with its
+  own 4 MiB window and two windows fetched ahead once it is read in order;
+  a jump takes the least recently used cursor and fetches only what was
+  asked (256 KiB to 4 MiB), with no read-ahead. Measured with two engines
+  on the Mac, the stand-in installer now reading as the console does
+  (probes taking turns, two 18 MiB ranges at once) and a new test hook,
+  `ALEMBIC_TEST_PEER_MBPS=40` (one simulated link that all peer reads and
+  writes share, besides `ALEMBIC_TEST_PEER_DELAY_MS=5`): the ~350 MB
+  package 114.5 s (3.1 MB/s, as on the console) -> 11.4 s (30.7 MB/s).
+  120 random ranges read 6 at a time through `/pkg-source/` equal the
+  file. What is left of the gap: read-ahead past each range's end.
+  **Not yet tried on the console.**
 
 ## Next session
 
