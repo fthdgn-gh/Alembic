@@ -4503,6 +4503,13 @@ From a user's issue: four changes, each in the page and the app.
   package): all 33 entries of the install with the same kind, size,
   SHA-256 and mode as a real install. So AppInstallPkg plus our own files
   is a whole install with only the sizes off.
+- **The tile shows at once (owner, second run):** after the call the
+  title appears on the home screen with no reboot, so AppInstallPkg is the
+  live registration the replay lacked (it goes through ShellCore, which
+  tells the home screen; rows written into the databases by hand only show
+  after a reboot). The system's own uninstall removed the first run's
+  title (registered this way, files placed by us); the owner deleted the
+  licence by hand, as after any uninstall.
 
 ## Next session
 
