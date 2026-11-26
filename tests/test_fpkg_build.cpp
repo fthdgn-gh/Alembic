@@ -202,3 +202,78 @@ TEST_CASE(fpkg_resume_matches_uninterrupted) {
         if (kraken) CHECK(test::read_file(reference).size() < 7 * 1024 * 1024); // the text shrank
     }
 }
+
+#include "alembic/crypto.hpp"
+#include "alembic/fpkg.hpp"
+#include "alembic/fpkg_install.hpp"
+#include "alembic/bytes.hpp"
+
+#include <cstring>
+
+// The installed form (fpkg_install.hpp): the split writer gives the same bytes
+// as the whole package, and the files made from it follow the installer's.
+TEST_CASE(fpkg_install_layout) {
+    std::string keys = keys_folder();
+    if (keys.empty()) {
+        std::printf("  (skipped: no ProsperoPkgTool key moduli in .refs)\n");
+        return;
+    }
+    std::string tmp = test::make_temp_dir();
+    std::string game = make_package_game(tmp);
+    convert::Options o = package_options(keys, 2);
+    REQUIRE_OK(convert::run(game, tmp + "/whole.pkg", convert::Format::fpkg, o));
+    o.fpkg.si_path = tmp + "/app.si";
+    REQUIRE_OK(convert::run(game, tmp + "/app.pkg", convert::Format::fpkg, o));
+    std::vector<std::uint8_t> whole = test::read_file(tmp + "/whole.pkg"), app = test::read_file(tmp + "/app.pkg"),
+                              si = test::read_file(tmp + "/app.si");
+    CHECK_EQ(app.size() + si.size(), whole.size());
+    CHECK(std::equal(app.begin(), app.end(), whole.begin()));
+    CHECK(std::equal(si.begin(), si.end(), whole.begin() + static_cast<std::ptrdiff_t>(app.size())));
+
+    auto file = File::open(tmp + "/whole.pkg", File::Mode::read);
+    REQUIRE_OK(file);
+    auto package = fpkg::read_package(*file);
+    REQUIRE_OK(package);
+    const fpkg::CntEntry* param = nullptr;
+    for (const auto& e : package->entries)
+        if (e.id == 0x2000) param = &e;
+    CHECK(param != nullptr);
+    if (!param) return;
+    auto param_json = fpkg::read_entry(*file, *package, *param);
+    REQUIRE_OK(param_json);
+    Bytes head(whole.data(), 0x10000), cnt(whole.data() + package->cnt_offset, 0x1000);
+    auto in = fpkg::install::make_inputs(head, cnt, app.size(), *param_json, si);
+    REQUIRE_OK(in);
+    CHECK(in->title_id == "TEST00000");
+    CHECK(in->master_version == "01.00"); // from contentVersion: the test game has no masterVersion
+    auto files = fpkg::install::make_files(*in, "/data/x.pkg");
+    REQUIRE_OK(files);
+    auto members = fpkg::install::read_stored_zip(si);
+    REQUIRE_OK(members);
+    bool found = false;
+    for (const auto& [name, data] : *members)
+        if (name == "config/UP0000-TEST00000_00-0000000000000000/playgo-chunk.crc") found = data == files->app_crc;
+    CHECK(found);
+
+    const std::vector<std::uint8_t>& pbm = files->app_pbm;
+    const std::uint64_t blocks = (app.size() + 0xFFFF) / 0x10000, bitmap = (blocks + 7) / 8;
+    CHECK_EQ(pbm.size(), 0x100 + bitmap + 32);
+    if (pbm.size() != 0x100 + bitmap + 32) return;
+    CHECK(std::memcmp(pbm.data(), "pdbmTEST00000\0" "01.00\0", 20) == 0);
+    CHECK_EQ(get_u64(&pbm[0x20]), static_cast<std::uint64_t>(app.size()));
+    CHECK(std::memcmp(&pbm[0x60], cnt.data() + 0xFE0, 32) == 0);
+    CHECK_EQ(get_u32(&pbm[0xAC]), static_cast<std::uint32_t>(bitmap));
+    std::uint64_t bits = 0;
+    for (std::uint64_t i = 0; i < bitmap; ++i) bits += static_cast<unsigned>(__builtin_popcount(pbm[0x100 + i]));
+    CHECK_EQ(bits, blocks);
+    crypto::Digest sha = crypto::sha256(Bytes(pbm.data(), pbm.size() - 32));
+    CHECK(std::memcmp(sha.data(), pbm.data() + pbm.size() - 32, 32) == 0);
+
+    std::string json(files->app_json.begin(), files->app_json.end()), xml(files->app_xml.begin(), files->app_xml.end());
+    CHECK(json.find("\"originalFileSize\":" + std::to_string(app.size()) + ",") != std::string::npos);
+    CHECK(json.find("\"url\":\"\\/data\\/x.pkg\"") != std::string::npos);
+    CHECK(xml.rfind("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<psproject fmt=\"playgo-status\" version=\"2000\">", 0) == 0);
+    CHECK(xml.find("<chunk_status chunk_count=\"1\"><chunks language_mask=\"18446744073709551615\" scenario_mask=\"1\">"
+                   "<chunk id=\"0\" locus=\"3\" req_locus=\"3\"/></chunks><scenarios><scenario>0</scenario></scenarios>") !=
+          std::string::npos);
+}

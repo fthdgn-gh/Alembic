@@ -362,11 +362,16 @@ struct PackageOptions {
     std::string license_keys_file;
     // Raw ELF modules packed as fake-SELFs, as img_create does unless --no_fself.
     bool fake_sign = true;
+    // When set, the SI segment (the last, a small ZIP) goes into this file and
+    // the package file ends where it would start: the split the console's
+    // installer makes (app.pkg and app.si, fpkg_install.hpp). Same bytes.
+    std::string si_path;
 };
 struct PackageResult {
     bool generated_license = false; // the game had none: a debug licence was made
     std::string content_id;
-    std::uint64_t package_length = 0;
+    std::uint64_t package_length = 0; // with the SI, also when it went into si_path
+    std::uint64_t si_offset = 0;       // where the SI starts (the split app.pkg's size)
     std::size_t inner_files = 0;
     std::vector<std::string> warnings;
     std::vector<std::string> fake_signed; // raw ELF modules packed as fake-SELFs

@@ -898,8 +898,16 @@ Result<PackageResult> write_package(const tree::Source& source, const tree::Node
     members.push_back({"common/etc/playgo-chunk.dat", playgo.chunk});
     members.push_back({"config/" + param.content_id + "/playgo-chunk.crc", crc});
     std::vector<std::uint8_t> si = write_zip(members);
-    ALEMBIC_TRY(file.write_at(mount_length, si));
     result.package_length = mount_length + si.size();
+    result.si_offset = mount_length;
+    if (options.si_path.empty()) {
+        ALEMBIC_TRY(file.write_at(mount_length, si));
+    } else {
+        ALEMBIC_TRY(file.truncate(mount_length));
+        ALEMBIC_ASSIGN(AtomicOutput si_output, AtomicOutput::create(options.si_path, options.overwrite));
+        ALEMBIC_TRY(si_output.file().write_at(0, si));
+        ALEMBIC_TRY(si_output.commit());
+    }
     ALEMBIC_TRY(output.commit());
     if (session) for (const char* suffix : resume::kSidecarSuffixes) (void)remove_file(resume::sidecar_path(*session, suffix));
     return result;

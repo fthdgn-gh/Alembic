@@ -141,6 +141,7 @@ add_library(alembic_core STATIC
     src/core/fpkg_ps4_pfs.cpp
     src/core/fpkg_cnt_build.cpp
     src/core/fpkg_package_build.cpp
+    src/core/fpkg_install.cpp
     src/core/unicode.cpp
     src/core/zstdpack_build.cpp
     src/core/zstdpack_format.cpp

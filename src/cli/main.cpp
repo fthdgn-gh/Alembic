@@ -8,6 +8,7 @@
 #include "alembic/ffpfsc.hpp"
 #include "alembic/fpkg.hpp"
 #include "alembic/fpkg_inner.hpp"
+#include "alembic/fpkg_install.hpp"
 #include "alembic/fself.hpp"
 #include "alembic/lz4pack.hpp"
 #include "alembic/zstdpack.hpp"
@@ -147,6 +148,10 @@ void usage() {
         "        title ID, eboot.bin's process parameters and which console the game is for\n"
         "  fpkg-info <pkg> [--passcode P]\n"
         "        show an FPKG's header, CNT entries, digest checks and outer files\n"
+        "  install-layout <pkg> <dir> [--url U]\n"
+        "        write the package as the console's installer leaves it, under <dir>:\n"
+        "        user/app/<TITLE>/{app.pkg,app.json,app.pbm,app.pbm.backup,app.xml,app.crc}\n"
+        "        and user/playgo/app/<CID>/00/app.si (U: app.json's url, default the package path)\n"
         "  fpkg-dump <pkg> <what> <out> [--passcode P]\n"
         "        write decrypted data: <what> is mount (the decoded inner PFS image),\n"
         "        inner-image (pfs_image.dat as stored),\n"
@@ -826,6 +831,61 @@ int cmd_fpkg_info(const Args& args) {
     return 0;
 }
 
+int cmd_install_layout(const Args& args) {
+    if (args.positional.size() != 2) return usage(), 2;
+    auto opened = File::open(args.positional[0], File::Mode::read);
+    if (!opened.ok()) return fail(opened.error());
+    File& file = *opened;
+    auto package = fpkg::read_package(file);
+    if (!package.ok()) return fail(package.error());
+    const fpkg::Segment* si = nullptr;
+    for (const fpkg::Segment& s : package->segments)
+        if (s.name == "SI") si = &s;
+    if (!si) return std::fprintf(stderr, "error: the package has no SI segment\n"), 1;
+    const fpkg::CntEntry* param = nullptr;
+    for (const fpkg::CntEntry& e : package->entries)
+        if (e.id == 0x2000) param = &e;
+    if (!param) return std::fprintf(stderr, "error: the package has no param.json\n"), 1;
+    auto param_json = fpkg::read_entry(file, *package, *param);
+    if (!param_json.ok()) return fail(param_json.error());
+    std::vector<std::uint8_t> head(0x10000), cnt(0x1000), si_bytes(static_cast<std::size_t>(si->size));
+    for (auto [buf, off] : {std::pair<std::vector<std::uint8_t>*, std::uint64_t>{&head, 0}, {&cnt, package->cnt_offset}, {&si_bytes, si->offset}})
+        if (Status s = file.read_at(off, MutableBytes(buf->data(), buf->size())); !s.ok()) return fail(s.error());
+    auto inputs = fpkg::install::make_inputs(head, cnt, si->offset, *param_json, si_bytes);
+    if (!inputs.ok()) return fail(inputs.error());
+    auto files = fpkg::install::make_files(*inputs, args.get("--url").value_or(args.positional[0]));
+    if (!files.ok()) return fail(files.error());
+    const std::string root = args.positional[1];
+    const std::string app = root + "/user/app/" + inputs->title_id, playgo = root + "/user/playgo/app/" + inputs->content_id + "/00";
+    for (const std::string& d : {root, root + "/user", root + "/user/app", app, root + "/user/playgo", root + "/user/playgo/app",
+                                 root + "/user/playgo/app/" + inputs->content_id, playgo})
+        if (stat_path(d, false).kind == PathKind::missing)
+            if (Status s = make_directory(d); !s.ok()) return fail(s.error());
+    auto put = [&](const std::string& path, const std::vector<std::uint8_t>& data) -> Status {
+        ALEMBIC_ASSIGN(AtomicOutput out, AtomicOutput::create(path, true));
+        ALEMBIC_TRY(out.file().write_at(0, data));
+        return out.commit();
+    };
+    for (auto [name, data] : {std::pair<const char*, const std::vector<std::uint8_t>*>{"app.json", &files->app_json},
+                              {"app.pbm", &files->app_pbm}, {"app.pbm.backup", &files->app_pbm}, {"app.xml", &files->app_xml},
+                              {"app.crc", &files->app_crc}})
+        if (Status s = put(app + "/" + name, *data); !s.ok()) return fail(s.error());
+    if (Status s = put(playgo + "/app.si", si_bytes); !s.ok()) return fail(s.error());
+    auto out = AtomicOutput::create(app + "/app.pkg", true);
+    if (!out.ok()) return fail(out.error());
+    std::vector<std::uint8_t> buffer(4 << 20);
+    for (std::uint64_t done = 0; done < si->offset;) {
+        auto n = static_cast<std::size_t>(std::min<std::uint64_t>(buffer.size(), si->offset - done));
+        if (Status s = file.read_at(done, MutableBytes(buffer.data(), n)); !s.ok()) return fail(s.error());
+        if (Status s = out->file().write_at(done, Bytes(buffer.data(), n)); !s.ok()) return fail(s.error());
+        done += n;
+    }
+    if (Status s = out->commit(); !s.ok()) return fail(s.error());
+    std::printf("%s: app.pkg %llu bytes, app.si %llu bytes\n", inputs->title_id.c_str(), static_cast<unsigned long long>(si->offset),
+                static_cast<unsigned long long>(si->size));
+    return 0;
+}
+
 int cmd_fpkg_dump(const Args& args) {
     if (args.positional.size() != 3) return usage(), 2;
     auto opened = File::open(args.positional[0], File::Mode::read);
@@ -1115,6 +1175,7 @@ int main(int argc, char** argv) {
     if (command == "ffpfsc-verify") return cmd_ffpfsc_verify(parse(argc, argv, {}));
     if (command == "fpkg-info") return cmd_fpkg_info(parse(argc, argv, {}));
     if (command == "game-info") return cmd_game_info(parse(argc, argv, {}));
+    if (command == "install-layout") return cmd_install_layout(parse(argc, argv, {}));
     if (command == "fpkg-dump") return cmd_fpkg_dump(parse(argc, argv, {}));
     if (command == "pfsc-encode") return cmd_pfsc_encode(parse(argc, argv, {}));
     if (command == "pfsc-decode") return cmd_pfsc_decode(parse(argc, argv, {}));
