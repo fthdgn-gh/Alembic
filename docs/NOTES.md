@@ -4550,6 +4550,37 @@ From a user's issue: four changes, each in the page and the app.
   them. Launching it then fails with CE-107938-8 (twice) instead of the
   CE-100022-5 seen with all files in place, so something in the launch
   path does read them: Alembic has to write them.
+- **The small files decoded** (package A's install, plus three titles
+  already on the owner's console installed from packages by other tools:
+  two PS5, one PS4):
+  - The SI segment is a stored ZIP: `common/etc/naps_meta_*.dat`,
+    `common/etc/playgo-chunk.dat`, `config/<CID>/playgo-chunk.crc`.
+    **app.crc** is that last member, byte for byte.
+  - **app.json**: `{"fake":true, "numberOfSplitFiles":1,
+    "originalFileSize", "packageDigest", "pieces":[{"fileOffset":0,
+    "fileSize", "url"}], "playgoChunkCrcHashValue"}`. packageDigest is
+    the 32 bytes at SC + 0xFE0 (the CNT header's package digest);
+    playgoChunkCrcHashValue is SHA-256 of app.crc; `url` is wherever the
+    installer read the package (an http URL or a local path in the
+    samples), so any value; `fake` is missing for the PS4 title; a title
+    with a separate .crc also has `playgoChunkCrcUrl`.
+  - **app.pbm** (and the same bytes in `.backup`): `pdbm`, title ID (NUL
+    ended, 10 bytes), version "01.00\0" at 0x0E; u32 0x990 at 0x14,
+    0x10000 at 0x18 (the 64 KiB unit), 0x110000 at 0x1C (0x310000 for the
+    other tools' packages: their FIH has 0x80 in byte 5, ours 0x00); u64
+    at 0x20 = app.pkg's size; package digest at 0x60; u32 1 at 0xA0,
+    0x100 at 0xA8 (bitmap offset), bitmap length at 0xAC; at 0x100 a
+    bitmap of app.pkg's 64 KiB blocks, one bit each, most significant
+    first, all present; then SHA-256 of everything before it. All three
+    PS5 samples follow this.
+  - **app.xml**: `<psproject fmt="playgo-status" version="2000">` (1000
+    for PS4) with chunk_count, the language mask (0xfffffffe00000000 in
+    package A; all ones in the 1-chunk samples), scenario_mask, every chunk
+    `locus="3" req_locus="3"`, and the scenario list: from
+    playgo-chunk.dat.
+  - The other PS5 samples' packages have no SI segment: app.pkg is the
+    whole package and there is no app.si (one has app.crc from a separate
+    .crc file, the other none).
 
 ## Next session
 
