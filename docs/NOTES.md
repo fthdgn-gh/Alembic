@@ -4541,8 +4541,15 @@ From a user's issue: four changes, each in the page and the app.
   `pdbm`, the title ID and version, and holds the same digest;
   `app.xml` is a `playgo-status` document (every chunk `locus="3"`, the
   language and scenario masks); `app.crc` is a slice of the package.
-  Next: which of them the system makes itself when only app.pkg and
-  app.si are placed before the call.
+  Which of them does the system make itself? Only app.pkg and app.si
+  (and the 5 folders) placed, then the call on app.pkg: rc 0, the licence,
+  both appmeta folders (same bytes as a real install) and all 112 rows
+  (80 appinfo rows with `#_ctime`; size 387,973,120, counted from what is
+  there). **None of the small files**: no app.json, app.pbm(.backup),
+  app.xml, app.crc, nor PlayGo's d0/d1/f0.pdb; registration does not need
+  them. Launching it then fails with CE-107938-8 (twice) instead of the
+  CE-100022-5 seen with all files in place, so something in the launch
+  path does read them: Alembic has to write them.
 
 ## Next session
 
