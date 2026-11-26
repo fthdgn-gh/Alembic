@@ -71,6 +71,14 @@ target_include_directories(alembic_zstd PUBLIC third_party/zstd)
 target_compile_definitions(alembic_zstd PRIVATE XXH_NAMESPACE=ZSTD_ ZSTD_DISABLE_ASM ZSTD_LEGACY_SUPPORT=0)
 target_compile_options(alembic_zstd PRIVATE -O3)
 
+# SQLite 3.54.1 (public domain, third_party/sqlite/UPSTREAM.md): the console's
+# application databases, for the experiments build only.
+add_library(alembic_sqlite STATIC third_party/sqlite/sqlite3.c)
+target_include_directories(alembic_sqlite PUBLIC third_party/sqlite)
+target_compile_definitions(alembic_sqlite PRIVATE SQLITE_THREADSAFE=1 SQLITE_OMIT_LOAD_EXTENSION SQLITE_DQS=0)
+target_compile_options(alembic_sqlite PRIVATE -O2 -w)
+target_link_libraries(alembic_sqlite PUBLIC Threads::Threads)
+
 # The console-tested LZ4 pack profiles in profiles/lz4/, built into the binary.
 set(ALEMBIC_PROFILE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/profiles/lz4)
 file(GLOB ALEMBIC_PROFILE_FILES CONFIGURE_DEPENDS ${ALEMBIC_PROFILE_DIR}/*.toml)
@@ -272,6 +280,14 @@ if(ALEMBIC_BUILD_ENGINE)
         src/engine/webdav.cpp
         ${ALEMBIC_ENGINE_PLATFORM}
     )
+    # Experiments that write the console's system files and databases
+    # (src/engine/experiment.hpp): never in release builds.
+    option(ALEMBIC_EXPERIMENTS "Build the engine's experiment endpoints (dev payloads only)" OFF)
+    if(ALEMBIC_EXPERIMENTS)
+        target_sources(alembic_engine_lib PRIVATE src/engine/experiment.cpp)
+        target_compile_definitions(alembic_engine_lib PUBLIC ALEMBIC_EXPERIMENTS=1)
+        target_link_libraries(alembic_engine_lib PRIVATE alembic_sqlite)
+    endif()
     target_include_directories(alembic_engine_lib PUBLIC src/engine)
     target_compile_options(alembic_engine_lib PRIVATE ${ALEMBIC_COMPILE_OPTIONS})
     target_link_libraries(alembic_engine_lib PUBLIC alembic_core PRIVATE alembic_mbedtls)

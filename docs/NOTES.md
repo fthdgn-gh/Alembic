@@ -4419,6 +4419,43 @@ From a user's issue: four changes, each in the page and the app.
   (with 4 bytes near their end that follow it, likely a checksum), the
   bgft task number, the database counters and times. Every other file
   the installer writes is the same bytes.
+- **The title's rows (raw database copies, every table):** a closed set of
+  112: app.db `tbl_contentinfo`, `tbl_conceptmetadata`,
+  `tbl_iconinfo_<user>`, `tbl_concepticoninfo_<user>` (1 each; its JSON
+  columns mirror appinfo.db), appinfo.db `tbl_appinfo` (80 key/value rows)
+  and `tbl_conceptinfo` (28, by the title's local concept ID). Between the
+  two installs only times, access counters, sync indexes and the icons'
+  `?ts=` differ. Also changed: `tbl_version` counters, other titles'
+  access rows, bgft.db (`tbl_downloads` +1, summary, section) and
+  notification2.db. app.db has triggers on `tbl_iconinfo_<user>`
+  (appDrmType 1 -> 5).
+- **Owner (2026-11-26): ShadowMount+ will not be there for the FPKG way**:
+  nothing may depend on it (its API, its ShellCore bridge, its rescans).
+  This firmware exports no `sceAppInstUtilAppInstallTitleDir` (2026-10-18),
+  so the rows are written by Alembic itself.
+- **The replay (owner: SQLite vendored, experiments in dev builds only):**
+  `-DALEMBIC_EXPERIMENTS=ON` (`ALEMBIC_EXPERIMENTS=1 tools/ps5/build.sh`
+  -> `build-ps5-exp/alembic.elf`) adds `POST/GET /api/experiment`
+  (`src/engine/experiment.hpp`): ordered ops backup_db (SQLite online
+  backup), mkdir, copy (a byte range of any readable path, `.`-named until
+  complete), remove, sql (one transaction per database, `changes` checked,
+  BEGIN IMMEDIATE with a 10 s busy timeout); `dry_run` checks sources and
+  runs the SQL then rolls it back. Release builds have neither the
+  endpoint nor SQLite (checked with nm). `tools/experiment/replay.py
+  BEFORE AFTER` writes `replay.json` (back up both databases; 9 folders, 24
+  files with their modes, app.pkg and app.si cut from the package; the 112
+  rows exactly as AFTER has them; the `tbl_version` counters raised to
+  AFTER's) and `undo.json` (the rows deleted by title / concept ID, files
+  and folders removed; may run again). Left out: bgft (task folder and
+  bgft.db), notification, temp files.
+- **Tried on the Mac** with a stand-in tree holding the clean `before`
+  databases: dry run writes nothing; replay gives all 33 entries with the
+  install's bytes and modes and databases equal to BEFORE plus the
+  install's title rows (every other row unchanged); a second replay
+  refuses; undo returns both databases and the tree to BEFORE; the backup
+  passes `integrity_check`. **Not run on the console yet.** Success there
+  (advisor): after a reboot, a snapshot matching a real install, and the
+  system's own uninstall returning the console to BEFORE.
 
 ## Next session
 

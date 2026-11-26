@@ -210,6 +210,9 @@ Status set_file_times(const std::string& path, std::int64_t atime, std::int64_t 
 // Windows or on mounted (network, peer) file systems. A game folder needs it:
 // the PS5 refuses to start an eboot.bin or load a module without it (EACCES).
 Status make_executable(const std::string& path);
+// Sets the permission bits (07777) where the system has them; nothing on
+// Windows; Errc::unsupported on mounted (network, peer) file systems.
+Status set_mode(const std::string& path, std::uint32_t mode);
 // Whether a file has any execute bit (false on Windows and mounted file systems).
 bool is_executable(const std::string& path);
 // Sets both to now.

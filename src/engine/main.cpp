@@ -108,6 +108,9 @@
 #include "remote.hpp"
 #include "runner.hpp"
 #include "snapshot.hpp"
+#ifdef ALEMBIC_EXPERIMENTS
+#include "experiment.hpp"
+#endif
 #include "update.hpp"
 
 #include "alembic/bytes.hpp"
@@ -665,6 +668,16 @@ private:
             if (!snapshot::start(o)) return error(409, "a snapshot is running");
             return json(202, snapshot::status());
         }
+#ifdef ALEMBIC_EXPERIMENTS
+        // Writes to system files and databases (experiment.hpp; dev builds only).
+        if (r.path == "/api/experiment" && r.method == "GET") return json(200, experiment::status());
+        if (r.path == "/api/experiment" && r.method == "POST") {
+            auto body = parse_json(r.body);
+            if (!body.ok()) return error(400, "not JSON");
+            if (auto why = experiment::start(*body); !why.empty()) return error(409, why);
+            return json(202, experiment::status());
+        }
+#endif
         // The Images tab: images and game folders whose game uses the APR,
         // and their AMPR emulators (images.hpp). ?refresh=1 reads them again.
         if (r.path == "/api/images" && r.method == "GET") {

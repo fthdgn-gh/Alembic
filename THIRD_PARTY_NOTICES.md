@@ -32,6 +32,7 @@ Ported files say where they come from in their header comment.
 | [lz4/lz4](https://github.com/lz4/lz4) v1.10.0 (tag commit `ebb370ca`) | BSD-2-Clause (notice below) | `third_party/lz4/`: `lz4.c`, `lz4.h`, `lz4hc.c`, `lz4hc.h`, `xxhash.c`, `xxhash.h`, unchanged |
 | [facebook/zstd](https://github.com/facebook/zstd) v1.5.7 (release tarball, SHA-256 `eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3`) | BSD-3-Clause OR GPL-2.0-only; used under BSD-3-Clause (notice below) | `third_party/zstd/`: `lib/`'s `zstd.h`, `zstd_errors.h`, `common/`, `compress/`, `decompress/`, unchanged (without the x86-64 assembly decoder); zstd asset packs (see `third_party/zstd/UPSTREAM.md`) |
 | [Mbed-TLS/mbedtls](https://github.com/Mbed-TLS/mbedtls) 3.6.7 LTS (release tarball, SHA-256 `a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6`) | Apache-2.0 OR GPL-2.0-or-later; used under Apache-2.0 (`third_party/mbedtls/LICENSE`) | `third_party/mbedtls/`: `include/` and `library/`, unchanged, configured by Alembic's `alembic_config.h`; TLS for FTPS and HTTPS WebDAV (`src/engine/tls.cpp`) on every platform |
+| [SQLite](https://www.sqlite.org) 3.54.1 (amalgamation zip, SHA3-256 `92281c86e2957f9b9305890f9ac04204caa7b677cc868dc326d942689df28e30`) | Public domain (https://www.sqlite.org/copyright.html) | `third_party/sqlite/`: `sqlite3.c`, `sqlite3.h`, unchanged; only in the experiments build (`-DALEMBIC_EXPERIMENTS=ON`), never in release payloads |
 
 ## Bundled into the engine's web page
 

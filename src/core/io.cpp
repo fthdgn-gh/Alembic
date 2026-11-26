@@ -473,6 +473,12 @@ Status make_executable(const std::string& path) {
     return {};
 }
 
+Status set_mode(const std::string& path, std::uint32_t mode) {
+    if (detail::mounted(path)) return make_error(Errc::unsupported, "no permission bits on " + path);
+    if (::chmod(path.c_str(), static_cast<mode_t>(mode & 07777)) != 0) return io_error("cannot set the permissions of", path);
+    return {};
+}
+
 bool is_executable(const std::string& path) {
     if (detail::mounted(path)) return false;
     struct stat st {};

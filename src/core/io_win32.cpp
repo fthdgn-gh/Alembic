@@ -254,6 +254,8 @@ Result<std::string> link_target(const std::string& path) {
     return make_error(Errc::unsupported, "no link targets on Windows: " + path);
 }
 
+Status set_mode(const std::string&, std::uint32_t) { return {}; } // no POSIX permission bits
+
 PathStat stat_path(const std::string& path, bool follow_links, std::string* error) {
     if (auto fs = detail::mounted(path)) return fs->stat(path, follow_links, error);
 

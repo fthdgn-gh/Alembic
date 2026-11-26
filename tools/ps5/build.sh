@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Cross-builds Alembic for the PS5 with ps5-payload-dev/sdk into build-ps5/.
 #   tools/ps5/build.sh [extra cmake --build args]
+# ALEMBIC_EXPERIMENTS=1 builds the dev payload with the experiment endpoints
+# (src/engine/experiment.hpp) into build-ps5-exp/ instead; never release it.
 # PS5_PAYLOAD_SDK defaults to .refs/ps5-payload-sdk (the v0.44 release zip,
 # unpacked). LLVM 18 comes from LLVM_CONFIG, else Homebrew's llvm@18 or
 # llvm-config-18 / llvm-config on the PATH.
@@ -18,6 +20,8 @@ fi
 [[ $LLVM_CONFIG == /* ]] || LLVM_CONFIG="$(command -v "$LLVM_CONFIG")" || { echo "$LLVM_CONFIG not found" >&2; exit 1; }
 export LLVM_CONFIG
 [[ -x $PS5_PAYLOAD_SDK/bin/prospero-cmake ]] || { echo "no PS5 payload SDK at $PS5_PAYLOAD_SDK" >&2; exit 1; }
-"$PS5_PAYLOAD_SDK/bin/prospero-cmake" -S "$repo" -B "$repo/build-ps5" -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_VERBOSE_MAKEFILE=OFF >/dev/null
-cmake --build "$repo/build-ps5" -j "$@"
+out="$repo/build-ps5"; extra=()
+if [[ ${ALEMBIC_EXPERIMENTS:-} == 1 ]]; then out="$repo/build-ps5-exp"; extra=(-DALEMBIC_EXPERIMENTS=ON); fi
+"$PS5_PAYLOAD_SDK/bin/prospero-cmake" -S "$repo" -B "$out" -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_VERBOSE_MAKEFILE=OFF "${extra[@]}" >/dev/null
+cmake --build "$out" -j "$@"

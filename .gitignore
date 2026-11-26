@@ -7,6 +7,9 @@
 /tools/pkg-oracle/bin/
 /tools/pkg-oracle/obj/
 /build-ps5/
+/build-ps5-exp/
+/build-exp/
 /.cache/
 /build-win/
 /build-app/
+__pycache__/
