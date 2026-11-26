@@ -4480,6 +4480,29 @@ From a user's issue: four changes, each in the page and the app.
   after a real install's uninstall, plus our database backup and
   snapshots. So the system treats a replayed title as one of its own,
   both ways.
+- **Registering through the system (no hand-written rows):** on this
+  firmware libSceAppInstUtil exports Initialize, AppInstallPkg,
+  AppInstallAll, InstallByPackage, GetContentIdFromPkg, GetInstallStatus,
+  AppUnInstall, AppGetSize, Terminate; not AppInstallTitleDir,
+  InstallByPackageEx, GetTitleIdFromPkg, AppExist, GetMetaInfoFromPkg
+  (experiment op `symbols`). ps5-patchdl (GPL-3.0) notes
+  `sceAppInstUtilAppInstallPkg(path, &pkg_info)` "only writes the app
+  metadata, no content". From a clean state (the licence removed), with
+  the package copied to `/user/data/alembic-replay/` and called with the
+  payload's own auth ID: rc 0 (the info struct comes back empty), and
+  within seconds it writes the licence (`.rif`/`.idx`, the same bytes as a
+  real install), both appmeta folders (every file the same bytes as a
+  real install) and the title's rows (1 each in app.db; 79 + 28 in
+  appinfo.db). Nothing in `/user/app` or `/user/playgo`, no bgft task.
+  Against a real install's rows: times, counters and `?ts=` differ as
+  between any two installs; also `size` / `#_size` / `#_size_app_only` /
+  `totalSize` are 37,945,344 instead of 388,366,336 (a real install
+  counts the whole app), and `#_ctime` is missing. Then the files-only
+  part of the replay (5 folders, 10 files under `/user/app/<T>` and
+  `/user/playgo/app/<CID>`, app.pkg and app.si cut from the copied
+  package): all 33 entries of the install with the same kind, size,
+  SHA-256 and mode as a real install. So AppInstallPkg plus our own files
+  is a whole install with only the sizes off.
 
 ## Next session
 
