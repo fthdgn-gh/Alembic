@@ -11,8 +11,8 @@
 //   /user/app/<TITLE>/app.crc          the SI's config/<CID>/playgo-chunk.crc
 //   /user/playgo/app/<CID>/00/app.si   the SI segment (a stored ZIP)
 //
-// Not made here: PlayGo's /user/playgo/app/<CID>/00/{d0,d1,f0}.pdb (state the
-// console rewrites itself once they exist; not decoded yet) and config/<CID>/.
+//   /user/playgo/app/<CID>/00/{d0,d1}.pdb  PlayGo's state of it (f0.pdb: empty)
+//   /user/playgo/app/<CID>/00/config/<CID>/ an empty folder
 // Every format here was learned from installs on a console (no source).
 #pragma once
 
@@ -30,7 +30,10 @@ struct Inputs {
     std::string content_id;      // 36 characters
     std::string title_id;        // its characters 7..15
     std::string master_version;  // param.json's masterVersion ("01.00")
+    std::string content_version; // param.json's contentVersion ("01.000.002")
+    std::string title_name;      // PlayGo's record of it; the installer had the one it was given, others leave it empty
     std::uint64_t app_pkg_size = 0;
+    std::uint64_t si_size = 0;
     std::uint8_t package_digest[32] = {}; // the CNT header's, at CNT + 0xFE0
     bool retail_signed = false;  // FIH byte 5 is 0x80 (packages from some other tools)
     std::vector<std::uint8_t> playgo_crc;   // the SI's config/<CID>/playgo-chunk.crc
@@ -39,6 +42,7 @@ struct Inputs {
 
 struct Files {
     std::vector<std::uint8_t> app_json, app_pbm, app_xml, app_crc;
+    std::vector<std::uint8_t> d0_pdb, d1_pdb; // PlayGo's, in /user/playgo/app/<CID>/00 (with an empty f0.pdb)
 };
 
 // The members of a stored ZIP (what Alembic and ProsperoPkgTool write as the SI).

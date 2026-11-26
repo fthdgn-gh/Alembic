@@ -269,6 +269,22 @@ TEST_CASE(fpkg_install_layout) {
     crypto::Digest sha = crypto::sha256(Bytes(pbm.data(), pbm.size() - 32));
     CHECK(std::memcmp(sha.data(), pbm.data() + pbm.size() - 32, 32) == 0);
 
+    for (const std::vector<std::uint8_t>* pdb : {&files->d0_pdb, &files->d1_pdb}) {
+        CHECK(pdb->size() > 8);
+        if (pdb->size() <= 8) return;
+        CHECK_EQ(get_u32(pdb->data()), 1u);
+        CHECK_EQ(get_u32(pdb->data() + pdb->size() - 4), crypto::crc32c(Bytes(pdb->data(), pdb->size() - 4)));
+        std::size_t at = 4, records = 0;
+        while (at + 12 <= pdb->size() - 4) {
+            CHECK_EQ(get_u32(pdb->data() + at + 4), get_u32(pdb->data() + at + 8));
+            at += 12 + get_u32(pdb->data() + at + 4);
+            ++records;
+        }
+        CHECK_EQ(at, pdb->size() - 4);
+        CHECK_EQ(records, std::size_t{52});
+    }
+    CHECK_EQ(files->d0_pdb.size(), files->d1_pdb.size());
+
     std::string json(files->app_json.begin(), files->app_json.end()), xml(files->app_xml.begin(), files->app_xml.end());
     CHECK(json.find("\"originalFileSize\":" + std::to_string(app.size()) + ",") != std::string::npos);
     CHECK(json.find("\"url\":\"\\/data\\/x.pkg\"") != std::string::npos);

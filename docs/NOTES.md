@@ -4581,6 +4581,26 @@ From a user's issue: four changes, each in the page and the app.
   - The other PS5 samples' packages have no SI segment: app.pkg is the
     whole package and there is no app.si (one has app.crc from a separate
     .crc file, the other none).
+  - **PlayGo's d0.pdb / d1.pdb**: u32 1, then records {u32 id (0xF42xx /
+    0xF43xx / 0xF44xx), u32 length, u32 length, value}, then CRC32C of all
+    before it. d0 and d1 hold the same 52 records, each file in its own
+    fixed order (the same in all three PS5 installs). Filled in: content ID
+    (0xF4241), app.pkg's size (0xF4246..9), the SI's size (0xF4257/8, 0
+    without one), title name (0xF424D; empty in the other tools' installs),
+    url (0xF42A6), app.json's text (0xF42A7), contentVersion (0xF42AB/BA),
+    a 3 per chunk (0xF430B), {u16 chunk, u16 3} per chunk (0xF430C), the
+    language mask as in app.xml (0xF430E) and the task ID
+    "0000000000000000-<CID>" (0xF431B; the console empties it at the next
+    boot, the only change it makes). Everything else is the same in every
+    PS5 install. f0.pdb is empty.
+- **Generator** (`src/core/fpkg_install.hpp`, CLI `alembic install-layout
+  PKG DIR [--url U] [--name N]`; `PackageOptions::si_path` puts the SI into
+  its own file): for package A with the installer's url and name it writes
+  all 33 entries of the install, every file byte-identical to it.
+  `tests/test_fpkg_build.cpp` (fpkg_install_layout) checks the split and
+  the files' structure on a test game. Guesses kept in the code:
+  masterVersion from contentVersion when missing; app.xml's grouping by
+  scenario (every package seen has one).
 
 ## Next session
 

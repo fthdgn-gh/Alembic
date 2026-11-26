@@ -148,10 +148,11 @@ void usage() {
         "        title ID, eboot.bin's process parameters and which console the game is for\n"
         "  fpkg-info <pkg> [--passcode P]\n"
         "        show an FPKG's header, CNT entries, digest checks and outer files\n"
-        "  install-layout <pkg> <dir> [--url U]\n"
+        "  install-layout <pkg> <dir> [--url U] [--name N]\n"
         "        write the package as the console's installer leaves it, under <dir>:\n"
         "        user/app/<TITLE>/{app.pkg,app.json,app.pbm,app.pbm.backup,app.xml,app.crc}\n"
-        "        and user/playgo/app/<CID>/00/app.si (U: app.json's url, default the package path)\n"
+        "        and user/playgo/app/<CID>/00/{app.si,d0.pdb,d1.pdb,f0.pdb} (U: app.json's url,\n"
+        "        default the package path; N: the title name PlayGo keeps, default none)\n"
         "  fpkg-dump <pkg> <what> <out> [--passcode P]\n"
         "        write decrypted data: <what> is mount (the decoded inner PFS image),\n"
         "        inner-image (pfs_image.dat as stored),\n"
@@ -853,12 +854,14 @@ int cmd_install_layout(const Args& args) {
         if (Status s = file.read_at(off, MutableBytes(buf->data(), buf->size())); !s.ok()) return fail(s.error());
     auto inputs = fpkg::install::make_inputs(head, cnt, si->offset, *param_json, si_bytes);
     if (!inputs.ok()) return fail(inputs.error());
+    inputs->title_name = args.get("--name").value_or("");
     auto files = fpkg::install::make_files(*inputs, args.get("--url").value_or(args.positional[0]));
     if (!files.ok()) return fail(files.error());
     const std::string root = args.positional[1];
     const std::string app = root + "/user/app/" + inputs->title_id, playgo = root + "/user/playgo/app/" + inputs->content_id + "/00";
     for (const std::string& d : {root, root + "/user", root + "/user/app", app, root + "/user/playgo", root + "/user/playgo/app",
-                                 root + "/user/playgo/app/" + inputs->content_id, playgo})
+                                 root + "/user/playgo/app/" + inputs->content_id, playgo, playgo + "/config",
+                                 playgo + "/config/" + inputs->content_id})
         if (stat_path(d, false).kind == PathKind::missing)
             if (Status s = make_directory(d); !s.ok()) return fail(s.error());
     auto put = [&](const std::string& path, const std::vector<std::uint8_t>& data) -> Status {
@@ -870,7 +873,9 @@ int cmd_install_layout(const Args& args) {
                               {"app.pbm", &files->app_pbm}, {"app.pbm.backup", &files->app_pbm}, {"app.xml", &files->app_xml},
                               {"app.crc", &files->app_crc}})
         if (Status s = put(app + "/" + name, *data); !s.ok()) return fail(s.error());
-    if (Status s = put(playgo + "/app.si", si_bytes); !s.ok()) return fail(s.error());
+    for (auto [name, data] : {std::pair<const char*, const std::vector<std::uint8_t>*>{"app.si", &si_bytes},
+                              {"d0.pdb", &files->d0_pdb}, {"d1.pdb", &files->d1_pdb}, {"f0.pdb", nullptr}})
+        if (Status s = put(playgo + "/" + name, data ? *data : std::vector<std::uint8_t>{}); !s.ok()) return fail(s.error());
     auto out = AtomicOutput::create(app + "/app.pkg", true);
     if (!out.ok()) return fail(out.error());
     std::vector<std::uint8_t> buffer(4 << 20);

@@ -8,6 +8,8 @@
 
 #include <cstdio>
 #include <cstring>
+#include <iterator>
+#include <string_view>
 
 namespace alembic::fpkg::install {
 namespace {
@@ -44,6 +46,128 @@ std::string json_escape(const std::string& v) {
 }
 
 void append(std::vector<std::uint8_t>& out, const std::string& s) { out.insert(out.end(), s.begin(), s.end()); }
+
+// PlayGo's d0.pdb / d1.pdb: u32 1, then records {u32 id, u32 length, u32
+// length, value}, then CRC32C of everything before. The two files hold the
+// same records in their own fixed orders (the same in every PS5 install
+// seen). Values that differ between packages are filled in; the rest are what
+// every PS5 install seen holds.
+enum class F { raw, content_id, pkg, si, name, url, json, version, states, chunks, languages, task };
+struct PdbRecord {
+    std::uint32_t id;
+    F kind;
+    std::string_view raw;
+};
+#define V(s) std::string_view(s, sizeof(s) - 1)
+constexpr PdbRecord kD0[] = {
+    {0xf4262, F::raw, V("\x00")},
+    {0xf4434, F::raw, V("\x06\x00\x60\x12")},
+    {0xf4309, F::raw, V("\x00")},
+    {0xf4242, F::raw, V("\xff\xff\xff\xff")},
+    {0xf4257, F::si, {}},
+    {0xf4308, F::raw, V("\x04\x00\x00\x00")},
+    {0xf4435, F::raw, V("\x00")},
+    {0xf424d, F::name, {}},
+    {0xf425d, F::raw, V("\x01")},
+    {0xf4316, F::raw, V("\x00")},
+    {0xf4241, F::content_id, {}},
+    {0xf4243, F::raw, V("\x00\x00\x00\x00")},
+    {0xf424c, F::raw, V("")},
+    {0xf430b, F::states, {}},
+    {0xf4255, F::raw, V("\x00\x00\x00\x00")},
+    {0xf430e, F::languages, {}},
+    {0xf42a4, F::raw, V("\x01\x00\x00\x00")},
+    {0xf42a5, F::raw, V("\x05\x00\x00\x00")},
+    {0xf436d, F::raw, V("\x03\x00\x00\x00")},
+    {0xf42a6, F::url, {}},
+    {0xf42b0, F::raw, V("\x00")},
+    {0xf42b5, F::raw, V("\x00\x00\x00\x00\x00\x00\x00\x00")},
+    {0xf42b6, F::raw, V("\x00")},
+    {0xf4258, F::si, {}},
+    {0xf4370, F::raw, V("\x00")},
+    {0xf42ab, F::version, {}},
+    {0xf42ba, F::version, {}},
+    {0xf4256, F::raw, V("\x00\x00\x00\x00")},
+    {0xf42b7, F::raw, V("\x05\x00\x00\x00")},
+    {0xf431f, F::raw, V("\x00")},
+    {0xf4250, F::raw, V("\x00\x00\x00\x00")},
+    {0xf42af, F::raw, V("\x00")},
+    {0xf4320, F::raw, V("\x04\x00\x00\x00\x00\x00\x00\x00")},
+    {0xf4248, F::pkg, {}},
+    {0xf4251, F::raw, V("\x00\x00\x00\x00\x00\x00\x00\x00")},
+    {0xf4252, F::raw, V("\x00\x00\x00\x00\x00\x00\x00\x00")},
+    {0xf4311, F::raw, V("\x01\x00\x00\x00\x00\x00\x00\x00")},
+    {0xf424a, F::raw, V("\x64\x00\x00\x00")},
+    {0xf430d, F::raw, V("\x30\x30")},
+    {0xf4246, F::pkg, {}},
+    {0xf431b, F::task, {}},
+    {0xf4240, F::raw, V("\x04\x00\x00\x00")},
+    {0xf4245, F::raw, V("\x00\x00\x00\x00")},
+    {0xf4244, F::raw, V("\x07\x00\x00\x00")},
+    {0xf42a7, F::json, {}},
+    {0xf4312, F::raw, V("\xff\xff\xff\xff\xff\xff\xff\xff")},
+    {0xf4247, F::pkg, {}},
+    {0xf4249, F::pkg, {}},
+    {0xf4253, F::raw, V("\x00\x00\x00\x00\x00\x00\x00\x00")},
+    {0xf4254, F::raw, V("\x00\x00\x00\x00\x00\x00\x00\x00")},
+    {0xf424b, F::raw, V("\x00\x00\x00\x00\x00\x00\x00\x00")},
+    {0xf430c, F::chunks, {}},
+};
+constexpr PdbRecord kD1[] = {
+    {0xf4309, F::raw, V("\x00")},
+    {0xf4242, F::raw, V("\xff\xff\xff\xff")},
+    {0xf4262, F::raw, V("\x00")},
+    {0xf4434, F::raw, V("\x06\x00\x60\x12")},
+    {0xf4257, F::si, {}},
+    {0xf4308, F::raw, V("\x04\x00\x00\x00")},
+    {0xf4435, F::raw, V("\x00")},
+    {0xf424d, F::name, {}},
+    {0xf4316, F::raw, V("\x00")},
+    {0xf425d, F::raw, V("\x01")},
+    {0xf4241, F::content_id, {}},
+    {0xf4243, F::raw, V("\x00\x00\x00\x00")},
+    {0xf430b, F::states, {}},
+    {0xf424c, F::raw, V("")},
+    {0xf430e, F::languages, {}},
+    {0xf4255, F::raw, V("\x00\x00\x00\x00")},
+    {0xf42a4, F::raw, V("\x01\x00\x00\x00")},
+    {0xf42a5, F::raw, V("\x05\x00\x00\x00")},
+    {0xf42a6, F::url, {}},
+    {0xf436d, F::raw, V("\x03\x00\x00\x00")},
+    {0xf42b0, F::raw, V("\x00")},
+    {0xf42b5, F::raw, V("\x00\x00\x00\x00\x00\x00\x00\x00")},
+    {0xf42b6, F::raw, V("\x00")},
+    {0xf4258, F::si, {}},
+    {0xf4370, F::raw, V("\x00")},
+    {0xf42ab, F::version, {}},
+    {0xf42ba, F::version, {}},
+    {0xf4256, F::raw, V("\x00\x00\x00\x00")},
+    {0xf42b7, F::raw, V("\x05\x00\x00\x00")},
+    {0xf4250, F::raw, V("\x00\x00\x00\x00")},
+    {0xf431f, F::raw, V("\x00")},
+    {0xf4320, F::raw, V("\x04\x00\x00\x00\x00\x00\x00\x00")},
+    {0xf42af, F::raw, V("\x00")},
+    {0xf4248, F::pkg, {}},
+    {0xf4251, F::raw, V("\x00\x00\x00\x00\x00\x00\x00\x00")},
+    {0xf4252, F::raw, V("\x00\x00\x00\x00\x00\x00\x00\x00")},
+    {0xf424a, F::raw, V("\x64\x00\x00\x00")},
+    {0xf4311, F::raw, V("\x01\x00\x00\x00\x00\x00\x00\x00")},
+    {0xf4246, F::pkg, {}},
+    {0xf430d, F::raw, V("\x30\x30")},
+    {0xf431b, F::task, {}},
+    {0xf4240, F::raw, V("\x04\x00\x00\x00")},
+    {0xf4245, F::raw, V("\x00\x00\x00\x00")},
+    {0xf4244, F::raw, V("\x07\x00\x00\x00")},
+    {0xf42a7, F::json, {}},
+    {0xf4312, F::raw, V("\xff\xff\xff\xff\xff\xff\xff\xff")},
+    {0xf4247, F::pkg, {}},
+    {0xf4249, F::pkg, {}},
+    {0xf4253, F::raw, V("\x00\x00\x00\x00\x00\x00\x00\x00")},
+    {0xf4254, F::raw, V("\x00\x00\x00\x00\x00\x00\x00\x00")},
+    {0xf430c, F::chunks, {}},
+    {0xf424b, F::raw, V("\x00\x00\x00\x00\x00\x00\x00\x00")},
+};
+#undef V
 
 } // namespace
 
@@ -94,6 +218,8 @@ Result<Inputs> make_inputs(Bytes head, Bytes cnt_header, std::uint64_t app_pkg_s
         if (p.name == "masterVersion" && p.value) in.master_version = *p.value;
         if (p.name == "contentVersion" && p.value) content_version = *p.value;
     }
+    in.content_version = content_version;
+    in.si_size = si.size();
     // Without masterVersion: contentVersion's first part ("01.000.002" ->
     // "01.00"; a guess, every package seen has masterVersion).
     if (in.master_version.empty() && content_version.size() >= 5) in.master_version = content_version.substr(0, 5);
@@ -163,6 +289,7 @@ Result<Files> make_files(const Inputs& in, const std::string& url) {
     };
     std::string x = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<psproject fmt=\"playgo-status\" version=\"2000\"><chunk_status chunk_count=\"" +
                     std::to_string(project.chunks.size()) + "\">";
+    const std::uint64_t all_languages = languages(0, project.chunks.size());
     for (std::size_t i = 0; i < project.chunks.size(); ++i) {
         if (i == 0 || scenario_mask[i] != scenario_mask[i - 1]) {
             std::size_t end = i;
@@ -181,6 +308,51 @@ Result<Files> make_files(const Inputs& in, const std::string& url) {
     }
     x += "</scenarios></chunk_status></psproject>";
     append(f.app_xml, x);
+
+    auto pdb = [&](const PdbRecord* records, std::size_t count) {
+        std::vector<std::uint8_t> out(4, 0);
+        put_u32(out.data(), 1);
+        auto u64 = [](std::uint64_t v) {
+            std::string s(8, '\0');
+            put_u64(reinterpret_cast<std::uint8_t*>(s.data()), v);
+            return s;
+        };
+        for (std::size_t r = 0; r < count; ++r) {
+            std::string v;
+            switch (records[r].kind) {
+            case F::raw: v = std::string(records[r].raw); break;
+            case F::content_id: v = in.content_id; break;
+            case F::pkg: v = u64(in.app_pkg_size); break;
+            case F::si: v = u64(in.si_size); break;
+            case F::name: v = in.title_name; break;
+            case F::url: v = url; break;
+            case F::json: v = j; break;
+            case F::version: v = in.content_version; break;
+            case F::states: v = std::string(project.chunks.size(), '\x03'); break;
+            case F::chunks:
+                for (std::size_t c = 0; c < project.chunks.size(); ++c) {
+                    v.push_back(static_cast<char>(c & 0xFF));
+                    v.push_back(static_cast<char>((c >> 8) & 0xFF));
+                    v += std::string("\x03\x00", 2);
+                }
+                break;
+            case F::languages: v = u64(all_languages); break;
+            case F::task: v = "0000000000000000-" + in.content_id; break;
+            }
+            std::uint8_t h[12];
+            put_u32(h, records[r].id);
+            put_u32(h + 4, static_cast<std::uint32_t>(v.size()));
+            put_u32(h + 8, static_cast<std::uint32_t>(v.size()));
+            out.insert(out.end(), h, h + 12);
+            append(out, v);
+        }
+        std::uint8_t crc[4];
+        put_u32(crc, crypto::crc32c(Bytes(out.data(), out.size())));
+        out.insert(out.end(), crc, crc + 4);
+        return out;
+    };
+    f.d0_pdb = pdb(kD0, std::size(kD0));
+    f.d1_pdb = pdb(kD1, std::size(kD1));
     return f;
 }
 
