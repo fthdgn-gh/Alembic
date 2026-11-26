@@ -4346,6 +4346,56 @@ From a user's issue: four changes, each in the page and the app.
   snapshot `after-install`; later `after-launch`. Plus the raw package,
   to compare with `app.pkg`. Snapshots hold the owner's title IDs and file
   names: kept under `.refs/` (git-ignored), never quoted in the repo.
+- **First capture (owner's console, 2026-11-26; a ~350 MB sample package,
+  a title run before from an image and installed once before, both
+  removed):** snapshot 75 s / 60 s, ~39.6k entries; 13 errors, all
+  another homebrew's private files. Fetched with the console's ftpsrv
+  (port 2121; no NLST, so by name from listing.tsv). What one install
+  wrote (`tools/snapshot/diff.py`, 36 entries added, 0 removed):
+  - `/user/app/<ID>/app.pkg`: **the package up to the SI, byte for byte**
+    (SHA-256 equal; 348,585,984 of 349,626,698 bytes), and
+    `/user/playgo/app/<content ID>/00/app.si`: **the SI segment, byte for
+    byte**. So the installer copies and splits; nothing is rewritten.
+  - `/user/app/<ID>/app.json`: `{"fake":true, "numberOfSplitFiles":1,
+    "originalFileSize":<app.pkg size>, "packageDigest":<32 bytes, found
+    in the package's header area>, "pieces":[{fileOffset 0, fileSize,
+    "url": the pkg-source URL it installed from}],
+    "playgoChunkCrcHashValue": SHA-256 of app.crc}`.
+  - `app.crc` (21,276 bytes): a byte range of the package, verbatim.
+    `app.pbm` and `app.pbm.backup` (identical, 953 bytes: "pdbm", title
+    ID, "01.00", the packageDigest at 0x60). `app.xml`: playgo-status,
+    100 chunks all `locus="3" req_locus="3"`, one scenario. All 0770 0:0.
+  - `/user/playgo/app/<content ID>/00/`: `d0.pdb`, `d1.pdb` (1,895
+    bytes), empty `f0.pdb`, a `config/<content ID>/` folder.
+  - `/user/appmeta/<ID>/`: icon0.png/.dds, pic0.png/.dds, pic1/pic2.dds,
+    param.json, playgo-scenario.json (0777). `/system_data/priv/appmeta/
+    <ID>/`: nptitle.dat, param.json, trophy2/npbind.dat, uds/npbind.dat
+    (npbind/nptitle not found verbatim in the package: generated, or
+    stored encrypted).
+  - `/user/bgft/task/<n>/d0.pdb`, `d1.pdb`: the background-transfer task.
+  - Databases: app.db `tbl_contentinfo` +1 (titleId, contentId,
+    titleName, metaDataPath /user/appmeta/<ID>, ...), `tbl_conceptmetadata`
+    +1, `tbl_iconinfo_<user>` and `tbl_concepticoninfo_<user>` +1 each,
+    `tbl_version` counters; appinfo.db `tbl_appinfo` +~80 key/value rows
+    for the title (param.json fields, `#_size`, `#_install_time`,
+    `_contents_location`, ...); bgft.db and notification2.db changed.
+  - Already there before (from the earlier install / image run): the
+    licence pair in `/user/license/` (`fake<...>-<ID>_00.rif` 2 KB +
+    `.idx` 80 bytes), save data, an httpcache folder. A fresh title is
+    needed to see whether the installer writes the licence.
+- **For B (deleting the image after installing):** a reliable check now
+  exists: SHA-256 of `app.pkg` equals that of the package's bytes before
+  the SI, `app.si` equals the SI, and the title is in `tbl_contentinfo`.
+- **Install speed from a paired engine (owner: 400 MB took ~2 min):** the
+  link does 38 MB/s down and 57 MB/s up, the install ran at ~3 MB/s.
+  Cause: `pkg_sources` shares one handle per package, and `PeerFile` keeps
+  one 4 MiB window with two fetched ahead. The installer reads two 18
+  MiB ranges at once in 1 MiB pieces that alternate between them, so
+  almost every piece is a jump: 8 MiB of read-ahead dropped (and waited
+  for), 4 + 8 MiB fetched again, ~12 MiB moved per MiB served. The 64
+  KiB probes take ~0.5 s each for the same reason. Fix planned: per-reader
+  windows in PeerFile (several cursors) and no read-ahead until a reader
+  is seen reading in order.
 
 ## Next session
 
