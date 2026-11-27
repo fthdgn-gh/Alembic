@@ -105,6 +105,9 @@ and the app mark each game with a **PS5** (white) or **PS4** (black) pill.
   use). Alembic adds it when converting, or to a game you already have;
   on a game that has one, "Add the AMPR emulator" offers to switch it to
   the other.
+  A package leaves out an emulator the game carries (and unpacks its LZ4
+  or zstd packs): installed, a game uses the console's own APR. **Keep the
+  AMPR emulator** in Convert (`--keep-ampr-emu` on a PC) keeps them.
 - **Fake-signing:** a PS5 game whose executables are plain (unsigned) ELF
   files never starts. Conversions turn them into fake-signed SELFs on the
   way, and Convert says so beforehand: for an image or folder

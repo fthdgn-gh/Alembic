@@ -287,6 +287,109 @@ Result<std::unique_ptr<tree::Source>> add(const tree::Source& source, const Chec
 
 namespace {
 
+// The emulators' own files at the game's root (ampr.cpp and zstdpack's
+// always_loose name the same ones).
+bool emulator_root_file(std::string_view name) {
+    for (const char* n : {"ampr_emu.index", "ampr_emu.index.tmp", "ampr_emu.index.bak", "ampr_commands.bin", "ampr_emu.log",
+                          "apr_emu.log"})
+        if (unicode::ascii_iequals(name, n)) return true;
+    return false;
+}
+
+bool is_fakelib(std::string_view name) {
+    return unicode::ascii_iequals(name, "fakelib") || unicode::ascii_iequals(name, "fakelib2");
+}
+
+// The input tree without some of its files; our ids index nodes_, which
+// point into the base tree.
+class Stripped final : public tree::Source {
+public:
+    explicit Stripped(const tree::Source& base) : base_(base) {}
+
+    // Copies the base tree, leaving the emulator's files out.
+    void build(std::vector<std::string>& removed) {
+        const tree::Node& in = base_.root();
+        root_.name = in.name;
+        root_.is_directory = true;
+        root_.mtime = in.mtime;
+        for (const tree::Node& c : in.children) {
+            if (!c.is_directory && emulator_root_file(c.name)) {
+                removed.push_back(c.name);
+                continue;
+            }
+            if (c.is_directory && is_fakelib(c.name)) {
+                tree::Node dir = copy(c, true, c.name, removed);
+                // A fakelib folder that held only the emulator is not the game's.
+                if (dir.children.empty() && !c.children.empty()) continue;
+                root_.children.push_back(std::move(dir));
+                continue;
+            }
+            root_.children.push_back(copy(c, false, c.name, removed));
+        }
+    }
+
+    const tree::Node& root() const override { return root_; }
+    const std::string& label() const override { return base_.label(); }
+    std::string real_path(const tree::Node& file) const override {
+        return !file.is_directory && file.id < nodes_.size() ? base_.real_path(*nodes_[file.id]) : std::string();
+    }
+    Result<std::shared_ptr<const RandomAccess>> open(const tree::Node& file) const override {
+        if (file.is_directory) return make_error(Errc::invalid_argument, "not a file");
+        if (file.id >= nodes_.size()) return make_error(Errc::invalid_argument, "not a file of this tree");
+        return base_.open(*nodes_[file.id]);
+    }
+
+private:
+    // `fakelib`: directly inside a fakelib folder, where libSceAmpr.sprx goes.
+    tree::Node copy(const tree::Node& in, bool fakelib, const std::string& path, std::vector<std::string>& removed) {
+        tree::Node out;
+        out.name = in.name;
+        out.is_directory = in.is_directory;
+        out.size = in.size;
+        out.mtime = in.mtime;
+        if (in.is_directory) {
+            out.children.reserve(in.children.size());
+            for (const tree::Node& c : in.children) {
+                if (fakelib && !c.is_directory && unicode::ascii_iequals(c.name, kFileName)) {
+                    removed.push_back(path + "/" + c.name);
+                    continue;
+                }
+                out.children.push_back(copy(c, false, path + "/" + c.name, removed));
+            }
+        } else {
+            nodes_.push_back(&in);
+            out.id = nodes_.size() - 1;
+        }
+        return out;
+    }
+
+    const tree::Source& base_;
+    tree::Node root_;
+    std::vector<const tree::Node*> nodes_;
+};
+
+} // namespace
+
+Result<StripResult> strip(const tree::Source& source) {
+    StripResult result;
+    // Nothing to take out: the tree serves as it is (a package rebuilt from
+    // it stays byte for byte what it was).
+    bool any = false;
+    for (const tree::Node& c : source.root().children) {
+        if (!c.is_directory && emulator_root_file(c.name)) any = true;
+        if (c.is_directory && is_fakelib(c.name))
+            for (const tree::Node& f : c.children)
+                if (!f.is_directory && unicode::ascii_iequals(f.name, kFileName)) any = true;
+    }
+    if (!any) return result;
+    auto tree = std::make_unique<Stripped>(source);
+    tree->build(result.removed);
+    result.tree = std::move(tree);
+    return result;
+}
+
+namespace {
+
 // Writes `data` to a new file at `path` (over an existing one only with `overwrite`).
 Status write_copy(const RandomAccess& data, const std::string& path, bool overwrite = false) {
     ALEMBIC_ASSIGN(std::uint64_t size, data.size());

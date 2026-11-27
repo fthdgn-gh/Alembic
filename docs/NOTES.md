@@ -4635,6 +4635,37 @@ From a user's issue: four changes, each in the page and the app.
   by other tools) have DRM type 0, an encrypted outer PFS and FIH byte 5
   0x80; how and when they were installed is not known.
 
+### 2026-11-27: clean packages, without the AMPR emulator (issue #7)
+
+- **Why:** users asked (issue #7) for packages without ampr_emu /
+  ampr-emu-ng: with the new kstuff FPKG support an installed game reads
+  with the console's own APR. Alembic never added the emulator to a
+  package, but one the input already carried (an image or folder it made,
+  where the engine adds it by default, or a patched dump) went in as it
+  was. Owner: clean by default.
+- **What:** FPKG output of a PS5 game (`convert`, the engine, the page and
+  the app) leaves out `libSceAmpr.sprx` in `fakelib/` and `fakelib2/` (a
+  folder left empty goes too) and the emulators' root files
+  (`ampr_emu.index` and its `.tmp`/`.bak`, `ampr_commands.bin`,
+  `ampr_emu.log`, `apr_emu.log`), and unpacks LZ4 and zstd packs first
+  (`ampr_emu::strip`, `convert::Options::keep_ampr_emulator`,
+  `Report::ampr_removed`). Kept with `--keep-ampr-emu` (CLI),
+  `keep_ampr_emu` (job spec) or **Keep the AMPR emulator** (Convert's
+  Options step, shown when the plan says the game carries an emulator or
+  packs). `--lz4` into a package keeps them too (the packs need their
+  runtime). `fpkg-build` is untouched (the oracles use it), and a game with
+  nothing to remove reaches the writer unchanged (same bytes as before).
+- **Engine:** plans for FPKG report `ships_emulator`, `lz4_packs`,
+  `zstd_packs` when there is something to leave out; the job result has
+  `ampr_removed`; "check before deleting" ignores the removed files; a
+  default name drops its `-lz4`/`-zstd` tag. Package checkpoints carry
+  `ampr_clean` in their fingerprint, so one from an older engine starts
+  over. No `kPeerProtocol` change (an optional field).
+- **Checked:** `fpkg_leaves_out_the_ampr_emulator` builds the package of a
+  game and of the same game in a folder with ampr_emu, LZ4 packs or zstd
+  packs: byte for byte the same package (keys from `.refs` needed);
+  `ampr_emu_strip_leaves_the_game` runs everywhere. Not console-tested.
+
 ## Next session
 
 **Settled (owner, 2026-10-22):**

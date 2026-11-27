@@ -828,6 +828,8 @@ public:
     std::string packs_want;  // "none" | "lz4" | "zstd"; "": as the games are
     bool ampr = true, verify = true, del = false, hide = false, over = false;
     bool bc1 = false; // smaller home-screen pictures (opt-in; not for PS4 games)
+    // A package keeps an AMPR emulator the game carries (issue #7: left out by default).
+    bool keep_ampr = false;
     std::string name;
     int where = 0;  // index into on-choices
     JsonValue plan;
@@ -899,9 +901,12 @@ public:
             if (format_of(e) != format_of(entries.front())) return "";
         return format_of(entries.front());
     }
+    // A clean package (issue #7): installed, the game reads with the console's
+    // own APR, so the AMPR emulator it carries is left out and its packs unpacked.
+    bool clean(App& app) const { return to == "fpkg" && !any_ps4(app) && !keep_ampr; }
     // zstd packs are for PS5 games in a folder or an image.
     std::vector<std::string> pack_choices(App& app) const {
-        if (now_packs() == "mixed") return {};
+        if (now_packs() == "mixed" || clean(app)) return {};
         std::vector<std::string> out = {"none", "lz4"};
         if (!any_ps4(app) && to != "fpkg") out.push_back("zstd");
         return out;
@@ -909,6 +914,7 @@ public:
     std::string packs(App& app) const {
         const std::string now = now_packs();
         if (now == "mixed") return now;
+        if (clean(app)) return "none";
         const std::string w = packs_want.empty() ? now : packs_want;
         const auto c = pack_choices(app);
         return std::find(c.begin(), c.end(), w) != c.end() ? w : now;
@@ -961,6 +967,7 @@ public:
         bc1 = l["bc1"].boolean();
         if (!installing) install = l["install"].boolean();
         keep_pkg = l["keepPkg"].boolean();
+        keep_ampr = l["keepAmpr"].boolean();
     }
     void remember(App& app) {
         static const int levels[] = {1, 6, 9}, lz4_levels[] = {1, 9, 12}, zstd_levels[] = {1, 5, 19};
@@ -976,6 +983,7 @@ public:
         l.set("ampr", ampr);
         l.set("bc1", bc1);
         l.set("keepPkg", keep_pkg);
+        if (keep_ampr) l.set("keepAmpr", true); // the switch shows again while it is on
         // Installing is remembered only from a conversion to FPKG that offered it (not from Install…).
         const JsonValue& before = app.prefs["convertLast"];
         if (installable(app) && !installing) l.set("install", install);
@@ -997,6 +1005,7 @@ public:
         verify = true;
         install = installing;
         keep_pkg = false;
+        keep_ampr = false;
         remembered = false;
         refocus = true;  // the row is gone: the chosen format takes the focus
         app.prefs.set("convertLast", JsonValue());
@@ -1063,6 +1072,7 @@ public:
             s.set("overwrite", over);
             s.set("ampr_emu", ampr ? "auto" : "off");
             if (bc1) s.set("bc1_pictures", true);
+            if (target == "fpkg" && keep_ampr) s.set("keep_ampr_emu", true);
             if (key_out) *key_out = s.dump();
             return s;
         }
@@ -1092,6 +1102,7 @@ public:
         s.set("ampr_emu", ampr ? "auto" : "off");
         s.set("hide_source", !hide_hidden && hide && !del_on);
         if (bc1 && !any_ps4(app)) s.set("bc1_pictures", true);
+        if (target == "fpkg" && keep_ampr) s.set("keep_ampr_emu", true);
         if (key_out) *key_out = s.dump();
         return s;
     }
@@ -1388,6 +1399,11 @@ public:
         // needs the emulator is known only once it runs, so it is offered anyway.
         const bool ampr_unknown = dump && !ampr_known;
         const bool ampr_shown = !ampr_hidden && (ampr_needed || ampr_unknown);
+        // A package of a game that carries an AMPR emulator or its packs: leave them out, or keep them.
+        bool carries = now != "none" && now != "mixed";
+        for (const auto& [path, p] : plans)
+            carries = carries || p["ships_emulator"].boolean() || p["lz4_packs"].boolean() || p["zstd_packs"].boolean();
+        const bool keep_ampr_shown = target == "fpkg" && !any_ps4(app) && !dump && (carries || keep_ampr);
         const auto choices = on_choices(app);
         const bool where_hidden = choices.size() < 2 || any_shared() || dump;
         const auto pchoices = pack_choices(app);
@@ -1395,7 +1411,7 @@ public:
         // What each step holds; empty ones are left out.
         const bool comp_shown = target == "ffpfsc" || (target == "fpkg" && !any_ps4(app));
         const bool del_shown = !any_shared() && !dump && !(installable(app) && install);
-        const bool has_options = comp_shown || lz4_on || zstd_on || ampr_shown || !any_ps4(app); // PS5 games: the pictures switch
+        const bool has_options = comp_shown || lz4_on || zstd_on || ampr_shown || keep_ampr_shown || !any_ps4(app); // PS5 games: the pictures switch
         const bool has_after = installable(app) || del_shown || !hide_hidden;
         steps_now.clear();
         for (const char* st : kSteps) {
@@ -1557,6 +1573,11 @@ public:
                 y += choice_row(ui, "cv:zstdlevel", ix, y, iw, t("zstd level"), "",
                                 {t("1 \xC2\xB7 fastest"), t("5 \xC2\xB7 default"), t("19 \xC2\xB7 smallest")}, &zstd_level);
             }
+            // Issue #7: an installed package reads with the console's own APR.
+            if (keep_ampr_shown)
+                y += switch_row(ui, "cv:keepampr", x, y, w, t("Keep the AMPR emulator"),
+                                t("This game carries an AMPR emulator or its asset packs. An installed package reads with the console's own APR, so they are left out and the packs unpacked; keep them only for a package that needs them."),
+                                &keep_ampr);
             // ampr_emu for games that use the console's APR (not packages: installed, they have the real one).
             if (ampr_shown)
                 y += switch_row(ui, "cv:ampr", x, y, w, t("Add the AMPR emulator"),
@@ -1635,6 +1656,7 @@ public:
                 opt.push_back(now == "zstd" ? t("zstd packs kept") : t("zstd packs, level {n}", {{"n", std::to_string(zstd_levels[std::clamp(zstd_level, 0, 2)])}}));
             if (unpack_on || zunpack_on) opt.push_back(t("Packs unpacked"));
             if (ampr_shown) opt.push_back(ampr ? t("AMPR emulator added") : t("No AMPR emulator"));
+            if (keep_ampr_shown) opt.push_back(keep_ampr ? t("AMPR emulator kept") : t("AMPR emulator left out"));
             if (bc1 && !any_ps4(app)) opt.push_back(t("Smaller home-screen pictures"));
             std::vector<std::string> after;
             if (installable(app) && install) after.push_back(keep_pkg ? t("Installed; the package is kept") : t("Installed, then the package is deleted"));

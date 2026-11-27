@@ -1029,5 +1029,11 @@
  "Downloading components": "Összetevők letöltése",
  "The AMPR emulator goes in only if the game turns out to use the console's APR; the engine can tell once the game runs.": "Az AMPR-emulátor csak akkor kerül bele, ha a játék a konzol APR-jét használja; ezt a motor a játék futásakor látja.",
  "No AMPR emulator, even if the game turns out to use the console's APR.": "Nincs AMPR-emulátor, akkor sem, ha a játék a konzol APR-jét használja.",
- "With zstd packs, closing the game or restarting the engine while it packs starts the dump over.": "zstd-csomagokkal a mentés elölről kezdődik, ha csomagolás közben bezárod a játékot vagy újraindul a motor."
+ "With zstd packs, closing the game or restarting the engine while it packs starts the dump over.": "zstd-csomagokkal a mentés elölről kezdődik, ha csomagolás közben bezárod a játékot vagy újraindul a motor.",
+ "AMPR emulator kept": "AMPR-emulátor megtartva",
+ "AMPR emulator left out": "AMPR-emulátor kihagyva",
+ "AMPR emulator left out: {list}": "AMPR-emulátor kihagyva: {list}",
+ "Keep the AMPR emulator": "AMPR-emulátor megtartása",
+ "This game carries an AMPR emulator or its asset packs. An installed package reads with the console's own APR, so they are left out and the packs unpacked; keep them only for a package that needs them.": "Ez a játék AMPR-emulátort vagy annak asset-csomagjait tartalmazza. A telepített csomag a konzol saját APR-jével olvas, ezért ezek kimaradnak, a csomagok pedig kicsomagolódnak; csak akkor tartsd meg őket, ha a csomagnak szüksége van rájuk.",
+ "left out the AMPR emulator and {rest}": "az AMPR-emulátor kihagyva, valamint {rest}"
 }

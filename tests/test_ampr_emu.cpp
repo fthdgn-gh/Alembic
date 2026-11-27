@@ -337,3 +337,47 @@ TEST_CASE(ampr_emu_check_reads_the_import_table) {
     // Not an executable it can read: the name anywhere still counts.
     CHECK(check_eboot(filler(5000, 1)) == false);
 }
+
+TEST_CASE(ampr_emu_strip_leaves_the_game) {
+    std::string tmp = test::make_temp_dir();
+    std::string game = make_game(tmp, true);
+    // Nothing to remove: no new tree.
+    {
+        auto tree = tree::open_folder(game);
+        REQUIRE_OK(tree);
+        auto s = ampr_emu::strip(**tree);
+        REQUIRE_OK(s);
+        CHECK(s->tree == nullptr);
+        CHECK(s->removed.empty());
+    }
+    test::write_file(game + "/fakelib/LIBSCEAMPR.SPRX", filler(100, 1));
+    test::make_dir(game + "/fakelib2");
+    test::write_file(game + "/fakelib2/libSceAmpr.sprx", filler(100, 2));
+    test::write_file(game + "/ampr_emu.index", filler(64, 3));
+    test::write_file(game + "/Apr_Emu.log", filler(10, 4));
+    test::make_dir(game + "/data");
+    test::write_file(game + "/data/libSceAmpr.sprx", filler(10, 5)); // not in a fakelib: the game's
+    auto tree = tree::open_folder(game);
+    REQUIRE_OK(tree);
+    auto s = ampr_emu::strip(**tree);
+    REQUIRE_OK(s);
+    CHECK(s->tree != nullptr);
+    if (!s->tree) return;
+    CHECK_EQ(s->removed.size(), std::size_t(4));
+    const tree::Node& root = s->tree->root();
+    CHECK(tree::find(root, "fakelib/LIBSCEAMPR.SPRX") == nullptr);
+    CHECK(tree::find(root, "fakelib/libSceAgc.sprx") != nullptr);
+    CHECK(tree::find(root, "fakelib2") == nullptr); // it held only the emulator
+    CHECK(tree::find(root, "ampr_emu.index") == nullptr);
+    CHECK(tree::find(root, "Apr_Emu.log") == nullptr);
+    CHECK(tree::find(root, "data/libSceAmpr.sprx") != nullptr);
+    const tree::Node* data = tree::find(root, "data.bin");
+    CHECK(data != nullptr);
+    if (data) {
+        auto f = s->tree->open(*data);
+        REQUIRE_OK(f);
+        std::vector<std::uint8_t> got(static_cast<std::size_t>(data->size));
+        REQUIRE_OK((*f)->read_at(0, MutableBytes(got.data(), got.size())));
+        CHECK(got == filler(70000, 4));
+    }
+}

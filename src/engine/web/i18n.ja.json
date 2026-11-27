@@ -1029,5 +1029,11 @@
  "Downloading components": "コンポーネントをダウンロードしています",
  "The AMPR emulator goes in only if the game turns out to use the console's APR; the engine can tell once the game runs.": "AMPR エミュレーターは、ゲームが本体の APR を使う場合にだけ追加されます。ゲームの起動後にエンジンが判断します。",
  "No AMPR emulator, even if the game turns out to use the console's APR.": "ゲームが本体の APR を使う場合でも、AMPR エミュレーターは追加しません。",
- "With zstd packs, closing the game or restarting the engine while it packs starts the dump over.": "zstd パックでは、パック中にゲームを閉じたりエンジンを再起動したりすると、ダンプは最初からやり直しになります。"
+ "With zstd packs, closing the game or restarting the engine while it packs starts the dump over.": "zstd パックでは、パック中にゲームを閉じたりエンジンを再起動したりすると、ダンプは最初からやり直しになります。",
+ "AMPR emulator kept": "AMPR エミュレーターを残す",
+ "AMPR emulator left out": "AMPR エミュレーターを除外",
+ "AMPR emulator left out: {list}": "AMPR エミュレーターを除外しました: {list}",
+ "Keep the AMPR emulator": "AMPR エミュレーターを残す",
+ "This game carries an AMPR emulator or its asset packs. An installed package reads with the console's own APR, so they are left out and the packs unpacked; keep them only for a package that needs them.": "このゲームには AMPR エミュレーターかそのアセットパックが含まれています。インストールしたパッケージは本体の APR で読み込むため、これらは除外され、パックは展開されます。必要なパッケージの場合だけ残してください。",
+ "left out the AMPR emulator and {rest}": "AMPR エミュレーターを除外し、{rest}"
 }

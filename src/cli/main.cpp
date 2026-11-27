@@ -81,6 +81,11 @@ void usage() {
         "                              uses the console's APR and the game ships none (a game\n"
         "                              run from an image or folder needs it; not for .pkg)\n"
         "        --ampr-emu-always     add it even when the game does not seem to need it\n"
+        "        --keep-ampr-emu       .pkg of a PS5 game: keep an AMPR emulator the input carries\n"
+        "                              (fakelib*/libSceAmpr.sprx, ampr_emu.index) and its LZ4 or\n"
+        "                              zstd packs; by default they are left out and the packs\n"
+        "                              unpacked, as an installed game has the console's own APR\n"
+        "                              (--lz4 keeps them too)\n"
         "        --no-fake-sign        leave unsigned executables (plain PS5 ELF) as they are;\n"
         "                              by default they become fake-signed SELFs, as\n"
         "                              make_fself.py --ptype fake writes them (for .pkg as\n"
@@ -430,6 +435,7 @@ int cmd_convert(const Args& args) {
         options.ampr_emulator = std::make_shared<File>(std::move(*file));
     }
     options.ampr_emulator_always = args.get("--ampr-emu-always").has_value();
+    options.keep_ampr_emulator = args.get("--keep-ampr-emu").has_value();
     options.fake_sign = !args.get("--no-fake-sign").has_value();
     options.bc1_pictures = args.get("--bc1-pictures").has_value();
     if (options.ampr_emulator_always && !options.ampr_emulator)
@@ -543,6 +549,10 @@ int cmd_convert(const Args& args) {
     if (!report->detail.empty())
         std::printf("%s: %s\n", report->to == convert::Format::fpkg ? "content ID" : "inner name", report->detail.c_str());
     if (report->ampr_emulator_added) std::printf("AMPR emulator: added as %s\n", report->ampr_emulator_path.c_str());
+    if (!report->ampr_removed.empty()) {
+        std::printf("AMPR emulator: left out (--keep-ampr-emu keeps it)\n");
+        for (const std::string& p : report->ampr_removed) std::printf("  %s\n", p.c_str());
+    }
     if (!report->fake_signed.empty()) {
         std::printf("fake-signed:   %zu executables", report->fake_signed.size());
         if (report->fake_sign_index_records) std::printf(" (%zu ampr_emu.index records resized)", report->fake_sign_index_records);
@@ -1165,7 +1175,7 @@ int main(int argc, char** argv) {
     if (command == "convert")
         return cmd_convert(
             parse(argc, argv, {"--no-ampr", "--case-sensitive", "--overwrite", "--rebuild", "--lz4", "--lz4-unpack",
-                                    "--zstd", "--zstd-unpack", "--ampr-emu-always", "--no-fake-sign",
+                                    "--zstd", "--zstd-unpack", "--ampr-emu-always", "--keep-ampr-emu", "--no-fake-sign",
                                     "--bc1-pictures"}));
     if (command == "fself") return cmd_fself(parse(argc, argv, {"--prospero", "--elf2fself"}));
     if (command == "ampr-emu") return cmd_ampr_emu(parse(argc, argv, {"--replace"}));

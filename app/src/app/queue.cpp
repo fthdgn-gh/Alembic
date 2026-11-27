@@ -191,6 +191,11 @@ float card(Ui& ui, App& app, const JsonValue& j, float x, float y, float w) {
     std::vector<Line> lines;
     if (!r["ampr_emulator"].str().empty())
         lines.push_back({t("AMPR emulator added: {path}", {{"path", app.shown_path(r["ampr_emulator"].str())}}), muted});
+    if (!r["ampr_removed"].items().empty()) {
+        std::string list;
+        for (const auto& p : r["ampr_removed"].items()) list += (list.empty() ? "" : ", ") + p.str();
+        lines.push_back({t("AMPR emulator left out: {list}", {{"list", list}}), muted});
+    }
     if (!r["source_hidden"].str().empty())
         lines.push_back({t("Source hidden from ShadowMount+ as {name}", {{"name", base(r["source_hidden"].str())}}), muted});
     if (!r["smp_source"].str().empty())

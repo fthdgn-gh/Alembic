@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The package writer's parallel paths give the same bytes as the serial ones.
 #include "alembic/fpkg_build.hpp"
+#include "alembic/lz4pack.hpp"
+#include "alembic/zstdpack.hpp"
 #include "test.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <vector>
 
@@ -297,4 +300,83 @@ TEST_CASE(fpkg_install_layout) {
     CHECK(xml.find("<chunk_status chunk_count=\"1\"><chunks language_mask=\"18446744073709551615\" scenario_mask=\"1\">"
                    "<chunk id=\"0\" locus=\"3\" req_locus=\"3\"/></chunks><scenarios><scenario>0</scenario></scenarios>") !=
           std::string::npos);
+}
+
+// Issue #7: a package of a game that went through an image or folder with
+// the AMPR emulator (or LZ4 or zstd packs) is the package of the game itself,
+// byte for byte; --keep-ampr-emu packages it as it is.
+TEST_CASE(fpkg_leaves_out_the_ampr_emulator) {
+    std::string keys = keys_folder();
+    if (keys.empty()) {
+        std::printf("  (skipped: no ProsperoPkgTool key moduli in .refs)\n");
+        return;
+    }
+    std::string tmp = test::make_temp_dir();
+    std::string game = make_package_game(tmp);
+    test::write_file(tmp + "/libSceAmpr.sprx", pattern(12345, 7));
+    auto emulator_file = File::open(tmp + "/libSceAmpr.sprx", File::Mode::read);
+    REQUIRE_OK(emulator_file);
+    std::shared_ptr<const RandomAccess> emulator = std::make_shared<File>(std::move(*emulator_file));
+    convert::Options pkg = package_options(keys, 2);
+    std::string reference = tmp + "/ref.pkg";
+    auto clean = convert::run(game, reference, convert::Format::fpkg, pkg);
+    REQUIRE_OK(clean);
+    CHECK(clean->ampr_removed.empty());
+    const std::vector<std::uint8_t> want = test::read_file(reference);
+
+    // The same game with ampr_emu, LZ4 packs or zstd packs, in a folder.
+    convert::Options with_emu;
+    with_emu.ampr_emulator = emulator;
+    with_emu.ampr_emulator_always = true;
+    convert::Options with_lz4;
+    {
+        auto folder = tree::open_folder(game);
+        REQUIRE_OK(folder);
+        lz4pack::PackOptions p;
+        p.config = lz4pack::automatic_profile((*folder)->root());
+        p.config.workers = 2;
+        p.timestamp = 1700000000;
+        p.runtime_module = emulator;
+        with_lz4.lz4 = p;
+    }
+    convert::Options with_zstd;
+    {
+        zstdpack::PackOptions p;
+        p.timestamp = 1700000000;
+        p.workers = 2;
+        p.runtime_module = emulator;
+        p.spill_path = tmp + "/zstd-frames.tmp";
+        with_zstd.zstd = p;
+    }
+    int n = 0;
+    for (const convert::Options* via : {&with_emu, &with_lz4, &with_zstd}) {
+        std::string folder = tmp + "/via" + std::to_string(++n) + "/";
+        auto made = convert::run(game, folder, convert::Format::folder, *via);
+        REQUIRE_OK(made);
+        CHECK(is_regular_file(folder + "fakelib/libSceAmpr.sprx"));
+        CHECK(is_regular_file(folder + "ampr_emu.index"));
+
+        std::string out = tmp + "/clean" + std::to_string(n) + ".pkg";
+        auto r = convert::run(folder, out, convert::Format::fpkg, pkg);
+        REQUIRE_OK(r);
+        CHECK(std::find(r->ampr_removed.begin(), r->ampr_removed.end(), "fakelib/libSceAmpr.sprx") != r->ampr_removed.end());
+        CHECK(std::find(r->ampr_removed.begin(), r->ampr_removed.end(), "ampr_emu.index") != r->ampr_removed.end());
+        auto same = convert::compare(reference, out); // a package adds its own sce_sys files
+        REQUIRE_OK(same);
+        CHECK(same->only_in_a.empty());
+        CHECK(same->only_in_b.empty());
+        CHECK(same->different.empty());
+        CHECK(test::read_file(out) == want);
+
+        // Kept: the emulator goes into the package.
+        convert::Options keep = pkg;
+        keep.keep_ampr_emulator = true;
+        std::string kept = tmp + "/kept" + std::to_string(n) + ".pkg";
+        auto k = convert::run(folder, kept, convert::Format::fpkg, keep);
+        REQUIRE_OK(k);
+        CHECK(k->ampr_removed.empty());
+        auto in = convert::open(kept);
+        REQUIRE_OK(in);
+        CHECK(tree::find(in->tree->root(), "fakelib/libSceAmpr.sprx") != nullptr);
+    }
 }

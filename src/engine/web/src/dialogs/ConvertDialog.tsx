@@ -113,9 +113,9 @@ function eachPath<T>(paths: string[], ask: (p: string) => Promise<T>): Promise<{
 // the games already are falls back to the default.
 interface LastConvert {
   to?: string; level?: number; pkgComp?: string; profile?: string; lz4Level?: number; packs?: Packs; zstdLevel?: number;
-  ampr?: boolean; bc1?: boolean; install?: boolean; keepPkg?: boolean;
+  ampr?: boolean; bc1?: boolean; install?: boolean; keepPkg?: boolean; keepAmpr?: boolean;
 }
-const DEFAULTS = { level: 6, pkgComp: "stored", profile: "auto", lz4Level: 9, zstdLevel: 5, ampr: true, bc1: false, verify: true, keepPkg: false };
+const DEFAULTS = { level: 6, pkgComp: "stored", profile: "auto", lz4Level: 9, zstdLevel: 5, ampr: true, bc1: false, verify: true, keepPkg: false, keepAmpr: false };
 const oneOf = <T,>(v: T | undefined, list: T[], fallback: T): T => (v !== undefined && list.indexOf(v) >= 0 ? v : fallback);
 
 // The steps, in order; one with nothing to choose for the current choices is left out.
@@ -160,6 +160,8 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump
   const [zstdLevel, setZstdLevel] = useState(oneOf(L.zstdLevel, [1, 5, 19], DEFAULTS.zstdLevel));
   const [ampr, setAmpr] = useState(L.ampr !== undefined ? !!L.ampr : DEFAULTS.ampr);
   const [bc1Want, setBc1] = useState(!!L.bc1); // smaller home-screen pictures (opt-in)
+  // A package keeps an AMPR emulator the game carries (issue #7: left out by default).
+  const [keepAmpr, setKeepAmpr] = useState(!!L.keepAmpr);
   const [verify, setVerify] = useState(DEFAULTS.verify);
   const [delWant, setDel] = useState(false);
   const [hideWant, setHide] = useState(!!store.get("hideSource"));
@@ -187,10 +189,13 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump
   const nowPacks: Packs | "mixed" = entries.map(packsOf).reduce<Packs | "mixed">((a, b, i) => (i === 0 || a === b ? b : "mixed"), "none");
   // zstd packs are for PS5 games in a folder or an image.
   const target = to;
-  const packChoices: Packs[] = nowPacks === "mixed" ? [] : (["none", "lz4"] as Packs[]).concat(!anyPs4 && target !== "fpkg" ? ["zstd"] : []);
+  // A clean package (issue #7): installed, the game reads with the console's own
+  // APR, so the AMPR emulator it carries is left out and its packs unpacked.
+  const clean = target === "fpkg" && !anyPs4 && !keepAmpr;
+  const packChoices: Packs[] = nowPacks === "mixed" || clean ? [] : (["none", "lz4"] as Packs[]).concat(!anyPs4 && target !== "fpkg" ? ["zstd"] : []);
   const packsShown = packChoices.length > 0;
   const wanted = packsWant || nowPacks;
-  const packs: Packs | "mixed" = nowPacks === "mixed" ? "mixed" : packChoices.indexOf(wanted as Packs) >= 0 ? wanted : nowPacks;
+  const packs: Packs | "mixed" = nowPacks === "mixed" ? "mixed" : clean ? "none" : packChoices.indexOf(wanted as Packs) >= 0 ? wanted : nowPacks;
   const lz4 = packs === "lz4" && nowPacks !== "lz4", zstd = packs === "zstd" && nowPacks !== "zstd";
   const unpack = nowPacks === "lz4" && packs === "none", zunpack = nowPacks === "zstd" && packs === "none";
   const packsChange = lz4 || zstd || unpack || zunpack;
@@ -210,14 +215,14 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump
   const specFor = (e: Entry) => dump ? {
     kind: "convert", game: dump.id, to: target, output_dir: dest, output_name: next ? "" : name.trim(), level, pkg_compression: pkgComp,
     lz4, lz4_profile: profile, lz4_level: lz4Level, ...(zstd ? { zstd, zstd_level: zstdLevel } : {}), overwrite: over,
-    ampr_emu: ampr ? "auto" : "off", ...(bc1 ? { bc1_pictures: true } : {}),
+    ampr_emu: ampr ? "auto" : "off", ...(bc1 ? { bc1_pictures: true } : {}), ...(target === "fpkg" && keepAmpr ? { keep_ampr_emu: true } : {}),
   } : ({
     input: e.path, to: target, output_dir: dest, output_name: many ? "" : name.trim(), level, pkg_compression: anyPs4 ? "stored" : pkgComp,
     install_after: installable && installWant, keep_package: keepPkg, lz4, lz4_unpack: unpack,
     lz4_profile: profile, lz4_level: lz4Level, delete_source: del,
     ...(zstd || zunpack ? { zstd, zstd_level: zstdLevel, zstd_unpack: zunpack } : {}), verify, overwrite: over,
     ampr_emu: ampr ? "auto" : "off", hide_source: !hideHiddenFor(e) && hideWant && !del,
-    ...(bc1 ? { bc1_pictures: true } : {}),
+    ...(bc1 ? { bc1_pictures: true } : {}), ...(target === "fpkg" && keepAmpr ? { keep_ampr_emu: true } : {}),
   });
   const specs = work.map(specFor);
   // Plans are kept by the source's path (a dump's stands-in path).
@@ -281,6 +286,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump
       else { store.set("dest", dest); store.set("convertOn", on); }
       const kept: LastConvert = { to: target, level, pkgComp, profile, lz4Level, zstdLevel, ampr, bc1: bc1Want, keepPkg };
       if (packsWant === "lz4" || packsWant === "zstd") kept.packs = packsWant;
+      if (keepAmprShown ? keepAmpr : L.keepAmpr) kept.keepAmpr = true; // the switch shows again while it is on
       // Installing is remembered only from a conversion to FPKG that offered it (not from Install…).
       if (installable && !props.install) kept.install = installWant;
       else if (L.install !== undefined) kept.install = L.install;
@@ -342,6 +348,10 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump
   // the emulator is known only once it runs, so the choice is offered anyway.
   const amprUnknown = !!dump && !(plan && plan.ampr_needed !== undefined);
   const amprShown = !amprHidden && (amprNeeded || amprUnknown);
+  // A package of a game that carries an AMPR emulator or its packs: leave them out, or keep them.
+  const carries = (p: Plan | undefined) => !!p && (!!p.ships_emulator || !!p.lz4_packs || !!p.zstd_packs);
+  const carriesEmu = (many ? Object.keys(plans).some((k) => carries(plans[k])) : carries(plan || undefined)) || (nowPacks !== "none" && nowPacks !== "mixed");
+  const keepAmprShown = target === "fpkg" && !anyPs4 && !dump && (carriesEmu || keepAmpr);
   const needs: Dep[] = [];
   for (const k of Object.keys(plans)) for (const d of plans[k].needs || []) if (!needs.some((x) => x.id === d.id)) needs.push(d);
 
@@ -350,7 +360,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump
   const installShown = installable;
   const delShown = !anyShared && !dump && !(installable && installWant);
   const has: Record<Step, boolean> = {
-    format: true, options: compShown || lz4 || zstd || amprShown || !anyPs4, where: true, // PS5 games: the pictures switch
+    format: true, options: compShown || lz4 || zstd || amprShown || keepAmprShown || !anyPs4, where: true, // PS5 games: the pictures switch
     after: installShown || delShown || !hideHidden, review: true,
   };
   const steps = (["format", "options", "where", "after", "review"] as Step[]).filter((s) => has[s]);
@@ -372,6 +382,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump
   if (packs === "zstd") optionBits.push(nowPacks === "zstd" ? t("zstd packs kept") : t("zstd packs, level {n}", { n: zstdLevel }));
   if (unpack || zunpack) optionBits.push(t("Packs unpacked"));
   if (amprShown) optionBits.push(ampr ? t("AMPR emulator added") : t("No AMPR emulator"));
+  if (keepAmprShown) optionBits.push(keepAmpr ? t("AMPR emulator kept") : t("AMPR emulator left out"));
   if (bc1) optionBits.push(t("Smaller home-screen pictures"));
   const afterBits: string[] = [];
   if (installable && installWant) afterBits.push(keepPkg ? t("Installed; the package is kept") : t("Installed, then the package is deleted"));
@@ -414,7 +425,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump
     setTo(firstTo); setPicked(props.install); setPacks("");
     setLevel(DEFAULTS.level); setPkgComp(DEFAULTS.pkgComp); setProfile(DEFAULTS.profile); setLz4Level(DEFAULTS.lz4Level);
     setZstdLevel(DEFAULTS.zstdLevel); setAmpr(DEFAULTS.ampr); setBc1(DEFAULTS.bc1); setVerify(DEFAULTS.verify);
-    setInstall(props.install); setKeepPkg(DEFAULTS.keepPkg);
+    setInstall(props.install); setKeepPkg(DEFAULTS.keepPkg); setKeepAmpr(DEFAULTS.keepAmpr);
     store.set("convertLast", null); setRemembered(false);
     setTimeout(focusFirst, 0); // the row is gone: the chosen format takes the focus
     toast(t("Back to the default choices"), "ok");
@@ -466,6 +477,9 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump
       </div>
       <ChoiceRow label={t("zstd level")} hidden={!zstd} options={[{ value: 1, label: t("1 · fastest") }, { value: 5, label: t("5 · default") }, { value: 19, label: t("19 · smallest") }]} value={zstdLevel} onChange={setZstdLevel} />
       {/* ampr_emu for games that use the console's APR (not packages: installed, they have the real one). */}
+      {/* Issue #7: an installed package reads with the console's own APR. */}
+      <SwitchRow label={t("Keep the AMPR emulator")} hint={t("This game carries an AMPR emulator or its asset packs. An installed package reads with the console's own APR, so they are left out and the packs unpacked; keep them only for a package that needs them.")}
+        on={keepAmpr} onChange={setKeepAmpr} hidden={!keepAmprShown} dataKey="cv:keepampr" />
       <SwitchRow label={t("Add the AMPR emulator")} hint={t("This game uses the console's APR: without an emulator it stops at start from an image or folder")} on={ampr} onChange={setAmpr} hidden={!amprShown} />
       {/* Issue #1: BC1 instead of BC7 for pic0, pic1, pic2; tried on one console so far. */}
       <SwitchRow label={t("Smaller home-screen pictures")} hint={t("Encodes the background pictures again as BC1 from their PNGs: about 12 MB less per game, a little less sharp. Experimental: tried on one console.")}

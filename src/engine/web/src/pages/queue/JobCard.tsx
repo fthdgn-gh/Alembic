@@ -114,6 +114,7 @@ export function JobCard(props: { j: Job }) {
       {showSteps ? <Steps j={j} pct={pct} /> : null}
       <div class="line"><span>{detail}</span><span>{tags.map((x) => <span class="tag">{x}</span>)}</span></div>
       {r.ampr_emulator ? <div class="line">{t("AMPR emulator added: {path}", { path: shownPath(r.ampr_emulator) })}</div> : null}
+      {r.ampr_removed && r.ampr_removed.length ? <div class="line">{t("AMPR emulator left out: {list}", { list: r.ampr_removed.join(", ") })}</div> : null}
       {r.source_hidden ? <div class="line">{t("Source hidden from ShadowMount+ as {name}", { name: base(r.source_hidden) })}</div> : null}
       {isShared(s.input) && isActive(j) && !isSharedHere(s.input)
         ? <div class="note">{t("Reads {name} from a computer: keep Alembic open there, or pick the file again with From this computer…", { name: base(s.input) })}</div> : null}

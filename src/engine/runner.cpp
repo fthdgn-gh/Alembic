@@ -159,7 +159,9 @@ Result<std::string> resolve_output(const JobSpec& spec) {
             if (dot != std::string::npos && dot > 0) name = name.substr(0, dot);
         }
         // Switching packs or unpacking: the old pack tag goes (game-lz4 -> game-zstd).
-        if (spec.lz4 || spec.zstd || spec.lz4_unpack || spec.zstd_unpack)
+        // So does a clean package's, whose packs are unpacked.
+        const bool clean_pkg = to == convert::Format::fpkg && !spec.keep_ampr_emu && !spec.lz4;
+        if (spec.lz4 || spec.zstd || spec.lz4_unpack || spec.zstd_unpack || clean_pkg)
             for (const char* tag : {"-lz4", "-zstd"}) {
                 const std::size_t n = std::char_traits<char>::length(tag);
                 if (name.size() > n && name.compare(name.size() - n, n, tag) == 0) name.resize(name.size() - n);
@@ -280,6 +282,10 @@ std::string fingerprint(const JobSpec& spec, const std::string& output, const En
     v.set("passcode", spec.passcode);
     v.set("ampr_emu", spec.ampr_emu);
     if (spec.bc1_pictures) v.set("bc1_pictures", true); // older checkpoints had none
+    // Packages leave the AMPR emulator out (issue #7): a package checkpoint
+    // from before may hold it, so that one starts over.
+    if (auto t = target_format(spec); t.ok() && *t == convert::Format::fpkg && !spec.keep_ampr_emu && !spec.lz4)
+        v.set("ampr_clean", true);
     if (spec.decrypt_self) v.set("decrypt_self", true);
     if (spec.decrypt_self_plain) v.set("decrypt_self_plain", true);
     if (spec.lz4) {
@@ -479,6 +485,7 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     options.lz4_unpack = spec.lz4_unpack;
     options.zstd_unpack = spec.zstd_unpack;
     options.bc1_pictures = spec.bc1_pictures;
+    options.keep_ampr_emulator = spec.keep_ampr_emu;
     // A running game's tree: the system unmounts it as soon as the game
     // closes, and a file still open in it then restarts the console (the
     // shell aborts on the failed unmount). So files are opened per read, and
@@ -670,6 +677,11 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
     if (resumed) r.set("resumed", true);
     if (!report.detail.empty()) r.set("detail", report.detail);
     if (report.ampr_emulator_added) r.set("ampr_emulator", report.ampr_emulator_path);
+    if (!report.ampr_removed.empty()) {
+        JsonValue paths = JsonValue::array();
+        for (const std::string& p : report.ampr_removed) paths.push(p);
+        r.set("ampr_removed", std::move(paths));
+    }
     if (!report.fake_signed.empty()) {
         JsonValue paths = JsonValue::array();
         for (const std::string& p : report.fake_signed) paths.push(p);
@@ -757,6 +769,10 @@ Result<JsonValue> run_conversion(const JobSpec& spec, const EngineConfig& config
                 return std::find(report.fake_signed.begin(), report.fake_signed.end(), p) != report.fake_signed.end() ||
                        std::find(report.bc1_pictures.begin(), report.bc1_pictures.end(), p) != report.bc1_pictures.end() ||
                        std::find(report.decrypted_self.begin(), report.decrypted_self.end(), p) != report.decrypted_self.end();
+            });
+            // A clean package leaves the AMPR emulator out (issue #7).
+            std::erase_if(cmp.only_in_a, [&](const std::string& p) {
+                return std::find(report.ampr_removed.begin(), report.ampr_removed.end(), p) != report.ampr_removed.end();
             });
             // A package build writes its own sce_sys/playgo-chunk.dat (as ProsperoPkgTool does).
             if (to == convert::Format::fpkg)

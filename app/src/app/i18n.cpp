@@ -232,7 +232,7 @@ std::string place_label(std::string_view label) {
 std::string t_method(std::string_view m) {
     if (m.empty()) return "";
     for (const char* head : {"fake-signed the executables", "LZ4-packed", "LZ4-unpacked", "zstd-packed", "zstd-unpacked",
-                             "added the AMPR emulator"}) {
+                             "added the AMPR emulator", "left out the AMPR emulator"}) {
         const std::string h = std::string(head) + " and ";
         if (m.compare(0, h.size(), h) == 0)
             return t(std::string(head) + " and {rest}", {{"rest", t_method(m.substr(h.size()))}});

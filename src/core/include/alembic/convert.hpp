@@ -120,6 +120,12 @@ struct Options {
     // packing adds its runtime by itself. Images are then rebuilt.
     std::shared_ptr<const RandomAccess> ampr_emulator;
     bool ampr_emulator_always = false; // add it even when the game does not seem to need it
+    // FPKG output of a PS5 game is clean by default (issue #7): installed, it
+    // reads with the console's own APR, so an AMPR emulator the input carries
+    // (ampr_emu.hpp's strip) is left out and its LZ4 or zstd packs unpacked.
+    // `keep_ampr_emulator` packages the game as it is; LZ4 packing (`lz4`)
+    // keeps it too, since the packs need their runtime.
+    bool keep_ampr_emulator = false;
     // Serve a PS5 game's unsigned executables (plain ELF) as fake-signed SELFs
     // (fself.hpp): the console refuses to start them otherwise. FPKG output
     // signs its modules as img_create does (ProsperoPkgTool's flavour).
@@ -158,6 +164,7 @@ struct Report {
     bool ampr_needed = false;       // the game imports libSceAmpr and ships no emulator
     bool ampr_emulator_added = false;
     std::string ampr_emulator_path; // where it went, e.g. "fakelib/libSceAmpr.sprx"
+    std::vector<std::string> ampr_removed; // FPKG output: emulator files left out (keep_ampr_emulator)
     std::string title_id;           // from sce_sys/param.json, when it has one
     std::vector<std::string> fake_signed; // executables served as fake-signed SELFs
     std::size_t fake_sign_index_records = 0;

@@ -149,6 +149,7 @@ export interface JobResult {
   source_hidden?: string;
   smp_source?: string;
   ampr_emulator?: string;
+  ampr_removed?: string[]; // a package left these AMPR emulator files out (issue #7)
   warnings?: string[];
   lz4?: { files_packed: number; files_total: number; packed_bytes: number; volume_bytes: number; profile?: { notes?: string[] } };
   zstd?: { level: number; files_packed: number; files_total: number; packed_bytes: number; volume_bytes: number; warnings?: string[] };

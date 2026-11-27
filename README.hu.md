@@ -118,6 +118,10 @@ PS4 fake PKG. Az oldal és az alkalmazás minden játékot **PS5** (fehér) vagy
   Alembic átalakításkor hozzáadja, vagy egy már meglévő játékhoz is; ha a
   játékban már van egy, az „AMPR-emulátor hozzáadása” felajánlja a váltást a
   másikra.
+  A csomag kihagyja a játékban lévő emulátort (és kicsomagolja az LZ4- vagy
+  zstd-csomagjait): telepítve a játék a konzol saját APR-jét használja. Az
+  Átalakítás **AMPR-emulátor megtartása** kapcsolója (PC-n
+  `--keep-ampr-emu`) megtartja őket.
 - **Fake aláírás:** az a PS5-játék, amelynek a futtatható fájljai sima
   (aláíratlan) ELF-ek, sosem indul el. Az átalakítás közben ezek fake
   aláírású SELF-ekké válnak, és az Átalakítás ezt előre jelzi: image vagy

@@ -70,6 +70,10 @@ struct JobSpec {
     // Encode sce_sys/pic*.dds again as BC1 from their PNGs (dds.hpp): half
     // the size, shown by the home screen in a console test. Opt-in.
     bool bc1_pictures = false;
+    // FPKG output of a PS5 game: package an AMPR emulator the input carries
+    // (and its packs) as they are. By default (issue #7) they are left out:
+    // installed, the game has the console's own APR.
+    bool keep_ampr_emu = false;
     // (game: "next" waits for whichever game starts first, then becomes
     // that game's title ID.)
     // Turn a running game's encrypted executables into plain ELFs on the way

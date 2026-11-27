@@ -114,6 +114,9 @@ işaretler.
   ampr-emu-ng'si (hangisinin kullanımda olduğunu Bileşenler gösterir).
   Alembic onu dönüştürürken ya da elinizdeki bir oyuna ekler; öykünücüsü olan
   bir oyunda "AMPR öykünücüsünü ekle" ötekine geçmeyi önerir.
+  Paket, oyunda bulunan öykünücüyü çıkarır (LZ4 ya da zstd paketlerini de
+  açar): kurulu bir oyun konsolun kendi APR'sini kullanır. Dönüştür'deki
+  **AMPR öykünücüsünü tut** (PC'de `--keep-ampr-emu`) onları tutar.
 - **Sahte imzalama:** çalıştırılabilir dosyaları düz (imzasız) ELF olan bir
   PS5 oyunu hiç açılmaz. Dönüştürmeler bunları yol üzerinde sahte imzalı
   SELF'lere çevirir ve Dönüştür bunu önceden söyler: imaj ya da klasör için

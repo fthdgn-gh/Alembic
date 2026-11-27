@@ -37,7 +37,7 @@ ENGINE = [
     "Check the packs", "Install", "Hide the source", "Compare", "Compare with the source", "Delete the package",
     "Delete the source", "Copy", "Move", "Add the AMPR emulator", "Write the folder", "Build the package", "Write the image",
     # how a conversion was done
-    "LZ4-packed and {rest}", "LZ4-unpacked and {rest}", "zstd-packed and {rest}", "zstd-unpacked and {rest}", "added the AMPR emulator and {rest}",
+    "LZ4-packed and {rest}", "LZ4-unpacked and {rest}", "zstd-packed and {rest}", "zstd-unpacked and {rest}", "added the AMPR emulator and {rest}", "left out the AMPR emulator and {rest}",
     "fake-signed the executables and {rest}", "Checking executables",
     "made the home-screen pictures BC1 and {rest}", "Re-encoding pictures",
     "added the AMPR emulator to the game folder", "added the AMPR emulator as a ShadowMount+ backport",

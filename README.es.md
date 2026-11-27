@@ -115,6 +115,10 @@ cada juego con una etiqueta **PS5** (blanca) o **PS4** (negra).
   (Componentes indica cuál está en uso). Alembic lo añade al convertir, o a un
   juego que ya tengas; en un juego que ya tiene uno, "Añadir el emulador AMPR"
   ofrece cambiarlo por el otro.
+  Un paquete omite el emulador que lleve el juego (y desempaqueta sus
+  paquetes LZ4 o zstd): instalado, un juego usa el APR propio de la consola.
+  **Conservar el emulador AMPR** en Convertir (`--keep-ampr-emu` en un PC)
+  los conserva.
 - **Firma falsa:** un juego de PS5 cuyos ejecutables son ELF simples (sin
   firmar) nunca arranca. Las conversiones los transforman por el camino en
   SELF con firma falsa, y Convertir lo avisa antes: para una imagen o carpeta,

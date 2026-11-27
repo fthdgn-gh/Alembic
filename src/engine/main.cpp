@@ -2773,6 +2773,12 @@ private:
                     v.set("ampr_needed", a->needed());
                     v.set("ships_emulator", a->ships);
                 }
+                // A package leaves out the AMPR emulator the game carries and unpacks its packs (issue #7).
+                if (*target == "fpkg" && !spec->lz4 && (a->ships || a->lz4_packs || a->zstd_packs)) {
+                    v.set("ships_emulator", a->ships);
+                    if (a->lz4_packs) v.set("lz4_packs", true);
+                    if (a->zstd_packs) v.set("zstd_packs", true);
+                }
                 // Unsigned executables: fake-signed on the way (packages as img_create signs them).
                 if (a->unsigned_executables) v.set("unsigned_executables", a->unsigned_executables);
             }

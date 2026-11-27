@@ -115,6 +115,10 @@ mit einer Plakette **PS5** (weiß) oder **PS4** (schwarz).
   zeigt, welcher in Verwendung ist). Alembic fügt ihn beim Umwandeln hinzu oder
   zu einem Spiel, das du schon hast; bei einem Spiel, das bereits einen hat,
   bietet „AMPR-Emulator hinzufügen“ den Wechsel zum anderen an.
+  Ein Paket lässt einen Emulator, den das Spiel mitbringt, weg (und entpackt
+  seine LZ4- oder zstd-Packs): installiert nutzt ein Spiel den APR der
+  Konsole. **AMPR-Emulator behalten** in Umwandeln (`--keep-ampr-emu` am PC)
+  behält sie.
 - **Fake-Signierung:** Ein PS5-Spiel, dessen ausführbare Dateien einfache
   (unsignierte) ELF-Dateien sind, startet nie. Umwandlungen machen daraus
   unterwegs fake-signierte SELFs, und Umwandeln sagt das vorher: bei einem

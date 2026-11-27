@@ -1029,5 +1029,11 @@
  "Downloading components": "Komponenten werden heruntergeladen",
  "The AMPR emulator goes in only if the game turns out to use the console's APR; the engine can tell once the game runs.": "Der AMPR-Emulator kommt nur hinein, wenn das Spiel die APR der Konsole nutzt; das sieht die Engine, sobald das Spiel läuft.",
  "No AMPR emulator, even if the game turns out to use the console's APR.": "Kein AMPR-Emulator, auch wenn das Spiel die APR der Konsole nutzt.",
- "With zstd packs, closing the game or restarting the engine while it packs starts the dump over.": "Mit zstd-Paketen beginnt der Dump von vorn, wenn das Spiel geschlossen oder die Engine neu gestartet wird, während er packt."
+ "With zstd packs, closing the game or restarting the engine while it packs starts the dump over.": "Mit zstd-Paketen beginnt der Dump von vorn, wenn das Spiel geschlossen oder die Engine neu gestartet wird, während er packt.",
+ "AMPR emulator kept": "AMPR-Emulator behalten",
+ "AMPR emulator left out": "AMPR-Emulator weggelassen",
+ "AMPR emulator left out: {list}": "AMPR-Emulator weggelassen: {list}",
+ "Keep the AMPR emulator": "AMPR-Emulator behalten",
+ "This game carries an AMPR emulator or its asset packs. An installed package reads with the console's own APR, so they are left out and the packs unpacked; keep them only for a package that needs them.": "Dieses Spiel enthält einen AMPR-Emulator oder dessen Asset-Packs. Ein installiertes Paket liest mit dem konsoleneigenen APR, daher werden sie weggelassen und die Packs entpackt; behalte sie nur für ein Paket, das sie braucht.",
+ "left out the AMPR emulator and {rest}": "AMPR-Emulator weggelassen und {rest}"
 }

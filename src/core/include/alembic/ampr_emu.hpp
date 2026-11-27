@@ -42,6 +42,21 @@ Result<Check> check(const tree::Source& source, const ProgressFn& progress = {})
 Result<std::unique_ptr<tree::Source>> add(const tree::Source& source, const Check& check,
                                           std::shared_ptr<const RandomAccess> emulator, std::int64_t mtime);
 
+// A package without the AMPR emulator (issue #7): installed, a game reads
+// with the console's own APR, so an emulator a converted image or folder
+// carried is left out. Removes libSceAmpr.sprx from fakelib/ and fakelib2/
+// (a folder left empty goes too) and the emulators' files at the root
+// (ampr_emu.index and its .tmp/.bak, ampr_commands.bin, ampr_emu.log,
+// apr_emu.log), all ASCII case-insensitive. Asset packs are not touched:
+// unpack them first (lz4pack::unpack, zstdpack::unpack). `removed` lists the
+// paths taken out; `tree` is null when there was nothing to remove (then
+// `source` serves as it is).
+struct StripResult {
+    std::unique_ptr<tree::Source> tree;
+    std::vector<std::string> removed;
+};
+Result<StripResult> strip(const tree::Source& source);
+
 // Adding the emulator to a game that already exists, without rewriting it.
 struct AttachResult {
     Check check;               // of the game itself

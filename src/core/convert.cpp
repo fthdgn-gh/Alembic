@@ -396,6 +396,10 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         return make_error(Errc::unsupported, "LZ4 asset packs are for PS5 games; this is a PS4 game");
     if (ps4 && options.zstd)
         return make_error(Errc::unsupported, "zstd asset packs are for PS5 games; this is a PS4 game");
+    // A clean package (issue #7): installed, the game has the console's APR,
+    // so the AMPR emulator and the packs only it reads are left out. LZ4
+    // packing into a package keeps them (the packs need their runtime).
+    const bool clean = to == Format::fpkg && !ps4 && !options.keep_ampr_emulator && !options.lz4;
     // A running game's encrypted executables turned into plain ELFs, first and
     // on the raw folder source (only its files have the real paths the console
     // decryptor maps). They come out fake-signed or plain
@@ -445,7 +449,7 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         }
     }
     // zstd packs are decoded to be unpacked or packed again (zstd or LZ4).
-    if ((options.zstd_unpack || options.zstd || options.lz4) && zstdpack::is_packed(tree_ptr->root())) {
+    if ((options.zstd_unpack || options.zstd || options.lz4 || clean) && zstdpack::is_packed(tree_ptr->root())) {
         ALEMBIC_ASSIGN(zstd_unpacked, zstdpack::unpack(*tree_ptr));
         tree_ptr = zstd_unpacked.get();
     } else if (options.zstd_unpack) {
@@ -465,6 +469,9 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     } else if (options.lz4_unpack) {
         if (!lz4pack::is_packed(tree_ptr->root()))
             return make_error(Errc::invalid_argument, "the input has no LZ4 packs (no ampr_assets.index)");
+        ALEMBIC_ASSIGN(unpacked, lz4pack::unpack(*tree_ptr));
+        tree_ptr = unpacked.get();
+    } else if (clean && lz4pack::is_packed(tree_ptr->root())) {
         ALEMBIC_ASSIGN(unpacked, lz4pack::unpack(*tree_ptr));
         tree_ptr = unpacked.get();
     } else if (options.lz4) {
@@ -518,6 +525,16 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
         report.lz4_forced_loose = packed->forced_loose_patterns();
         tree_ptr = packed.get();
     }
+    // Then the emulator itself (and its index) goes, when the input has one.
+    std::unique_ptr<tree::Source> stripped;
+    if (clean) {
+        ALEMBIC_ASSIGN(ampr_emu::StripResult s, ampr_emu::strip(*tree_ptr));
+        if (s.tree) {
+            stripped = std::move(s.tree);
+            tree_ptr = stripped.get();
+            report.ampr_removed = std::move(s.removed);
+        }
+    }
     // A PS4 game in an image or folder needs a param.json next to its
     // param.sfo to start through ShadowMount+ (a package keeps only the SFO).
     std::unique_ptr<tree::Source> with_json;
@@ -568,7 +585,8 @@ Result<Report> run(const std::string& input_path, const std::string& output, For
     std::string prefix_text = std::string(decrypted_tree ? "decrypted the executables and " : "") +
                               (bc1_tree ? "made the home-screen pictures BC1 and " : "") +
                               (signed_tree ? "fake-signed the executables and " : "") + pack_text +
-                              (with_emulator ? "added the AMPR emulator and " : "");
+                              (with_emulator ? "added the AMPR emulator and " : "") +
+                              (stripped ? "left out the AMPR emulator and " : "");
     const char* prefix = prefix_text.c_str();
     resume::Session* session = packed ? (options.resume ? &packed_session : nullptr) : options.resume;
     if (remote_out) session = nullptr; // an upload starts over when stopped
