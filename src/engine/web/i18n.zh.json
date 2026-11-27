@@ -1034,6 +1034,6 @@
  "AMPR emulator left out": "去除 AMPR 模拟器",
  "AMPR emulator left out: {list}": "已去除 AMPR 模拟器：{list}",
  "Keep the AMPR emulator": "保留 AMPR 模拟器",
- "This game carries an AMPR emulator or its asset packs. An installed package reads with the console's own APR, so they are left out and the packs unpacked; keep them only for a package that needs them.": "此游戏带有 AMPR 模拟器或其资源包。已安装的安装包使用主机自带的 APR 读取，因此会去除它们并解包资源包；仅在安装包需要时才保留。",
+ "An installed package reads with the console's own APR, so an AMPR emulator the game carries is left out and its asset packs unpacked. Keep them only for a package that needs them.": "已安装的安装包使用主机自带的 APR 读取，因此会去除游戏自带的 AMPR 模拟器并解包其资源包。仅在安装包需要时才保留。",
  "left out the AMPR emulator and {rest}": "去除了 AMPR 模拟器，并{rest}"
 }

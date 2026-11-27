@@ -478,7 +478,7 @@ function Convert(props: { entries: Entry[]; ctl: Control; install: boolean; dump
       <ChoiceRow label={t("zstd level")} hidden={!zstd} options={[{ value: 1, label: t("1 · fastest") }, { value: 5, label: t("5 · default") }, { value: 19, label: t("19 · smallest") }]} value={zstdLevel} onChange={setZstdLevel} />
       {/* ampr_emu for games that use the console's APR (not packages: installed, they have the real one). */}
       {/* Issue #7: an installed package reads with the console's own APR. */}
-      <SwitchRow label={t("Keep the AMPR emulator")} hint={t("This game carries an AMPR emulator or its asset packs. An installed package reads with the console's own APR, so they are left out and the packs unpacked; keep them only for a package that needs them.")}
+      <SwitchRow label={t("Keep the AMPR emulator")} hint={t("An installed package reads with the console's own APR, so an AMPR emulator the game carries is left out and its asset packs unpacked. Keep them only for a package that needs them.")}
         on={keepAmpr} onChange={setKeepAmpr} hidden={!keepAmprShown} dataKey="cv:keepampr" />
       <SwitchRow label={t("Add the AMPR emulator")} hint={t("This game uses the console's APR: without an emulator it stops at start from an image or folder")} on={ampr} onChange={setAmpr} hidden={!amprShown} />
       {/* Issue #1: BC1 instead of BC7 for pic0, pic1, pic2; tried on one console so far. */}

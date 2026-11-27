@@ -1034,6 +1034,6 @@
  "AMPR emulator left out": "AMPR öykünücüsü çıkarılır",
  "AMPR emulator left out: {list}": "AMPR öykünücüsü çıkarıldı: {list}",
  "Keep the AMPR emulator": "AMPR öykünücüsünü tut",
- "This game carries an AMPR emulator or its asset packs. An installed package reads with the console's own APR, so they are left out and the packs unpacked; keep them only for a package that needs them.": "Bu oyunda bir AMPR öykünücüsü ya da onun varlık paketleri var. Kurulu bir paket konsolun kendi APR'siyle okur, bu yüzden bunlar çıkarılır ve paketler açılır; yalnızca onlara ihtiyaç duyan bir paket için tutun.",
+ "An installed package reads with the console's own APR, so an AMPR emulator the game carries is left out and its asset packs unpacked. Keep them only for a package that needs them.": "Kurulu bir paket konsolun kendi APR'siyle okur, bu yüzden oyunda bulunan AMPR öykünücüsü çıkarılır ve varlık paketleri açılır. Yalnızca onlara ihtiyaç duyan bir paket için tutun.",
  "left out the AMPR emulator and {rest}": "AMPR öykünücüsü çıkarıldı ve {rest}"
 }

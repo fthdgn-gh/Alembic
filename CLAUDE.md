@@ -102,7 +102,10 @@ environment in `.refs/mkpfs-venv`).
   Conversions add it (engine: on by default; CLI: `--ampr-emu FILE`) with an
   `ampr_emu.index`; `alembic ampr-emu` / the page's "Add the AMPR emulator"
   add it to an existing game (in place for a folder, as a ShadowMount+
-  backport folder for an image). Never for FPKG output.
+  backport folder for an image). Never for FPKG output; a package also
+  leaves out an emulator the input carries and unpacks its LZ4/zstd packs
+  (owner, 2026-11-27, issue #7), unless `--keep-ampr-emu` / "Keep the AMPR
+  emulator".
 - **Engine protocol:** engines talk to each other through `/api/pair/...`
   and `/api/peer/...`, numbered by `peers::kPeerProtocol` (peers.hpp).
   Raise it whenever one of those requests or replies changes in a way the

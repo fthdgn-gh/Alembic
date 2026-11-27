@@ -1034,6 +1034,6 @@
  "AMPR emulator left out": "AMPR-emulátor kihagyva",
  "AMPR emulator left out: {list}": "AMPR-emulátor kihagyva: {list}",
  "Keep the AMPR emulator": "AMPR-emulátor megtartása",
- "This game carries an AMPR emulator or its asset packs. An installed package reads with the console's own APR, so they are left out and the packs unpacked; keep them only for a package that needs them.": "Ez a játék AMPR-emulátort vagy annak asset-csomagjait tartalmazza. A telepített csomag a konzol saját APR-jével olvas, ezért ezek kimaradnak, a csomagok pedig kicsomagolódnak; csak akkor tartsd meg őket, ha a csomagnak szüksége van rájuk.",
+ "An installed package reads with the console's own APR, so an AMPR emulator the game carries is left out and its asset packs unpacked. Keep them only for a package that needs them.": "A telepített csomag a konzol saját APR-jével olvas, ezért a játékban lévő AMPR-emulátor kimarad, az asset-csomagjai pedig kicsomagolódnak. Csak akkor tartsd meg őket, ha a csomagnak szüksége van rájuk.",
  "left out the AMPR emulator and {rest}": "az AMPR-emulátor kihagyva, valamint {rest}"
 }

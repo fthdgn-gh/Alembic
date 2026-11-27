@@ -168,7 +168,7 @@ Result<std::string> resolve_output(const JobSpec& spec) {
             }
         if (spec.lz4) name += "-lz4";
         if (spec.zstd) name += "-zstd";
-        if (spec.lz4_unpack || spec.zstd_unpack) name += "-unpacked";
+        if ((spec.lz4_unpack || spec.zstd_unpack) && !clean_pkg) name += "-unpacked"; // a clean package is just the game
         // Default names stay mountable by ShadowMount+.
         if (std::size_t limit = mount_name_limit(extension_for(to))) name = shorten_name(name, limit);
         out = (dir == "/" ? "" : dir) + "/" + name + extension_for(to);

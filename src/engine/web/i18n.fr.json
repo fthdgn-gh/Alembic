@@ -1034,6 +1034,6 @@
  "AMPR emulator left out": "Émulateur AMPR retiré",
  "AMPR emulator left out: {list}": "Émulateur AMPR retiré : {list}",
  "Keep the AMPR emulator": "Garder l'émulateur AMPR",
- "This game carries an AMPR emulator or its asset packs. An installed package reads with the console's own APR, so they are left out and the packs unpacked; keep them only for a package that needs them.": "Ce jeu contient un émulateur AMPR ou ses packs de ressources. Un paquet installé lit avec l'APR de la console, ils sont donc retirés et les packs dépaquetés ; gardez-les seulement pour un paquet qui en a besoin.",
+ "An installed package reads with the console's own APR, so an AMPR emulator the game carries is left out and its asset packs unpacked. Keep them only for a package that needs them.": "Un paquet installé lit avec l'APR de la console : l'émulateur AMPR que le jeu contient est donc retiré et ses packs de ressources dépaquetés. Gardez-les seulement pour un paquet qui en a besoin.",
  "left out the AMPR emulator and {rest}": "émulateur AMPR retiré, puis {rest}"
 }

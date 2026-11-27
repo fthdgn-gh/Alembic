@@ -1576,7 +1576,7 @@ public:
             // Issue #7: an installed package reads with the console's own APR.
             if (keep_ampr_shown)
                 y += switch_row(ui, "cv:keepampr", x, y, w, t("Keep the AMPR emulator"),
-                                t("This game carries an AMPR emulator or its asset packs. An installed package reads with the console's own APR, so they are left out and the packs unpacked; keep them only for a package that needs them."),
+                                t("An installed package reads with the console's own APR, so an AMPR emulator the game carries is left out and its asset packs unpacked. Keep them only for a package that needs them."),
                                 &keep_ampr);
             // ampr_emu for games that use the console's APR (not packages: installed, they have the real one).
             if (ampr_shown)

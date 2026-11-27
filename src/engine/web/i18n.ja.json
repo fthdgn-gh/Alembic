@@ -1034,6 +1034,6 @@
  "AMPR emulator left out": "AMPR エミュレーターを除外",
  "AMPR emulator left out: {list}": "AMPR エミュレーターを除外しました: {list}",
  "Keep the AMPR emulator": "AMPR エミュレーターを残す",
- "This game carries an AMPR emulator or its asset packs. An installed package reads with the console's own APR, so they are left out and the packs unpacked; keep them only for a package that needs them.": "このゲームには AMPR エミュレーターかそのアセットパックが含まれています。インストールしたパッケージは本体の APR で読み込むため、これらは除外され、パックは展開されます。必要なパッケージの場合だけ残してください。",
+ "An installed package reads with the console's own APR, so an AMPR emulator the game carries is left out and its asset packs unpacked. Keep them only for a package that needs them.": "インストールしたパッケージは本体の APR で読み込むため、ゲームに入っている AMPR エミュレーターは除外され、アセットパックは展開されます。必要なパッケージの場合だけ残してください。",
  "left out the AMPR emulator and {rest}": "AMPR エミュレーターを除外し、{rest}"
 }
