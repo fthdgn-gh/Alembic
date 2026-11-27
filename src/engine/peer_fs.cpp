@@ -165,6 +165,13 @@ private:
         std::uint64_t window_offset = 0;
         std::deque<std::unique_ptr<Fetch>> ahead;
         std::uint64_t used = 0; // when last read (a counter), for picking one to reuse
+        // Move-only: libstdc++'s deque has no noexcept move, so a vector of
+        // cursors would otherwise try to copy the unique_ptrs (GCC fails).
+        Cursor() = default;
+        Cursor(Cursor&&) = default;
+        Cursor& operator=(Cursor&&) = default;
+        Cursor(const Cursor&) = delete;
+        Cursor& operator=(const Cursor&) = delete;
     };
     void start_fetch_locked(Cursor& c, std::uint64_t offset) const;
     void drop_ahead_locked(Cursor& c) const;   // stops using what was fetched ahead
